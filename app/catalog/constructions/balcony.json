@@ -1,0 +1,25 @@
+{
+  "id": "balcony_door",
+
+  "label": "Balcony Door",
+
+  "category": "door",
+
+  "schema": "RU",
+
+  "segments": [
+    {
+      "kind": "sash",
+      "opening_mode": "RU",
+      "opening_side": "left"
+    }
+  ],
+
+  "aliases": [
+    "balcony",
+    "balcony door",
+    "drzwi balkonowe",
+    "balkon",
+    "psk"
+  ]
+}

@@ -1,0 +1,50 @@
+{
+  "id": "double_sash_movable_mullion",
+
+  "label": "Double Sash Movable Mullion",
+
+  "category": "window",
+
+  "features": {
+
+    "segment_count": 2,
+
+    "has_fix": false,
+
+    "has_movable_mullion": true,
+
+    "symmetrical": true,
+
+    "openings": [
+      "tilt_turn"
+    ]
+  },
+
+  "segments": [
+
+    {
+      "kind": "left",
+
+      "opening": "tilt_turn",
+
+      "active": true
+    },
+
+    {
+      "kind": "right",
+
+      "opening": "tilt_turn",
+
+      "active": true
+    }
+  ],
+
+  "aliases": [
+
+    "dkl dkr",
+    "double sash",
+    "movable mullion",
+    "2 skrzydła",
+    "okno dwuskrzydłowe"
+  ]
+}

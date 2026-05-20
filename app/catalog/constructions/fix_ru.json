@@ -1,0 +1,50 @@
+{
+  "id": "fix_ru",
+
+  "label": "FIX + RU",
+
+  "category": "window",
+
+  "features": {
+
+    "segment_count": 2,
+
+    "has_fix": true,
+
+    "has_movable_mullion": false,
+
+    "symmetrical": false,
+
+    "openings": [
+      "fixed",
+      "tilt_turn"
+    ]
+  },
+
+  "segments": [
+
+    {
+      "kind": "fix",
+
+      "opening": "fixed",
+
+      "side": "left"
+    },
+
+    {
+      "kind": "left",
+
+      "opening": "tilt_turn",
+
+      "active": true
+    }
+  ],
+
+  "aliases": [
+
+    "fix ru",
+    "fix|ru",
+    "fix + ru",
+    "okno fix ru"
+  ]
+}

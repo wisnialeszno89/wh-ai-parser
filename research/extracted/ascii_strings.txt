@@ -1,0 +1,12 @@
+SNameValPair
+CSkladnik
+CPosition
+CDziura
+CKwatera
+CRoletaParapet
+COsciez
+CSzyba
+CSlupek
+COsciezBase
+CLacznik
+CPozFaktury

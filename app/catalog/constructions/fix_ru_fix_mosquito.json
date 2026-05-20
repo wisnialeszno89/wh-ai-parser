@@ -1,0 +1,36 @@
+{
+  "id": "fix_ru_fix_mosquito",
+
+  "label": "FIX RU FIX with mosquito net",
+
+  "category": "window",
+
+  "schema": "FIX|RU|FIX",
+
+  "mosquito_net": {
+    "enabled": true,
+    "type": "frame"
+  },
+
+  "segments": [
+    {
+      "kind": "fixed",
+      "opening_mode": "FIX"
+    },
+    {
+      "kind": "sash",
+      "opening_mode": "RU",
+      "opening_side": "left"
+    },
+    {
+      "kind": "fixed",
+      "opening_mode": "FIX"
+    }
+  ],
+
+  "aliases": [
+    "moskitiera",
+    "moskitiera ramkowa",
+    "frame mosquito net"
+  ]
+}

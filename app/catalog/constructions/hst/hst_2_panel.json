@@ -1,0 +1,46 @@
+{
+  "id": "hst_2_panel",
+
+  "label": "HST 2 Panel",
+
+  "category": "hst",
+
+  "features": {
+
+    "segment_count": 2,
+
+    "has_fix": true,
+
+    "symmetrical": false,
+
+    "openings": [
+
+      "sliding",
+      "fixed"
+    ]
+  },
+
+  "segments": [
+
+    {
+      "kind": "left",
+
+      "opening": "sliding",
+
+      "active": true
+    },
+
+    {
+      "kind": "right",
+
+      "opening": "fixed"
+    }
+  ],
+
+  "aliases": [
+
+    "hst",
+    "hst 2 panel",
+    "drzwi hst"
+  ]
+}

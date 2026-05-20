@@ -1,0 +1,40 @@
+{
+  "id": "single_sash",
+
+  "label": "Single Sash",
+
+  "category": "window",
+
+  "features": {
+
+    "segment_count": 1,
+
+    "has_fix": false,
+
+    "symmetrical": true,
+
+    "openings": [
+
+      "tilt_turn"
+    ]
+  },
+
+  "segments": [
+
+    {
+      "kind": "left",
+
+      "opening": "tilt_turn",
+
+      "active": true
+    }
+  ],
+
+  "aliases": [
+
+    "ru",
+    "single sash",
+    "jednoskrzydlowe",
+    "okno ru"
+  ]
+}

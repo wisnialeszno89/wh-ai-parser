@@ -1,0 +1,80 @@
+[
+  {
+    "construction_id": "fix_ru",
+    "width": 2000,
+    "height": 1400,
+    "template": "research/payloads/fix_ru_fix/2000x1400.OFR"
+  },
+  {
+    "construction_id": "fix_ru",
+    "width": 2500,
+    "height": 1500,
+    "template": "research/payloads/fix_ru_fix/2500x1500.OFR"
+  },
+  {
+    "construction_id": "hst_2_panel",
+    "width": 3500,
+    "height": 2300,
+    "template": "app/wh/base_templates/hst_2_panel.ofr"
+  },
+  {
+    "construction_id": "double_sash_movable_mullion",
+    "width": 1500,
+    "height": 1500,
+    "template": "research/template_matrix/double_sash_movable_mullion/2100x1500.ofr"
+  },
+  {
+    "construction_id": "double_sash_movable_mullion",
+    "width": 2100,
+    "height": 1500,
+    "template": "research/template_matrix/double_sash_movable_mullion/2100x1500.ofr"
+  },
+  {
+    "construction_id": "double_sash_movable_mullion",
+    "width": 2500,
+    "height": 1500,
+    "template": "research/template_matrix/double_sash_movable_mullion/2500x1500.ofr"
+  },
+  {
+    "construction_id": "double_sash_movable_mullion",
+    "width": 2100,
+    "height": 1300,
+    "template": "research/template_matrix/double_sash_movable_mullion/2100x1300.ofr"
+  },
+  {
+    "construction_id": "double_sash_movable_mullion",
+    "width": 2100,
+    "height": 1500,
+    "template": "research/template_matrix/double_sash_movable_mullion/2100x1500.ofr"
+  },
+  {
+    "construction_id": "double_sash_movable_mullion",
+    "width": 2500,
+    "height": 1300,
+    "template": "research/template_matrix/double_sash_movable_mullion/2500x1300.ofr"
+  },
+  {
+    "construction_id": "double_sash_movable_mullion",
+    "width": 2500,
+    "height": 1500,
+    "template": "research/template_matrix/double_sash_movable_mullion/2500x1500.ofr"
+  },
+  {
+    "construction_id": "double_sash_movable_mullion",
+    "width": 2100,
+    "height": 1300,
+    "template": "research/template_matrix/double_sash_movable_mullion/2100x1300.ofr"
+  },
+  {
+    "construction_id": "double_sash_movable_mullion",
+    "width": 2100,
+    "height": 1500,
+    "template": "research/template_matrix/double_sash_movable_mullion/2100x1500.ofr"
+  },
+  {
+    "construction_id": "double_sash_movable_mullion",
+    "width": 2500,
+    "height": 1300,
+    "template": "research/template_matrix/double_sash_movable_mullion/2500x1300.ofr"
+  }
+]

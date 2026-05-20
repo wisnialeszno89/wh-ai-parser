@@ -1,0 +1,30 @@
+{
+  "id": "hst",
+
+  "label": "HST Sliding Door",
+
+  "category": "sliding_door",
+
+  "schema": "FIX|HST",
+
+  "segments": [
+    {
+      "kind": "fixed",
+      "opening_mode": "FIX"
+    },
+    {
+      "kind": "sliding",
+      "opening_mode": "HST",
+      "opening_side": "right"
+    }
+  ],
+
+  "aliases": [
+    "hst",
+    "lift and slide",
+    "sliding door",
+    "smart slide",
+    "easy slide",
+    "drzwi przesuwne"
+  ]
+}

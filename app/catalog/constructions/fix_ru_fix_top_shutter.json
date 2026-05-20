@@ -1,0 +1,36 @@
+{
+  "id": "fix_ru_fix_top_shutter",
+
+  "label": "FIX RU FIX with top mounted shutter",
+
+  "category": "window",
+
+  "schema": "FIX|RU|FIX",
+
+  "roller_shutter": {
+    "enabled": true,
+    "type": "top_mounted"
+  },
+
+  "segments": [
+    {
+      "kind": "fixed",
+      "opening_mode": "FIX"
+    },
+    {
+      "kind": "sash",
+      "opening_mode": "RU",
+      "opening_side": "left"
+    },
+    {
+      "kind": "fixed",
+      "opening_mode": "FIX"
+    }
+  ],
+
+  "aliases": [
+    "nadstawna",
+    "top mounted shutter",
+    "roleta nadstawna"
+  ]
+}

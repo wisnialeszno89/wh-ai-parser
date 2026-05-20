@@ -1,0 +1,24 @@
+{
+  "id": "fix",
+
+  "label": "Single FIX",
+
+  "category": "window",
+
+  "schema": "FIX",
+
+  "segments": [
+    {
+      "kind": "fixed",
+      "opening_mode": "FIX"
+    }
+  ],
+
+  "aliases": [
+    "fix",
+    "fixed",
+    "fix window",
+    "okno fix",
+    "fixed glazing"
+  ]
+}

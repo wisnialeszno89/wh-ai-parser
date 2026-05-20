@@ -1,0 +1,51 @@
+{
+  "id": "fix_fix_ru",
+
+  "label": "FIX + FIX + RU",
+
+  "category": "window",
+
+  "features": {
+
+    "segment_count": 3,
+
+    "has_fix": true,
+
+    "symmetrical": false,
+
+    "openings": [
+
+      "fixed",
+      "tilt_turn"
+    ]
+  },
+
+  "segments": [
+
+    {
+      "kind": "fix",
+
+      "opening": "fixed"
+    },
+
+    {
+      "kind": "fix",
+
+      "opening": "fixed"
+    },
+
+    {
+      "kind": "right",
+
+      "opening": "tilt_turn",
+
+      "active": true
+    }
+  ],
+
+  "aliases": [
+
+    "fix fix ru",
+    "fix/fix/ru"
+  ]
+}

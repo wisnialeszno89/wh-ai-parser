@@ -1,0 +1,34 @@
+{
+  "id": "fix_ru_fix",
+
+  "label": "FIX + RU + FIX",
+
+  "category": "window",
+
+  "schema": "FIX|RU|FIX",
+
+  "segments": [
+    {
+      "kind": "fixed",
+      "opening_mode": "FIX"
+    },
+    {
+      "kind": "sash",
+      "opening_mode": "RU",
+      "opening_side": "left"
+    },
+    {
+      "kind": "fixed",
+      "opening_mode": "FIX"
+    }
+  ],
+
+  "aliases": [
+    "fix ru fix",
+    "fix|ru|fix",
+    "triple window",
+    "3 segment window",
+    "okno trzykwaterowe",
+    "trzykwaterowe fix ru fix"
+  ]
+}

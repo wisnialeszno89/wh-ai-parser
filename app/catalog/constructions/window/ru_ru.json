@@ -1,0 +1,48 @@
+{
+  "id": "ru_ru",
+
+  "label": "RU + RU",
+
+  "category": "window",
+
+  "features": {
+
+    "segment_count": 2,
+
+    "has_fix": false,
+
+    "symmetrical": true,
+
+    "openings": [
+
+      "tilt_turn"
+    ]
+  },
+
+  "segments": [
+
+    {
+      "kind": "left",
+
+      "opening": "tilt_turn",
+
+      "active": true
+    },
+
+    {
+      "kind": "right",
+
+      "opening": "tilt_turn",
+
+      "active": true
+    }
+  ],
+
+  "aliases": [
+
+    "ru ru",
+    "ru|ru",
+    "dkl dkr",
+    "2 skrzydla"
+  ]
+}
