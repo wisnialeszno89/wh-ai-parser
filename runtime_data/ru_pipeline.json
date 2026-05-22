@@ -1,0 +1,11 @@
+[
+    {
+        "type": "select_tool",
+        "tool": "glass"
+    },
+    {
+        "type": "click",
+        "x": 780,
+        "y": 500
+    }
+]

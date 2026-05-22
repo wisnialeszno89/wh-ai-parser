@@ -1,0 +1,19 @@
+{
+  "actions": [
+    "attach",
+    "focus",
+    "new_offer",
+    "add_window",
+    "set_dimensions(1000x1000)",
+    "select_tool(glass)",
+    "click_position(380, 500)",
+    "select_tool(glass)",
+    "click_position(780, 500)",
+    "click_position(780, 500)",
+    "select_tool(color)",
+    "click_position(500, 220)",
+    "click_canvas(frame -> (500, 220))",
+    "set_color(antra)",
+    "save_offer(output.ofr)"
+  ]
+}

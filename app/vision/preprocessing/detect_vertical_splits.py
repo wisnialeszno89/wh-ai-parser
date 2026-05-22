@@ -4,7 +4,7 @@ import numpy as np
 
 def group_positions(
     positions,
-    tolerance=20
+    tolerance=80
 ):
 
     if not positions:
@@ -86,26 +86,38 @@ def detect_vertical_splits(
 
     filtered = []
 
-    last = None
-
     for g in grouped:
 
-        if not (
-            width * 0.30
+        if (
+            width * 0.20
             < g
-            < width * 0.70
+            < width * 0.80
         ):
-            continue
 
-        if last is not None:
+            filtered.append(g)
 
-            gap = abs(g - last)
+    merged = []
 
-            if gap < width * 0.18:
-                continue
+    if filtered:
 
-        filtered.append(g)
+        current = [filtered[0]]
 
-        last = g
+        for x in filtered[1:]:
 
-    return filtered
+            if x - current[-1] < width * 0.12:
+
+                current.append(x)
+
+            else:
+
+                merged.append(
+                    int(sum(current) / len(current))
+                )
+
+                current = [x]
+
+        merged.append(
+            int(sum(current) / len(current))
+        )
+
+    return merged

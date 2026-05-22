@@ -1,109 +1,92 @@
+from pathlib import Path
 import zlib
 import struct
 
 
-TARGETS = [
+FILES = [
 
-    2100,
-    2500,
-    1300,
-    1500,
-
-    210.0,
-    250.0,
-    130.0,
-    150.0,
-
-    21.0,
-    25.0,
-    13.0,
-    15.0
+    "RU 1000x1000.OFR",
+    "RU 1200x1000.OFR",
+    "RU 1400x1000.OFR",
+    "RU 1000x1200.OFR"
 ]
 
 
-def load_payload(path):
+BASE_DIR = Path(
+    "research/semantic_dataset"
+)
+
+
+TARGETS = [
+
+    1000,
+    1200,
+    1400
+]
+
+
+def load(path):
 
     with open(path, "rb") as f:
 
         data = f.read()
 
-    offset = data.find(
-        b"\x78\xDA"
+    start = data.find(
+        b"\x78\xda"
     )
-
-    stream = data[offset:]
 
     return zlib.decompress(
-        stream
+        data[start:]
     )
 
 
-payload = load_payload(
+def scan_ints(data):
 
-    "research/payloads/fix_ru_fix/"
-    "OFR-2044-TT.OFR"
-)
+    hits = []
 
-
-print()
-print("========== FLOAT SEARCH ==========")
-print()
-
-
-for i in range(
-
-    0,
-
-    len(payload) - 4,
-
-    4
-):
-
-    chunk = payload[i:i+4]
-
-    try:
+    for i in range(
+        len(data) - 4
+    ):
 
         value = struct.unpack(
-            "<f",
-            chunk
+            "<I",
+            data[i:i+4]
         )[0]
 
-        for target in TARGETS:
+        if value in TARGETS:
 
-            if abs(value - target) < 0.01:
+            hits.append(
+                (i, value)
+            )
 
-                print(
-                    f"FLOAT @ {i}: {value}"
-                )
-
-    except:
-
-        pass
+    return hits
 
 
-print()
-print("========== INT SEARCH ==========")
-print()
+def main():
 
+    for file_name in FILES:
 
-for i in range(
+        print("\n================")
+        print(file_name)
 
-    0,
+        data = load(
+            BASE_DIR / file_name
+        )
 
-    len(payload) - 4,
-
-    4
-):
-
-    chunk = payload[i:i+4]
-
-    value = struct.unpack(
-        "<I",
-        chunk
-    )[0]
-
-    if value in TARGETS:
+        hits = scan_ints(data)
 
         print(
-            f"INT @ {i}: {value}"
+            f"\nTOTAL HITS: "
+            f"{len(hits)}"
         )
+
+        for pos, value in hits[:100]:
+
+            print(
+                f"{pos} -> {value}"
+            )
+
+
+if __name__ == "__main__":
+
+    main()
