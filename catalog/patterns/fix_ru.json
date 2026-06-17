@@ -1,0 +1,16 @@
+{
+  "signature": "FIX|RU",
+  "operations": [
+    {
+      "operation": "insert_vertical"
+    },
+    {
+      "operation": "create_segment",
+      "segment": 0
+    },
+    {
+      "operation": "create_segment",
+      "segment": 1
+    }
+  ]
+}

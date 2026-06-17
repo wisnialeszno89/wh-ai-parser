@@ -1,0 +1,9 @@
+{
+  "signature": "FIX",
+  "operations": [
+    {
+      "operation": "create_segment",
+      "segment": 0
+    }
+  ]
+}

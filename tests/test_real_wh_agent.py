@@ -1,0 +1,74 @@
+from app.wh.runtime.wh_agent import (
+    WHAgent
+)
+
+from app.wh.model.construction_schema import (
+    ConstructionSchema
+)
+
+from app.wh.model.row import (
+    Row
+)
+
+from app.wh.model.segment import (
+    Segment
+)
+
+from app.wh.model.opening import (
+    Opening
+)
+
+
+def test_real_wh_agent():
+
+    agent = WHAgent(
+
+        mouse_enabled=False
+
+    )
+
+    construction = ConstructionSchema(
+
+        category="window",
+
+        width_mm=2000,
+
+        height_mm=1500,
+
+        rows=[
+
+            Row(
+
+                segments=[
+
+                    Segment(
+
+                        kind="main",
+
+                        opening=Opening.FIX
+
+                    )
+
+                ]
+
+            )
+
+        ]
+
+    )
+
+    result = agent.execute(
+
+        construction,
+
+        "templates"
+
+    )
+
+    print()
+
+    print(
+
+        result
+
+    )

@@ -1,0 +1,348 @@
+{
+    "wh_screen_06": {
+        "icons": [
+            {
+                "type": "icon",
+                "x": 11,
+                "y": 720,
+                "width": 18,
+                "height": 20,
+                "area": 286.5
+            },
+            {
+                "type": "icon",
+                "x": 49,
+                "y": 683,
+                "width": 22,
+                "height": 22,
+                "area": 99.0
+            },
+            {
+                "type": "icon",
+                "x": 9,
+                "y": 681,
+                "width": 22,
+                "height": 22,
+                "area": 440.0
+            },
+            {
+                "type": "icon",
+                "x": 48,
+                "y": 646,
+                "width": 22,
+                "height": 21,
+                "area": 102.0
+            },
+            {
+                "type": "icon",
+                "x": 9,
+                "y": 643,
+                "width": 22,
+                "height": 22,
+                "area": 440.0
+            },
+            {
+                "type": "icon",
+                "x": 50,
+                "y": 607,
+                "width": 19,
+                "height": 19,
+                "area": 298.5
+            },
+            {
+                "type": "icon",
+                "x": 8,
+                "y": 602,
+                "width": 27,
+                "height": 28,
+                "area": 503.5
+            },
+            {
+                "type": "icon",
+                "x": 47,
+                "y": 566,
+                "width": 22,
+                "height": 23,
+                "area": 61.5
+            },
+            {
+                "type": "icon",
+                "x": 10,
+                "y": 530,
+                "width": 19,
+                "height": 20,
+                "area": 181.0
+            },
+            {
+                "type": "icon",
+                "x": 9,
+                "y": 418,
+                "width": 18,
+                "height": 17,
+                "area": 87.5
+            },
+            {
+                "type": "icon",
+                "x": 13,
+                "y": 380,
+                "width": 17,
+                "height": 17,
+                "area": 79.5
+            },
+            {
+                "type": "icon",
+                "x": 10,
+                "y": 333,
+                "width": 19,
+                "height": 19,
+                "area": 230.5
+            },
+            {
+                "type": "icon",
+                "x": 1433,
+                "y": 148,
+                "width": 76,
+                "height": 76,
+                "area": 5623.0
+            },
+            {
+                "type": "icon",
+                "x": 396,
+                "y": 130,
+                "width": 18,
+                "height": 18,
+                "area": 127.5
+            },
+            {
+                "type": "icon",
+                "x": 256,
+                "y": 130,
+                "width": 20,
+                "height": 18,
+                "area": 161.0
+            },
+            {
+                "type": "icon",
+                "x": 290,
+                "y": 98,
+                "width": 19,
+                "height": 18,
+                "area": 65.0
+            },
+            {
+                "type": "icon",
+                "x": 336,
+                "y": 96,
+                "width": 24,
+                "height": 22,
+                "area": 101.0
+            },
+            {
+                "type": "icon",
+                "x": 250,
+                "y": 96,
+                "width": 23,
+                "height": 22,
+                "area": 447.0
+            },
+            {
+                "type": "icon",
+                "x": 178,
+                "y": 33,
+                "width": 21,
+                "height": 22,
+                "area": 223.5
+            },
+            {
+                "type": "icon",
+                "x": 786,
+                "y": 31,
+                "width": 26,
+                "height": 26,
+                "area": 451.5
+            },
+            {
+                "type": "icon",
+                "x": 54,
+                "y": 31,
+                "width": 24,
+                "height": 24,
+                "area": 501.5
+            },
+            {
+                "type": "icon",
+                "x": 944,
+                "y": 30,
+                "width": 27,
+                "height": 26,
+                "area": 326.5
+            },
+            {
+                "type": "icon",
+                "x": 543,
+                "y": 30,
+                "width": 23,
+                "height": 27,
+                "area": 201.0
+            },
+            {
+                "type": "icon",
+                "x": 139,
+                "y": 30,
+                "width": 21,
+                "height": 25,
+                "area": 234.5
+            },
+            {
+                "type": "icon",
+                "x": 102,
+                "y": 30,
+                "width": 21,
+                "height": 25,
+                "area": 220.5
+            },
+            {
+                "type": "icon",
+                "x": 295,
+                "y": 28,
+                "width": 28,
+                "height": 28,
+                "area": 429.0
+            },
+            {
+                "type": "icon",
+                "x": 2,
+                "y": 3,
+                "width": 16,
+                "height": 16,
+                "area": 221.5
+            }
+        ],
+        "buttons": [
+            {
+                "type": "button",
+                "x": 1530,
+                "y": 730,
+                "width": 46,
+                "height": 21,
+                "area": 124.5
+            },
+            {
+                "type": "button",
+                "x": 1431,
+                "y": 730,
+                "width": 42,
+                "height": 21,
+                "area": 116.5
+            },
+            {
+                "type": "button",
+                "x": 1474,
+                "y": 729,
+                "width": 52,
+                "height": 20,
+                "area": 134.5
+            },
+            {
+                "type": "button",
+                "x": 1435,
+                "y": 309,
+                "width": 479,
+                "height": 139,
+                "area": 65917.5
+            }
+        ],
+        "toolbars": [
+            {
+                "type": "toolbar",
+                "x": 92,
+                "y": 794,
+                "width": 148,
+                "height": 20,
+                "area": 2793.0
+            },
+            {
+                "type": "toolbar",
+                "x": 1566,
+                "y": 290,
+                "width": 99,
+                "height": 17,
+                "area": 1566.0
+            }
+        ],
+        "controls": [
+            {
+                "type": "control",
+                "x": 45,
+                "y": 715,
+                "width": 25,
+                "height": 17,
+                "area": 140.5
+            },
+            {
+                "type": "control",
+                "x": 166,
+                "y": 130,
+                "width": 22,
+                "height": 18,
+                "area": 162.5
+            },
+            {
+                "type": "control",
+                "x": 166,
+                "y": 96,
+                "width": 28,
+                "height": 22,
+                "area": 387.0
+            },
+            {
+                "type": "control",
+                "x": 412,
+                "y": 93,
+                "width": 22,
+                "height": 28,
+                "area": 196.5
+            },
+            {
+                "type": "control",
+                "x": 739,
+                "y": 34,
+                "width": 22,
+                "height": 18,
+                "area": 189.5
+            },
+            {
+                "type": "control",
+                "x": 667,
+                "y": 34,
+                "width": 22,
+                "height": 18,
+                "area": 189.5
+            },
+            {
+                "type": "control",
+                "x": 701,
+                "y": 32,
+                "width": 28,
+                "height": 22,
+                "area": 475.5
+            },
+            {
+                "type": "control",
+                "x": 15,
+                "y": 31,
+                "width": 27,
+                "height": 21,
+                "area": 422.0
+            },
+            {
+                "type": "control",
+                "x": 384,
+                "y": 29,
+                "width": 23,
+                "height": 16,
+                "area": 136.5
+            }
+        ]
+    }
+}

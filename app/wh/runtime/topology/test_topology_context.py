@@ -1,0 +1,116 @@
+from app.wh.runtime.fields.field import (
+    Field
+)
+
+from app.wh.runtime.topology.topology_context import (
+    TopologyContext
+)
+
+
+def test_topology_context():
+
+    f1 = Field(
+
+        id=1,
+
+        x=500,
+
+        y=300
+
+    )
+
+    f2 = Field(
+
+        id=2,
+
+        x=1000,
+
+        y=300
+
+    )
+
+    f3 = Field(
+
+        id=3,
+
+        x=500,
+
+        y=700
+
+    )
+
+    f4 = Field(
+
+        id=4,
+
+        x=1000,
+
+        y=700
+
+    )
+
+    topology = [
+
+        [f1, f2],
+
+        [f3, f4]
+
+    ]
+
+    context = (
+
+        TopologyContext(
+
+            topology
+
+        )
+
+    )
+
+    assert (
+
+        context.right(
+
+            f1
+
+        ).id
+
+        == 2
+
+    )
+
+    assert (
+
+        context.bottom(
+
+            f1
+
+        ).id
+
+        == 3
+
+    )
+
+    assert (
+
+        context.left(
+
+            f1
+
+        )
+
+        is None
+
+    )
+
+    assert (
+
+        context.top(
+
+            f1
+
+        )
+
+        is None
+
+    )

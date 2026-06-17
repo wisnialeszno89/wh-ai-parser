@@ -1,0 +1,27 @@
+{
+  "name": "wh-ai-parser",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "directories": {
+    "test": "tests"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/wisnialeszno89/wh-ai-parser.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/wisnialeszno89/wh-ai-parser/issues"
+  },
+  "homepage": "https://github.com/wisnialeszno89/wh-ai-parser#readme",
+  "dependencies": {
+    "express": "^5.2.1"
+  }
+}

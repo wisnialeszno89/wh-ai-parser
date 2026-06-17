@@ -1,0 +1,1 @@
+from app.ui.ml.train_icon_classifier import *

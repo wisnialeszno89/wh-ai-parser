@@ -4,3 +4,11 @@ outputs/
 uploads/
 .env
 .DS_Store
+.venv/
+node_modules
+tmp/
+logs/
+runtime_data/
+training_data/
+generated_offers/
+*.log

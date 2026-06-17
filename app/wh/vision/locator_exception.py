@@ -1,0 +1,7 @@
+class LocatorException(
+
+    Exception
+
+):
+
+    pass

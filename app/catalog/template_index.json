@@ -76,5 +76,65 @@
     "width": 2500,
     "height": 1300,
     "template": "research/template_matrix/double_sash_movable_mullion/2500x1300.ofr"
+  },
+  {
+    "construction_id": "double_sash_movable_mullion",
+    "width": 2500,
+    "height": 1500,
+    "template": "research/template_matrix/double_sash_movable_mullion/2500x1500.ofr"
+  },
+  {
+    "construction_id": "double_sash_movable_mullion",
+    "width": 2100,
+    "height": 1300,
+    "template": "research/template_matrix/double_sash_movable_mullion/2100x1300.ofr"
+  },
+  {
+    "construction_id": "double_sash_movable_mullion",
+    "width": 2100,
+    "height": 1500,
+    "template": "research/template_matrix/double_sash_movable_mullion/2100x1500.ofr"
+  },
+  {
+    "construction_id": "double_sash_movable_mullion",
+    "width": 2500,
+    "height": 1300,
+    "template": "research/template_matrix/double_sash_movable_mullion/2500x1300.ofr"
+  },
+  {
+    "construction_id": "double_sash_movable_mullion",
+    "width": 2100,
+    "height": 1500,
+    "template": "research/template_matrix/double_sash_movable_mullion/2100x1500.ofr"
+  },
+  {
+    "construction_id": "double_sash_movable_mullion",
+    "width": 2500,
+    "height": 1500,
+    "template": "research/template_matrix/double_sash_movable_mullion/2500x1500.ofr"
+  },
+  {
+    "construction_id": "double_sash_movable_mullion",
+    "width": 2100,
+    "height": 1300,
+    "template": "research/template_matrix/double_sash_movable_mullion/2100x1300.ofr"
+  },
+  {
+    "construction_id": "double_sash_movable_mullion",
+    "width": 2100,
+    "height": 1500,
+    "template": "research/template_matrix/double_sash_movable_mullion/2100x1500.ofr"
+  },
+  {
+    "construction_id": "double_sash_movable_mullion",
+    "width": 2500,
+    "height": 1300,
+    "template": "research/template_matrix/double_sash_movable_mullion/2500x1300.ofr"
+  },
+  {
+    "construction_id": "double_sash_movable_mullion",
+    "width": 2100,
+    "height": 1500,
+    "template": "research/template_matrix/double_sash_movable_mullion/2100x1500.ofr"
   }
 ]
