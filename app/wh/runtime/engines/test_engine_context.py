@@ -35,7 +35,7 @@ def test_engine_context():
 
     )
 
-    assert (
+    result = (
 
         context.execute(
 
@@ -43,6 +43,20 @@ def test_engine_context():
 
         )
 
-        is True
-
     )
+
+    assert [
+
+        action.name
+
+        for action
+
+        in result.actions
+
+    ] == [
+
+        "frame",
+
+        "glass"
+
+    ]

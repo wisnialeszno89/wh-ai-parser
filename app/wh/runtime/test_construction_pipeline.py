@@ -67,8 +67,16 @@ def test_construction_pipeline():
 
     )
 
-    assert result == [
+    assert len(
 
-        "frame"
+        result.actions
 
-    ]
+    ) == 1
+
+    assert (
+
+        result.actions[0].name
+
+        == "frame"
+
+    )

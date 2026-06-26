@@ -1,45 +1,19 @@
-from dataclasses import dataclass
+from dataclasses import (
+    dataclass
+)
 
 
 @dataclass
 class MatchResult:
 
-    x: int
+    found: bool
 
-    y: int
+    x: int = 0
 
-    width: int
+    y: int = 0
 
-    height: int
+    confidence: float = 0.0
 
-    confidence: float
+    width: int = 0
 
-    @property
-    def center_x(
-
-        self
-
-    ):
-
-        return (
-
-            self.x +
-
-            self.width // 2
-
-        )
-
-    @property
-    def center_y(
-
-        self
-
-    ):
-
-        return (
-
-            self.y +
-
-            self.height // 2
-
-        )
+    height: int = 0

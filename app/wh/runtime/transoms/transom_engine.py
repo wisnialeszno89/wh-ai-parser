@@ -11,9 +11,13 @@ class TransomEngine:
 
         top_fields,
 
-        bottom_fields
+        bottom_fields=None
 
     ):
+
+        if bottom_fields is None:
+
+            return []
 
         transoms = []
 

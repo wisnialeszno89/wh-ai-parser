@@ -1,0 +1,58 @@
+from app.wh.runtime.vision.base_vision_action_handler import (
+    BaseVisionActionHandler
+)
+
+
+class DialogVisionActionHandler(
+
+    BaseVisionActionHandler
+
+):
+
+    def __init__(
+
+        self,
+
+        runtime
+
+    ):
+
+        self.runtime = runtime
+
+    def handle(
+
+        self,
+
+        action
+
+    ):
+
+        screenshot = (
+
+            self.runtime.screenshot_provider.capture()
+
+        )
+
+        x, y = (
+
+            self.runtime.matcher.locate(
+
+                screenshot,
+
+                action.template_path
+
+            )
+
+        )
+
+        self.runtime.mouse.move(
+
+            x,
+
+            y
+
+        )
+
+        self.runtime.mouse.click()
+
+        return True

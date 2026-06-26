@@ -1,0 +1,34 @@
+{
+    "manufacturer": "VEKA",
+    "system": "Softline 82 MD",
+
+    "profiles": [
+        "Softline 82",
+        "Softline82",
+        "VEKA82",
+        "SL82"
+    ],
+
+    "colors": [
+        "RAL7016",
+        "RAL9016",
+        "RAL8019",
+        "DB703"
+    ],
+
+    "security": [
+        "RC1",
+        "RC2"
+    ],
+
+    "glazing": [
+        "Ug0.5",
+        "Ug0.6",
+        "Triple"
+    ],
+
+    "hardware": [
+        "Maco",
+        "Roto"
+    ]
+}

@@ -103,25 +103,99 @@ class ConstructionEngine:
 
         )
 
-        mullions = (
+        cols = (
 
-            self.mullion_engine.calculate(
+            len(
 
-                fields
-
-            )
-
-        )
-
-        transoms = (
-
-            self.transom_engine.calculate(
-
-                fields
+                schema.ratio_x
 
             )
 
+            + 1
+
         )
+
+        rows = (
+
+            len(
+
+                schema.ratio_y
+
+            )
+
+            + 1
+
+        )
+
+        field_rows = []
+
+        for row in range(
+
+            rows
+
+        ):
+
+            start = (
+
+                row
+
+                * cols
+
+            )
+
+            end = (
+
+                start
+
+                + cols
+
+            )
+
+            field_rows.append(
+
+                fields[
+
+                    start:end
+
+                ]
+
+            )
+
+        mullions = []
+
+        for field_row in field_rows:
+
+            mullions.extend(
+
+                self.mullion_engine.calculate(
+
+                    field_row
+
+                )
+
+            )
+
+        transoms = []
+
+        if rows > 1:
+
+            for row in range(
+
+                rows - 1
+
+            ):
+
+                transoms.extend(
+
+                    self.transom_engine.calculate(
+
+                        field_rows[row],
+
+                        field_rows[row + 1]
+
+                    )
+
+                )
 
         return Construction(
 

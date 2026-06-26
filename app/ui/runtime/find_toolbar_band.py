@@ -14,13 +14,8 @@ MIN_OBJECTS = 12
 
 
 def find_toolbar_band(
-
-    image_path: str
+    image
 ):
-
-    image = cv2.imread(
-        image_path
-    )
 
     gray = cv2.cvtColor(
 

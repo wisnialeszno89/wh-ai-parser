@@ -33,30 +33,20 @@ def test_field_map_builder():
 
     )
 
-    assert fields == [
+    assert len(
 
-        {
+        fields
 
-            "id": 1,
+    ) == 2
 
-            "x": 550,
+    assert fields[0].id == 1
 
-            "y": 700,
+    assert fields[0].x == 550
 
-            "type": "unknown"
+    assert fields[0].y == 700
 
-        },
+    assert fields[1].id == 2
 
-        {
+    assert fields[1].x == 1150
 
-            "id": 2,
-
-            "x": 1150,
-
-            "y": 700,
-
-            "type": "unknown"
-
-        }
-
-    ]
+    assert fields[1].y == 700

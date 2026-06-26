@@ -1,0 +1,35 @@
+[
+    {
+        "manufacturer": "VEKA",
+        "system": "VEKA Softline 76 MD",
+        "security": [
+            "RC1"
+        ],
+        "glazing": [
+            "Double",
+            "Triple"
+        ],
+        "colors": [
+            "White",
+            "Anthracite",
+            "RAL7016"
+        ]
+    },
+    {
+        "manufacturer": "VEKA",
+        "system": "VEKA Softline 82 MD",
+        "security": [
+            "RC1",
+            "RC2"
+        ],
+        "glazing": [
+            "Double",
+            "Triple"
+        ],
+        "colors": [
+            "White",
+            "Anthracite",
+            "RAL7016"
+        ]
+    }
+]

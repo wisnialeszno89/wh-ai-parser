@@ -1,9 +1,25 @@
-from unittest.mock import (
-    MagicMock
-)
-
 from app.wh.runtime.vision.vision_runtime import (
     VisionRuntime
+)
+
+from app.wh.runtime.vision.vision_action import (
+    VisionAction
+)
+
+from app.wh.runtime.vision.text_vision_action import (
+    TextVisionAction
+)
+
+from app.wh.runtime.vision.dropdown_vision_action import (
+    DropdownVisionAction
+)
+
+from app.wh.runtime.vision.color_vision_action import (
+    ColorVisionAction
+)
+
+from app.wh.runtime.vision.checkbox_vision_action import (
+    CheckboxVisionAction
 )
 
 
@@ -15,42 +31,128 @@ def test_vision_runtime():
 
     )
 
-    runtime.screens = (
+    action = (
 
-        MagicMock()
+        VisionAction(
 
-    )
+            "frame",
 
-    runtime.agent = (
-
-        MagicMock()
-
-    )
-
-    runtime.screens.capture.return_value = (
-
-        "screen"
-
-    )
-
-    runtime.agent.execute.return_value = (
-
-        True
-
-    )
-
-    result = (
-
-        runtime.execute(
-
-            "frame"
+            "frame_button.png"
 
         )
 
     )
 
-    assert result is True
+    assert (
 
-    runtime.screens.capture.assert_called_once()
+        runtime.execute(
 
-    runtime.agent.execute.assert_called_once()
+            action
+
+        )
+
+        is True
+
+    )
+
+    action = (
+
+        TextVisionAction(
+
+            "width",
+
+            "width_input.png",
+
+            "5000"
+
+        )
+
+    )
+
+    assert (
+
+        runtime.execute(
+
+            action
+
+        )
+
+        is True
+
+    )
+
+    action = (
+
+        DropdownVisionAction(
+
+            "profile",
+
+            "profile_dropdown.png",
+
+            "Softline 82 MD"
+
+        )
+
+    )
+
+    assert (
+
+        runtime.execute(
+
+            action
+
+        )
+
+        is True
+
+    )
+
+    action = (
+
+        ColorVisionAction(
+
+            "outside_color",
+
+            "outside_color_dropdown.png",
+
+            "Antracyt"
+
+        )
+
+    )
+
+    assert (
+
+        runtime.execute(
+
+            action
+
+        )
+
+        is True
+
+    )
+
+    action = (
+
+        CheckboxVisionAction(
+
+            "rc2",
+
+            "rc2_checkbox.png"
+
+        )
+
+    )
+
+    assert (
+
+        runtime.execute(
+
+            action
+
+        )
+
+        is True
+
+    )

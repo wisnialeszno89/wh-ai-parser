@@ -51,4 +51,16 @@ def test_construction_runtime():
 
     )
 
-    assert result is True
+    assert [
+
+        action.name
+
+        for action
+
+        in result.actions
+
+    ] == [
+
+        "frame"
+
+    ]

@@ -1,5 +1,3 @@
-import numpy as np
-
 from app.wh.runtime.vision.template_matcher import (
     TemplateMatcher
 )
@@ -13,27 +11,11 @@ def test_template_matcher():
 
     )
 
-    screen = np.zeros(
-
-        (
-
-            1080,
-
-            1920,
-
-            3
-
-        ),
-
-        dtype=np.uint8
-
-    )
-
     result = (
 
-        matcher.find(
+        matcher.locate(
 
-            screen,
+            None,
 
             "frame_button.png"
 
@@ -41,8 +23,18 @@ def test_template_matcher():
 
     )
 
-    assert result.x >= 0
+    assert (
 
-    assert result.y >= 0
+        result
 
-    assert result.confidence >= 0
+        ==
+
+        (
+
+            100,
+
+            200
+
+        )
+
+    )

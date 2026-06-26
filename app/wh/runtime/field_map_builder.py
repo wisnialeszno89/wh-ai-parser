@@ -1,3 +1,8 @@
+from app.wh.runtime.field import (
+    Field
+)
+
+
 class FieldMapBuilder:
 
     def build(
@@ -20,17 +25,15 @@ class FieldMapBuilder:
 
             fields.append(
 
-                {
+                Field(
 
-                    "id": index,
+                    id=index,
 
-                    "x": x,
+                    x=x,
 
-                    "y": y,
+                    y=y
 
-                    "type": "unknown"
-
-                }
+                )
 
             )
 

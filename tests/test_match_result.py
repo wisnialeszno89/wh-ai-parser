@@ -7,16 +7,28 @@ def test_match_result():
 
     result = MatchResult(
 
-        x=100,
+        found=True,
 
-        y=200,
+        x=550,
 
-        confidence=0.95
+        y=700,
+
+        confidence=0.97,
+
+        width=40,
+
+        height=30
 
     )
 
-    assert result.x == 100
+    assert result.found
 
-    assert result.y == 200
+    assert result.x == 550
 
-    assert result.confidence == 0.95
+    assert result.y == 700
+
+    assert result.confidence == 0.97
+
+    assert result.width == 40
+
+    assert result.height == 30

@@ -2,8 +2,20 @@ from app.wh.runtime.vision.screenshot_provider import (
     ScreenshotProvider
 )
 
-from app.wh.runtime.vision.find_and_click_agent import (
-    FindAndClickAgent
+from app.wh.runtime.vision.template_matcher import (
+    TemplateMatcher
+)
+
+from app.wh.runtime.vision.mouse_controller import (
+    MouseController
+)
+
+from app.wh.runtime.vision.keyboard_controller import (
+    KeyboardController
+)
+
+from app.wh.runtime.vision.vision_action_registry import (
+    VisionActionRegistry
 )
 
 
@@ -15,15 +27,37 @@ class VisionRuntime:
 
     ):
 
-        self.screens = (
+        self.screenshot_provider = (
 
             ScreenshotProvider()
 
         )
 
-        self.agent = (
+        self.matcher = (
 
-            FindAndClickAgent()
+            TemplateMatcher()
+
+        )
+
+        self.mouse = (
+
+            MouseController()
+
+        )
+
+        self.keyboard = (
+
+            KeyboardController()
+
+        )
+
+        self.registry = (
+
+            VisionActionRegistry(
+
+                self
+
+            )
 
         )
 
@@ -35,20 +69,18 @@ class VisionRuntime:
 
     ):
 
-        screen = (
+        handler = (
 
-            self.screens.capture()
-
-        )
-
-        return (
-
-            self.agent.execute(
-
-                screen,
+            self.registry.resolve(
 
                 action
 
             )
+
+        )
+
+        return handler.handle(
+
+            action
 
         )

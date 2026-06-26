@@ -70,4 +70,4 @@ def test_construction_engine():
 
         result.transoms
 
-    ) == 1
+    ) == 0
