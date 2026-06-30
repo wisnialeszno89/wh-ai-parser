@@ -1,0 +1,22 @@
+{
+    "name": "single_window",
+
+    "steps": [
+
+        {
+            "operation": "FRAME"
+        },
+
+        {
+            "operation": "SASH"
+        },
+
+        {
+            "operation": "HARDWARE"
+        },
+
+        {
+            "operation": "GLASS"
+        }
+    ]
+}

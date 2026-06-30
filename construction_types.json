@@ -1,0 +1,13 @@
+{
+  "single_window": {
+    "workflow": "single_window"
+  },
+
+  "double_window": {
+    "workflow": "double_window"
+  },
+
+  "fixed_window": {
+    "workflow": "fixed_window"
+  }
+}

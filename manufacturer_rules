@@ -1,0 +1,10 @@
+{
+  "VEKA_SOFTLINE82": {
+
+    "max_sash_width": 1500,
+
+    "max_glass_area": 2.5,
+
+    "heavy_sash_profile": true
+  }
+}

@@ -1,0 +1,20 @@
+from enum import Enum
+
+
+class AgentPhase(Enum):
+
+    READ_CONTEXT = "READ_CONTEXT"
+
+    PLAN = "PLAN"
+
+    BUILD_CONSTRUCTION = "BUILD_CONSTRUCTION"
+
+    BUILD_GUI = "BUILD_GUI"
+
+    EXECUTE = "EXECUTE"
+
+    VERIFY = "VERIFY"
+
+    NEXT_POSITION = "NEXT_POSITION"
+
+    FINISHED = "FINISHED"

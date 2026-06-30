@@ -1,30 +1,25 @@
-from app.wh.runtime.field import (
-    Field
-)
-
-from app.wh.model.opening import (
-    Opening
-)
+from app.construction.models.field import Field
+from app.construction.models.opening import Opening
+from app.construction.models.opening_type import OpeningType
+from app.construction.models.opening_direction import OpeningDirection
 
 
-def test_field():
+def test_create_field():
 
     field = Field(
 
-        id=1,
+        opening=Opening(
 
-        x=550,
+            type=OpeningType.TILT_TURN,
 
-        y=700,
+            direction=OpeningDirection.RIGHT
+        ),
 
-        opening=Opening.TILT_TURN
+        width=1300,
 
+        height=1500
     )
 
-    assert field.id == 1
+    assert field.opening.type == OpeningType.TILT_TURN
 
-    assert field.x == 550
-
-    assert field.y == 700
-
-    assert field.opening == Opening.TILT_TURN
+    assert field.opening.direction == OpeningDirection.RIGHT

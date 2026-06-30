@@ -1,84 +1,65 @@
-from app.wh.model.construction_schema import (
-    ConstructionSchema
+from app.context.offer_context import (
+    OfferContext
 )
 
-from app.wh.model.opening import (
-    Opening
+from app.construction.construction_builder import (
+    ConstructionBuilder
 )
 
-from app.wh.model.row import (
-    Row
-)
-
-from app.wh.model.segment import (
-    Segment
-)
-
-from app.wh.runtime.construction_planner import (
+from app.construction.construction_planner import (
     ConstructionPlanner
 )
 
+from app.construction.enums.construction_action import (
+    ConstructionAction
+)
 
-def test_construction_planner():
 
-    construction = ConstructionSchema(
+def test_plan_single_window():
 
-        category="window",
+    context = OfferContext(
 
-        width_mm=2000,
+        width=1300,
 
-        height_mm=1500,
+        height=1500,
 
-        rows=[
+        construction_type="SINGLE_RIGHT_TILT_TURN",
 
-            Row(
-
-                segments=[
-
-                    Segment(
-
-                        kind="main",
-
-                        opening=Opening.FIX
-
-                    )
-
-                ]
-
-            )
-
-        ]
-
+        color="7016"
     )
 
-    planner = (
+    construction = (
 
-        ConstructionPlanner()
+        ConstructionBuilder()
 
+        .build(context)
     )
 
     plan = (
 
-        planner.plan(
+        ConstructionPlanner()
 
-            construction
-
-        )
-
+        .build(construction)
     )
 
-    names = [
+    actions = [
 
-        action.name
+        step.action
 
-        for action
-
-        in plan.actions
-
+        for step in plan.steps
     ]
 
-    assert "frame" in names
+    assert actions == [
 
-    assert "add_glass" in names
+        ConstructionAction.CREATE_FRAME,
 
-    assert "open_properties" in names
+        ConstructionAction.SELECT_FRAME,
+
+        ConstructionAction.INSERT_SASH,
+
+        ConstructionAction.SELECT_GLASS,
+
+        ConstructionAction.SELECT_HARDWARE,
+
+        ConstructionAction.SAVE
+    ]

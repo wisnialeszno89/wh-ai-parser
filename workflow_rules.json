@@ -1,0 +1,29 @@
+{
+  "single_window": [
+
+    "FRAME",
+
+    "SASH",
+
+    "HARDWARE",
+
+    "GLASS"
+
+  ],
+
+  "double_window": [
+
+    "FRAME",
+
+    "MULLION",
+
+    "LEFT_SASH",
+
+    "RIGHT_SASH",
+
+    "HARDWARE",
+
+    "GLASS"
+
+  ]
+}

@@ -1,0 +1,15 @@
+[
+    {
+        "code": "SINGLE_RIGHT_TILT_TURN",
+        "fields": [
+            "RIGHT_TILT_TURN"
+        ]
+    },
+    {
+        "code": "FIX_RIGHT_TILT_TURN",
+        "fields": [
+            "FIX",
+            "RIGHT_TILT_TURN"
+        ]
+    }
+]

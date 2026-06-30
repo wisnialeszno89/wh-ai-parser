@@ -1,0 +1,35 @@
+[
+  {
+    "code": "RIGHT_TILT_TURN",
+    "aliases": [
+      "RUP",
+      "DKR",
+      "RU prawe",
+      "prawe RU"
+    ],
+    "opening": "TILT_TURN",
+    "direction": "RIGHT",
+    "requires_frame": true,
+    "requires_sash": true,
+    "requires_hardware": true,
+    "requires_handle": true,
+    "requires_glass": true,
+    "workflow": "single_window"
+  },
+  {
+    "code": "FIX",
+    "aliases": [
+      "FIX",
+      "F",
+      "STAŁE"
+    ],
+    "opening": "FIX",
+    "direction": "NONE",
+    "requires_frame": true,
+    "requires_sash": false,
+    "requires_hardware": false,
+    "requires_handle": false,
+    "requires_glass": true,
+    "workflow": "fixed_window"
+  }
+]

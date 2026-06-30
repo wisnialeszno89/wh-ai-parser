@@ -1,9 +1,21 @@
+from dataclasses import dataclass
+
+
+@dataclass
 class AgentState:
 
-    IDLE = "IDLE"
+    current_profile: str | None = None
 
-    RUNNING = "RUNNING"
+    current_color: str | None = None
 
-    ERROR = "ERROR"
+    current_position: int = 0
 
-    FINISHED = "FINISHED"
+    completed_positions: int = 0
+
+    review_positions: list[int] = None
+
+    def __post_init__(self):
+
+        if self.review_positions is None:
+
+            self.review_positions = []

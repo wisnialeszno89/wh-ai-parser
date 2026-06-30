@@ -1,0 +1,22 @@
+{
+  "profile": "VEKA Softline 82 MD",
+
+  "default_frame": {
+    "wh_code": "...",
+    "name": "Rama Softline 82 MD"
+  },
+
+  "default_glass": {
+    "package": "48 mm",
+    "build": "4/16/4/16/4",
+    "ug": 0.5,
+    "wh_code": "..."
+  },
+
+  "default_hardware": {
+    "manufacturer": "Winkhaus",
+    "system": "activPilot Concept",
+    "variant": "GAM/GAMA Z",
+    "wh_code": "..."
+  }
+}

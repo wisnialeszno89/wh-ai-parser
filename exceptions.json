@@ -1,0 +1,19 @@
+{
+  "connectors": {
+
+    "manual": true
+
+  },
+
+  "arches": {
+
+    "manual": true
+
+  },
+
+  "triangles": {
+
+    "manual": true
+
+  }
+}

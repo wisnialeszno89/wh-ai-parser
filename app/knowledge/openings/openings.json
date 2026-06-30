@@ -1,0 +1,21 @@
+[
+    {
+        "code": "RIGHT_TILT_TURN",
+        "aliases": [
+            "RUP",
+            "DKR",
+            "RU prawe"
+        ],
+        "opening_type": "TILT_TURN",
+        "direction": "RIGHT"
+    },
+    {
+        "code": "FIX",
+        "aliases": [
+            "FIX",
+            "F"
+        ],
+        "opening_type": "FIX",
+        "direction": "NONE"
+    }
+]

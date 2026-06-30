@@ -1,0 +1,18 @@
+class GlazingResolver:
+
+    def resolve(
+        self,
+        text
+    ):
+
+        text = text.lower()
+
+        if "3 szyby" in text:
+
+            return 3
+
+        if "2 szyby" in text:
+
+            return 2
+
+        return None

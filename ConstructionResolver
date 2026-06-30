@@ -1,0 +1,26 @@
+class ConstructionResolver:
+
+    TYPES = {
+
+        "rup": "RUP",
+
+        "ru": "RU",
+
+        "fix": "FIX",
+
+        "psk": "PSK",
+
+        "hst": "HST"
+    }
+
+    def resolve(self, text):
+
+        text = text.lower()
+
+        for alias, value in self.TYPES.items():
+
+            if alias in text:
+
+                return value
+
+        return None

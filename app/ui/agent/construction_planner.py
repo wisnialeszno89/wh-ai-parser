@@ -1,75 +1,101 @@
-from app.ui.agent.operation_schema import (
-    Operation
+from app.construction.construction_plan import (
+    ConstructionPlan
+)
+
+from app.construction.construction_step import (
+    ConstructionStep
+)
+
+from app.construction.enums.construction_action import (
+    ConstructionAction
+)
+
+from app.construction.enums.plan_decision import (
+    PlanDecision
 )
 
 
-def build_operations(
-    construction
-):
+class ConstructionPlanner:
 
-    operations = []
+    def build(
+        self,
+        construction
+    ) -> ConstructionPlan:
 
-    segments = construction.get(
-        "segments",
-        []
-    )
+        plan = ConstructionPlan()
 
-    segment_count = len(
-        segments
-    )
+        # Rama jest zawsze pierwsza
+        plan.steps.append(
 
-    if segment_count == 1:
+            ConstructionStep(
 
-        operations.append(
+                action=ConstructionAction.CREATE_FRAME
 
-            Operation(
-
-                operation="create_single_field",
-
-                params={}
             )
+
         )
 
-    elif segment_count == 2:
+        # Jeżeli są słupki
+        if getattr(construction, "mullions", []):
 
-        operations.append(
+            plan.steps.append(
 
-            Operation(
+                ConstructionStep(
 
-                operation="insert_vertical",
+                    action=ConstructionAction.INSERT_MULLION,
 
-                params={}
+                    payload=construction.mullions
+
+                )
+
             )
+
+        # Jeżeli są segmenty (skrzydła / fixy)
+        if getattr(construction, "segments", []):
+
+            plan.steps.append(
+
+                ConstructionStep(
+
+                    action=ConstructionAction.INSERT_SASH,
+
+                    payload=construction.segments
+
+                )
+
+            )
+
+        # Okucia
+        plan.steps.append(
+
+            ConstructionStep(
+
+                action=ConstructionAction.INSERT_HARDWARE
+
+            )
+
         )
 
-        operations.append(
+        # Szyby
+        plan.steps.append(
 
-            Operation(
+            ConstructionStep(
 
-                operation="create_left_segment",
+                action=ConstructionAction.INSERT_GLASS
 
-                params={
-                    "opening":
-                    segments[0].get(
-                        "opening"
-                    )
-                }
             )
+
         )
 
-        operations.append(
+        # Zapis
+        plan.steps.append(
 
-            Operation(
+            ConstructionStep(
 
-                operation="create_right_segment",
+                action=ConstructionAction.SAVE
 
-                params={
-                    "opening":
-                    segments[1].get(
-                        "opening"
-                    )
-                }
             )
+
         )
 
-    return operations
+        return plan

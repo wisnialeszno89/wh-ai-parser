@@ -1,0 +1,28 @@
+{
+  "manufacturer": "VEKA",
+  "system": "Softline 82 MD",
+
+  "default": {
+
+    "frame": "",
+
+    "glass": {
+
+      "package": "48 mm",
+
+      "build": "4/16/4/16/4",
+
+      "ug": 0.5
+    },
+
+    "hardware": {
+
+      "manufacturer": "Winkhaus",
+
+      "system": "activPilot Concept",
+
+      "variant": "GAM/GAMA Z"
+    }
+
+  }
+}

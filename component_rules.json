@@ -1,0 +1,21 @@
+{
+  "hardware": {
+
+    "required_if": [
+
+      "opening"
+
+    ]
+
+  },
+
+  "glass": {
+
+    "required_if": [
+
+      "glazed"
+
+    ]
+
+  }
+}

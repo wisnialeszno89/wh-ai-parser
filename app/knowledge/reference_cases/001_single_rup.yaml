@@ -1,0 +1,54 @@
+id: 001
+
+name: Single RUP
+
+input:
+
+  description: |
+    Veka 82
+    Antracyt obustronny
+    Perfect
+    RUP
+    1300x1300
+
+interpretation:
+
+  profile: VEKA_82
+
+  color: RAL7016_BOTH
+
+  opening: RIGHT_TILT_TURN
+
+  glazing: THREE_PANE
+
+  width: 1300
+
+  height: 1300
+
+construction:
+
+  fields:
+
+    - type: RIGHT_TILT_TURN
+
+workflow:
+
+  - FRAME
+
+  - SASH
+
+  - HARDWARE
+
+  - GLASS
+
+human_notes:
+
+  - RUP = DKR
+
+  - Najpierw rama
+
+  - Następnie skrzydło
+
+  - Potem okucia
+
+  - Na końcu szyba
