@@ -14,8 +14,8 @@ from app.gui.gui_planner import (
     GuiPlanner
 )
 
-from app.runtime.console.console_runtime import (
-    ConsoleRuntime
+from app.runtime.execution.execution_runtime import (
+    ExecutionRuntime
 )
 
 
@@ -53,7 +53,6 @@ gui_plan = (
     .build(construction_plan)
 )
 
-ConsoleRuntime().execute(
-
+ExecutionRuntime().execute(
     gui_plan
 )
