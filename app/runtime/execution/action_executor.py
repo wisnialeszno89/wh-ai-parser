@@ -2,12 +2,25 @@ from app.runtime.execution.tool_locator import (
     ToolLocator,
 )
 
+from app.runtime.execution.mouse_controller import (
+    MouseController,
+)
+
 
 class ActionExecutor:
 
-    def __init__(self):
+    def __init__(
+        self,
+        context,
+    ):
 
-        self.locator = ToolLocator()
+        self.context = context
+
+        self.locator = ToolLocator(
+            context
+        )
+
+        self.mouse = MouseController()
 
     def execute(
         self,
@@ -26,12 +39,13 @@ class ActionExecutor:
             f"[FOUND] {element}"
         )
 
-        #
-        # tutaj za chwilę:
-        #
-        # MouseController.click(...)
-        #
-        # KeyboardController.write(...)
-        #
+        if (
+            self.context.mouse_enabled
+        ):
 
-        return True
+            self.mouse.click(
+                element.x,
+                element.y,
+            )
+
+        return element

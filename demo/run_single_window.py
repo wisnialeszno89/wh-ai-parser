@@ -53,6 +53,14 @@ gui_plan = (
     .build(construction_plan)
 )
 
-ExecutionRuntime().execute(
+from app.runtime.execution.context.execution_context import (
+    ExecutionContext,
+)
+
+context = ExecutionContext()
+
+ExecutionRuntime(
+    context
+).execute(
     gui_plan
 )

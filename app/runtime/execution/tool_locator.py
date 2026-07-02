@@ -1,24 +1,37 @@
+from app.gui.enums.gui_tool import GuiTool
+
+from app.runtime.execution.models.screen_element import (
+    ScreenElement,
+)
+
+
 class ToolLocator:
+
+    def __init__(
+        self,
+        context,
+    ):
+        self.context = context
 
     def locate(
         self,
-        tool,
-    ):
+        tool: GuiTool,
+    ) -> ScreenElement:
 
         print(
             f"[LOCATE] {tool.name}"
         )
 
         #
-        # później:
-        #
-        # Vision
-        # GUI Memory
-        # AI
+        # Temporary fake element.
+        # Następny sprint zastąpi to Vision.
         #
 
-        return {
-            "tool": tool.name,
-            "x": 0,
-            "y": 0,
-        }
+        return ScreenElement(
+            name=tool.name,
+            x=0,
+            y=0,
+            width=32,
+            height=32,
+            confidence=1.0,
+        )
