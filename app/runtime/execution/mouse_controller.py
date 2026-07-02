@@ -1,6 +1,3 @@
-import pyautogui
-
-
 class MouseController:
 
     def click(
@@ -9,6 +6,13 @@ class MouseController:
         y: int,
     ):
 
-        print(f"[CLICK] ({x}, {y})")
+        import pyautogui
 
-        pyautogui.click(x, y)
+        print(
+            f"[CLICK] ({x}, {y})"
+        )
+
+        pyautogui.click(
+            x,
+            y,
+        )

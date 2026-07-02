@@ -2,10 +2,6 @@ from app.runtime.execution.tool_locator import (
     ToolLocator,
 )
 
-from app.runtime.execution.mouse_controller import (
-    MouseController,
-)
-
 
 class ActionExecutor:
 
@@ -19,8 +15,6 @@ class ActionExecutor:
         self.locator = ToolLocator(
             context
         )
-
-        self.mouse = MouseController()
 
     def execute(
         self,
@@ -39,11 +33,13 @@ class ActionExecutor:
             f"[FOUND] {element}"
         )
 
-        if (
-            self.context.mouse_enabled
-        ):
+        if self.context.mouse_enabled:
 
-            self.mouse.click(
+            from app.runtime.execution.mouse_controller import (
+                MouseController,
+            )
+
+            MouseController().click(
                 element.x,
                 element.y,
             )
