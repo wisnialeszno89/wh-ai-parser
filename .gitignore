@@ -12,3 +12,4 @@ runtime_data/
 training_data/
 generated_offers/
 *.log
+.venv/
