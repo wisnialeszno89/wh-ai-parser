@@ -1,7 +1,13 @@
-from app.gui.enums.gui_tool import GuiTool
+from app.gui.enums.gui_tool import (
+    GuiTool,
+)
 
 from app.runtime.execution.models.screen_element import (
     ScreenElement,
+)
+
+from app.runtime.execution.vision.runtime_vision import (
+    RuntimeVision,
 )
 
 
@@ -11,7 +17,10 @@ class ToolLocator:
         self,
         context,
     ):
+
         self.context = context
+
+        self.vision = RuntimeVision()
 
     def locate(
         self,
@@ -23,8 +32,20 @@ class ToolLocator:
         )
 
         #
-        # Temporary fake element.
-        # Następny sprint zastąpi to Vision.
+        # Pierwszy prawdziwy krok Vision.
+        #
+
+        image = self.vision.capture()
+
+        print(
+            f"[VISION] Image shape: {image.shape}"
+        )
+
+        #
+        # Następny sprint:
+        #
+        # ToolbarDetector
+        # CandidateExtractor
         #
 
         return ScreenElement(
