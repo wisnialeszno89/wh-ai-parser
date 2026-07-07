@@ -1,13 +1,18 @@
-from dataclasses import dataclass
+from app.runtime.execution.screen_cache import (
+    ScreenCache,
+)
 
 
-@dataclass
 class ExecutionContext:
 
-    screenshot: object | None = None
+    def __init__(
 
-    templates_dir: str = ""
+        self,
 
-    mouse_enabled: bool = False
+        mouse_enabled=False,
 
-    debug: bool = True
+    ):
+
+        self.mouse_enabled = mouse_enabled
+
+        self.cache = ScreenCache()

@@ -2,6 +2,18 @@ from app.runtime.execution.tool_locator import (
     ToolLocator,
 )
 
+from app.runtime.execution.mouse_controller import (
+    MouseController,
+)
+
+from app.runtime.execution.screen_verifier import (
+    ScreenVerifier,
+)
+
+from app.runtime.execution.action_result import (
+    ActionResult,
+)
+
 
 class ActionExecutor:
 
@@ -16,10 +28,14 @@ class ActionExecutor:
             context
         )
 
+        self.mouse = MouseController()
+
+        self.verifier = ScreenVerifier()
+
     def execute(
         self,
         action,
-    ):
+    ) -> ActionResult:
 
         print(
             f"[EXEC] {action.tool.name}"
@@ -33,15 +49,43 @@ class ActionExecutor:
             f"[FOUND] {element}"
         )
 
+        success = True
+
         if self.context.mouse_enabled:
 
-            from app.runtime.execution.mouse_controller import (
-                MouseController,
+            click_x = (
+                element.x
+                + element.width // 2
             )
 
-            MouseController().click(
-                element.x,
-                element.y,
+            click_y = (
+                element.y
+                + element.height // 2
             )
 
-        return element
+            print(
+                f"[CENTER] ({click_x}, {click_y})"
+            )
+
+            before = self.context.cache.screenshot
+
+            self.mouse.click(
+                click_x,
+                click_y,
+            )
+
+            success = self.verifier.verify_change(
+                before
+            )
+
+            self.context.cache.clear()
+
+        return ActionResult(
+
+            success=success,
+
+            confidence=element.confidence,
+
+            message=action.tool.name,
+
+        )

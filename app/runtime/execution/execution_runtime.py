@@ -1,11 +1,17 @@
-from app.gui.gui_plan import GuiPlan
-
-from app.runtime.execution.action_executor import (
-    ActionExecutor,
+from app.gui.gui_plan import (
+    GuiPlan,
 )
 
 from app.runtime.execution.context.execution_context import (
     ExecutionContext,
+)
+
+from app.runtime.mission.mission import (
+    Mission,
+)
+
+from app.runtime.mission.mission_executor import (
+    MissionExecutor,
 )
 
 
@@ -19,21 +25,30 @@ class ExecutionRuntime:
 
     ):
 
-        self.context = context
-
-        self.executor = ActionExecutor(
+        self.executor = MissionExecutor(
             context
         )
 
     def execute(
+
         self,
+
         gui_plan: GuiPlan,
+
     ):
 
-        for action in gui_plan.actions:
+        mission = Mission(
 
-            self.executor.execute(
-                action
-            )
+            name="Build window",
 
-        return True
+            gui_plan=gui_plan,
+
+        )
+
+        state = self.executor.execute(
+
+            mission
+
+        )
+
+        return state.completed

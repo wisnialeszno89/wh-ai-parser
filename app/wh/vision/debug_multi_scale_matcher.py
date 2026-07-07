@@ -77,7 +77,9 @@ class DebugMultiScaleMatcher:
 
             height, width = resized.shape[:2]
 
-            candidate = MatchResult(
+                        candidate = MatchResult(
+
+                found=True,
 
                 x=x,
 

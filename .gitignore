@@ -13,3 +13,6 @@ training_data/
 generated_offers/
 *.log
 .venv/
+tree.txt
+.pytest_cache/
+.mypy_cache/

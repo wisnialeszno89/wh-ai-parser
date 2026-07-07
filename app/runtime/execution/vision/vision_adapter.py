@@ -1,5 +1,7 @@
 from pathlib import Path
 
+from app.gui.enums.gui_tool import GuiTool
+
 from app.runtime.execution.models.screen_element import (
     ScreenElement,
 )
@@ -8,48 +10,70 @@ from app.wh.vision.screen_scene_graph import (
     ScreenSceneGraph,
 )
 
+from app.wh.vision.screenshot import (
+    Screenshot,
+)
+
 
 class VisionAdapter:
 
     def __init__(self):
 
-        self.scene_graph = ScreenSceneGraph()
+        self.scene = ScreenSceneGraph()
+
+        self.templates = Path("templates")
+
+        self.mapping = {
+
+            GuiTool.FRAME: "frame_tool.png",
+
+            GuiTool.SASH: "sash_tool.png",
+
+            GuiTool.GLASS: "glass_tool.png",
+
+            GuiTool.HARDWARE: "hardware_tool.png",
+            
+	    GuiTool.SAVE: "close_button.png",
+
+        }
 
     def locate(
 
         self,
 
-        screenshot,
+        screenshot: Screenshot,
 
-        templates_dir,
-
-        tool_name,
+        tool: GuiTool,
 
     ) -> ScreenElement:
 
-        objects = self.scene_graph.analyze(
+        objects = self.scene.analyze(
 
             screenshot,
 
-            templates_dir,
+            str(self.templates),
 
         )
 
-        #
-        # Szukamy tylko właściwego narzędzia.
-        #
+        wanted = self.mapping.get(tool)
+
+        if wanted is None:
+
+            raise RuntimeError(
+
+                f"No template mapped for {tool.name}"
+
+            )
 
         for obj in objects:
 
-            template_name = Path(obj.name).stem.upper()
-
-            if template_name != tool_name.upper():
+            if obj.name != wanted:
 
                 continue
 
             return ScreenElement(
 
-                name=tool_name,
+                name=tool.name,
 
                 x=obj.x,
 
@@ -65,6 +89,6 @@ class VisionAdapter:
 
         raise RuntimeError(
 
-            f"{tool_name} not found"
+            f"{tool.name} not found"
 
         )

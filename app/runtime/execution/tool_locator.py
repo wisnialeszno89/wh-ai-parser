@@ -1,4 +1,4 @@
-from app.gui.enums.gui_tool import (
+﻿from app.gui.enums.gui_tool import (
     GuiTool,
 )
 
@@ -8,6 +8,10 @@ from app.runtime.execution.models.screen_element import (
 
 from app.runtime.execution.vision.runtime_vision import (
     RuntimeVision,
+)
+
+from app.runtime.execution.vision.vision_adapter import (
+    VisionAdapter,
 )
 
 
@@ -22,6 +26,8 @@ class ToolLocator:
 
         self.vision = RuntimeVision()
 
+        self.adapter = VisionAdapter()
+
     def locate(
         self,
         tool: GuiTool,
@@ -32,27 +38,95 @@ class ToolLocator:
         )
 
         #
-        # Pierwszy prawdziwy krok Vision.
+        # Cache screenshot
         #
 
-        image = self.vision.capture()
+        if self.context.cache.screenshot is None:
 
-        print(
-            f"[VISION] Image shape: {image.shape}"
-        )
+            screenshot = self.vision.capture()
+
+            self.context.cache.screenshot = screenshot
+
+        else:
+
+            screenshot = self.context.cache.screenshot
+
+            print(
+                "[CACHE] Screenshot"
+            )
 
         #
-        # Następny sprint:
-        #
-        # ToolbarDetector
-        # CandidateExtractor
+        # Cache objects
         #
 
-        return ScreenElement(
-            name=tool.name,
-            x=0,
-            y=0,
-            width=32,
-            height=32,
-            confidence=1.0,
+        if self.context.cache.objects is None:
+
+            objects = self.adapter.scene.analyze(
+
+                screenshot,
+
+                str(
+                    self.adapter.templates
+                ),
+
+            )
+
+            self.context.cache.objects = objects
+
+        else:
+
+            objects = self.context.cache.objects
+
+            print(
+                "[CACHE] Objects"
+            )
+
+        wanted = self.adapter.mapping.get(tool)
+
+        if wanted is None:
+
+            raise RuntimeError(
+
+                f"No template mapped for {tool.name}"
+
+            )
+
+        for obj in objects:
+
+            if obj.name != wanted:
+
+                continue
+
+            element = ScreenElement(
+
+                name=tool.name,
+
+                x=obj.x,
+
+                y=obj.y,
+
+                width=obj.width,
+
+                height=obj.height,
+
+                confidence=obj.confidence,
+
+            )
+
+            print(
+
+                f"[VISION] FOUND "
+
+                f"{element.name} "
+
+                f"conf={element.confidence:.3f}"
+
+            )
+
+            return element
+
+        raise RuntimeError(
+
+            f"{tool.name} not found"
+
         )

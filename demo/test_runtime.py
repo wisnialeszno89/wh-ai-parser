@@ -70,7 +70,11 @@ def main():
 
     runtime = ExecutionRuntime(
 
-        ExecutionContext()
+    ExecutionContext(
+
+        mouse_enabled=True,
+
+    	)
 
     )
 

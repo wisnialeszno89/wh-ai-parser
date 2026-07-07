@@ -1,158 +1,84 @@
 import cv2
 
 from app.wh.vision.match_result import (
-    MatchResult
+    MatchResult,
 )
 
 
 class OpenCVAdapter:
 
     def match(
-
         self,
-
         screenshot_path,
-
-        template_path
-
+        template_path,
     ):
 
         screenshot = cv2.imread(
-
             screenshot_path
-
         )
 
         if screenshot is None:
-
             raise RuntimeError(
-
-                f"Cannot load screenshot: "
-
-                f"{screenshot_path}"
-
+                f"Cannot load screenshot: {screenshot_path}"
             )
 
         template = cv2.imread(
-
             template_path
-
         )
 
         if template is None:
-
             raise RuntimeError(
-
-                f"Cannot load template: "
-
-                f"{template_path}"
-
+                f"Cannot load template: {template_path}"
             )
 
         return self.match_array(
-
             screenshot,
-
-            template
-
+            template,
         )
 
     def match_array(
-
         self,
-
         screenshot,
-
-        template
-
+        template,
     ):
 
         if (
-
-            len(
-
-                screenshot.shape
-
-            ) == 3
-
-            and
-
-            screenshot.shape[2] == 4
-
+            len(screenshot.shape) == 3
+            and screenshot.shape[2] == 4
         ):
-
             screenshot = cv2.cvtColor(
-
                 screenshot,
-
-                cv2.COLOR_BGRA2BGR
-
+                cv2.COLOR_BGRA2BGR,
             )
 
         if (
-
-            len(
-
-                template.shape
-
-            ) == 3
-
-            and
-
-            template.shape[2] == 4
-
+            len(template.shape) == 3
+            and template.shape[2] == 4
         ):
-
             template = cv2.cvtColor(
-
                 template,
-
-                cv2.COLOR_BGRA2BGR
-
+                cv2.COLOR_BGRA2BGR,
             )
 
         result = cv2.matchTemplate(
-
             screenshot,
-
             template,
-
-            cv2.TM_CCOEFF_NORMED
-
+            cv2.TM_CCOEFF_NORMED,
         )
 
-        _, confidence, _, location = (
-
-            cv2.minMaxLoc(
-
-                result
-
-            )
-
+        _, confidence, _, location = cv2.minMaxLoc(
+            result
         )
 
         x, y = location
 
-        height, width = (
-
-            template.shape[:2]
-
-        )
+        height, width = template.shape[:2]
 
         return MatchResult(
-
+            found=True,
             x=x,
-
             y=y,
-
             width=width,
-
             height=height,
-
-            confidence=float(
-
-                confidence
-
-            )
-
+            confidence=float(confidence),
         )

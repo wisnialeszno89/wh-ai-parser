@@ -20,4 +20,4 @@ class RuntimeVision:
             f"{screenshot.width}x{screenshot.height}"
         )
 
-        return screenshot.image
+        return screenshot
