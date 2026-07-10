@@ -2,6 +2,10 @@
     GuiTool,
 )
 
+from app.runtime.execution.debug.debug_overlay import (
+    DebugOverlay,
+)
+
 from app.runtime.execution.models.screen_element import (
     ScreenElement,
 )
@@ -27,6 +31,8 @@ class ToolLocator:
         self.vision = RuntimeVision()
 
         self.adapter = VisionAdapter()
+
+        self.debug = DebugOverlay()
 
     def locate(
         self,
@@ -81,7 +87,9 @@ class ToolLocator:
                 "[CACHE] Objects"
             )
 
-        wanted = self.adapter.mapping.get(tool)
+        wanted = self.adapter.mapping.get(
+            tool
+        )
 
         if wanted is None:
 
@@ -110,6 +118,18 @@ class ToolLocator:
                 height=obj.height,
 
                 confidence=obj.confidence,
+
+            )
+
+            #
+            # Save debug image.
+            #
+
+            self.debug.save(
+
+                screenshot,
+
+                element,
 
             )
 

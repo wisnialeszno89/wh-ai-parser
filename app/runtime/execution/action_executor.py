@@ -1,3 +1,5 @@
+import time
+
 from app.runtime.execution.tool_locator import (
     ToolLocator,
 )
@@ -37,48 +39,104 @@ class ActionExecutor:
         action,
     ) -> ActionResult:
 
-        print(
-            f"[EXEC] {action.tool.name}"
-        )
+        print()
+        print("=" * 60)
+        print(f"[ACTION] {action.tool.name}")
+        print("=" * 60)
+
+        #
+        # Locate UI element.
+        #
 
         element = self.locator.locate(
             action.tool
         )
 
-        print(
-            f"[FOUND] {element}"
+        if element is None:
+
+            print("[ERROR] Element not found.")
+
+            return ActionResult(
+
+                success=False,
+
+                confidence=0.0,
+
+                message=f"{action.tool.name} not found",
+
+            )
+
+        print(f"[FOUND] {element}")
+
+        click_x = (
+            element.x
+            + element.width // 2
         )
 
-        success = True
+        click_y = (
+            element.y
+            + element.height // 2
+        )
 
-        if self.context.mouse_enabled:
+        print(
+            f"[CENTER] ({click_x}, {click_y})"
+        )
 
-            click_x = (
-                element.x
-                + element.width // 2
-            )
+        print(
+            f"[CONFIDENCE] {element.confidence:.3f}"
+        )
 
-            click_y = (
-                element.y
-                + element.height // 2
-            )
+        #
+        # Dry run.
+        #
+
+        if not self.context.mouse_enabled:
 
             print(
-                f"[CENTER] ({click_x}, {click_y})"
+                "[DRY RUN] Mouse disabled."
             )
 
-            before = self.context.cache.screenshot
+            return ActionResult(
 
-            self.mouse.click(
-                click_x,
-                click_y,
+                success=True,
+
+                confidence=element.confidence,
+
+                message="Dry run",
+
             )
 
-            success = self.verifier.verify_change(
-                before
-            )
+        #
+        # Save screen before click.
+        #
 
-            self.context.cache.clear()
+        before = self.context.cache.screenshot
+
+        print()
+        print(
+            "[DEBUG] Clicking in 2 seconds..."
+        )
+
+        time.sleep(2)
+
+        self.mouse.click(
+            click_x,
+            click_y,
+        )
+
+        #
+        # Verify GUI changed.
+        #
+
+        success = self.verifier.verify_change(
+            before
+        )
+
+        self.context.cache.clear()
+
+        print(
+            f"[VERIFY] success={success}"
+        )
 
         return ActionResult(
 

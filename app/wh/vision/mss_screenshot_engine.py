@@ -1,49 +1,56 @@
-import numpy as np
 import mss
+import numpy as np
+
+from app.runtime.execution.window.window_rect import (
+    WindowRect,
+)
 
 from app.wh.vision.screenshot import (
-    Screenshot
+    Screenshot,
 )
 
 
 class MSSScreenshotEngine:
+    """
+    Captures screenshots of a given window or screen region.
+
+    This class is intentionally unaware of how the window
+    was located. It only knows how to capture pixels.
+    """
 
     def capture(
+        self,
+        rect: WindowRect,
+    ) -> Screenshot:
 
-        self
-
-    ):
+        print(
+            f"[SCREENSHOT] "
+            f"{rect.left},{rect.top} "
+            f"{rect.width}x{rect.height}"
+        )
 
         with mss.mss() as sct:
 
-            monitor = (
+            monitor = {
+                "left": rect.left,
+                "top": rect.top,
+                "width": rect.width,
+                "height": rect.height,
+            }
 
-                sct.monitors[1]
+            shot = sct.grab(monitor)
 
-            )
+            image = np.array(shot)
 
-            shot = (
-
-                sct.grab(
-
-                    monitor
-
-                )
-
-            )
-
-            image = np.array(
-
-                shot
-
-            )
-
-            return Screenshot(
-
+            screenshot = Screenshot(
                 width=shot.width,
-
                 height=shot.height,
-
-                image=image
-
+                image=image,
             )
+
+        print(
+            f"[SCREENSHOT] Captured "
+            f"{screenshot.width}x{screenshot.height}"
+        )
+
+        return screenshot
