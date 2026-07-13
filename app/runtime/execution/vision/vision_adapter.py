@@ -25,34 +25,42 @@ class VisionAdapter:
 
         self.mapping = {
 
-            GuiTool.FRAME: "frame_tool.png",
+            GuiTool.FRAME: [
+            "frame_tool.png",
+            "frame_tool_1.png",
+            "frame_tool_2.png",
+            "frame_tool_3.png",
+            "frame_tool_4.png",
+            "frame_tool_5.png",
+            ],
 
-            GuiTool.SASH: "sash_tool.png",
+            GuiTool.SASH: [
+                "sash_tool.png",
+            ],
 
-            GuiTool.GLASS: "glass_tool.png",
+            GuiTool.GLASS: [
+                "glass_tool.png",
+            ],
 
-            GuiTool.HARDWARE: "hardware_tool.png",
-            
-	    GuiTool.SAVE: "close_button.png",
+            GuiTool.HARDWARE: [
+                "hardware_tool.png",
+            ],
+
+            GuiTool.SAVE: [
+                "close_button.png",
+            ],
 
         }
 
     def locate(
-
         self,
-
         screenshot: Screenshot,
-
         tool: GuiTool,
-
     ) -> ScreenElement:
 
         objects = self.scene.analyze(
-
             screenshot,
-
             str(self.templates),
-
         )
 
         wanted = self.mapping.get(tool)
@@ -60,35 +68,29 @@ class VisionAdapter:
         if wanted is None:
 
             raise RuntimeError(
-
                 f"No template mapped for {tool.name}"
-
             )
 
         for obj in objects:
 
-            if obj.name != wanted:
+            if obj.name in wanted:
 
-                continue
+                return ScreenElement(
 
-            return ScreenElement(
+                    name=tool.name,
 
-                name=tool.name,
+                    x=obj.x,
 
-                x=obj.x,
+                    y=obj.y,
 
-                y=obj.y,
+                    width=obj.width,
 
-                width=obj.width,
+                    height=obj.height,
 
-                height=obj.height,
+                    confidence=obj.confidence,
 
-                confidence=obj.confidence,
-
-            )
+                )
 
         raise RuntimeError(
-
             f"{tool.name} not found"
-
         )

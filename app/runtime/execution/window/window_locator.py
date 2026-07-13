@@ -23,14 +23,18 @@ class WindowLocator:
                 if not window.title.startswith("Okna"):
                     continue
 
+                print(
+                    f"{window.title} -> "
+                    f"{window.left},{window.top} "
+                    f"{window.width}x{window.height}"
+                )
+
                 #
-                # Ignore minimized/hidden windows.
+                # Ignore minimized windows.
                 #
 
                 if (
-                    window.width < 500
-                    or window.height < 500
-                    or window.left < -10000
+                    window.left < -10000
                     or window.top < -10000
                 ):
                     continue
@@ -47,7 +51,7 @@ class WindowLocator:
             )
 
         #
-        # Use the largest visible window.
+        # Largest visible window wins.
         #
 
         window = max(
@@ -66,8 +70,13 @@ class WindowLocator:
         )
 
         return WindowRect(
+
             left=window.left,
+
             top=window.top,
+
             width=window.width,
+
             height=window.height,
+
         )

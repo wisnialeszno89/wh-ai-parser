@@ -41,7 +41,7 @@ class ScreenSceneGraph:
         objects = []
 
         for template_path in sorted(
-            Path(templates_dir).glob("*.png")
+            Path(templates_dir).rglob("*.png")
         ):
 
             template = cv2.imread(
@@ -68,5 +68,18 @@ class ScreenSceneGraph:
             key=lambda obj: obj.confidence,
             reverse=True,
         )
+
+        print()
+        print("=" * 60)
+        print("TOP 18 MATCHES")
+        print("=" * 60)
+
+        for obj in objects:
+
+            print(
+                f"{obj.name:<30} {obj.confidence:.3f}"
+            )
+
+        print()
 
         return objects

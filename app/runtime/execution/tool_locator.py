@@ -99,7 +99,7 @@ class ToolLocator:
 
         for obj in objects:
 
-            if obj.name != wanted:
+            if obj.name not in wanted:
 
                 continue
 
