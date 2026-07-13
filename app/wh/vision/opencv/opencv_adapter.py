@@ -42,6 +42,12 @@ class OpenCVAdapter:
         template,
     ):
 
+        if screenshot is None:
+            raise RuntimeError("Screenshot is None")
+
+        if template is None:
+            raise RuntimeError("Template is None")
+
         if (
             len(screenshot.shape) == 3
             and screenshot.shape[2] == 4
@@ -58,6 +64,21 @@ class OpenCVAdapter:
             template = cv2.cvtColor(
                 template,
                 cv2.COLOR_BGRA2BGR,
+            )
+
+        sh, sw = screenshot.shape[:2]
+        th, tw = template.shape[:2]
+
+        print()
+        print("=" * 60)
+        print("[MATCH]")
+        print(f"SCREENSHOT : {sw}x{sh}")
+        print(f"TEMPLATE   : {tw}x{th}")
+        print("=" * 60)
+
+        if th > sh or tw > sw:
+            raise RuntimeError(
+                f"Template {tw}x{th} larger than screenshot {sw}x{sh}"
             )
 
         result = cv2.matchTemplate(

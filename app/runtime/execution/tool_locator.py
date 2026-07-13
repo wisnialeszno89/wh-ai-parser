@@ -44,21 +44,21 @@ class ToolLocator:
         )
 
         #
-        # Cache screenshot
+        # Cache VisionContext
         #
 
         if self.context.cache.screenshot is None:
 
-            screenshot = self.vision.capture()
+            vision = self.vision.capture()
 
-            self.context.cache.screenshot = screenshot
+            self.context.cache.screenshot = vision
 
         else:
 
-            screenshot = self.context.cache.screenshot
+            vision = self.context.cache.screenshot
 
             print(
-                "[CACHE] Screenshot"
+                "[CACHE] Vision"
             )
 
         #
@@ -69,7 +69,7 @@ class ToolLocator:
 
             objects = self.adapter.scene.analyze(
 
-                screenshot,
+                vision.screenshot,
 
                 str(
                     self.adapter.templates
@@ -94,9 +94,7 @@ class ToolLocator:
         if wanted is None:
 
             raise RuntimeError(
-
                 f"No template mapped for {tool.name}"
-
             )
 
         for obj in objects:
@@ -121,24 +119,10 @@ class ToolLocator:
 
             )
 
-            #
-            # Save debug image.
-            #
-
-            self.debug.save(
-
-                screenshot,
-
-                element,
-
-            )
-
             print(
 
                 f"[VISION] FOUND "
-
                 f"{element.name} "
-
                 f"conf={element.confidence:.3f}"
 
             )
@@ -146,7 +130,5 @@ class ToolLocator:
             return element
 
         raise RuntimeError(
-
             f"{tool.name} not found"
-
         )

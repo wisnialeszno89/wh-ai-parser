@@ -14,9 +14,7 @@ from app.runtime.world.world_state import (
 class PerceptionEngine:
 
     def __init__(
-
         self,
-
     ):
 
         self.vision = RuntimeVision()
@@ -24,28 +22,24 @@ class PerceptionEngine:
         self.adapter = VisionAdapter()
 
     def perceive(
-
         self,
-
     ) -> WorldState:
 
-        screenshot = self.vision.capture()
+        vision = self.vision.capture()
 
         objects = self.adapter.scene.analyze(
 
-            screenshot,
+            vision.screenshot,
 
             str(
-
                 self.adapter.templates
-
             ),
 
         )
 
         world = WorldState()
 
-        world.screenshot = screenshot
+        world.screenshot = vision.screenshot
 
         world.objects = objects
 
@@ -53,11 +47,7 @@ class PerceptionEngine:
         # Pierwsza interpretacja świata.
         #
 
-        world.toolbar_visible = len(
-
-            objects
-
-        ) > 0
+        world.toolbar_visible = len(objects) > 0
 
         for obj in objects:
 

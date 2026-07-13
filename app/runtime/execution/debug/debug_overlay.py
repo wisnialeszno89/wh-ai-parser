@@ -26,7 +26,8 @@ class DebugOverlay:
     def render(
         self,
         screenshot,
-        toolbar: GUIObject,
+        toolbar,
+        canvas=None,
     ):
 
         image = screenshot.image.copy()

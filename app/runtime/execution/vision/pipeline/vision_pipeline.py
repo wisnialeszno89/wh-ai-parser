@@ -26,6 +26,10 @@ from app.runtime.execution.vision.analyzers.candidate_generator import (
     CandidateGenerator,
 )
 
+from app.runtime.execution.vision.analyzers.canvas_analyzer import (
+    CanvasAnalyzer,
+)
+
 from app.runtime.execution.vision.roi.roi_extractor import (
     ROIExtractor,
 )
@@ -44,6 +48,8 @@ class VisionPipeline:
         self.screenshot_engine = MSSScreenshotEngine()
 
         self.toolbar_detector = LegacyToolbarBandDetector()
+
+        self.canvas_analyzer = CanvasAnalyzer()
 
         self.section_analyzer = SectionAnalyzer()
 
@@ -97,6 +103,14 @@ class VisionPipeline:
         context.toolbar = toolbar
 
         #
+        # Canvas.
+        #
+
+        context = self.canvas_analyzer.analyze(
+            context,
+        )
+
+        #
         # Sections.
         #
 
@@ -112,9 +126,9 @@ class VisionPipeline:
         for section in toolbar.children:
 
             self.candidate_generator.analyze(
-            screenshot,
-            section,
-        )
+                screenshot,
+                section,
+            )
 
             #
             # Save every detected ROI.
@@ -136,8 +150,9 @@ class VisionPipeline:
         #
 
         self.debug_overlay.render(
-            screenshot=screenshot,
-            toolbar=toolbar,
-        )
+        screenshot=screenshot,
+        toolbar=toolbar,
+        canvas=context.canvas,
+    )
 
         return context

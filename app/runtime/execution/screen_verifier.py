@@ -18,11 +18,27 @@ class ScreenVerifier:
 
         current = self.vision.capture()
 
+        print()
+        print("=" * 60)
+        print("[VERIFY]")
+
+        print(
+            "PREVIOUS:",
+            previous.screenshot.image.shape,
+        )
+
+        print(
+            "CURRENT :",
+            current.screenshot.image.shape,
+        )
+
+        print("=" * 60)
+
         difference = cv2.absdiff(
 
-            previous.image,
+            previous.screenshot.image,
 
-            current.image,
+            current.screenshot.image,
 
         )
 

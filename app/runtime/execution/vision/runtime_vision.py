@@ -1,5 +1,5 @@
-from app.wh.vision.mss_screenshot_engine import (
-    MSSScreenshotEngine,
+from app.runtime.execution.vision.pipeline.vision_pipeline import (
+    VisionPipeline,
 )
 
 
@@ -7,17 +7,10 @@ class RuntimeVision:
 
     def __init__(self):
 
-        self.engine = MSSScreenshotEngine()
+        self.pipeline = VisionPipeline()
 
     def capture(self):
 
-        print("[VISION] Capture screenshot")
+        print("[VISION] Observe runtime")
 
-        screenshot = self.engine.capture()
-
-        print(
-            f"[VISION] Resolution: "
-            f"{screenshot.width}x{screenshot.height}"
-        )
-
-        return screenshot
+        return self.pipeline.observe()

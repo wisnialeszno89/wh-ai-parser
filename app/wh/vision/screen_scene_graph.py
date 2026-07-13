@@ -2,117 +2,71 @@ from pathlib import Path
 
 import cv2
 
-from app.wh.vision.hybrid_matcher import (
-    HybridMatcher
+from app.wh.vision.opencv.opencv_adapter import (
+    OpenCVAdapter,
 )
 
 from app.wh.vision.screen_object import (
-    ScreenObject
+    ScreenObject,
 )
 
 from app.wh.vision.screenshot import (
-    Screenshot
+    Screenshot,
 )
 
 
 class ScreenSceneGraph:
 
     def analyze(
-
         self,
-
         screenshot,
-
-        templates_dir
-
+        templates_dir,
     ):
 
         if isinstance(
-
             screenshot,
-
-            Screenshot
-
+            Screenshot,
         ):
 
-            screenshot_image = (
-
-                screenshot.image
-
-            )
+            screenshot_image = screenshot.image
 
         else:
 
             screenshot_image = cv2.imread(
-
-                screenshot
-
+                screenshot,
             )
 
-        matcher = HybridMatcher()
+        matcher = OpenCVAdapter()
 
         objects = []
 
         for template_path in sorted(
-
-            Path(
-
-                templates_dir
-
-            ).glob(
-
-                "*.png"
-
-            )
-
+            Path(templates_dir).glob("*.png")
         ):
 
             template = cv2.imread(
-
-                str(
-
-                    template_path
-
-                )
-
+                str(template_path),
             )
 
-            result = matcher.match(
-
+            result = matcher.match_array(
                 screenshot_image,
-
-                template
-
+                template,
             )
 
             objects.append(
-
                 ScreenObject(
-
                     name=template_path.name,
-
                     x=result.x,
-
                     y=result.y,
-
                     width=result.width,
-
                     height=result.height,
-
-                    confidence=result.confidence
-
+                    confidence=result.confidence,
                 )
-
             )
 
         objects.sort(
-
-            key=lambda obj:
-
-            obj.confidence,
-
-            reverse=True
-
+            key=lambda obj: obj.confidence,
+            reverse=True,
         )
 
         return objects

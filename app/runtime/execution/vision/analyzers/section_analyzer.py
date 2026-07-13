@@ -1,9 +1,26 @@
-from app.runtime.execution.vision.models.control_role import ControlRole
-from app.runtime.execution.vision.models.control_state import ControlState
-from app.runtime.execution.vision.models.control_type import ControlType
-from app.runtime.execution.vision.models.gui_object import GUIObject
-from app.runtime.execution.vision.models.rect import Rect
-from app.wh.vision.screenshot import Screenshot
+from app.runtime.execution.vision.models.control_role import (
+    ControlRole,
+)
+
+from app.runtime.execution.vision.models.control_state import (
+    ControlState,
+)
+
+from app.runtime.execution.vision.models.control_type import (
+    ControlType,
+)
+
+from app.runtime.execution.vision.models.gui_object import (
+    GUIObject,
+)
+
+from app.runtime.execution.vision.models.rect import (
+    Rect,
+)
+
+from app.wh.vision.screenshot import (
+    Screenshot,
+)
 
 
 class SectionAnalyzer:
@@ -11,12 +28,28 @@ class SectionAnalyzer:
     Splits the toolbar into logical sections.
 
     MVP:
-    Currently uses fixed-width sections.
-    Later this analyzer will detect real separators
-    from the screenshot.
+    Sections are currently distributed evenly across
+    the toolbar.
+
+    In Vision V2 this analyzer will detect real
+    section boundaries directly from the screenshot.
     """
 
-    SECTION_COUNT = 6
+    SECTION_ROLES = [
+
+        ControlRole.FRAME_SECTION,
+
+        ControlRole.GLASS_SECTION,
+
+        ControlRole.HARDWARE_SECTION,
+
+        ControlRole.DIMENSIONS_SECTION,
+
+        ControlRole.COLOR_SECTION,
+
+        ControlRole.ACCESSORIES_SECTION,
+
+    ]
 
     def analyze(
         self,
@@ -24,25 +57,48 @@ class SectionAnalyzer:
         toolbar: GUIObject,
     ) -> None:
 
-        section_width = (
-            toolbar.bounds.width // self.SECTION_COUNT
-        )
-
         toolbar.children.clear()
 
-        for index in range(self.SECTION_COUNT):
+        section_width = (
+
+            toolbar.bounds.width //
+
+            len(self.SECTION_ROLES)
+
+        )
+
+        for index, role in enumerate(
+
+            self.SECTION_ROLES
+
+        ):
 
             section = GUIObject(
-                id=f"section_{index + 1}",
+
+                id=role.value,
+
                 type=ControlType.SECTION,
-                role=ControlRole.UNKNOWN,
+
+                role=role,
+
                 state=ControlState.VISIBLE,
+
                 bounds=Rect(
+
                     x=index * section_width,
+
                     y=toolbar.bounds.y,
+
                     width=section_width,
+
                     height=toolbar.bounds.height,
+
                 ),
+
             )
 
-            toolbar.add_child(section)
+            toolbar.add_child(
+
+                section
+
+            )
