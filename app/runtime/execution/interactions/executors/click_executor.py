@@ -1,11 +1,17 @@
-from app.runtime.execution.execution_result import ExecutionResult
+from app.runtime.execution.contracts.interaction_executor import (
+    InteractionExecutor,
+)
+
+from app.runtime.execution.execution_result import (
+    ExecutionResult,
+)
 
 from app.runtime.execution.interactions.interaction_step import (
     InteractionStep,
 )
 
 
-class ClickExecutor:
+class ClickExecutor(InteractionExecutor):
 
     def execute(
         self,
@@ -14,17 +20,13 @@ class ClickExecutor:
     ) -> ExecutionResult:
 
         print()
-
-        print(
-            f"[CLICK] {step.target}"
-        )
+        print(f"[CLICK] {step.target}")
 
         #
-        # TODO
-        #
-        # TargetLocator
+        # TODO:
+        # GuiWorld
         # Vision
-        # MouseController
+        # Mouse
         #
 
         return ExecutionResult.ok()
