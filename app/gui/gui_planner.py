@@ -1,17 +1,17 @@
 from app.gui.gui_plan import (
-    GuiPlan
+    GuiPlan,
 )
 
 from app.gui.gui_action import (
-    GuiAction
+    GuiAction,
 )
 
 from app.gui.enums.gui_tool import (
-    GuiTool
+    GuiTool,
 )
 
 from app.construction.enums.construction_action import (
-    ConstructionAction
+    ConstructionAction,
 )
 
 
@@ -19,7 +19,7 @@ class GuiPlanner:
 
     def build(
         self,
-        construction_plan
+        construction_plan,
     ) -> GuiPlan:
 
         gui_plan = GuiPlan()
@@ -34,20 +34,33 @@ class GuiPlanner:
 
                         GuiAction(
 
-                            tool=GuiTool.FRAME
+                            tool=GuiTool.FRAME,
+
                         )
+
                     )
 
                 case ConstructionAction.SELECT_FRAME:
 
+                    print()
+                    print("========== GUI PLANNER ==========")
+                    print(step.field)
+                    print("=================================")
+
+                    action = GuiAction(
+
+                        tool=GuiTool.FRAME,
+
+                        payload=step.payload,
+
+                        construction_field=step.field,
+
+                    )
+
+                    print(action.construction_field)
+
                     gui_plan.actions.append(
-
-                        GuiAction(
-
-                            tool=GuiTool.FRAME,
-
-                            payload=step.payload
-                        )
+                        action,
                     )
 
                 case ConstructionAction.INSERT_SASH:
@@ -58,8 +71,12 @@ class GuiPlanner:
 
                             tool=GuiTool.SASH,
 
-                            payload=step.payload
+                            payload=step.payload,
+
+                            construction_field=step.field,
+
                         )
+
                     )
 
                 case ConstructionAction.INSERT_MULLION:
@@ -70,8 +87,10 @@ class GuiPlanner:
 
                             tool=GuiTool.MULLION,
 
-                            payload=step.payload
+                            payload=step.payload,
+
                         )
+
                     )
 
                 case ConstructionAction.INSERT_MOVABLE_MULLION:
@@ -82,8 +101,10 @@ class GuiPlanner:
 
                             tool=GuiTool.MOVABLE_MULLION,
 
-                            payload=step.payload
+                            payload=step.payload,
+
                         )
+
                     )
 
                 case ConstructionAction.SELECT_GLASS:
@@ -94,8 +115,12 @@ class GuiPlanner:
 
                             tool=GuiTool.GLASS,
 
-                            payload=step.payload
+                            payload=step.payload,
+
+                            construction_field=step.field,
+
                         )
+
                     )
 
                 case ConstructionAction.SELECT_HARDWARE:
@@ -106,44 +131,12 @@ class GuiPlanner:
 
                             tool=GuiTool.HARDWARE,
 
-                            payload=step.payload
+                            payload=step.payload,
+
+                            construction_field=step.field,
+
                         )
-                    )
 
-                case ConstructionAction.SELECT_EXTENSION:
-
-                    gui_plan.actions.append(
-
-                        GuiAction(
-
-                            tool=GuiTool.CONNECTOR,
-
-                            payload=step.payload
-                        )
-                    )
-
-                case ConstructionAction.INSERT_CONNECTOR:
-
-                    gui_plan.actions.append(
-
-                        GuiAction(
-
-                            tool=GuiTool.CONNECTOR,
-
-                            payload=step.payload
-                        )
-                    )
-
-                case ConstructionAction.INSERT_LIMITER:
-
-                    gui_plan.actions.append(
-
-                        GuiAction(
-
-                            tool=GuiTool.LIMITER,
-
-                            payload=step.payload
-                        )
                     )
 
                 case ConstructionAction.SAVE:
@@ -152,8 +145,10 @@ class GuiPlanner:
 
                         GuiAction(
 
-                            tool=GuiTool.SAVE
+                            tool=GuiTool.SAVE,
+
                         )
+
                     )
 
                 case _:

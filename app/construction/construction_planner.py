@@ -1,17 +1,17 @@
 from app.construction.construction_plan import (
-    ConstructionPlan
+    ConstructionPlan,
 )
 
 from app.construction.construction_step import (
-    ConstructionStep
+    ConstructionStep,
 )
 
 from app.construction.enums.construction_action import (
-    ConstructionAction
+    ConstructionAction,
 )
 
 from app.construction.models.component_selection import (
-    ComponentSelection
+    ComponentSelection,
 )
 
 
@@ -19,22 +19,30 @@ class ConstructionPlanner:
 
     def build(
         self,
-        construction
+        construction,
     ) -> ConstructionPlan:
 
         plan = ConstructionPlan()
+
+        #
+        # Create frame.
+        #
 
         plan.steps.append(
 
             ConstructionStep(
 
-                action=ConstructionAction.CREATE_FRAME
+                action=ConstructionAction.CREATE_FRAME,
 
             )
 
         )
 
         for field in construction.fields:
+
+            #
+            # Frame.
+            #
 
             if field.frame:
 
@@ -48,21 +56,35 @@ class ConstructionPlanner:
 
                             category="FRAME",
 
-                            database_key=field.frame
-                        )
+                            database_key=field.frame,
+
+                        ),
+
+                        field=field,
+
                     )
 
                 )
+
+            #
+            # Sash.
+            #
 
             plan.steps.append(
 
                 ConstructionStep(
 
-                    action=ConstructionAction.INSERT_SASH
+                    action=ConstructionAction.INSERT_SASH,
+
+                    field=field,
 
                 )
 
             )
+
+            #
+            # Glass.
+            #
 
             if field.glass:
 
@@ -76,11 +98,19 @@ class ConstructionPlanner:
 
                             category="GLASS",
 
-                            database_key=field.glass
-                        )
+                            database_key=field.glass,
+
+                        ),
+
+                        field=field,
+
                     )
 
                 )
+
+            #
+            # Hardware.
+            #
 
             if field.hardware:
 
@@ -94,11 +124,19 @@ class ConstructionPlanner:
 
                             category="HARDWARE",
 
-                            database_key=field.hardware
-                        )
+                            database_key=field.hardware,
+
+                        ),
+
+                        field=field,
+
                     )
 
                 )
+
+            #
+            # Extension.
+            #
 
             if field.extension:
 
@@ -112,17 +150,25 @@ class ConstructionPlanner:
 
                             category="EXTENSION",
 
-                            database_key=field.extension
-                        )
+                            database_key=field.extension,
+
+                        ),
+
+                        field=field,
+
                     )
 
                 )
+
+        #
+        # Save.
+        #
 
         plan.steps.append(
 
             ConstructionStep(
 
-                action=ConstructionAction.SAVE
+                action=ConstructionAction.SAVE,
 
             )
 

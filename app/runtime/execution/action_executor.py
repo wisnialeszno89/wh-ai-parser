@@ -4,16 +4,32 @@ from app.runtime.execution.tool_locator import (
     ToolLocator,
 )
 
-from app.runtime.execution.mouse_controller import (
-    MouseController,
-)
-
 from app.runtime.execution.screen_verifier import (
     ScreenVerifier,
 )
 
 from app.runtime.execution.action_result import (
     ActionResult,
+)
+
+from app.runtime.execution.keyboard.keyboard_controller import (
+    KeyboardController,
+)
+
+from app.runtime.execution.click_executor import (
+    ClickExecutor,
+)
+
+from app.runtime.execution.handlers.handler_registry import (
+    HandlerRegistry,
+)
+
+from app.runtime.execution.handlers.handler_context import (
+    HandlerContext,
+)
+
+from app.runtime.execution.interactions.interaction_executor import (
+    InteractionExecutor,
 )
 
 
@@ -27,30 +43,41 @@ class ActionExecutor:
         self.context = context
 
         self.locator = ToolLocator(
-            context
+            context,
         )
 
-        self.mouse = MouseController()
+        self.click = ClickExecutor()
+
+        self.keyboard = KeyboardController()
+
+        self.handlers = HandlerRegistry()
+
+        self.interactions = InteractionExecutor()
 
         self.verifier = ScreenVerifier()
-
+        
     def execute(
         self,
         action,
     ) -> ActionResult:
 
         print()
+        print("========== ACTION ==========")
+        print(action.construction_field)
+        print("============================")
+
+        print()
         print("=" * 60)
         print(f"[ACTION] {action.tool.name}")
         print("=" * 60)
 
-        #
-        # Locate UI element.
-        #
+        start_time = time.perf_counter()
 
         element = self.locator.locate(
-            action.tool
+            action.tool,
         )
+
+        ...
 
         if element is None:
 
@@ -67,24 +94,6 @@ class ActionExecutor:
             )
 
         print(f"[FOUND] {element}")
-
-        click_x = (
-            element.x
-            + element.width // 2
-        )
-
-        click_y = (
-            element.y
-            + element.height // 2
-        )
-
-        print(
-            f"[CENTER] ({click_x}, {click_y})"
-        )
-
-        print(
-            f"[CONFIDENCE] {element.confidence:.3f}"
-        )
 
         #
         # Dry run.
@@ -112,30 +121,73 @@ class ActionExecutor:
 
         before = self.context.cache.screenshot
 
-        print()
-        print(
-            "[DEBUG] Clicking in 2 seconds..."
+        #
+        # Click.
+        #
+
+        self.click.execute(
+            element,
         )
 
-        time.sleep(2)
+        #
+        # Execute handler.
+        #
 
-        self.mouse.click(
-            click_x,
-            click_y,
+        handler = self.handlers.get(
+            action.tool,
         )
+
+        if (
+            handler is not None
+            and action.construction_field is not None
+        ):
+
+            print(
+                f"[HANDLER] {handler.__class__.__name__}"
+            )
+
+            interactions = handler.execute(
+
+                HandlerContext(
+
+                    keyboard=self.keyboard,
+
+                    action=action,
+
+                ),
+
+                action.payload,
+
+            )
+
+            self.interactions.execute(
+                interactions,
+            )
 
         #
         # Verify GUI changed.
         #
 
         success = self.verifier.verify_change(
-            before
+            before,
         )
 
         self.context.cache.clear()
 
+        duration_ms = int(
+            (
+                time.perf_counter()
+                - start_time
+            )
+            * 1000
+        )
+
         print(
             f"[VERIFY] success={success}"
+        )
+
+        print(
+            f"[TIME] {duration_ms} ms"
         )
 
         return ActionResult(

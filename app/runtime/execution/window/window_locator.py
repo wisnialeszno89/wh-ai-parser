@@ -13,20 +13,37 @@ class WindowLocator:
 
         candidates = []
 
+        print()
+        print("=" * 60)
+        print("[WINDOW LOCATOR]")
+        print("=" * 60)
+
         for window in gw.getAllWindows():
 
             try:
 
-                if not window.title:
-                    continue
+                title = (window.title or "").strip()
 
-                if not window.title.startswith("Okna"):
+                if not title:
                     continue
 
                 print(
-                    f"{window.title} -> "
-                    f"{window.left},{window.top} "
-                    f"{window.width}x{window.height}"
+                    f"[TITLE] {title!r}"
+                )
+
+                #
+                # Match every WindowHub window.
+                #
+
+                if "okna" not in title.lower():
+                    continue
+
+                print(
+                    f"[MATCH] "
+                    f"{window.left},"
+                    f"{window.top} "
+                    f"{window.width}x"
+                    f"{window.height}"
                 )
 
                 #
@@ -37,12 +54,38 @@ class WindowLocator:
                     window.left < -10000
                     or window.top < -10000
                 ):
+
+                    print(
+                        "[SKIP] Minimized"
+                    )
+
                     continue
 
-                candidates.append(window)
+                candidates.append(
+                    window
+                )
 
-            except Exception:
-                pass
+            except Exception as e:
+
+                print()
+
+                print(
+                    "[WINDOW ERROR]"
+                )
+
+                print(
+                    type(e).__name__
+                )
+
+                print(
+                    e
+                )
+
+        print()
+
+        print(
+            f"[MATCHES] {len(candidates)}"
+        )
 
         if not candidates:
 
@@ -51,18 +94,29 @@ class WindowLocator:
             )
 
         #
-        # Largest visible window wins.
+        # Largest window wins.
         #
 
         window = max(
+
             candidates,
-            key=lambda w: w.width * w.height,
+
+            key=lambda w: (
+                w.width * w.height
+            ),
+
         )
 
         print()
-        print(f"[WINDOW] {window.title}")
+        print("=" * 60)
+        print("[WINDOW SELECTED]")
+        print("=" * 60)
+
         print(
-            f"[RECT] "
+            window.title
+        )
+
+        print(
             f"{window.left},"
             f"{window.top} "
             f"{window.width}x"

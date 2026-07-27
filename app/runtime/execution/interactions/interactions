@@ -1,0 +1,20 @@
+class InteractionExecutor:
+    """
+    Executes low-level UI interactions.
+    """
+
+    def execute(
+        self,
+        interactions,
+        runtime,
+    ):
+
+        for interaction in interactions:
+
+            print(
+                f"[INTERACTION] {interaction.__class__.__name__}"
+            )
+
+            interaction.execute(
+                runtime,
+            )

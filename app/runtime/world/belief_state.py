@@ -1,21 +1,29 @@
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 
 @dataclass(slots=True)
 class BeliefState:
 
-    frame_selected: bool = False
+    #
+    # Agent może wykonywać akcje.
+    #
 
-    toolbar_visible: bool = False
+    can_execute_actions: bool = False
 
-    popup_visible: bool = False
+    #
+    # Aktualny tryb pracy.
+    #
 
-    beliefs: dict[str, bool] = field(default_factory=dict)
+    frame_mode_active: bool = False
 
-    def set(self, name: str, value: bool = True):
+    #
+    # Czy interakcja jest zablokowana.
+    #
 
-        self.beliefs[name] = value
+    interaction_blocked: bool = False
 
-    def get(self, name: str) -> bool:
+    #
+    # Czy wykryto błąd.
+    #
 
-        return self.beliefs.get(name, False)
+    error_detected: bool = False

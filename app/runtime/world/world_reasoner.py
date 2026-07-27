@@ -5,21 +5,38 @@ from app.runtime.world.world_state import WorldState
 class WorldReasoner:
 
     def reason(
-
         self,
-
         world: WorldState,
-
     ) -> BeliefState:
 
         beliefs = BeliefState()
 
-        beliefs.toolbar_visible = world.toolbar_visible
+        #
+        # Możemy wykonywać akcje.
+        #
 
-        if world.active_tool == "FRAME":
+        beliefs.can_execute_actions = (
+            world.toolbar_visible
+        )
 
-            beliefs.frame_selected = True
+        #
+        # Aktualnie aktywne narzędzie FRAME.
+        #
 
-            beliefs.set("FRAME_SELECTED")
+        beliefs.frame_mode_active = (
+            world.active_tool == "FRAME"
+        )
+
+        #
+        # Na razie jeszcze nie analizujemy dialogów.
+        #
+
+        beliefs.interaction_blocked = False
+
+        #
+        # Na razie brak detekcji błędów.
+        #
+
+        beliefs.error_detected = False
 
         return beliefs

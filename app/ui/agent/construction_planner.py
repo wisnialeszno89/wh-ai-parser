@@ -59,7 +59,7 @@ class ConstructionPlanner:
 
                     action=ConstructionAction.INSERT_SASH,
 
-                    payload=construction.segments
+                    field=field,
 
                 )
 

@@ -13,11 +13,13 @@ class AgentBrain:
         state: AgentState,
     ):
 
-        decision = self.decision_engine.decide(
+        #
+        # Zwraca pełną decyzję.
+        #
+
+        return self.decision_engine.decide(
             state
         )
-
-        return decision.action
 
     def think(
         self,
@@ -27,12 +29,15 @@ class AgentBrain:
         print()
 
         print("[WORLD]")
+
         print(
             f"Objects: {len(state.world.objects)}"
         )
+
         print(
             f"Toolbar: {state.world.toolbar_visible}"
         )
+
         print(
             f"Active: {state.world.active_tool}"
         )
