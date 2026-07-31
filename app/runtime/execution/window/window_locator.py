@@ -24,6 +24,12 @@ class WindowLocator:
 
                 title = (window.title or "").strip()
 
+                print(
+                    f"[RAW] "
+                    f"title={title!r} "
+                    f"class={window._hWnd}"
+                )
+
                 if not title:
                     continue
 

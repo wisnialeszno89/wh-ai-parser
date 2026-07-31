@@ -2,8 +2,20 @@ from app.runtime.execution.keyboard.keyboard_controller import (
     KeyboardController,
 )
 
-from app.runtime.execution.interactions.interaction_types import (
-    InteractionType,
+from app.runtime.execution.interactions.executors.click_executor import (
+    ClickExecutor,
+)
+
+from app.runtime.execution.interactions.executors.verify_executor import (
+    VerifyExecutor,
+)
+
+from app.runtime.execution.interactions.interaction_action import (
+    InteractionAction,
+)
+
+from app.runtime.execution.interactions.interaction_plan import (
+    InteractionPlan,
 )
 
 
@@ -13,12 +25,16 @@ class InteractionExecutor:
 
         self.keyboard = KeyboardController()
 
+        self.click = ClickExecutor()
+
+        self.verify = VerifyExecutor()
+
     def execute(
         self,
-        interactions,
+        plan: InteractionPlan,
     ):
 
-        if not interactions:
+        if not plan.steps:
 
             return
 
@@ -27,29 +43,32 @@ class InteractionExecutor:
         print("[INTERACTIONS]")
         print("=" * 60)
 
-        for interaction in interactions:
+        for step in plan.steps:
 
             print(
-                f"[{interaction.type.name}] "
-                f"{interaction.value or ''}"
+                f"[{step.action.name}] "
+                f"{step.target or ''} "
+                f"{step.value or ''}"
             )
 
-            if interaction.type == InteractionType.TAB:
-
-                self.keyboard.press(
-                    "tab",
-                )
-
-            elif interaction.type == InteractionType.ENTER:
-
-                self.keyboard.press(
-                    "enter",
-                )
-
-            elif interaction.type == InteractionType.WRITE:
+            if step.action == InteractionAction.WRITE:
 
                 self.keyboard.write(
-                    interaction.value,
+                    step.value,
+                )
+
+            elif step.action == InteractionAction.CLICK:
+
+                self.click.execute(
+                    None,
+                    step,
+                )
+
+            elif step.action == InteractionAction.VERIFY:
+
+                self.verify.execute(
+                    None,
+                    step,
                 )
 
         print("=" * 60)

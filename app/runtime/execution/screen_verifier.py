@@ -1,5 +1,7 @@
 import cv2
 
+from app.runtime.execution.screen_verification import ScreenVerification
+
 from app.runtime.execution.vision.runtime_vision import (
     RuntimeVision,
 )
@@ -14,7 +16,7 @@ class ScreenVerifier:
     def verify_change(
         self,
         previous,
-    ) -> bool:
+    ) -> ScreenVerification:
 
         current = self.vision.capture()
 
@@ -42,10 +44,24 @@ class ScreenVerifier:
 
         )
 
-        changed = difference.sum() > 0
+        difference_score = int(
+            difference.sum()
+        )
+
+        changed = difference_score > 0
 
         print(
             f"[VERIFY] changed={changed}"
         )
 
-        return changed
+        print(
+            f"[VERIFY] difference={difference_score}"
+        )
+
+        return ScreenVerification(
+
+            changed=changed,
+
+            difference_score=difference_score,
+
+)

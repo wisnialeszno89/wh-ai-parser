@@ -53,12 +53,16 @@ class ConstructionBuilder:
             height=context.height
         )
 
-        definition = (
+        print()
+        print("========== BUILDER ==========")
+        print("Requested:", context.construction_type)
 
-            self.construction_repository.get_by_code(
-                context.construction_type
-            )
+        definition = self.construction_repository.get_by_code(
+            context.construction_type
         )
+
+        print("Definition:", definition)
+        print("=============================")
 
         if definition is None:
 

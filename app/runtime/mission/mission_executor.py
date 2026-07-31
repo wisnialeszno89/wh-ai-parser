@@ -18,10 +18,22 @@ from app.runtime.mission.mission import (
     Mission,
 )
 
+from app.runtime.mission.mission_logger import (
+    MissionLogger,
+)
+
+from app.runtime.mission.mission_step import (
+    MissionStep,
+)
+
+from app.runtime.mission.mission_trace import (
+    MissionTrace,
+)
+
 from app.runtime.world.perception_engine import (
     PerceptionEngine,
 )
-
+from app.runtime.brain.decision_type import DecisionType
 
 class MissionExecutor:
 
@@ -37,6 +49,8 @@ class MissionExecutor:
         self.brain = AgentBrain()
 
         self.perception = PerceptionEngine()
+
+        self.logger = MissionLogger()
 
     def execute(
         self,
@@ -73,7 +87,7 @@ class MissionExecutor:
                     f"[SKIP] {decision.reason}"
                 )
 
-                state.current_step += 1
+                state.next_step()
 
                 continue
 
@@ -87,6 +101,22 @@ class MissionExecutor:
 
             result = self.executor.execute(
                 action,
+            )
+
+            #
+            # Save mission trace.
+            #
+
+            state.trace.add_step(
+
+                MissionStep(
+
+                    action=action,
+
+                    result=result,
+
+                )
+
             )
 
             state.last_result = result
@@ -107,16 +137,42 @@ class MissionExecutor:
                 state,
             )
 
-            if brain_decision == "retry":
+            if (
+                brain_decision.decision_type
+                == DecisionType.RETRY
+            ):
 
-                state.retry_count += 1
+                print(
+                    f"[RETRY] {brain_decision.reason}"
+                )
+
+                state.increment_retry()
 
                 continue
 
-            state.retry_count = 0
+            if (
+                brain_decision.decision_type
+                == DecisionType.STOP
+            ):
 
-            state.current_step += 1
+                print(
+                f"[STOP] {brain_decision.reason}"
+            )
 
-        state.completed = True
+            break
+
+        state.reset_retry()
+
+        state.next_step()
+
+        state.finish()
+
+        #
+        # Print mission summary.
+        #
+
+        self.logger.print(
+            state.trace,
+        )       
 
         return state

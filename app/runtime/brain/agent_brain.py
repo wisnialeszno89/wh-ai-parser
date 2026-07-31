@@ -1,30 +1,45 @@
 from app.runtime.agent.agent_state import AgentState
+from app.runtime.brain.decision import Decision
 from app.runtime.brain.decision_engine import DecisionEngine
+from app.runtime.brain.result_evaluator import ResultEvaluator
 
 
 class AgentBrain:
 
-    def __init__(self):
+    def __init__(
+        self,
+    ):
 
         self.decision_engine = DecisionEngine()
+
+        self.result_evaluator = ResultEvaluator()
 
     def next_action(
         self,
         state: AgentState,
-    ):
-
-        #
-        # Zwraca pełną decyzję.
-        #
+    ) -> Decision:
 
         return self.decision_engine.decide(
-            state
+            state,
         )
 
     def think(
         self,
         state: AgentState,
-    ):
+    ) -> Decision:
+
+        self._print_world(
+            state,
+        )
+
+        return self.result_evaluator.evaluate(
+            state,
+        )
+
+    def _print_world(
+        self,
+        state: AgentState,
+    ) -> None:
 
         print()
 
@@ -43,19 +58,3 @@ class AgentBrain:
         )
 
         print()
-
-        print("[BRAIN]")
-
-        if state.last_result.success:
-
-            print(
-                f"[OK] {state.last_result.message}"
-            )
-
-            return "continue"
-
-        print(
-            f"[FAIL] {state.last_result.message}"
-        )
-
-        return "retry"

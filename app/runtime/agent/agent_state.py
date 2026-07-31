@@ -22,8 +22,40 @@ class AgentState:
 
         self.screen_objects = []
 
-        self.history = []
-
         self.retry_count = 0
 
         self.completed = False
+
+    @property
+    def can_retry(
+        self,
+    ) -> bool:
+
+        return (
+            self.retry_count
+            < self.mission.retry_limit
+        )
+
+    def increment_retry(
+        self,
+    ) -> None:
+
+        self.retry_count += 1
+
+    def reset_retry(
+        self,
+    ) -> None:
+
+        self.retry_count = 0
+
+    def next_step(
+        self,
+    ) -> None:
+
+        self.current_step += 1
+
+    def finish(
+        self,
+    ) -> None:
+
+        self.completed = True

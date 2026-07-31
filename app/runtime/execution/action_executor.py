@@ -28,8 +28,8 @@ from app.runtime.execution.handlers.handler_context import (
     HandlerContext,
 )
 
-from app.runtime.execution.interactions.interaction_executor import (
-    InteractionExecutor,
+from app.runtime.execution.interactions.interaction_runtime import (
+    InteractionRuntime,
 )
 
 
@@ -52,10 +52,16 @@ class ActionExecutor:
 
         self.handlers = HandlerRegistry()
 
-        self.interactions = InteractionExecutor()
+        print(">>> TWORZĘ NOWY InteractionRuntime")
+
+        self.interactions = InteractionRuntime()
+
+        print(self.interactions)
+        print(type(self.interactions))
+        print(self.interactions.__class__.__module__)
 
         self.verifier = ScreenVerifier()
-        
+
     def execute(
         self,
         action,
@@ -146,29 +152,35 @@ class ActionExecutor:
                 f"[HANDLER] {handler.__class__.__name__}"
             )
 
+            context = HandlerContext(
+
+                keyboard=self.keyboard,
+
+                action=action,
+
+            )
+
             interactions = handler.execute(
 
-                HandlerContext(
-
-                    keyboard=self.keyboard,
-
-                    action=action,
-
-                ),
+                context,
 
                 action.payload,
 
             )
 
             self.interactions.execute(
+
+                context,
+
                 interactions,
+
             )
 
         #
         # Verify GUI changed.
         #
 
-        success = self.verifier.verify_change(
+        verification = self.verifier.verify_change(
             before,
         )
 
@@ -183,7 +195,11 @@ class ActionExecutor:
         )
 
         print(
-            f"[VERIFY] success={success}"
+            f"[VERIFY] success={verification.changed}"
+        )
+
+        print(
+            f"[VERIFY] difference={verification.difference_score}"
         )
 
         print(
@@ -192,10 +208,12 @@ class ActionExecutor:
 
         return ActionResult(
 
-            success=success,
+            success=verification.changed,
 
             confidence=element.confidence,
 
-            message=action.tool.name,
+             message=action.tool.name,
+
+            duration_ms=duration_ms,
 
         )

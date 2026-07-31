@@ -7,11 +7,16 @@ from app.runtime.brain.policies.skip_active_tool_policy import (
 
 class PolicyEngine:
 
-    def __init__(self):
+    def __init__(
+        self,
+    ):
 
-        self.policies = [
-            SkipActiveToolPolicy(),
-        ]
+        self.policies = sorted(
+            [
+                SkipActiveToolPolicy(),
+            ],
+            key=lambda policy: policy.priority,
+        )
 
     def evaluate(
         self,
@@ -21,7 +26,7 @@ class PolicyEngine:
         for policy in self.policies:
 
             decision = policy.evaluate(
-                state
+                state,
             )
 
             if decision is not None:

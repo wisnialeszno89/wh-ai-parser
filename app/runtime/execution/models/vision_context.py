@@ -1,9 +1,10 @@
-print("OLD VisionContext")
 from __future__ import annotations
 
 from dataclasses import dataclass
 
-from app.wh.vision.screenshot import Screenshot
+from app.wh.vision.screenshot import (
+    Screenshot,
+)
 
 
 @dataclass(slots=True)
