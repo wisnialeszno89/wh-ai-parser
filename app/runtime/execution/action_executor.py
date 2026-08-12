@@ -109,6 +109,19 @@ class ActionExecutor:
             start_time,
         )
 
+    def _screen_origin(self) -> tuple[int, int]:
+        window = self.context.window
+
+        if window is None:
+            raise RuntimeError(
+                "Window origin unavailable for GUI click"
+            )
+
+        return (
+            window.left,
+            window.top,
+        )
+
     def _execute_create(
         self,
         action,
@@ -132,9 +145,12 @@ class ActionExecutor:
             vision,
         )
 
+        origin = self._screen_origin()
+
         print(
             f"[CREATE] {action.tool.name} "
-            f"-> canvas {placement}"
+            f"-> canvas local={placement} "
+            f"origin={origin}"
         )
 
         if not self.context.mouse_enabled:
@@ -155,11 +171,13 @@ class ActionExecutor:
 
         self.click.execute(
             element,
+            origin=origin,
         )
 
         self.click.click_xy(
             placement[0],
             placement[1],
+            origin=origin,
         )
 
         self.context.gui_state.last_created_point = placement
@@ -216,8 +234,13 @@ class ActionExecutor:
 
             self.context.cache.screenshot = vision
 
+            self.context.window = vision.window
+
+        origin = self._screen_origin()
+
         print(
-            f"[SELECT] {action.tool.name} at {point}"
+            f"[SELECT] {action.tool.name} "
+            f"local={point} origin={origin}"
         )
 
         if not self.context.mouse_enabled:
@@ -237,6 +260,7 @@ class ActionExecutor:
         self.click.click_xy(
             point[0],
             point[1],
+            origin=origin,
         )
 
         self.context.gui_state.last_selected_point = point
