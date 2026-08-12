@@ -10,6 +10,10 @@ from app.gui.enums.gui_tool import (
     GuiTool,
 )
 
+from app.gui.enums.gui_intent import (
+    GuiIntent,
+)
+
 from app.construction.enums.construction_action import (
     ConstructionAction,
 )
@@ -36,6 +40,8 @@ class GuiPlanner:
 
                             tool=GuiTool.FRAME,
 
+                            intent=GuiIntent.CREATE,
+
                         )
 
                     )
@@ -50,6 +56,8 @@ class GuiPlanner:
                     action = GuiAction(
 
                         tool=GuiTool.FRAME,
+
+                        intent=GuiIntent.SELECT,
 
                         payload=step.payload,
 
@@ -71,6 +79,8 @@ class GuiPlanner:
 
                             tool=GuiTool.SASH,
 
+                            intent=GuiIntent.CREATE,
+
                             payload=step.payload,
 
                             construction_field=step.field,
@@ -87,6 +97,8 @@ class GuiPlanner:
 
                             tool=GuiTool.MULLION,
 
+                            intent=GuiIntent.CREATE,
+
                             payload=step.payload,
 
                         )
@@ -101,6 +113,8 @@ class GuiPlanner:
 
                             tool=GuiTool.MOVABLE_MULLION,
 
+                            intent=GuiIntent.CREATE,
+
                             payload=step.payload,
 
                         )
@@ -114,6 +128,8 @@ class GuiPlanner:
                         GuiAction(
 
                             tool=GuiTool.GLASS,
+
+                            intent=GuiIntent.SELECT,
 
                             payload=step.payload,
 
@@ -131,6 +147,8 @@ class GuiPlanner:
 
                             tool=GuiTool.HARDWARE,
 
+                            intent=GuiIntent.SELECT,
+
                             payload=step.payload,
 
                             construction_field=step.field,
@@ -146,6 +164,8 @@ class GuiPlanner:
                         GuiAction(
 
                             tool=GuiTool.SAVE,
+
+                            intent=GuiIntent.EDIT,
 
                         )
 
