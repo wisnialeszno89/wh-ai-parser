@@ -62,6 +62,18 @@ class ToolLocator:
             )
 
         #
+        # Vision coordinates are local to the captured WindowHub image.
+        # Keep the window origin so executors can convert to screen coords.
+        #
+
+        if getattr(vision, "window", None) is None:
+            raise RuntimeError(
+                "VisionContext does not contain WindowHub window bounds"
+            )
+
+        self.context.window = vision.window
+
+        #
         # Cache objects
         #
 
