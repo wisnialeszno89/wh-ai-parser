@@ -30,3 +30,11 @@ class ExecutionContext:
         self.cache = ScreenCache()
 
         self.gui_state = GuiExecutionState()
+
+        #
+        # Vision coordinates are relative to the captured WindowHub
+        # image. Mouse coordinates are absolute screen coordinates.
+        # This origin bridges the two coordinate spaces.
+        #
+
+        self.window = None
