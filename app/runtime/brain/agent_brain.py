@@ -1,16 +1,26 @@
 from app.runtime.agent.agent_state import AgentState
+
 from app.runtime.brain.decision import Decision
-from app.runtime.brain.decision_engine import DecisionEngine
 from app.runtime.brain.result_evaluator import ResultEvaluator
+
+from app.runtime.policy.policy_engine import PolicyEngine
 
 
 class AgentBrain:
+    """
+    Central decision-making component of the runtime.
 
-    def __init__(
-        self,
-    ):
+    Responsibilities:
 
-        self.decision_engine = DecisionEngine()
+    - choose the next mission action
+    - evaluate the result of the last action
+
+    All decision logic is delegated to specialized components.
+    """
+
+    def __init__(self):
+
+        self.policy_engine = PolicyEngine()
 
         self.result_evaluator = ResultEvaluator()
 
@@ -19,8 +29,12 @@ class AgentBrain:
         state: AgentState,
     ) -> Decision:
 
-        return self.decision_engine.decide(
+        action = self.policy_engine.next_action(
             state,
+        )
+
+        return Decision(
+            action=action,
         )
 
     def think(
@@ -28,33 +42,6 @@ class AgentBrain:
         state: AgentState,
     ) -> Decision:
 
-        self._print_world(
-            state,
-        )
-
         return self.result_evaluator.evaluate(
             state,
         )
-
-    def _print_world(
-        self,
-        state: AgentState,
-    ) -> None:
-
-        print()
-
-        print("[WORLD]")
-
-        print(
-            f"Objects: {len(state.world.objects)}"
-        )
-
-        print(
-            f"Toolbar: {state.world.toolbar_visible}"
-        )
-
-        print(
-            f"Active: {state.world.active_tool}"
-        )
-
-        print()

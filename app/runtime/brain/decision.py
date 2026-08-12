@@ -1,6 +1,9 @@
 from dataclasses import dataclass
 from typing import Any
 
+from app.runtime.brain.decision_type import DecisionType
+from app.runtime.brain.recovery_type import RecoveryType
+
 
 @dataclass(slots=True)
 class Decision:
@@ -10,32 +13,12 @@ class Decision:
     It describes what Runtime should do next.
     """
 
-    #
-    # Action to execute.
-    #
-
     action: Any | None = None
 
-    #
-    # Human readable reason.
-    #
+    decision_type: DecisionType = DecisionType.CONTINUE
+
+    recovery_type: RecoveryType = RecoveryType.NONE
 
     reason: str = ""
-
-    #
-    # Skip current mission step.
-    #
-
-    skip: bool = False
-
-    #
-    # Retry last action.
-    #
-
-    retry: bool = False
-
-    #
-    # Confidence of the decision.
-    #
 
     confidence: float = 1.0

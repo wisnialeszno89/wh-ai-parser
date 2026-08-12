@@ -1,39 +1,17 @@
-from app.runtime.agent.agent_state import (
-    AgentState,
-)
+from app.runtime.agent.agent_state import AgentState
 
-from app.runtime.brain.agent_brain import (
-    AgentBrain,
-)
-
-from app.runtime.execution.action_executor import (
-    ActionExecutor,
-)
-
-from app.runtime.execution.context.execution_context import (
-    ExecutionContext,
-)
-
-from app.runtime.mission.mission import (
-    Mission,
-)
-
-from app.runtime.mission.mission_logger import (
-    MissionLogger,
-)
-
-from app.runtime.mission.mission_step import (
-    MissionStep,
-)
-
-from app.runtime.mission.mission_trace import (
-    MissionTrace,
-)
-
-from app.runtime.world.perception_engine import (
-    PerceptionEngine,
-)
+from app.runtime.brain.agent_brain import AgentBrain
 from app.runtime.brain.decision_type import DecisionType
+
+from app.runtime.execution.action_executor import ActionExecutor
+from app.runtime.execution.context.execution_context import ExecutionContext
+
+from app.runtime.mission.mission import Mission
+from app.runtime.mission.mission_logger import MissionLogger
+from app.runtime.mission.mission_step import MissionStep
+
+from app.runtime.world.perception_engine import PerceptionEngine
+
 
 class MissionExecutor:
 
@@ -71,17 +49,15 @@ class MissionExecutor:
             # Mission finished.
             #
 
-            if (
-                decision.action is None
-                and not decision.skip
-            ):
+            if decision.action is None:
+
                 break
 
             #
             # Policy skipped current step.
             #
 
-            if decision.skip:
+            if decision.decision_type == DecisionType.SKIP:
 
                 print(
                     f"[SKIP] {decision.reason}"
@@ -115,6 +91,8 @@ class MissionExecutor:
 
                     result=result,
 
+                    duration_ms=result.duration_ms,
+
                 )
 
             )
@@ -130,7 +108,7 @@ class MissionExecutor:
             )
 
             #
-            # Let the brain evaluate the result.
+            # Brain evaluates the execution result.
             #
 
             brain_decision = self.brain.think(
@@ -156,14 +134,18 @@ class MissionExecutor:
             ):
 
                 print(
-                f"[STOP] {brain_decision.reason}"
-            )
+                    f"[STOP] {brain_decision.reason}"
+                )
 
-            break
+                break
 
-        state.reset_retry()
+            #
+            # Continue mission.
+            #
 
-        state.next_step()
+            state.reset_retry()
+
+            state.next_step()
 
         state.finish()
 
@@ -173,6 +155,6 @@ class MissionExecutor:
 
         self.logger.print(
             state.trace,
-        )       
+        )
 
         return state

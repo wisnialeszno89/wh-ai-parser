@@ -1,53 +1,56 @@
 from app.runtime.agent.agent_state import AgentState
+
 from app.runtime.brain.decision import Decision
-from app.runtime.brain.decision_type import DecisionType
-from app.runtime.brain.failure_type import FailureType
+
+from app.runtime.brain.rules.decision_rule import DecisionRule
+from app.runtime.brain.rules.success_rule import SuccessRule
+from app.runtime.brain.rules.wait_rule import WaitRule
+from app.runtime.brain.rules.recovery_rule import RecoveryRule
+from app.runtime.brain.rules.retry_rule import RetryRule
+from app.runtime.brain.rules.stop_rule import StopRule
 
 
 class ResultEvaluator:
     """
     Evaluates the outcome of the last executed action.
+
+    Rules are evaluated by priority.
+    The first matching rule returns the Decision.
     """
+
+    def __init__(self):
+
+        self.rules: list[DecisionRule] = sorted(
+            [
+                SuccessRule(),
+                WaitRule(),
+                RecoveryRule(),
+                RetryRule(),
+                StopRule(),
+            ],
+            key=lambda rule: rule.priority,
+        )
 
     def evaluate(
         self,
         state: AgentState,
     ) -> Decision:
 
-        result = state.last_result
+        for rule in self.rules:
 
-        if result is None:
-            return Decision(
-                decision_type=DecisionType.CONTINUE,
+            decision = rule.evaluate(
+                state,
             )
 
-        if result.success:
-            return Decision(
-                decision_type=DecisionType.CONTINUE,
-                reason="Action succeeded.",
-            )
+            if decision is not None:
 
-        if result.failure_type == FailureType.PERMANENT:
-            return Decision(
-                decision_type=DecisionType.STOP,
-                reason=result.message,
-            )
+                return decision
 
-        if (
-            result.failure_type == FailureType.TRANSIENT
-            and state.can_retry
-        ):
-            return Decision(
-                decision_type=DecisionType.RETRY,
-                reason=(
-                    f"Retry "
-                    f"{state.retry_count + 1}/"
-                    f"{state.mission.retry_limit}: "
-                    f"{result.message}"
-                ),
-            )
+        #
+        # This should never happen because StopRule
+        # always returns a Decision.
+        #
 
-        return Decision(
-            decision_type=DecisionType.STOP,
-            reason=result.message,
+        raise RuntimeError(
+            "No DecisionRule returned a Decision."
         )
