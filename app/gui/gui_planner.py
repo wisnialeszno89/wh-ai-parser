@@ -136,19 +136,6 @@ class GuiPlanner:
 
                     )
 
-                case ConstructionAction.SELECT_EXTENSION:
-
-                    gui_plan.actions.append(
-
-                        GuiAction(
-                            tool=GuiTool.EXTENSION,
-                            intent=GuiIntent.EDIT,
-                            payload=step.payload,
-                            construction_field=step.field,
-                        )
-
-                    )
-
                 case ConstructionAction.SAVE:
 
                     gui_plan.actions.append(
