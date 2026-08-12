@@ -216,8 +216,6 @@ class ActionExecutor:
 
             self.context.cache.screenshot = vision
 
-        before = self.context.cache.screenshot
-
         print(
             f"[SELECT] {action.tool.name} at {point}"
         )
@@ -243,15 +241,19 @@ class ActionExecutor:
 
         self.context.gui_state.last_selected_point = point
 
-        self._execute_handler(
-            action,
+        duration_ms = int(
+            (
+                time.perf_counter()
+                - start_time
+            )
+            * 1000
         )
 
-        return self._finish(
-            action,
+        return ActionResult(
+            success=True,
             confidence=1.0,
-            before=before,
-            start_time=start_time,
+            message=action.tool.name,
+            duration_ms=duration_ms,
         )
 
     def _execute_edit(
@@ -260,21 +262,11 @@ class ActionExecutor:
         start_time: float,
     ) -> ActionResult:
 
-        element = self.locator.locate(
-            action.tool,
+        print(
+            f"[EDIT] {action.tool.name}"
         )
 
-        if element is None:
-
-            print("[ERROR] Element not found.")
-
-            return ActionResult(
-                success=False,
-                confidence=0.0,
-                message=f"{action.tool.name} not found",
-            )
-
-        print(f"[FOUND] {element}")
+        before = self.context.cache.screenshot
 
         if not self.context.mouse_enabled:
 
@@ -284,15 +276,14 @@ class ActionExecutor:
 
             return ActionResult(
                 success=True,
-                confidence=element.confidence,
-                message="Dry run",
+                confidence=1.0,
+                message="Dry run edit",
             )
 
-        before = self.context.cache.screenshot
-
-        self.click.execute(
-            element,
-        )
+        if before is None:
+            raise RuntimeError(
+                "EDIT requires an observed GUI state"
+            )
 
         self._execute_handler(
             action,
@@ -300,7 +291,7 @@ class ActionExecutor:
 
         return self._finish(
             action,
-            confidence=element.confidence,
+            confidence=1.0,
             before=before,
             start_time=start_time,
         )
