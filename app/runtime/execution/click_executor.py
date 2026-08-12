@@ -12,12 +12,15 @@ class ClickExecutor:
         self.mouse = MouseController()
 
     #
-    # Click UI element.
+    # Click UI element whose coordinates originate from a WindowHub
+    # screenshot. The origin converts local vision coordinates into
+    # absolute desktop coordinates used by pyautogui.
     #
 
     def execute(
         self,
         element,
+        origin: tuple[int, int] = (0, 0),
     ):
 
         self.click_xy(
@@ -28,10 +31,12 @@ class ClickExecutor:
 
             confidence=element.confidence,
 
+            origin=origin,
+
         )
 
     #
-    # Click arbitrary point.
+    # Click arbitrary point in WindowHub screenshot coordinates.
     #
 
     def click_xy(
@@ -39,12 +44,17 @@ class ClickExecutor:
         x: int,
         y: int,
         confidence: float | None = None,
+        origin: tuple[int, int] = (0, 0),
     ):
+
+        screen_x = x + origin[0]
+        screen_y = y + origin[1]
 
         print()
 
         print(
-            f"[CLICK] ({x}, {y})"
+            f"[CLICK] local=({x}, {y}) "
+            f"screen=({screen_x}, {screen_y})"
         )
 
         if confidence is not None:
@@ -62,8 +72,8 @@ class ClickExecutor:
         time.sleep(2)
 
         self.mouse.click(
-            x,
-            y,
+            screen_x,
+            screen_y,
         )
 
     #
@@ -74,14 +84,17 @@ class ClickExecutor:
         self,
         x: int,
         y: int,
+        origin: tuple[int, int] = (0, 0),
     ):
 
         self.click_xy(
             x,
             y,
+            origin=origin,
         )
 
         self.click_xy(
             x,
             y,
+            origin=origin,
         )
