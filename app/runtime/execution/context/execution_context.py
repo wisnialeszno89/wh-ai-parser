@@ -6,6 +6,10 @@ from app.runtime.execution.screen_cache import (
     ScreenCache,
 )
 
+from app.runtime.execution.gui_execution_state import (
+    GuiExecutionState,
+)
+
 
 class ExecutionContext:
 
@@ -24,3 +28,5 @@ class ExecutionContext:
         self.execution_mode = execution_mode
 
         self.cache = ScreenCache()
+
+        self.gui_state = GuiExecutionState()
