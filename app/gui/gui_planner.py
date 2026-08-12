@@ -37,11 +37,8 @@ class GuiPlanner:
                     gui_plan.actions.append(
 
                         GuiAction(
-
                             tool=GuiTool.FRAME,
-
                             intent=GuiIntent.CREATE,
-
                         )
 
                     )
@@ -53,22 +50,27 @@ class GuiPlanner:
                     print(step.field)
                     print("=================================")
 
-                    action = GuiAction(
+                    # First select the already-created frame object on the canvas.
+                    gui_plan.actions.append(
 
-                        tool=GuiTool.FRAME,
-
-                        intent=GuiIntent.SELECT,
-
-                        payload=step.payload,
-
-                        construction_field=step.field,
+                        GuiAction(
+                            tool=GuiTool.FRAME,
+                            intent=GuiIntent.SELECT,
+                            payload=step.payload,
+                        )
 
                     )
 
-                    print(action.construction_field)
-
+                    # Then edit the selected frame using the construction field.
                     gui_plan.actions.append(
-                        action,
+
+                        GuiAction(
+                            tool=GuiTool.FRAME,
+                            intent=GuiIntent.EDIT,
+                            payload=step.payload,
+                            construction_field=step.field,
+                        )
+
                     )
 
                 case ConstructionAction.INSERT_SASH:
@@ -76,15 +78,10 @@ class GuiPlanner:
                     gui_plan.actions.append(
 
                         GuiAction(
-
                             tool=GuiTool.SASH,
-
                             intent=GuiIntent.CREATE,
-
                             payload=step.payload,
-
                             construction_field=step.field,
-
                         )
 
                     )
@@ -94,13 +91,9 @@ class GuiPlanner:
                     gui_plan.actions.append(
 
                         GuiAction(
-
                             tool=GuiTool.MULLION,
-
                             intent=GuiIntent.CREATE,
-
                             payload=step.payload,
-
                         )
 
                     )
@@ -110,13 +103,9 @@ class GuiPlanner:
                     gui_plan.actions.append(
 
                         GuiAction(
-
                             tool=GuiTool.MOVABLE_MULLION,
-
                             intent=GuiIntent.CREATE,
-
                             payload=step.payload,
-
                         )
 
                     )
@@ -126,15 +115,10 @@ class GuiPlanner:
                     gui_plan.actions.append(
 
                         GuiAction(
-
                             tool=GuiTool.GLASS,
-
-                            intent=GuiIntent.SELECT,
-
+                            intent=GuiIntent.EDIT,
                             payload=step.payload,
-
                             construction_field=step.field,
-
                         )
 
                     )
@@ -144,15 +128,23 @@ class GuiPlanner:
                     gui_plan.actions.append(
 
                         GuiAction(
-
                             tool=GuiTool.HARDWARE,
-
-                            intent=GuiIntent.SELECT,
-
+                            intent=GuiIntent.EDIT,
                             payload=step.payload,
-
                             construction_field=step.field,
+                        )
 
+                    )
+
+                case ConstructionAction.SELECT_EXTENSION:
+
+                    gui_plan.actions.append(
+
+                        GuiAction(
+                            tool=GuiTool.EXTENSION,
+                            intent=GuiIntent.EDIT,
+                            payload=step.payload,
+                            construction_field=step.field,
                         )
 
                     )
@@ -162,11 +154,8 @@ class GuiPlanner:
                     gui_plan.actions.append(
 
                         GuiAction(
-
                             tool=GuiTool.SAVE,
-
                             intent=GuiIntent.EDIT,
-
                         )
 
                     )
