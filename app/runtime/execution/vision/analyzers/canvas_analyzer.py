@@ -65,9 +65,11 @@ class CanvasAnalyzer:
 
         height, width = image.shape[:2]
 
-        # Ignore menus/toolbars and the bottom notes/status region.
+        # Ignore menus/toolbars, but keep enough of the document area so a
+        # movable workspace near the lower half of the application is still
+        # detectable. Candidate filtering below rejects unrelated panels.
         top = max(toolbar_bottom, int(height * 0.22))
-        bottom = int(height * 0.82)
+        bottom = int(height * 0.95)
 
         if bottom <= top:
             return None
@@ -137,9 +139,6 @@ class CanvasAnalyzer:
                 1.0 - min(abs(1.0 - aspect), 1.0),
             )
 
-            # The workspace is normally substantially smaller than the whole
-            # application and sits in the document/canvas area. Do not hard
-            # code a left/right panel position.
             area_ratio = area / float(width * height)
 
             score = (
