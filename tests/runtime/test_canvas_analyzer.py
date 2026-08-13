@@ -72,3 +72,29 @@ def test_canvas_analyzer_keeps_movable_workspace_geometry():
     assert bounds.y <= 245
     assert bounds.width >= 250
     assert bounds.height >= 250
+
+
+def test_canvas_analyzer_detects_white_workspace_in_grey_document_area():
+    image = np.full((700, 1000, 3), 240, dtype=np.uint8)
+
+    # Mimics the real WindowHub workspace: white interior, grey document
+    # background, dark rectangular border.
+    cv2.rectangle(
+        image,
+        (80, 320),
+        (320, 560),
+        (40, 40, 40),
+        2,
+    )
+    image[322:559, 82:319] = 255
+
+    context = FakeContext(image)
+
+    result = CanvasAnalyzer().analyze(context)
+
+    bounds = result.canvas.bounds
+
+    assert bounds.x <= 85
+    assert bounds.y <= 325
+    assert bounds.width >= 230
+    assert bounds.height >= 230
