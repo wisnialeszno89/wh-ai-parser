@@ -10,13 +10,12 @@ class CanvasAnalyzer:
     """
     Detects the movable WindowHub construction workspace.
 
-    The workspace is a bordered rectangle that can be moved and resized by
-    the user. Detection therefore relies on the geometry of its border lines
-    rather than fixed screen coordinates.
+    The workspace is a small bright rectangular area with a visible border.
+    Its position and size are user-controlled, so detection is image based.
     """
 
-    MIN_WIDTH = 80
-    MIN_HEIGHT = 80
+    MIN_WIDTH = 60
+    MIN_HEIGHT = 60
     MIN_AREA = 5_000
 
     def analyze(self, context):
@@ -53,12 +52,181 @@ class CanvasAnalyzer:
             return None
 
         height, width = image.shape[:2]
-        top_limit = max(toolbar_bottom + 15, int(height * 0.18))
+        top_limit = max(toolbar_bottom + 10, int(height * 0.18))
         bottom_limit = int(height * 0.92)
 
         if bottom_limit <= top_limit:
             return None
 
+        # WindowHub's construction workspace is visibly brighter than the
+        # surrounding grey document area. Detect that bright interior first.
+        # This is more stable than trying to reconstruct a thin border from
+        # Canny/Hough output, especially when rulers, guides and grid lines
+        # overlap the workspace border.
+        bright = self._detect_bright_workspace(
+            image,
+            top_limit,
+            bottom_limit,
+        )
+
+        if bright is not None:
+            return bright
+
+        # Synthetic/minimal layouts and darker themes may not expose a bright
+        # interior, so retain a geometry-only border detector as a fallback.
+        return self._detect_workspace_from_lines(
+            image,
+            top_limit,
+            bottom_limit,
+        )
+
+    def _detect_bright_workspace(
+        self,
+        image,
+        top_limit: int,
+        bottom_limit: int,
+    ) -> Rect | None:
+        roi = image[top_limit:bottom_limit, :]
+        gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+
+        # The real workspace interior is typically near-white while the
+        # surrounding document background is light grey. Keep the threshold
+        # deliberately high so ordinary grey UI panels are excluded.
+        bright = cv2.inRange(gray, 248, 255)
+
+        # Remove tiny noise while preserving the rectangular interior.
+        kernel = np.ones((3, 3), np.uint8)
+        bright = cv2.morphologyEx(
+            bright,
+            cv2.MORPH_OPEN,
+            kernel,
+            iterations=1,
+        )
+        bright = cv2.morphologyEx(
+            bright,
+            cv2.MORPH_CLOSE,
+            kernel,
+            iterations=2,
+        )
+
+        contours, _ = cv2.findContours(
+            bright,
+            cv2.RETR_EXTERNAL,
+            cv2.CHAIN_APPROX_SIMPLE,
+        )
+
+        if not contours:
+            return None
+
+        image_area = float(image.shape[0] * image.shape[1])
+        candidates = []
+
+        for contour in contours:
+            x, y, w, h = cv2.boundingRect(contour)
+            area = w * h
+
+            if w < self.MIN_WIDTH or h < self.MIN_HEIGHT:
+                continue
+
+            if area < self.MIN_AREA:
+                continue
+
+            area_ratio = area / image_area
+            # A workspace is much smaller than the entire WindowHub surface.
+            # This excludes the large white notes/editor area below it.
+            if area_ratio > 0.30:
+                continue
+
+            aspect = w / float(h)
+            if aspect < 0.35 or aspect > 3.0:
+                continue
+
+            contour_area = cv2.contourArea(contour)
+            if contour_area <= 0:
+                continue
+
+            rectangularity = contour_area / float(area)
+            if rectangularity < 0.75:
+                continue
+
+            # Reward a compact, square-ish region, but keep enough tolerance
+            # for user resizing and non-square constructions.
+            square_score = max(
+                0.0,
+                1.0 - min(abs(1.0 - aspect), 1.0),
+            )
+            compact_score = max(
+                0.0,
+                1.0 - min(area_ratio / 0.30, 1.0),
+            )
+
+            # Prefer candidates in the document/canvas area, not the top table
+            # and not the notes editor near the bottom edge.
+            center_y = top_limit + y + h / 2.0
+            y_score = 1.0
+            if center_y < image.shape[0] * 0.25:
+                y_score = 0.25
+            elif center_y > image.shape[0] * 0.78:
+                y_score = 0.20
+
+            score = (
+                rectangularity * 5.0
+                + square_score * 2.0
+                + compact_score * 2.0
+                + y_score * 1.5
+            )
+
+            candidates.append(
+                (
+                    score,
+                    Rect(
+                        x=x,
+                        y=top_limit + y,
+                        width=w,
+                        height=h,
+                    ),
+                )
+            )
+
+        if not candidates:
+            return None
+
+        candidates.sort(key=lambda item: item[0], reverse=True)
+        best_score, interior = candidates[0]
+
+        # Recover the visible border around the white interior. A small fixed
+        # pixel padding is safe because this padding is relative to the
+        # detected object, not to the user's screen layout.
+        pad = 4
+        left = max(0, interior.x - pad)
+        top = max(0, interior.y - pad)
+        right = min(image.shape[1], interior.x + interior.width + pad)
+        bottom = min(image.shape[0], interior.y + interior.height + pad)
+
+        rect = Rect(
+            x=left,
+            y=top,
+            width=right - left,
+            height=bottom - top,
+        )
+
+        print(
+            f"[CANVAS] bright candidate score={best_score:.2f} "
+            f"interior={interior.x},{interior.y} "
+            f"{interior.width}x{interior.height} "
+            f"rect={rect.x},{rect.y} "
+            f"{rect.width}x{rect.height}"
+        )
+
+        return rect
+
+    def _detect_workspace_from_lines(
+        self,
+        image,
+        top_limit: int,
+        bottom_limit: int,
+    ) -> Rect | None:
+        height, width = image.shape[:2]
         roi = image[top_limit:bottom_limit, :]
         gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
         blurred = cv2.GaussianBlur(gray, (3, 3), 0)
@@ -162,11 +330,6 @@ class CanvasAnalyzer:
                             right[1], right[2], top_y, bottom_y
                         )
 
-                        # Each line must cover a substantial part of its
-                        # corresponding workspace edge. We deliberately allow
-                        # a little overhang/shortening because WindowHub has
-                        # dimension labels and splitter decorations around the
-                        # construction area.
                         if min(
                             horizontal_top_overlap,
                             horizontal_bottom_overlap,
