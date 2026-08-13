@@ -109,43 +109,51 @@ class ActionExecutor:
             start_time,
         )
 
-    def _screen_origin(self) -> tuple[int, int]:
-        window = self.context.window
-
-        if window is None:
-            raise RuntimeError(
-                "Window origin unavailable for GUI click"
-            )
-
-        return (
-            window.left,
-            window.top,
-        )
-
     def _execute_create(
         self,
         action,
         start_time: float,
     ) -> ActionResult:
 
+        # 1. Locate the tool in the current GUI state.
         element = self.locator.locate(
             action.tool,
         )
 
         print(f"[FOUND TOOL] {element}")
 
-        vision = self.context.cache.screenshot
-
-        if vision is None:
-            raise RuntimeError(
-                "VisionContext unavailable after tool location"
+        if not self.context.mouse_enabled:
+            print("[DRY RUN] Mouse disabled.")
+            return ActionResult(
+                success=True,
+                confidence=element.confidence,
+                message="Dry run create",
             )
+
+        # Keep the pre-tool screenshot for diagnostics only. The placement
+        # decision must be based on a fresh observation after selecting the
+        # tool because WindowHub can change its visual state at that point.
+        before = self.context.cache.screenshot
+        origin = self._screen_origin()
+
+        # 2. Select the tool.
+        self.click.execute(
+            element,
+            origin=origin,
+        )
+
+        # 3. Re-observe after selecting the tool. Never place an object using
+        # the stale canvas geometry from before the tool click.
+        self.context.cache.clear()
+
+        vision = self.locator.vision.capture()
+        self.context.cache.screenshot = vision
+        self.context.window = vision.window
+        origin = self._screen_origin()
 
         placement = self.canvas.resolve(
             vision,
         )
-
-        origin = self._screen_origin()
 
         print(
             f"[CREATE] {action.tool.name} "
@@ -153,27 +161,7 @@ class ActionExecutor:
             f"origin={origin}"
         )
 
-        if not self.context.mouse_enabled:
-
-            print(
-                "[DRY RUN] Mouse disabled."
-            )
-
-            self.context.gui_state.last_created_point = placement
-
-            return ActionResult(
-                success=True,
-                confidence=element.confidence,
-                message="Dry run create",
-            )
-
-        before = self.context.cache.screenshot
-
-        self.click.execute(
-            element,
-            origin=origin,
-        )
-
+        # 4. Place the object on the freshly observed canvas.
         self.click.click_xy(
             placement[0],
             placement[1],
@@ -229,11 +217,8 @@ class ActionExecutor:
             )
 
         if self.context.cache.screenshot is None:
-
             vision = self.locator.vision.capture()
-
             self.context.cache.screenshot = vision
-
             self.context.window = vision.window
 
         origin = self._screen_origin()
@@ -244,13 +229,8 @@ class ActionExecutor:
         )
 
         if not self.context.mouse_enabled:
-
-            print(
-                "[DRY RUN] Mouse disabled."
-            )
-
+            print("[DRY RUN] Mouse disabled.")
             self.context.gui_state.last_selected_point = point
-
             return ActionResult(
                 success=True,
                 confidence=1.0,
@@ -293,11 +273,7 @@ class ActionExecutor:
         before = self.context.cache.screenshot
 
         if not self.context.mouse_enabled:
-
-            print(
-                "[DRY RUN] Mouse disabled."
-            )
-
+            print("[DRY RUN] Mouse disabled.")
             return ActionResult(
                 success=True,
                 confidence=1.0,
@@ -318,6 +294,19 @@ class ActionExecutor:
             confidence=1.0,
             before=before,
             start_time=start_time,
+        )
+
+    def _screen_origin(self) -> tuple[int, int]:
+        window = self.context.window
+
+        if window is None:
+            raise RuntimeError(
+                "Window origin unavailable for GUI click"
+            )
+
+        return (
+            window.left,
+            window.top,
         )
 
     def _execute_handler(
