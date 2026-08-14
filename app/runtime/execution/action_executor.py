@@ -45,6 +45,10 @@ class ActionExecutor:
             bounds.width,
             bounds.height,
         )
+        print(
+            f"[PLACEMENT] remembered workspace "
+            f"({bounds.left},{bounds.top},{bounds.width}x{bounds.height})"
+        )
 
     def _resolve_create_point(self, action, vision) -> tuple[int, int]:
         if action.tool in (GuiTool.MULLION, GuiTool.MOVABLE_MULLION):
@@ -155,6 +159,11 @@ class ActionExecutor:
             return ActionResult(True, element.confidence, "Dry run create")
 
         before = self.context.cache.screenshot
+
+        # Preserve the best known workspace BEFORE the tool click changes the UI.
+        # The post-tool screenshot may legitimately no longer expose the canvas.
+        self._remember_workspace(before)
+
         origin = self._screen_origin()
         self.click.execute(element, origin=origin)
         self.context.cache.clear()
