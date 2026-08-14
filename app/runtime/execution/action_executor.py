@@ -33,10 +33,12 @@ class ActionExecutor:
         return self._execute_edit(action, start_time)
 
     def _resolve_create_point(self, action, vision) -> tuple[int, int]:
-        if action.tool == GuiTool.SASH:
+        if action.tool in (GuiTool.SASH, GuiTool.GLASS):
             point = self.context.gui_state.last_selected_point
             if point is None:
-                raise RuntimeError("SASH CREATE requires a selected frame point")
+                raise RuntimeError(
+                    f"{action.tool.name} CREATE requires a selected frame point"
+                )
             return point
         return self.canvas.resolve(vision)
 
