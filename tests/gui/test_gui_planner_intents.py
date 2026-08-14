@@ -34,3 +34,33 @@ def test_select_frame_becomes_select_then_edit():
     assert plan.actions[1].construction_field is None
     assert plan.actions[2].payload == "frame-profile"
     assert plan.actions[2].construction_field == "field"
+
+
+def test_basic_glass_insertion_is_create_action():
+    construction_plan = SimpleNamespace(
+        steps=[
+            SimpleNamespace(
+                action=ConstructionAction.CREATE_FRAME,
+                payload=None,
+                field=None,
+            ),
+            SimpleNamespace(
+                action=ConstructionAction.INSERT_SASH,
+                payload=None,
+                field=None,
+            ),
+            SimpleNamespace(
+                action=ConstructionAction.INSERT_GLASS,
+                payload=None,
+                field=None,
+            ),
+        ]
+    )
+
+    plan = GuiPlanner().build(construction_plan)
+
+    assert [(action.tool, action.intent) for action in plan.actions] == [
+        (GuiTool.FRAME, GuiIntent.CREATE),
+        (GuiTool.SASH, GuiIntent.CREATE),
+        (GuiTool.GLASS, GuiIntent.CREATE),
+    ]
