@@ -48,9 +48,6 @@ class ActionExecutor:
             bounds.height,
         )
 
-        # The original workspace is the stable construction coordinate system.
-        # After a mullion exists, Vision may only see a single pane. Never replace
-        # the full workspace with that smaller pane.
         if current is not None:
             _, _, current_width, current_height = current
             current_area = current_width * current_height
@@ -69,6 +66,22 @@ class ActionExecutor:
             f"[PLACEMENT] remembered workspace "
             f"({bounds.left},{bounds.top},{bounds.width}x{bounds.height})"
         )
+
+    def _establish_workspace_before_first_tool_click(self) -> None:
+        """Capture the unobstructed construction workspace before the first tool click."""
+        if self.context.gui_state.workspace_bounds is not None:
+            return
+
+        print("[PLACEMENT] establishing workspace before first tool click")
+        vision = self.locator.vision.capture()
+        self.context.cache.screenshot = vision
+        self.context.window = vision.window
+        self._remember_workspace(vision)
+
+        if self.context.gui_state.workspace_bounds is None:
+            raise RuntimeError(
+                "Unable to establish construction workspace before tool click"
+            )
 
     def _resolve_create_point(self, action, vision) -> tuple[int, int]:
         if action.tool in (GuiTool.MULLION, GuiTool.MOVABLE_MULLION):
@@ -96,8 +109,19 @@ class ActionExecutor:
                 )
             return point
 
+        # FRAME creation must also use the stable workspace anchor whenever it
+        # has been established before the tool click.
+        stored = self.context.gui_state.workspace_bounds
+        if stored is not None:
+            x, y, width, height = stored
+            point = (x + width // 2, y + height // 2)
+            print(f"[CREATE] FRAME workspace anchor placement={point}")
+            self.context.gui_state.frame_point = point
+            return point
+
         point = self.canvas.resolve(vision)
         self.context.gui_state.frame_point = point
+        self._remember_workspace(vision)
         return point
 
     def _workspace_rect(self, vision):
@@ -172,14 +196,16 @@ class ActionExecutor:
         print(f"[PLACEMENT] next construction cell side={state.panel_side}")
 
     def _execute_create(self, action, start_time: float) -> ActionResult:
+        # For the FIRST construction action, establish the unobstructed workspace
+        # before clicking the tool. Later tool clicks may change the scene, so the
+        # stored workspace remains the coordinate system for construction.
+        self._establish_workspace_before_first_tool_click()
+
         element = self.locator.locate(action.tool)
         if not self.context.mouse_enabled:
             return ActionResult(True, element.confidence, "Dry run create")
 
         before = self.context.cache.screenshot
-
-        # Preserve the best known full workspace BEFORE the tool click changes UI.
-        self._remember_workspace(before)
 
         origin = self._screen_origin()
         self.click.execute(element, origin=origin)
