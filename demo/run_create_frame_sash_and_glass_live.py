@@ -11,6 +11,7 @@ def main():
 
     actions = [
         GuiAction(tool=GuiTool.FRAME, intent=GuiIntent.CREATE),
+        GuiAction(tool=GuiTool.MULLION, intent=GuiIntent.CREATE),
         GuiAction(tool=GuiTool.FRAME, intent=GuiIntent.SELECT),
         GuiAction(tool=GuiTool.SASH, intent=GuiIntent.CREATE),
         GuiAction(tool=GuiTool.GLASS, intent=GuiIntent.CREATE),
