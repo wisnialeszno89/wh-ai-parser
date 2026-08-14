@@ -46,7 +46,7 @@ class ActionExecutor:
             return point
 
         if action.tool in (GuiTool.SASH, GuiTool.GLASS):
-            point = self._resolve_panel_point(vision)
+            point = self._resolve_panel_point(vision, action.tool)
             if point is None:
                 raise RuntimeError(
                     f"{action.tool.name} CREATE requires a valid construction panel"
@@ -65,45 +65,67 @@ class ActionExecutor:
         self.context.gui_state.frame_point = point
         return point
 
-    def _resolve_panel_point(self, vision) -> tuple[int, int] | None:
+    def _resolve_panel_point(self, vision, tool) -> tuple[int, int] | None:
         mullion = self.context.gui_state.mullion_point
         if mullion is None:
-            # No divider: keep the original selected-frame placement.
             return self.context.gui_state.last_selected_point
 
         canvas = getattr(getattr(vision, "canvas", None), "bounds", None)
         if canvas is None:
             return None
 
-        mx, my = mullion
+        mx, _ = mullion
+        state = self.context.gui_state
 
-        # The first side is left, the next is right. The point is placed in the
-        # center of the available horizontal region so the click cannot land on
-        # the vertical mullion itself.
-        side = self.context.gui_state.next_panel_side
+        # SASH starts a construction cell. GLASS must use exactly the same
+        # cell, because clicking the divider itself cannot create the glass.
+        if tool == GuiTool.SASH:
+            side = state.panel_side
+        else:
+            side = state.panel_side
+
         if side == "left":
             left = canvas.left
             right = mx
-            self.context.gui_state.next_panel_side = "right"
         else:
             left = mx
             right = canvas.right
-            self.context.gui_state.next_panel_side = "left"
 
         if right <= left:
             return None
 
         x = left + (right - left) // 2
         y = canvas.top + canvas.height // 2
+        point = (x, y)
 
         print(
-            f"[PLACEMENT] panel side={side} "
+            f"[PLACEMENT] panel side={side} tool={tool.name} "
             f"canvas=({canvas.left},{canvas.top},{canvas.width}x{canvas.height}) "
-            f"mullion=({mx},{my}) -> ({x},{y})"
+            f"mullion=({mx}) -> ({x},{y})"
         )
 
-        self.context.gui_state.last_selected_point = (x, y)
-        return x, y
+        if tool == GuiTool.SASH:
+            state.panel_pair_point = point
+            state.last_panel_component = "SASH"
+        elif tool == GuiTool.GLASS:
+            # Reuse the SASH point when available. This prevents the glass
+            # from jumping to the opposite side of the mullion.
+            if state.panel_pair_point is not None:
+                point = state.panel_pair_point
+            state.last_panel_component = "GLASS"
+
+        state.last_selected_point = point
+        return point
+
+    def _advance_panel_after_glass(self) -> None:
+        state = self.context.gui_state
+        if state.last_panel_component != "GLASS":
+            return
+
+        state.panel_side = "right" if state.panel_side == "left" else "left"
+        state.panel_pair_point = None
+        state.last_panel_component = None
+        print(f"[PLACEMENT] next construction cell side={state.panel_side}")
 
     def _execute_create(self, action, start_time: float) -> ActionResult:
         element = self.locator.locate(action.tool)
@@ -127,7 +149,12 @@ class ActionExecutor:
 
         if action.tool == GuiTool.MULLION:
             self.context.gui_state.mullion_point = placement
-            self.context.gui_state.next_panel_side = "left"
+            self.context.gui_state.panel_side = "left"
+            self.context.gui_state.panel_pair_point = None
+            self.context.gui_state.last_panel_component = None
+
+        if action.tool == GuiTool.GLASS:
+            self._advance_panel_after_glass()
 
         if action.tool == GuiTool.HARDWARE:
             self._save_hardware_dialog_probe(vision)
