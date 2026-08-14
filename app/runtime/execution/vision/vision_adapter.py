@@ -39,11 +39,12 @@ class VisionAdapter:
                 "sash_tool.png",
             ],
 
-            # MVP: use the known vertical insertion tool for the first
-            # mullion workflow. Horizontal / movable variants can be added
-            # later without changing the GuiTool contract.
             GuiTool.MULLION: [
                 "insert_vertical_tool.png",
+            ],
+
+            GuiTool.HORIZONTAL_MULLION: [
+                "insert_horizontal_tool.png",
             ],
 
             GuiTool.MOVABLE_MULLION: [
