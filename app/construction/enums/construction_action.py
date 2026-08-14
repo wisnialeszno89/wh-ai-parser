@@ -13,6 +13,8 @@ class ConstructionAction(Enum):
 
     INSERT_SASH = "INSERT_SASH"
 
+    INSERT_GLASS = "INSERT_GLASS"
+
     SELECT_GLASS = "SELECT_GLASS"
 
     SELECT_HARDWARE = "SELECT_HARDWARE"
