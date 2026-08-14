@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 @dataclass(slots=True)
@@ -16,6 +16,12 @@ class GuiExecutionState:
     frame_point: tuple[int, int] | None = None
     mullion_point: tuple[int, int] | None = None
     workspace_bounds: tuple[int, int, int, int] | None = None
+
+    # Last successfully resolved tool positions. These are runtime anchors,
+    # not fixed screen coordinates. Reusing them makes repeated tool actions
+    # (for example a second SASH after the first SASH/GLASS pair) robust
+    # against unrelated icons producing higher global template-match scores.
+    tool_points: dict[str, tuple[int, int]] = field(default_factory=dict)
 
     # Current construction cell used by the SASH + GLASS pair.
     panel_side: str = "left"
