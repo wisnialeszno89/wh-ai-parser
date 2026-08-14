@@ -39,12 +39,32 @@ class ActionExecutor:
         bounds = getattr(getattr(vision, "canvas", None), "bounds", None)
         if bounds is None:
             return
-        self.context.gui_state.workspace_bounds = (
+
+        current = self.context.gui_state.workspace_bounds
+        candidate = (
             bounds.left,
             bounds.top,
             bounds.width,
             bounds.height,
         )
+
+        # The original workspace is the stable construction coordinate system.
+        # After a mullion exists, Vision may only see a single pane. Never replace
+        # the full workspace with that smaller pane.
+        if current is not None:
+            _, _, current_width, current_height = current
+            current_area = current_width * current_height
+            candidate_area = bounds.width * bounds.height
+            if candidate_area < current_area * 0.80:
+                print(
+                    f"[PLACEMENT] keeping workspace anchor "
+                    f"({current[0]},{current[1]},{current[2]}x{current[3]}); "
+                    f"ignoring smaller candidate "
+                    f"({bounds.left},{bounds.top},{bounds.width}x{bounds.height})"
+                )
+                return
+
+        self.context.gui_state.workspace_bounds = candidate
         print(
             f"[PLACEMENT] remembered workspace "
             f"({bounds.left},{bounds.top},{bounds.width}x{bounds.height})"
@@ -58,7 +78,6 @@ class ActionExecutor:
                     f"{action.tool.name} CREATE requires a previously created frame"
                 )
             self.context.gui_state.frame_point = point
-            self._remember_workspace(vision)
             return point
 
         if action.tool in (GuiTool.SASH, GuiTool.GLASS):
@@ -79,26 +98,25 @@ class ActionExecutor:
 
         point = self.canvas.resolve(vision)
         self.context.gui_state.frame_point = point
-        self._remember_workspace(vision)
         return point
 
     def _workspace_rect(self, vision):
+        stored = self.context.gui_state.workspace_bounds
+        if stored is not None:
+            x, y, width, height = stored
+            from app.runtime.execution.vision.models.rect import Rect
+            print(
+                f"[PLACEMENT] using workspace anchor "
+                f"({x},{y},{width}x{height})"
+            )
+            return Rect(x=x, y=y, width=width, height=height)
+
         bounds = getattr(getattr(vision, "canvas", None), "bounds", None)
         if bounds is not None:
             self._remember_workspace(vision)
             return bounds
 
-        stored = self.context.gui_state.workspace_bounds
-        if stored is None:
-            return None
-
-        x, y, width, height = stored
-        from app.runtime.execution.vision.models.rect import Rect
-        print(
-            f"[PLACEMENT] using cached workspace anchor "
-            f"({x},{y},{width}x{height})"
-        )
-        return Rect(x=x, y=y, width=width, height=height)
+        return None
 
     def _resolve_panel_point(self, vision, tool) -> tuple[int, int] | None:
         mullion = self.context.gui_state.mullion_point
@@ -160,8 +178,7 @@ class ActionExecutor:
 
         before = self.context.cache.screenshot
 
-        # Preserve the best known workspace BEFORE the tool click changes the UI.
-        # The post-tool screenshot may legitimately no longer expose the canvas.
+        # Preserve the best known full workspace BEFORE the tool click changes UI.
         self._remember_workspace(before)
 
         origin = self._screen_origin()
