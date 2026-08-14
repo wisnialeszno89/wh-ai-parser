@@ -1,3 +1,4 @@
+from math import hypot
 from pathlib import Path
 
 import cv2
@@ -11,21 +12,11 @@ from app.wh.vision.opencv.opencv_adapter import OpenCVAdapter
 
 
 class ToolLocator:
-    """
-    Locate construction tools using both template confidence and spatial context.
-
-    WindowHub has application-level icons in the top toolbar that can look
-    similar to construction tools. The current workspace is therefore used as
-    an anchor: construction tools are expected in a side tool panel adjacent
-    to the workspace, not in the top application toolbar.
-    """
-
     MIN_TOOL_CONFIDENCE = 0.45
-    SCALED_FALLBACK_MIN_CONFIDENCE = 0.30
-    SCALE_FACTORS = (0.65, 0.75, 0.85, 0.95, 1.0, 1.05, 1.15, 1.25, 1.35)
-
-    PANEL_X_MARGIN = 180
-    PANEL_Y_MARGIN = 220
+    SCALED_FALLBACK_MIN_CONFIDENCE = 0.22
+    SCALE_FACTORS = (0.16, 0.20, 0.24, 0.28, 0.32, 0.40, 0.50, 0.65, 0.75, 0.85, 0.95, 1.0, 1.05, 1.15, 1.25, 1.35)
+    PANEL_X_MARGIN = 55
+    PANEL_Y_MARGIN = 420
 
     def __init__(self, context):
         self.context = context
@@ -36,7 +27,6 @@ class ToolLocator:
 
     def locate(self, tool: GuiTool) -> ScreenElement:
         print(f"[LOCATE] {tool.name}")
-
         if self.context.cache.screenshot is None:
             vision = self.vision.capture()
             self.context.cache.screenshot = vision
@@ -46,14 +36,10 @@ class ToolLocator:
 
         if getattr(vision, "window", None) is None:
             raise RuntimeError("VisionContext does not contain WindowHub window bounds")
-
         self.context.window = vision.window
 
         if self.context.cache.objects is None:
-            objects = self.adapter.scene.analyze(
-                vision.screenshot,
-                str(self.adapter.templates),
-            )
+            objects = self.adapter.scene.analyze(vision.screenshot, str(self.adapter.templates))
             self.context.cache.objects = objects
         else:
             objects = self.context.cache.objects
@@ -63,116 +49,71 @@ class ToolLocator:
         if wanted is None:
             raise RuntimeError(f"No template mapped for {tool.name}")
 
-        all_candidates = [
-            obj
-            for obj in objects
-            if obj.name in wanted and obj.confidence >= self.MIN_TOOL_CONFIDENCE
-        ]
+        reference = None
+        if tool != GuiTool.FRAME:
+            frame_names = self.adapter.mapping.get(GuiTool.FRAME, [])
+            frame_candidates = [
+                obj for obj in objects
+                if obj.name in frame_names and obj.confidence >= self.MIN_TOOL_CONFIDENCE
+            ]
+            if frame_candidates:
+                reference = max(frame_candidates, key=lambda obj: obj.confidence)
+                print(
+                    f"[LOCATE] reference FRAME at=({reference.x},{reference.y}) "
+                    f"conf={reference.confidence:.3f}"
+                )
 
-        panel_candidates = self._panel_candidates(vision, all_candidates)
+        if tool == GuiTool.FRAME:
+            candidates = [
+                obj for obj in objects
+                if obj.name in wanted and obj.confidence >= self.MIN_TOOL_CONFIDENCE
+            ]
+        elif reference is not None:
+            candidates = [
+                obj for obj in objects
+                if obj.name in wanted and obj.confidence >= self.MIN_TOOL_CONFIDENCE
+                and self._same_construction_column(reference, obj, vision.screenshot)
+            ]
+        else:
+            candidates = []
 
-        if panel_candidates:
-            obj = self._choose_candidate(vision, panel_candidates)
-            return self._to_element(tool, obj)
+        if candidates:
+            candidates.sort(key=self._candidate_score(reference), reverse=True)
+            for obj in candidates[:5]:
+                print(f"[CANDIDATE] {obj.name} conf={obj.confidence:.3f} at=({obj.x},{obj.y})")
+            return self._to_element(tool, candidates[0])
 
-        # Standard matching can miss the real icon because of DPI/scaling.
-        # The scaled fallback is intentionally restricted to the construction
-        # panel region so a visually similar top-toolbar icon cannot win.
-        fallback = self._scaled_fallback(
-            vision,
-            wanted,
-            tool,
-        )
+        fallback = self._scaled_fallback(vision, wanted, tool, reference)
         if fallback is not None:
             return fallback
 
-        if all_candidates:
-            raise RuntimeError(
-                f"{tool.name} matched outside the construction tool panel"
-            )
+        raise RuntimeError(f"{tool.name} not found in construction tool panel")
 
-        raise RuntimeError(
-            f"{tool.name} not found in construction tool panel"
+    def _same_construction_column(self, reference, obj, screenshot) -> bool:
+        ref_cx = reference.x + reference.width / 2.0
+        ref_cy = reference.y + reference.height / 2.0
+        obj_cx = obj.x + obj.width / 2.0
+        obj_cy = obj.y + obj.height / 2.0
+        return (
+            abs(obj_cx - ref_cx) <= self.PANEL_X_MARGIN
+            and abs(obj_cy - ref_cy) <= self.PANEL_Y_MARGIN
+            and obj.x >= 0
+            and obj.y >= 0
+            and obj.x + obj.width <= screenshot.shape[1]
+            and obj.y + obj.height <= screenshot.shape[0]
         )
 
-    def _panel_candidates(self, vision, candidates):
-        canvas = getattr(getattr(vision, "canvas", None), "bounds", None)
-        if canvas is None:
-            print("[LOCATE] No canvas anchor; spatial panel filtering disabled")
-            return list(candidates)
-
-        selected = []
-        for obj in candidates:
-            if self._is_panel_candidate(canvas, obj):
-                selected.append(obj)
-                print(
-                    f"[PANEL CANDIDATE] {obj.name} conf={obj.confidence:.3f} "
-                    f"at=({obj.x},{obj.y})"
-                )
-
-        print(
-            f"[LOCATE] construction-panel candidates={len(selected)} "
-            f"of {len(candidates)}"
-        )
-        return selected
-
-    def _is_panel_candidate(self, canvas, obj) -> bool:
-        cx = obj.x + obj.width / 2.0
-        cy = obj.y + obj.height / 2.0
-
-        vertical_ok = (
-            canvas.top - self.PANEL_Y_MARGIN
-            <= cy
-            <= canvas.bottom + self.PANEL_Y_MARGIN
-        )
-        if not vertical_ok:
-            return False
-
-        distance_to_left_edge = abs(cx - canvas.left)
-        distance_to_right_edge = abs(cx - canvas.right)
-
-        return min(distance_to_left_edge, distance_to_right_edge) <= self.PANEL_X_MARGIN
-
-    def _choose_candidate(self, vision, candidates):
-        canvas = getattr(getattr(vision, "canvas", None), "bounds", None)
-        if canvas is None:
-            return max(candidates, key=lambda obj: obj.confidence)
-
+    def _candidate_score(self, reference):
+        if reference is None:
+            return lambda obj: obj.confidence
+        ref_cx = reference.x + reference.width / 2.0
+        ref_cy = reference.y + reference.height / 2.0
         def score(obj):
             cx = obj.x + obj.width / 2.0
             cy = obj.y + obj.height / 2.0
-
-            side_distance = min(
-                abs(cx - canvas.left),
-                abs(cx - canvas.right),
-            )
-
-            if cy < canvas.top:
-                vertical_distance = canvas.top - cy
-            elif cy > canvas.bottom:
-                vertical_distance = cy - canvas.bottom
-            else:
-                vertical_distance = 0.0
-
-            side_proximity = 1.0 / (1.0 + side_distance / 80.0)
-            vertical_proximity = 1.0 / (1.0 + vertical_distance / 120.0)
-
-            return (
-                obj.confidence * 0.70
-                + side_proximity * 0.20
-                + vertical_proximity * 0.10
-            )
-
-        candidates.sort(key=score, reverse=True)
-
-        print(f"[LOCATE] candidate ranking ({len(candidates)})")
-        for obj in candidates[:5]:
-            print(
-                f"[CANDIDATE] {obj.name} conf={obj.confidence:.3f} "
-                f"at=({obj.x},{obj.y}) score={score(obj):.3f}"
-            )
-
-        return candidates[0]
+            distance = hypot(cx - ref_cx, cy - ref_cy)
+            return obj.confidence * 0.8 + (1.0 / (1.0 + distance / 120.0)) * 0.2
+        return score
 
     def _to_element(self, tool, obj):
         element = ScreenElement(
@@ -183,75 +124,55 @@ class ToolLocator:
             height=obj.height,
             confidence=obj.confidence,
         )
-
-        print(
-            f"[VISION] FOUND {element.name} conf={element.confidence:.3f} "
-            f"at=({element.x},{element.y})"
-        )
+        print(f"[VISION] FOUND {element.name} conf={element.confidence:.3f} at=({element.x},{element.y})")
         return element
 
-    def _scaled_fallback(self, vision, wanted, tool):
-        canvas = getattr(getattr(vision, "canvas", None), "bounds", None)
-        if canvas is None:
-            print(
-                f"[LOCATE] {tool.name} scaled fallback skipped: no canvas anchor"
-            )
+    def _scaled_fallback(self, vision, wanted, tool, reference):
+        if reference is None:
             return None
-
         screenshot = vision.screenshot.image
-
-        x1 = max(0, canvas.left - self.PANEL_X_MARGIN)
-        x2 = min(screenshot.shape[1], canvas.right + self.PANEL_X_MARGIN)
-        y1 = max(0, canvas.top - self.PANEL_Y_MARGIN)
-        y2 = min(screenshot.shape[0], canvas.bottom + self.PANEL_Y_MARGIN)
-
+        ref_cx = int(round(reference.x + reference.width / 2.0))
+        ref_cy = int(round(reference.y + reference.height / 2.0))
+        half_width = int(max(28, reference.width * 2.0))
+        x1 = max(0, ref_cx - half_width)
+        x2 = min(screenshot.shape[1], ref_cx + half_width)
+        y1 = max(0, ref_cy - self.PANEL_Y_MARGIN)
+        y2 = min(screenshot.shape[0], ref_cy + self.PANEL_Y_MARGIN)
         region = screenshot[y1:y2, x1:x2]
         if region.size == 0:
             return None
 
-        print(
-            f"[LOCATE] {tool.name} scaled fallback in panel region "
-            f"({x1},{y1})-({x2},{y2})"
-        )
-
+        print(f"[LOCATE] {tool.name} scaled fallback in construction column ({x1},{y1})-({x2},{y2})")
         best = None
         template_dir = Path(self.adapter.templates)
-
         for name in wanted:
-            template_path = template_dir / name
-            template = cv2.imread(str(template_path))
-
+            template = cv2.imread(str(template_dir / name))
             if template is None:
-                print(f"[LOCATE] missing template: {template_path}")
                 continue
-
             for scale in self.SCALE_FACTORS:
                 width = max(1, int(round(template.shape[1] * scale)))
                 height = max(1, int(round(template.shape[0] * scale)))
-
                 if width > region.shape[1] or height > region.shape[0]:
                     continue
-
                 resized = cv2.resize(
                     template,
                     (width, height),
                     interpolation=cv2.INTER_AREA if scale < 1.0 else cv2.INTER_CUBIC,
                 )
-
-                result = self.cv.match_array(
-                    region,
-                    resized,
-                )
-
+                result = self.cv.match_array(region, resized)
                 absolute_x = x1 + result.x
                 absolute_y = y1 + result.y
-
+                candidate_cx = absolute_x + result.width / 2.0
+                candidate_cy = absolute_y + result.height / 2.0
+                if (
+                    abs(candidate_cx - ref_cx) > self.PANEL_X_MARGIN
+                    or abs(candidate_cy - ref_cy) > self.PANEL_Y_MARGIN
+                ):
+                    continue
                 print(
-                    f"[SCALED] {name} scale={scale:.2f} "
-                    f"conf={result.confidence:.3f} "
+                    f"[SCALED] {name} scale={scale:.2f} conf={result.confidence:.3f} "
                     f"at=({absolute_x},{absolute_y})"
                 )
-
                 candidate = (
                     result.confidence,
                     absolute_x,
@@ -261,25 +182,19 @@ class ToolLocator:
                     name,
                     scale,
                 )
-
                 if best is None or result.confidence > best[0]:
                     best = candidate
 
-        if best is None or best[0] < self.SCALED_FALLBACK_MIN_CONFIDENCE:
-            if best is not None:
-                print(
-                    f"[LOCATE] scaled best below threshold: "
-                    f"{best[0]:.3f} < {self.SCALED_FALLBACK_MIN_CONFIDENCE:.2f}"
-                )
+        if best is None:
             return None
-
         confidence, x, y, width, height, name, scale = best
+        if confidence < self.SCALED_FALLBACK_MIN_CONFIDENCE:
+            print(f"[LOCATE] construction-column best below threshold: {confidence:.3f} < {self.SCALED_FALLBACK_MIN_CONFIDENCE:.2f}")
+            return None
         print(
-            f"[LOCATE] scaled fallback selected {name} "
-            f"scale={scale:.2f} conf={confidence:.3f} "
-            f"at=({x},{y})"
+            f"[LOCATE] scaled fallback selected {name} scale={scale:.2f} "
+            f"conf={confidence:.3f} at=({x},{y})"
         )
-
         return ScreenElement(
             name=tool.name,
             x=x,
