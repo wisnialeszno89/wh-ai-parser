@@ -35,6 +35,17 @@ class ActionExecutor:
             return self._execute_select(action, start_time)
         return self._execute_edit(action, start_time)
 
+    def _remember_workspace(self, vision) -> None:
+        bounds = getattr(getattr(vision, "canvas", None), "bounds", None)
+        if bounds is None:
+            return
+        self.context.gui_state.workspace_bounds = (
+            bounds.left,
+            bounds.top,
+            bounds.width,
+            bounds.height,
+        )
+
     def _resolve_create_point(self, action, vision) -> tuple[int, int]:
         if action.tool in (GuiTool.MULLION, GuiTool.MOVABLE_MULLION):
             point = self.context.gui_state.last_created_point
@@ -43,6 +54,7 @@ class ActionExecutor:
                     f"{action.tool.name} CREATE requires a previously created frame"
                 )
             self.context.gui_state.frame_point = point
+            self._remember_workspace(vision)
             return point
 
         if action.tool in (GuiTool.SASH, GuiTool.GLASS):
@@ -63,32 +75,45 @@ class ActionExecutor:
 
         point = self.canvas.resolve(vision)
         self.context.gui_state.frame_point = point
+        self._remember_workspace(vision)
         return point
+
+    def _workspace_rect(self, vision):
+        bounds = getattr(getattr(vision, "canvas", None), "bounds", None)
+        if bounds is not None:
+            self._remember_workspace(vision)
+            return bounds
+
+        stored = self.context.gui_state.workspace_bounds
+        if stored is None:
+            return None
+
+        x, y, width, height = stored
+        from app.runtime.execution.vision.models.rect import Rect
+        print(
+            f"[PLACEMENT] using cached workspace anchor "
+            f"({x},{y},{width}x{height})"
+        )
+        return Rect(x=x, y=y, width=width, height=height)
 
     def _resolve_panel_point(self, vision, tool) -> tuple[int, int] | None:
         mullion = self.context.gui_state.mullion_point
         if mullion is None:
             return self.context.gui_state.last_selected_point
 
-        canvas = getattr(getattr(vision, "canvas", None), "bounds", None)
+        canvas = self._workspace_rect(vision)
         if canvas is None:
             return None
 
         mx, _ = mullion
         state = self.context.gui_state
-
-        # SASH starts a construction cell. GLASS must use exactly the same
-        # cell, because clicking the divider itself cannot create the glass.
-        if tool == GuiTool.SASH:
-            side = state.panel_side
-        else:
-            side = state.panel_side
+        side = state.panel_side
 
         if side == "left":
             left = canvas.left
-            right = mx
+            right = min(mx, canvas.right)
         else:
-            left = mx
+            left = max(mx, canvas.left)
             right = canvas.right
 
         if right <= left:
@@ -101,15 +126,13 @@ class ActionExecutor:
         print(
             f"[PLACEMENT] panel side={side} tool={tool.name} "
             f"canvas=({canvas.left},{canvas.top},{canvas.width}x{canvas.height}) "
-            f"mullion=({mx}) -> ({x},{y})"
+            f"mullion=({mx},{mullion[1]}) -> ({x},{y})"
         )
 
         if tool == GuiTool.SASH:
             state.panel_pair_point = point
             state.last_panel_component = "SASH"
         elif tool == GuiTool.GLASS:
-            # Reuse the SASH point when available. This prevents the glass
-            # from jumping to the opposite side of the mullion.
             if state.panel_pair_point is not None:
                 point = state.panel_pair_point
             state.last_panel_component = "GLASS"
@@ -121,7 +144,6 @@ class ActionExecutor:
         state = self.context.gui_state
         if state.last_panel_component != "GLASS":
             return
-
         state.panel_side = "right" if state.panel_side == "left" else "left"
         state.panel_pair_point = None
         state.last_panel_component = None
