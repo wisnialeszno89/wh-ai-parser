@@ -86,6 +86,19 @@ class GuiPlanner:
 
                     )
 
+                case ConstructionAction.INSERT_GLASS:
+
+                    gui_plan.actions.append(
+
+                        GuiAction(
+                            tool=GuiTool.GLASS,
+                            intent=GuiIntent.CREATE,
+                            payload=step.payload,
+                            construction_field=step.field,
+                        )
+
+                    )
+
                 case ConstructionAction.INSERT_MULLION:
 
                     gui_plan.actions.append(
