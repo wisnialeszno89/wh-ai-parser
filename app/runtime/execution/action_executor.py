@@ -68,7 +68,6 @@ class ActionExecutor:
         )
 
     def _establish_workspace_before_first_tool_click(self) -> None:
-        """Capture the unobstructed construction workspace before the first tool click."""
         if self.context.gui_state.workspace_bounds is not None:
             return
 
@@ -84,7 +83,11 @@ class ActionExecutor:
             )
 
     def _resolve_create_point(self, action, vision) -> tuple[int, int]:
-        if action.tool in (GuiTool.MULLION, GuiTool.MOVABLE_MULLION):
+        if action.tool in (
+            GuiTool.MULLION,
+            GuiTool.HORIZONTAL_MULLION,
+            GuiTool.MOVABLE_MULLION,
+        ):
             point = self.context.gui_state.last_created_point
             if point is None:
                 raise RuntimeError(
@@ -109,8 +112,6 @@ class ActionExecutor:
                 )
             return point
 
-        # FRAME creation must also use the stable workspace anchor whenever it
-        # has been established before the tool click.
         stored = self.context.gui_state.workspace_bounds
         if stored is not None:
             x, y, width, height = stored
@@ -151,28 +152,45 @@ class ActionExecutor:
         if canvas is None:
             return None
 
-        mx, _ = mullion
+        mx, my = mullion
         state = self.context.gui_state
+        orientation = state.mullion_orientation or "vertical"
         side = state.panel_side
 
-        if side == "left":
-            left = canvas.left
-            right = min(mx, canvas.right)
+        if orientation == "horizontal":
+            if side == "top":
+                top = canvas.top
+                bottom = min(my, canvas.bottom)
+            else:
+                top = max(my, canvas.top)
+                bottom = canvas.bottom
+
+            if bottom <= top:
+                return None
+
+            x = canvas.left + canvas.width // 2
+            y = top + (bottom - top) // 2
         else:
-            left = max(mx, canvas.left)
-            right = canvas.right
+            if side == "left":
+                left = canvas.left
+                right = min(mx, canvas.right)
+            else:
+                left = max(mx, canvas.left)
+                right = canvas.right
 
-        if right <= left:
-            return None
+            if right <= left:
+                return None
 
-        x = left + (right - left) // 2
-        y = canvas.top + canvas.height // 2
+            x = left + (right - left) // 2
+            y = canvas.top + canvas.height // 2
+
         point = (x, y)
 
         print(
-            f"[PLACEMENT] panel side={side} tool={tool.name} "
+            f"[PLACEMENT] panel orientation={orientation} side={side} "
+            f"tool={tool.name} "
             f"canvas=({canvas.left},{canvas.top},{canvas.width}x{canvas.height}) "
-            f"mullion=({mx},{mullion[1]}) -> ({x},{y})"
+            f"mullion=({mx},{my}) -> ({x},{y})"
         )
 
         if tool == GuiTool.SASH:
@@ -190,15 +208,20 @@ class ActionExecutor:
         state = self.context.gui_state
         if state.last_panel_component != "GLASS":
             return
-        state.panel_side = "right" if state.panel_side == "left" else "left"
+
+        if state.mullion_orientation == "horizontal":
+            state.panel_side = "bottom" if state.panel_side == "top" else "top"
+        else:
+            state.panel_side = "right" if state.panel_side == "left" else "left"
+
         state.panel_pair_point = None
         state.last_panel_component = None
-        print(f"[PLACEMENT] next construction cell side={state.panel_side}")
+        print(
+            f"[PLACEMENT] next construction cell side={state.panel_side} "
+            f"orientation={state.mullion_orientation}"
+        )
 
     def _execute_create(self, action, start_time: float) -> ActionResult:
-        # For the FIRST construction action, establish the unobstructed workspace
-        # before clicking the tool. Later tool clicks may change the scene, so the
-        # stored workspace remains the coordinate system for construction.
         self._establish_workspace_before_first_tool_click()
 
         element = self.locator.locate(action.tool)
@@ -221,9 +244,18 @@ class ActionExecutor:
         self.click.click_xy(placement[0], placement[1], origin=origin)
         self.context.gui_state.last_created_point = placement
 
-        if action.tool == GuiTool.MULLION:
+        if action.tool in (GuiTool.MULLION, GuiTool.HORIZONTAL_MULLION, GuiTool.MOVABLE_MULLION):
             self.context.gui_state.mullion_point = placement
-            self.context.gui_state.panel_side = "left"
+            self.context.gui_state.mullion_orientation = (
+                "horizontal"
+                if action.tool == GuiTool.HORIZONTAL_MULLION
+                else "vertical"
+            )
+            self.context.gui_state.panel_side = (
+                "top"
+                if self.context.gui_state.mullion_orientation == "horizontal"
+                else "left"
+            )
             self.context.gui_state.panel_pair_point = None
             self.context.gui_state.last_panel_component = None
 
