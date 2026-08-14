@@ -36,22 +36,20 @@ class ActionExecutor:
         return self._execute_edit(action, start_time)
 
     def _resolve_create_point(self, action, vision) -> tuple[int, int]:
-        # MVP construction order is FRAME -> MULLION -> SASH -> GLASS.
-        # The first mullion is placed at the frame creation point; later we
-        # can replace this with an explicit divider-position resolver.
         if action.tool in (GuiTool.MULLION, GuiTool.MOVABLE_MULLION):
             point = self.context.gui_state.last_created_point
             if point is None:
                 raise RuntimeError(
                     f"{action.tool.name} CREATE requires a previously created frame"
                 )
+            self.context.gui_state.frame_point = point
             return point
 
         if action.tool in (GuiTool.SASH, GuiTool.GLASS):
-            point = self.context.gui_state.last_selected_point
+            point = self._resolve_panel_point(vision)
             if point is None:
                 raise RuntimeError(
-                    f"{action.tool.name} CREATE requires a selected frame point"
+                    f"{action.tool.name} CREATE requires a valid construction panel"
                 )
             return point
 
@@ -63,7 +61,49 @@ class ActionExecutor:
                 )
             return point
 
-        return self.canvas.resolve(vision)
+        point = self.canvas.resolve(vision)
+        self.context.gui_state.frame_point = point
+        return point
+
+    def _resolve_panel_point(self, vision) -> tuple[int, int] | None:
+        mullion = self.context.gui_state.mullion_point
+        if mullion is None:
+            # No divider: keep the original selected-frame placement.
+            return self.context.gui_state.last_selected_point
+
+        canvas = getattr(getattr(vision, "canvas", None), "bounds", None)
+        if canvas is None:
+            return None
+
+        mx, my = mullion
+
+        # The first side is left, the next is right. The point is placed in the
+        # center of the available horizontal region so the click cannot land on
+        # the vertical mullion itself.
+        side = self.context.gui_state.next_panel_side
+        if side == "left":
+            left = canvas.left
+            right = mx
+            self.context.gui_state.next_panel_side = "right"
+        else:
+            left = mx
+            right = canvas.right
+            self.context.gui_state.next_panel_side = "left"
+
+        if right <= left:
+            return None
+
+        x = left + (right - left) // 2
+        y = canvas.top + canvas.height // 2
+
+        print(
+            f"[PLACEMENT] panel side={side} "
+            f"canvas=({canvas.left},{canvas.top},{canvas.width}x{canvas.height}) "
+            f"mullion=({mx},{my}) -> ({x},{y})"
+        )
+
+        self.context.gui_state.last_selected_point = (x, y)
+        return x, y
 
     def _execute_create(self, action, start_time: float) -> ActionResult:
         element = self.locator.locate(action.tool)
@@ -85,10 +125,10 @@ class ActionExecutor:
         self.click.click_xy(placement[0], placement[1], origin=origin)
         self.context.gui_state.last_created_point = placement
 
-        # Hardware is intentionally stopped here for the first MVP probe.
-        # The click should open the hardware-selection dialog. We capture the
-        # resulting screen and leave the dialog open so its structure can be
-        # analyzed before we automate selection.
+        if action.tool == GuiTool.MULLION:
+            self.context.gui_state.mullion_point = placement
+            self.context.gui_state.next_panel_side = "left"
+
         if action.tool == GuiTool.HARDWARE:
             self._save_hardware_dialog_probe(vision)
             duration_ms = int((time.perf_counter() - start_time) * 1000)
