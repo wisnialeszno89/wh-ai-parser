@@ -26,15 +26,16 @@ class VisionAdapter:
         self.mapping = {
 
             GuiTool.FRAME: [
-            "frame_tool.png",
-            "frame_tool_1.png",
-            "frame_tool_2.png",
-            "frame_tool_3.png",
-            "frame_tool_4.png",
-            "frame_tool_5.png",
+                "frame_tool.png",
+                "frame_tool_1.png",
+                "frame_tool_2.png",
+                "frame_tool_3.png",
+                "frame_tool_4.png",
+                "frame_tool_5.png",
             ],
 
             GuiTool.SASH: [
+                "frame_sash_tool.png",
                 "sash_tool.png",
             ],
 
