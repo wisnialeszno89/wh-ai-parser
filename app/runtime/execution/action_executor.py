@@ -1,4 +1,7 @@
 import time
+from pathlib import Path
+
+import cv2
 
 from app.gui.enums.gui_intent import GuiIntent
 from app.gui.enums.gui_tool import GuiTool
@@ -33,7 +36,7 @@ class ActionExecutor:
         return self._execute_edit(action, start_time)
 
     def _resolve_create_point(self, action, vision) -> tuple[int, int]:
-        if action.tool in (GuiTool.SASH, GuiTool.GLASS):
+        if action.tool in (GuiTool.SASH, GuiTool.GLASS, GuiTool.HARDWARE):
             point = self.context.gui_state.last_selected_point
             if point is None:
                 raise RuntimeError(
@@ -62,10 +65,31 @@ class ActionExecutor:
         self.click.click_xy(placement[0], placement[1], origin=origin)
         self.context.gui_state.last_created_point = placement
 
+        # Hardware is intentionally stopped here for the first MVP probe.
+        # The click should open the hardware-selection dialog. We capture the
+        # resulting screen and leave the dialog open so its structure can be
+        # analyzed before we automate selection.
+        if action.tool == GuiTool.HARDWARE:
+            self._save_hardware_dialog_probe(vision)
+            duration_ms = int((time.perf_counter() - start_time) * 1000)
+            print("[HARDWARE] Dialog probe captured; selection not automated yet")
+            return ActionResult(
+                True,
+                element.confidence,
+                "HARDWARE_DIALOG_PROBE",
+                duration_ms,
+            )
+
         verification = self.verifier.verify_change(before)
         self.context.cache.clear()
         duration_ms = int((time.perf_counter() - start_time) * 1000)
         return ActionResult(verification.changed, element.confidence, action.tool.name, duration_ms)
+
+    def _save_hardware_dialog_probe(self, vision) -> None:
+        output = Path("outputs/debug/hardware_dialog_probe.png")
+        output.parent.mkdir(parents=True, exist_ok=True)
+        cv2.imwrite(str(output), vision.screenshot.image)
+        print(f"[HARDWARE] Saved dialog probe: {output}")
 
     def _execute_select(self, action, start_time: float) -> ActionResult:
         point = self.context.gui_state.last_created_point
