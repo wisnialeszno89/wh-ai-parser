@@ -36,13 +36,33 @@ class ActionExecutor:
         return self._execute_edit(action, start_time)
 
     def _resolve_create_point(self, action, vision) -> tuple[int, int]:
-        if action.tool in (GuiTool.SASH, GuiTool.GLASS, GuiTool.HARDWARE):
+        # MVP construction order is FRAME -> MULLION -> SASH -> GLASS.
+        # The first mullion is placed at the frame creation point; later we
+        # can replace this with an explicit divider-position resolver.
+        if action.tool in (GuiTool.MULLION, GuiTool.MOVABLE_MULLION):
+            point = self.context.gui_state.last_created_point
+            if point is None:
+                raise RuntimeError(
+                    f"{action.tool.name} CREATE requires a previously created frame"
+                )
+            return point
+
+        if action.tool in (GuiTool.SASH, GuiTool.GLASS):
             point = self.context.gui_state.last_selected_point
             if point is None:
                 raise RuntimeError(
                     f"{action.tool.name} CREATE requires a selected frame point"
                 )
             return point
+
+        if action.tool == GuiTool.HARDWARE:
+            point = self.context.gui_state.last_selected_point
+            if point is None:
+                raise RuntimeError(
+                    "HARDWARE CREATE requires a selected frame point"
+                )
+            return point
+
         return self.canvas.resolve(vision)
 
     def _execute_create(self, action, start_time: float) -> ActionResult:
