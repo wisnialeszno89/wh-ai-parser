@@ -51,19 +51,7 @@ class HardwareDialogLayout:
 
 
 class HardwareDialogResolver:
-    """Resolve the WindowHub hardware-selection dialog structurally.
-
-    This version deliberately uses no embedded base64 images.  The previous
-    template payloads were fragile and could fail during cv2.imdecode before
-    the live UI was even observed.
-
-    MVP strategy:
-      1. detect the centered modal from its outer rectangular border,
-      2. locate horizontal text rows in the left tree,
-      3. skip the top group/header row,
-      4. use the next selectable row as UR ACTIVPILOT,
-      5. detect the lower-right OK button from its rectangular chrome.
-    """
+    """Resolve the WindowHub hardware-selection dialog structurally."""
 
     def resolve(self, image: np.ndarray) -> HardwareDialogLayout | None:
         if image is None or image.size == 0:
@@ -105,26 +93,45 @@ class HardwareDialogResolver:
         edges = cv2.Canny(gray, 50, 150)
         height, width = gray.shape[:2]
 
-        # Count dark vertical/horizontal border evidence.
         vertical = (edges > 0).sum(axis=0)
         horizontal = (edges > 0).sum(axis=1)
 
         vertical_candidates = [
-            x for x, value in enumerate(vertical)
+            x
+            for x, value in enumerate(vertical)
             if 100 <= x <= width - 100 and value >= int(height * 0.45)
         ]
-        horizontal_candidates = [
-            y for y, value in enumerate(horizontal)
-            if 50 <= y <= height - 50 and value >= int(width * 0.45)
+
+        # The real modal starts in the upper part of the screen and extends
+        # close to the lower edge. Earlier versions accidentally picked a
+        # strong internal horizontal divider around y=215 as the top edge.
+        # Restrict the top edge to the upper 26% and the bottom edge to the
+        # lower 12% of the screenshot, then score pairs by expected modal size.
+        top_limit = min(int(height * 0.26), 180)
+        bottom_limit = max(int(height * 0.88), height - 110)
+
+        horizontal_top_candidates = [
+            y
+            for y, value in enumerate(horizontal)
+            if 50 <= y <= top_limit
+            and value >= int(width * 0.45)
+        ]
+        horizontal_bottom_candidates = [
+            y
+            for y, value in enumerate(horizontal)
+            if bottom_limit <= y <= height - 1
+            and value >= int(width * 0.35)
         ]
 
         vertical_groups = self._group_positions(vertical_candidates, gap=3)
-        horizontal_groups = self._group_positions(horizontal_candidates, gap=3)
+        top_groups = self._group_positions(horizontal_top_candidates, gap=3)
+        bottom_groups = self._group_positions(horizontal_bottom_candidates, gap=3)
 
         vertical_lines = [int(round(np.mean(group))) for group in vertical_groups]
-        horizontal_lines = [int(round(np.mean(group))) for group in horizontal_groups]
+        top_lines = [int(round(np.mean(group))) for group in top_groups]
+        bottom_lines = [int(round(np.mean(group))) for group in bottom_groups]
 
-        if len(vertical_lines) < 2 or len(horizontal_lines) < 2:
+        if len(vertical_lines) < 2 or not top_lines or not bottom_lines:
             return None
 
         best: tuple[float, int, int, int, int] | None = None
@@ -135,15 +142,15 @@ class HardwareDialogResolver:
                 if right <= left:
                     continue
                 box_width = right - left
-                if not 750 <= box_width <= 1150:
+                if not 850 <= box_width <= 1100:
                     continue
 
-                for top in horizontal_lines:
-                    for bottom in horizontal_lines:
+                for top in top_lines:
+                    for bottom in bottom_lines:
                         if bottom <= top:
                             continue
                         box_height = bottom - top
-                        if not 480 <= box_height <= 700:
+                        if not 500 <= box_height <= 620:
                             continue
 
                         center = ((left + right) / 2.0, (top + bottom) / 2.0)
@@ -180,7 +187,7 @@ class HardwareDialogResolver:
             f"({x},{y},{box_width}x{box_height})"
         )
 
-        placeholder = HardwareDialogLayout(
+        return HardwareDialogLayout(
             x=x,
             y=y,
             width=box_width,
@@ -188,7 +195,6 @@ class HardwareDialogResolver:
             ur_activation_point=(0, 0),
             ok_button_point=(0, 0),
         )
-        return placeholder
 
     @staticmethod
     def _group_positions(values: list[int], gap: int) -> list[list[int]]:
@@ -223,15 +229,11 @@ class HardwareDialogResolver:
         ]
         groups = self._group_positions(row_candidates, gap=4)
         row_centers = [int(round(np.mean(group))) for group in groups]
-
-        # The first text row is the general family/header.  The next visible
-        # row is the first selectable child (UR ACTIVPILOT in the MVP dialog).
         row_centers = [row for row in row_centers if 8 <= row <= crop.shape[0] - 8]
+
         if len(row_centers) < 2:
             return None
 
-        # Guard against the tree expander/header text producing a very narrow
-        # row. Pick the second meaningful text band.
         target_y = row_centers[1]
         target_x = int(crop.shape[1] * 0.30)
         point = (x + target_x, y + target_y)
@@ -261,19 +263,27 @@ class HardwareDialogResolver:
         candidates: list[tuple[float, tuple[int, int, int, int]]] = []
         for contour in contours:
             bx, by, bw, bh = cv2.boundingRect(contour)
-            if not 55 <= bw <= 180 or not 18 <= bh <= 60:
+            if not 45 <= bw <= 180 or not 16 <= bh <= 60:
                 continue
             aspect = bw / float(bh)
-            if not 2.0 <= aspect <= 7.0:
+            if not 1.8 <= aspect <= 8.0:
                 continue
-            # Prefer the lowest compact button-like rectangle in the region.
             score = by + bh * 0.5
             candidates.append((score, (bx, by, bw, bh)))
 
-        if not candidates:
-            return None
+        if candidates:
+            _, (bx, by, bw, bh) = max(candidates, key=lambda item: item[0])
+            point = (x + bx + bw // 2, y + by + bh // 2)
+            print(f"[HARDWARE] OK button candidate={point}")
+            return point
 
-        _, (bx, by, bw, bh) = max(candidates, key=lambda item: item[0])
-        point = (x + bx + bw // 2, y + by + bh // 2)
-        print(f"[HARDWARE] OK button candidate={point}")
-        return point
+        # UI fallback: once the dialog bounds are reliable, the OK button is a
+        # compact control near the lower-right corner. This fallback is only
+        # used when border detection is weak; it never searches the whole
+        # screen.
+        fallback = (
+            dialog.x + int(dialog.width * 0.906),
+            dialog.y + int(dialog.height * 0.726),
+        )
+        print(f"[HARDWARE] OK button fallback={fallback}")
+        return fallback
