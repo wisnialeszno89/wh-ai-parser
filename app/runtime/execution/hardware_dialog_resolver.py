@@ -1,15 +1,22 @@
 from __future__ import annotations
 
+import base64
 from dataclasses import dataclass
 
 import cv2
 import numpy as np
 
 
+# Exact crop of the stable dialog title "Wybór okuć: 1" from the real
+# WindowHub UI. We use it only to anchor the modal; targets are calculated
+# relative to the detected modal afterwards.
+_TITLE_TEMPLATE_B64 = (
+    "iVBORw0KGgoAAAANSUhEUgAAAFwAAAAbCAIAAAB+0H/bAAAFAElEQVR4nNVYX2haVxj/bgk1gVy87/mjpi/JRrIEE6IxtJvGkId0YEwyaFnImrA9JdHJGAv5Q7qyjRartg+jnQZZ2SBGky0Po/RGWYZeLW1Z1zK6l9bbPQ4Gdg5a83L3cMzN9er9G2fbH6LnO/ec833nd7/v8zsH29vb29/fh1qBYRiuSJKk3W6vmXaZwP76+5/jxzUv24yjo8g1xpM5wPgd5UOKqHttGamwpbJtC07AhBkBgGOqDHrpENsSgihBEtPrDheQVvSqgxEOH3En4qHucPjrQY2EfYiX0khRjLLwwVQtUyPIemNSg6QXOXJOqR2JKnyYKUuoshapU65JhZbaodILUmxi3au2q0qQa2KVXJaR7SmYWqcQKackoGyC/NpMUulhTnE6RmPRCCv2dHWwIk1niUZNxRdB4IK1XyadEnkqglg04nHPyR/f0/XGFsdyHtJpSos30HRWxkpFHo8VMyUGZ85OUakk6qXpbDb7hBXv3b0zM/uRfCsRLl38MpcvqHphsmoz9An4vV9f+8Y5PlE6q9ju7nrz0sWvlCo9DB9jb9+F86uojVhIxEkkUqnkwOCgvKWLoOms13e1TF11wHXZ/n6z2Ww+kPia7j/4HQC0eIPUkiUTD8NHbzAAAHKz77/7dmLyPVZMxEmjsc/jmve459Fgms72dHWgdiwaIXANgWsCfi/7tLuzvbuzndvZ09UR8HsJXJNJp7gWOB2jaDq7IItYNELg9Zk05XHPs7HMbY85To8MW7V4g99/ORbdHHO8K7V5aUaAV6dYbfZ7d+8AQHyXNJktSES86A2GuQU36zs//rC1tLKG2lQqmcsXcvnC6vIi2nB3Z/vNWwnUGV4Psnv48+nTXL5gMltYjR73vF7fhkZOn5t1OkZZEzNpauaDqVz+hck8UHErY47TJ0+9/Sz//Fn+ucv1sSo6KjACvDplYHCQSiabmppsQ3YAGLAMUqkkYGC12REvbSdOZNIpk9kSXg/++uARmuX1XUGNtc+/uH07AwC2ITu786WVNSqVdI5PAsDcgptnUCJObu/8hIQFl2d1eRG1aTo7MmzN5V9wDyG8RB/fJbe2d1jROT7hHJ9QwAaAUGCXkOIcn5yZfr9Vpztzdgo4WYZNKJ98+tnmxgZAkaZyNDe3lHe26nRSlhWPLAZDG+p68vgxAGTSlFnATaoBwVTHL/NtQ/bwetDY2wdYMcuEgteMxj701GS2JOLkZmQDZRyEWDQCGNB0dnV50djbZxqwxHdJNnFcOL/a328SUm+1DV0N+JCJAb/Xahti+397+Ghk2IqCt1WnSx38FYaC11lT/f7LHDMkcwpT+hEEn5STp96Bg6QLAFab3WBoY0UAmD43m4iT3LxApZJEo6a7sz0UvoFG3n/4x8iwFaXPpZU17uBSE8Hru0LTWQKvJ/D6X/Z+ZiMRAPR6w81bibc6O/x+r8vlCQWva/F6LV4/M/shADDAxLZ3wushLd6AEq0oHaDoLxDL/VuQPxoAAj5vc0sLyhFHsEHssXC1zvAE2XW9wuJYKSlEo0bWFDEzlDJyxDpH8dFJ8OqgPPICPi/RqAmFb6i1TDqYq8SI3NwhpFrQU9jFVB49+Z4uaw7G16aOETXgKhY8JVfv5ohRe9FZO0ZKl5B/daBaBe8OGMQsZyo4ixJdysFVxhx8/T+kMAc/FTco6jgMMKDGTxUxggZjFRkBgP8AnmrplfqzVYcAAAAASUVORK5CYII="
+)
+
+
 @dataclass(frozen=True, slots=True)
 class HardwareDialogLayout:
-    """Observed geometry of the WindowHub hardware-selection dialog."""
-
     x: int
     y: int
     width: int
@@ -43,200 +50,148 @@ class HardwareDialogLayout:
 
     @property
     def first_tree_item_point(self) -> tuple[int, int]:
-        """Center of the first selectable ``UR ACTIVPILOT`` child row."""
+        # The first selectable child row is UR ACTIVPILOT. Keep the click
+        # well inside the left tree, away from the row expand/collapse gutter.
         return (
-            self.x + int(self.width * 0.10),
-            self.y + int(self.height * 0.18),
+            self.x + int(self.width * 0.15),
+            self.y + int(self.height * 0.175),
         )
 
     @property
     def ok_point(self) -> tuple[int, int]:
-        """Center of the lower-right OK button."""
         return (
-            self.x + int(self.width * 0.912),
-            self.y + int(self.height * 0.727),
+            self.x + int(self.width * 0.91),
+            self.y + int(self.height * 0.725),
         )
 
     @property
     def cancel_region(self) -> tuple[int, int, int, int]:
         return (
             self.x + int(self.width * 0.86),
-            self.y + int(self.height * 0.78),
+            self.y + int(self.height * 0.79),
             int(self.width * 0.10),
             int(self.height * 0.10),
         )
 
 
 class HardwareDialogResolver:
-    """Detect and drive the MVP hardware-selection modal.
+    """Resolve the real WindowHub hardware-selection modal.
 
-    MVP flow:
-      1. detect the actual centered hardware dialog,
-      2. click the first visible UR ACTIVPILOT child row,
-      3. re-observe the dialog,
-      4. click OK.
-
-    The optional 'Dobór specjalny' path and semantic hardware preferences are
-    intentionally out of scope for this first working implementation.
+    Primary strategy: anchor from the dialog title text. This prevents the
+    document grid/table behind the modal from being mistaken for the dialog.
+    Geometry/contour detection remains only as a fallback.
     """
+
+    _TITLE_ORIGIN_OFFSET = (-6, -2)
+    _DEFAULT_DIALOG_SIZE = (995, 583)
+    _TITLE_SCALES = (0.85, 0.90, 0.95, 1.0, 1.05, 1.10, 1.15)
+
+    def __init__(self) -> None:
+        raw = base64.b64decode(_TITLE_TEMPLATE_B64)
+        encoded = np.frombuffer(raw, dtype=np.uint8)
+        template = cv2.imdecode(encoded, cv2.IMREAD_COLOR)
+        if template is None:
+            raise RuntimeError("Unable to decode embedded hardware dialog title template")
+        self._title_template = template
 
     def resolve(self, image: np.ndarray) -> HardwareDialogLayout | None:
         if image is None or image.size == 0:
             return None
 
-        result = self._detect_by_modal_edges(image)
-        if result is not None:
-            print(
-                f"[HARDWARE] modal edges bounds="
-                f"({result.x},{result.y},{result.width}x{result.height})"
+        anchored = self._resolve_from_title(image)
+        if anchored is not None:
+            return anchored
+
+        return self._resolve_from_geometry(image)
+
+    def _resolve_from_title(self, image: np.ndarray) -> HardwareDialogLayout | None:
+        best: tuple[float, int, int, float, int, int] | None = None
+        gray_image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        template_gray = cv2.cvtColor(self._title_template, cv2.COLOR_BGR2GRAY)
+
+        for scale in self._TITLE_SCALES:
+            width = max(1, int(round(template_gray.shape[1] * scale)))
+            height = max(1, int(round(template_gray.shape[0] * scale)))
+            if width >= gray_image.shape[1] or height >= gray_image.shape[0]:
+                continue
+
+            resized = cv2.resize(
+                template_gray,
+                (width, height),
+                interpolation=cv2.INTER_AREA if scale < 1.0 else cv2.INTER_CUBIC,
             )
-            return result
+            result = cv2.matchTemplate(gray_image, resized, cv2.TM_CCOEFF_NORMED)
+            _, confidence, _, location = cv2.minMaxLoc(result)
 
-        return self._detect_by_contour_fallback(image)
+            if best is None or confidence > best[0]:
+                best = (confidence, location[0], location[1], scale, width, height)
 
-    def _detect_by_modal_edges(
-        self,
-        image: np.ndarray,
-    ) -> HardwareDialogLayout | None:
-        """Detect the centered modal from its long outer border lines."""
-        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-        edges = cv2.Canny(gray, 50, 150)
-        height, width = gray.shape
-
-        vertical_counts = (edges > 0).sum(axis=0)
-        min_count = int(height * 0.55)
-        candidate_x = [
-            x
-            for x, count in enumerate(vertical_counts)
-            if 80 <= x <= width - 1 and count >= min_count
-        ]
-
-        if len(candidate_x) < 2:
+        if best is None:
             return None
 
-        groups: list[list[int]] = []
-        for x in candidate_x:
-            if not groups or x > groups[-1][-1] + 2:
-                groups.append([x])
-            else:
-                groups[-1].append(x)
-
-        vertical_lines = [int(round(sum(group) / len(group))) for group in groups]
-        if len(vertical_lines) < 2:
-            return None
-
-        best_pair: tuple[float, int, int] | None = None
-        image_center = width / 2.0
-
-        for index, left in enumerate(vertical_lines):
-            for right in vertical_lines[index + 1 :]:
-                modal_width = right - left
-                if modal_width < int(width * 0.55):
-                    continue
-                if modal_width > int(width * 0.85):
-                    continue
-
-                center = (left + right) / 2.0
-                center_penalty = abs(center - image_center) / width
-                width_penalty = abs((modal_width / width) - 0.675)
-                line_strength = (
-                    float(vertical_counts[left])
-                    + float(vertical_counts[right])
-                ) / (2.0 * height)
-
-                score = (
-                    line_strength * 2.0
-                    - center_penalty * 1.0
-                    - width_penalty * 1.5
-                )
-
-                if best_pair is None or score > best_pair[0]:
-                    best_pair = (score, left, right)
-
-        if best_pair is None:
-            return None
-
-        _, left, right = best_pair
-        horizontal_counts = (edges[:, left:right + 1] > 0).sum(axis=1)
-        horizontal_min = int((right - left + 1) * 0.80)
-
-        top_candidates = [
-            y
-            for y, count in enumerate(horizontal_counts)
-            if 80 <= y <= min(height - 1, 180)
-            and count >= horizontal_min
-        ]
-        bottom_candidates = [
-            y
-            for y, count in enumerate(horizontal_counts)
-            if max(350, height - 220) <= y <= height - 1
-            and count >= horizontal_min
-        ]
-
-        if not top_candidates or not bottom_candidates:
-            return None
-
-        top = int(round(float(np.median(top_candidates[: min(4, len(top_candidates))]))))
-        bottom = int(max(bottom_candidates))
-        modal_height = bottom - top
-        modal_width = right - left
-
-        if modal_height < int(height * 0.65):
-            return None
-
-        return HardwareDialogLayout(
-            x=int(left),
-            y=int(top),
-            width=int(modal_width),
-            height=int(modal_height),
+        confidence, match_x, match_y, scale, _, _ = best
+        print(
+            f"[HARDWARE] title anchor confidence={confidence:.3f} "
+            f"scale={scale:.2f} at=({match_x},{match_y})"
         )
 
-    def _detect_by_contour_fallback(
-        self,
-        image: np.ndarray,
-    ) -> HardwareDialogLayout | None:
+        if confidence < 0.68:
+            return None
+
+        x = int(round(match_x + self._TITLE_ORIGIN_OFFSET[0] * scale))
+        y = int(round(match_y + self._TITLE_ORIGIN_OFFSET[1] * scale))
+        width, height = self._DEFAULT_DIALOG_SIZE
+
+        # Adjust the default size proportionally when the title itself scales.
+        width = int(round(width * scale))
+        height = int(round(height * scale))
+
+        if x < 0 or y < 0 or width < 700 or height < 450:
+            return None
+        if x + width > image.shape[1] or y + height > image.shape[0]:
+            return None
+
+        return HardwareDialogLayout(x, y, width, height)
+
+    def _resolve_from_geometry(self, image: np.ndarray) -> HardwareDialogLayout | None:
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-        mask = cv2.inRange(gray, 195, 255)
-
-        contours, _ = cv2.findContours(
-            mask,
-            cv2.RETR_EXTERNAL,
-            cv2.CHAIN_APPROX_SIMPLE,
-        )
-
+        edges = cv2.Canny(gray, 60, 140)
         image_h, image_w = image.shape[:2]
         image_area = image_h * image_w
         candidates: list[tuple[float, int, int, int, int]] = []
 
+        contours, _ = cv2.findContours(
+            edges,
+            cv2.RETR_LIST,
+            cv2.CHAIN_APPROX_SIMPLE,
+        )
         for contour in contours:
-            x, y, box_width, box_height = cv2.boundingRect(contour)
-            area = box_width * box_height
-            aspect = box_width / float(box_height) if box_height else 0.0
-
-            if box_width < 700 or box_height < 450:
+            x, y, width, height = cv2.boundingRect(contour)
+            area = width * height
+            aspect = width / float(height) if height else 0.0
+            if width < 700 or height < 450:
                 continue
             if area < image_area * 0.25:
                 continue
             if not 1.35 <= aspect <= 2.10:
                 continue
 
-            center_x = x + box_width / 2.0
-            center_y = y + box_height / 2.0
-            image_center_x = image_w / 2.0
-            image_center_y = image_h / 2.0
-            center_penalty = (
-                abs(center_x - image_center_x) / image_w
-                + abs(center_y - image_center_y) / image_h
+            center_x = x + width / 2.0
+            center_y = y + height / 2.0
+            penalty = (
+                abs(center_x - image_w / 2.0) / image_w
+                + abs(center_y - image_h / 2.0) / image_h
             )
-
-            score = (area / image_area) - center_penalty * 0.20
-            candidates.append((score, x, y, box_width, box_height))
+            candidates.append(
+                (area / image_area - penalty * 0.20, x, y, width, height)
+            )
 
         if not candidates:
             return None
 
-        _, x, y, box_width, box_height = max(
-            candidates,
-            key=lambda item: item[0],
+        _, x, y, width, height = max(candidates, key=lambda item: item[0])
+        print(
+            f"[HARDWARE] geometry dialog candidate="
+            f"({x},{y},{width}x{height})"
         )
-        return HardwareDialogLayout(x, y, box_width, box_height)
+        return HardwareDialogLayout(x, y, width, height)
