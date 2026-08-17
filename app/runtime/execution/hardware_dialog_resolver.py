@@ -98,13 +98,7 @@ class HardwareDialogResolver:
         self,
         image: np.ndarray,
     ) -> HardwareDialogLayout | None:
-        """Detect the centered modal from its long outer border lines.
-
-        The live screenshot showed the previous contour approach selecting the
-        document table (roughly x=111..1458). The real hardware dialog has two
-        strong vertical outer edges and is centered, so we explicitly pair
-        those edges before calculating any click targets.
-        """
+        """Detect the centered modal from its long outer border lines."""
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
         edges = cv2.Canny(gray, 50, 150)
         height, width = gray.shape
@@ -114,14 +108,12 @@ class HardwareDialogResolver:
         candidate_x = [
             x
             for x, count in enumerate(vertical_counts)
-            if 80 <= x <= width - 20 and count >= min_count
+            if 80 <= x <= width - 1 and count >= min_count
         ]
 
         if len(candidate_x) < 2:
             return None
 
-        # Collapse adjacent pixels from the same line into one representative
-        # x coordinate.
         groups: list[list[int]] = []
         for x in candidate_x:
             if not groups or x > groups[-1][-1] + 2:
@@ -147,7 +139,6 @@ class HardwareDialogResolver:
                 center = (left + right) / 2.0
                 center_penalty = abs(center - image_center) / width
                 width_penalty = abs((modal_width / width) - 0.675)
-
                 line_strength = (
                     float(vertical_counts[left])
                     + float(vertical_counts[right])
@@ -166,10 +157,7 @@ class HardwareDialogResolver:
             return None
 
         _, left, right = best_pair
-
-        horizontal_counts = (
-            (edges[:, left:right + 1] > 0).sum(axis=1)
-        )
+        horizontal_counts = (edges[:, left:right + 1] > 0).sum(axis=1)
         horizontal_min = int((right - left + 1) * 0.80)
 
         top_candidates = [
@@ -181,20 +169,18 @@ class HardwareDialogResolver:
         bottom_candidates = [
             y
             for y, count in enumerate(horizontal_counts)
-            if max(350, height - 220) <= y <= height - 5
+            if max(350, height - 220) <= y <= height - 1
             and count >= horizontal_min
         ]
 
         if not top_candidates or not bottom_candidates:
             return None
 
-        # The border can produce two adjacent Canny rows. Use the median of the
-        # first small cluster near the top and the strongest bottom row.
         top = int(round(float(np.median(top_candidates[: min(4, len(top_candidates))]))))
         bottom = int(max(bottom_candidates))
-
         modal_height = bottom - top
         modal_width = right - left
+
         if modal_height < int(height * 0.65):
             return None
 
