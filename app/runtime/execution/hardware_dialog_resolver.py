@@ -43,37 +43,38 @@ class HardwareDialogLayout:
 
     @property
     def first_tree_item_point(self) -> tuple[int, int]:
-        """Center point of the first visible ``UR ACTIVPILOT`` row."""
+        """Center of the first selectable UR ACTIVPILOT child row."""
         return (
             self.x + int(self.width * 0.10),
-            self.y + int(self.height * 0.18),
+            self.y + int(self.height * 0.17),
         )
 
     @property
     def ok_point(self) -> tuple[int, int]:
-        """Center point of the lower-right OK button."""
+        """Center of the lower-right OK button."""
         return (
             self.x + int(self.width * 0.91),
-            self.y + int(self.height * 0.71),
+            self.y + int(self.height * 0.72),
         )
 
     @property
     def cancel_region(self) -> tuple[int, int, int, int]:
         return (
             self.x + int(self.width * 0.86),
-            self.y + int(self.height * 0.75),
+            self.y + int(self.height * 0.78),
             int(self.width * 0.10),
             int(self.height * 0.10),
         )
 
 
 class HardwareDialogResolver:
-    """Detect the hardware-selection modal and expose safe MVP targets.
+    """Detect and drive the MVP hardware-selection modal.
 
     MVP flow:
-      1. detect the dialog,
-      2. click the first visible hardware family (currently UR ACTIVPILOT),
-      3. click OK.
+      1. detect the actual centered hardware dialog,
+      2. click the first visible UR ACTIVPILOT child row,
+      3. re-observe the dialog,
+      4. click OK.
 
     The optional 'Dobór specjalny' path and semantic hardware preferences are
     intentionally out of scope for this first working implementation.
@@ -92,24 +93,35 @@ class HardwareDialogResolver:
             cv2.CHAIN_APPROX_SIMPLE,
         )
 
-        image_area = image.shape[0] * image.shape[1]
+        image_h, image_w = image.shape[:2]
+        image_area = image_h * image_w
         candidates: list[tuple[float, int, int, int, int]] = []
 
         for contour in contours:
             x, y, width, height = cv2.boundingRect(contour)
             area = width * height
+            aspect = width / float(height) if height else 0.0
 
-            if width < 500 or height < 300:
+            # WindowHub's hardware dialog is a large, wide modal. The stronger
+            # geometry filter prevents the document table/canvas from being
+            # mistaken for the dialog.
+            if width < 700 or height < 450:
                 continue
-            if area < image_area * 0.12:
+            if area < image_area * 0.25:
                 continue
-            if x <= 0 and y <= 0:
+            if not 1.35 <= aspect <= 2.10:
                 continue
 
             center_x = x + width / 2.0
-            image_center_x = image.shape[1] / 2.0
-            center_penalty = abs(center_x - image_center_x) / image.shape[1]
-            score = area / image_area - center_penalty * 0.15
+            center_y = y + height / 2.0
+            image_center_x = image_w / 2.0
+            image_center_y = image_h / 2.0
+            center_penalty = (
+                abs(center_x - image_center_x) / image_w
+                + abs(center_y - image_center_y) / image_h
+            )
+
+            score = (area / image_area) - center_penalty * 0.20
             candidates.append((score, x, y, width, height))
 
         if not candidates:
