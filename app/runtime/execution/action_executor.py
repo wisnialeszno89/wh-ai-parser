@@ -9,6 +9,7 @@ from app.runtime.execution.canvas_placement_resolver import CanvasPlacementResol
 from app.runtime.execution.tool_locator import ToolLocator
 from app.runtime.execution.screen_verifier import ScreenVerifier
 from app.runtime.execution.action_result import ActionResult
+from app.runtime.execution.hardware_dialog_resolver import HardwareDialogResolver
 from app.runtime.execution.keyboard.keyboard_controller import KeyboardController
 from app.runtime.execution.click_executor import ClickExecutor
 from app.runtime.execution.handlers.handler_registry import HandlerRegistry
@@ -26,6 +27,7 @@ class ActionExecutor:
         self.handlers = HandlerRegistry()
         self.interactions = InteractionRuntime()
         self.verifier = ScreenVerifier()
+        self.hardware_dialog = HardwareDialogResolver()
 
     def execute(self, action) -> ActionResult:
         start_time = time.perf_counter()
@@ -146,11 +148,6 @@ class ActionExecutor:
     def _resolve_panel_point(self, vision, tool) -> tuple[int, int] | None:
         mullion = self.context.gui_state.mullion_point
 
-        # Simple construction: there is only one panel/cell.  The frame center
-        # is no longer a safe source because after FRAME creation it is stored in
-        # last_created_point and subsequent CREATE actions would keep clicking
-        # the same remembered point even when Vision has found the live canvas.
-        # Use the stable workspace center instead.
         if mullion is None:
             canvas = self._workspace_rect(vision)
             if canvas is None:
@@ -293,13 +290,34 @@ class ActionExecutor:
             self._advance_panel_after_glass()
 
         if action.tool == GuiTool.HARDWARE:
-            self._save_hardware_dialog_probe(vision)
+            # The second click opens the actual modal. The pre-click vision is
+            # intentionally discarded; otherwise the probe captures the canvas
+            # state and not the hardware-selection dialog.
+            self.context.cache.clear()
+            dialog_vision = self.locator.vision.capture()
+            self.context.cache.screenshot = dialog_vision
+            self.context.window = dialog_vision.window
+
+            dialog = self.hardware_dialog.resolve(dialog_vision.screenshot.image)
+            if dialog is None:
+                print("[HARDWARE] Dialog not detected")
+            else:
+                print(
+                    f"[HARDWARE] Dialog detected "
+                    f"x={dialog.x}, y={dialog.y}, "
+                    f"w={dialog.width}, h={dialog.height}"
+                )
+                print(f"[HARDWARE] Tree region: {dialog.tree_region}")
+                print(f"[HARDWARE] Parts region: {dialog.parts_region}")
+                print(f"[HARDWARE] OK region: {dialog.ok_region}")
+
+            self._save_hardware_dialog_probe(dialog_vision)
             duration_ms = int((time.perf_counter() - start_time) * 1000)
-            print("[HARDWARE] Dialog probe captured; selection not automated yet")
+            print("[HARDWARE] Dialog observed; selection not automated yet")
             return ActionResult(
                 True,
                 element.confidence,
-                "HARDWARE_DIALOG_PROBE",
+                "HARDWARE_DIALOG_OBSERVED",
                 duration_ms,
             )
 
