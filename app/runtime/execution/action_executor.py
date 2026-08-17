@@ -145,8 +145,38 @@ class ActionExecutor:
 
     def _resolve_panel_point(self, vision, tool) -> tuple[int, int] | None:
         mullion = self.context.gui_state.mullion_point
+
+        # Simple construction: there is only one panel/cell.  The frame center
+        # is no longer a safe source because after FRAME creation it is stored in
+        # last_created_point and subsequent CREATE actions would keep clicking
+        # the same remembered point even when Vision has found the live canvas.
+        # Use the stable workspace center instead.
         if mullion is None:
-            return self.context.gui_state.last_selected_point
+            canvas = self._workspace_rect(vision)
+            if canvas is None:
+                return self.context.gui_state.last_selected_point
+
+            point = (
+                canvas.left + canvas.width // 2,
+                canvas.top + canvas.height // 2,
+            )
+            print(
+                f"[PLACEMENT] single construction cell tool={tool.name} "
+                f"canvas=({canvas.left},{canvas.top},{canvas.width}x{canvas.height}) "
+                f"-> ({point[0]},{point[1]})"
+            )
+
+            state = self.context.gui_state
+            if tool == GuiTool.SASH:
+                state.panel_pair_point = point
+                state.last_panel_component = "SASH"
+            elif tool == GuiTool.GLASS:
+                if state.panel_pair_point is not None:
+                    point = state.panel_pair_point
+                state.last_panel_component = "GLASS"
+
+            state.last_selected_point = point
+            return point
 
         canvas = self._workspace_rect(vision)
         if canvas is None:
