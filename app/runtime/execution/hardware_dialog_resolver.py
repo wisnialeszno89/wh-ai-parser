@@ -16,7 +16,7 @@ class HardwareDialogLayout:
     height: int
 
     @property
-    def right(self) -> int:
+    right(self) -> int:
         return self.x + self.width
 
     @property
@@ -25,7 +25,6 @@ class HardwareDialogLayout:
 
     @property
     def tree_region(self) -> tuple[int, int, int, int]:
-        # Relative MVP region: left-side hardware-family tree.
         return (
             self.x + int(self.width * 0.02),
             self.y + int(self.height * 0.08),
@@ -35,7 +34,6 @@ class HardwareDialogLayout:
 
     @property
     def parts_region(self) -> tuple[int, int, int, int]:
-        # Relative MVP region: right-side parts table.
         return (
             self.x + int(self.width * 0.52),
             self.y + int(self.height * 0.08),
@@ -44,30 +42,45 @@ class HardwareDialogLayout:
         )
 
     @property
-    def ok_region(self) -> tuple[int, int, int, int]:
-        # Relative MVP region: lower-right OK button.
+    def first_tree_item_point(self) -> tuple[int, int]:
+        """Center of the first visible hardware-family row.
+
+        MVP intentionally selects the first visible hardware family, currently
+        the ``UR ACTIVPILOT`` entry shown in the observed WindowHub dialog.
+        """
         return (
-            self.x + int(self.width * 0.86),
-            self.y + int(self.height * 0.78),
-            int(self.width * 0.10),
-            int(self.height * 0.10),
+            self.x + int(self.width * 0.16),
+            self.y + int(self.height * 0.14),
+        )
+
+    @property
+    def ok_point(self) -> tuple[int, int]:
+        """Center point of the lower-right OK button."""
+        return (
+            self.x + int(self.width * 0.91),
+            self.y + int(self.height * 0.71),
         )
 
     @property
     def cancel_region(self) -> tuple[int, int, int, int]:
         return (
             self.x + int(self.width * 0.86),
-            self.y + int(self.height * 0.84),
+            self.y + int(self.height * 0.75),
             int(self.width * 0.10),
             int(self.height * 0.10),
         )
 
 
 class HardwareDialogResolver:
-    """Detect the hardware-selection modal before attempting any selection.
+    """Detect the hardware-selection modal and expose safe MVP targets.
 
-    MVP intentionally resolves geometry only. It does not choose an item and
-    does not use the optional 'Dobór specjalny' path.
+    MVP flow:
+      1. detect the dialog,
+      2. click the first visible hardware family (currently UR ACTIVPILOT),
+      3. click OK.
+
+    The optional 'Dobór specjalny' path and semantic hardware preferences are
+    intentionally out of scope for this first working implementation.
     """
 
     def resolve(self, image: np.ndarray) -> HardwareDialogLayout | None:
@@ -97,9 +110,6 @@ class HardwareDialogResolver:
             if x <= 0 and y <= 0:
                 continue
 
-            # Prefer a large, centered modal over ordinary white application
-            # areas. The dialog shown by WindowHub is a substantial centered
-            # rectangle, while the document grid/canvas is much less compact.
             center_x = x + width / 2.0
             image_center_x = image.shape[1] / 2.0
             center_penalty = abs(center_x - image_center_x) / image.shape[1]
@@ -109,5 +119,8 @@ class HardwareDialogResolver:
         if not candidates:
             return None
 
-        _, x, y, width, height = max(candidates, key=lambda item: item[0])
+        _, x, y, width, height = max(
+            candidates,
+            key=lambda item: item[0],
+        )
         return HardwareDialogLayout(x, y, width, height)
