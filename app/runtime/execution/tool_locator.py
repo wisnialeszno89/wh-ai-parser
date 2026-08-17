@@ -5,6 +5,7 @@ import cv2
 
 from app.gui.enums.gui_tool import GuiTool
 from app.runtime.execution.debug.debug_overlay import DebugOverlay
+from app.runtime.execution.hardware_icon_template import load_hardware_icon_template
 from app.runtime.execution.models.screen_element import ScreenElement
 from app.runtime.execution.vision.runtime_vision import RuntimeVision
 from app.runtime.execution.vision.vision_adapter import VisionAdapter
@@ -32,10 +33,13 @@ class ToolLocator:
         1.25,
         1.35,
     )
+    HARDWARE_SCALE_FACTORS = (0.75, 0.85, 0.95, 1.0, 1.05, 1.15, 1.25, 1.4)
     PANEL_X_MARGIN = 55
     PANEL_Y_MARGIN = 420
     TOOL_ANCHOR_X_MARGIN = 70
     TOOL_ANCHOR_Y_MARGIN = 90
+    HARDWARE_TOOLBAR_MAX_X = 150
+    HARDWARE_MIN_CONFIDENCE = 0.82
 
     def __init__(self, context):
         self.context = context
@@ -72,6 +76,9 @@ class ToolLocator:
         wanted = self.adapter.mapping.get(tool)
         if wanted is None:
             raise RuntimeError(f"No template mapped for {tool.name}")
+
+        if tool == GuiTool.HARDWARE:
+            return self._locate_hardware_toolbar(vision)
 
         # Once a tool has been located successfully, its own runtime position
         # is the strongest reference for locating the same tool again. This is
@@ -159,6 +166,89 @@ class ToolLocator:
         raise RuntimeError(
             f"{tool.name} not found in construction tool panel"
         )
+
+    def _locate_hardware_toolbar(self, vision) -> ScreenElement:
+        """Locate the real Okucia button from the left vertical toolbar.
+
+        HARDWARE is intentionally isolated from the generic construction-panel
+        matcher. The user-provided crop is an exact 24x28 sample of the active
+        WindowHub button, so searching the left toolbar gives us a much stronger
+        signal than guessing from visually similar construction icons.
+        """
+        screenshot = vision.screenshot.image
+        toolbar_width = min(self.HARDWARE_TOOLBAR_MAX_X, screenshot.shape[1])
+        region = screenshot[:, :toolbar_width]
+        template = load_hardware_icon_template()
+
+        best = None
+        print(
+            f"[HARDWARE] exact toolbar search x=0..{toolbar_width} "
+            f"scales={self.HARDWARE_SCALE_FACTORS}"
+        )
+
+        for scale in self.HARDWARE_SCALE_FACTORS:
+            width = max(1, int(round(template.shape[1] * scale)))
+            height = max(1, int(round(template.shape[0] * scale)))
+            if width > region.shape[1] or height > region.shape[0]:
+                continue
+
+            resized = cv2.resize(
+                template,
+                (width, height),
+                interpolation=(
+                    cv2.INTER_AREA if scale < 1.0 else cv2.INTER_CUBIC
+                ),
+            )
+            result = self.cv.match_array(region, resized)
+            center_x = result.x + result.width / 2.0
+            center_y = result.y + result.height / 2.0
+
+            # Exclude the very top utility toolbar; the hardware button lives
+            # on the left construction toolbar below the main menus.
+            if center_y < 90:
+                continue
+
+            print(
+                f"[HARDWARE] scale={scale:.2f} conf={result.confidence:.3f} "
+                f"at=({result.x},{result.y})"
+            )
+
+            candidate = (
+                result.confidence,
+                result.x,
+                result.y,
+                result.width,
+                result.height,
+                scale,
+            )
+            if best is None or result.confidence > best[0]:
+                best = candidate
+
+        if best is None or best[0] < self.HARDWARE_MIN_CONFIDENCE:
+            score = 0.0 if best is None else best[0]
+            print(
+                f"[HARDWARE] exact toolbar match below threshold: "
+                f"{score:.3f} < {self.HARDWARE_MIN_CONFIDENCE:.2f}"
+            )
+            raise RuntimeError(
+                "HARDWARE not found: exact Okucia toolbar button was not detected"
+            )
+
+        confidence, x, y, width, height, scale = best
+        element = ScreenElement(
+            name=GuiTool.HARDWARE.name,
+            x=int(x),
+            y=int(y),
+            width=int(width),
+            height=int(height),
+            confidence=float(confidence),
+        )
+        print(
+            f"[HARDWARE] FOUND exact Okucia button "
+            f"conf={confidence:.3f} scale={scale:.2f} "
+            f"at=({x},{y})"
+        )
+        return self._remember_element(GuiTool.HARDWARE, element)
 
     def _near_tool_anchor(self, anchor, obj, screenshot) -> bool:
         anchor_x, anchor_y = anchor
