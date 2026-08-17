@@ -16,7 +16,7 @@ class HardwareDialogLayout:
     height: int
 
     @property
-    right(self) -> int:
+    def right(self) -> int:
         return self.x + self.width
 
     @property
@@ -43,14 +43,10 @@ class HardwareDialogLayout:
 
     @property
     def first_tree_item_point(self) -> tuple[int, int]:
-        """Center of the first visible hardware-family row.
-
-        MVP intentionally selects the first visible hardware family, currently
-        the ``UR ACTIVPILOT`` entry shown in the observed WindowHub dialog.
-        """
+        """Center point of the first visible ``UR ACTIVPILOT`` row."""
         return (
-            self.x + int(self.width * 0.16),
-            self.y + int(self.height * 0.14),
+            self.x + int(self.width * 0.10),
+            self.y + int(self.height * 0.18),
         )
 
     @property
