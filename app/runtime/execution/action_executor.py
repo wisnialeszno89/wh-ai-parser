@@ -267,11 +267,17 @@ class ActionExecutor:
         origin = self._screen_origin()
 
         placement = self._resolve_create_point(action, vision)
-        print(f"[CREATE] {action.tool.name} -> placement local={placement} origin={origin}")
+        print(
+            f"[CREATE] {action.tool.name} -> placement local={placement} origin={origin}"
+        )
         self.click.click_xy(placement[0], placement[1], origin=origin)
         self.context.gui_state.last_created_point = placement
 
-        if action.tool in (GuiTool.MULLION, GuiTool.HORIZONTAL_MULLION, GuiTool.MOVABLE_MULLION):
+        if action.tool in (
+            GuiTool.MULLION,
+            GuiTool.HORIZONTAL_MULLION,
+            GuiTool.MOVABLE_MULLION,
+        ):
             self.context.gui_state.mullion_point = placement
             self.context.gui_state.mullion_orientation = (
                 "horizontal"
@@ -290,41 +296,90 @@ class ActionExecutor:
             self._advance_panel_after_glass()
 
         if action.tool == GuiTool.HARDWARE:
-            # The second click opens the actual modal. The pre-click vision is
-            # intentionally discarded; otherwise the probe captures the canvas
-            # state and not the hardware-selection dialog.
-            self.context.cache.clear()
-            dialog_vision = self.locator.vision.capture()
-            self.context.cache.screenshot = dialog_vision
-            self.context.window = dialog_vision.window
-
-            dialog = self.hardware_dialog.resolve(dialog_vision.screenshot.image)
-            if dialog is None:
-                print("[HARDWARE] Dialog not detected")
-            else:
-                print(
-                    f"[HARDWARE] Dialog detected "
-                    f"x={dialog.x}, y={dialog.y}, "
-                    f"w={dialog.width}, h={dialog.height}"
-                )
-                print(f"[HARDWARE] Tree region: {dialog.tree_region}")
-                print(f"[HARDWARE] Parts region: {dialog.parts_region}")
-                print(f"[HARDWARE] OK region: {dialog.ok_region}")
-
-            self._save_hardware_dialog_probe(dialog_vision)
-            duration_ms = int((time.perf_counter() - start_time) * 1000)
-            print("[HARDWARE] Dialog observed; selection not automated yet")
-            return ActionResult(
-                True,
-                element.confidence,
-                "HARDWARE_DIALOG_OBSERVED",
-                duration_ms,
-            )
+            return self._execute_hardware_dialog(before, start_time)
 
         verification = self.verifier.verify_change(before)
         self.context.cache.clear()
         duration_ms = int((time.perf_counter() - start_time) * 1000)
-        return ActionResult(verification.changed, element.confidence, action.tool.name, duration_ms)
+        return ActionResult(
+            verification.changed,
+            element.confidence,
+            action.tool.name,
+            duration_ms,
+        )
+
+    def _execute_hardware_dialog(self, before, start_time: float) -> ActionResult:
+        """Choose the current MVP default hardware family and confirm it."""
+        time.sleep(0.5)
+
+        dialog_vision = self.locator.vision.capture()
+        self.context.cache.screenshot = dialog_vision
+        self.context.window = dialog_vision.window
+        image = dialog_vision.screenshot.image
+
+        layout = self.hardware_dialog.resolve(image)
+        if layout is None:
+            self._save_hardware_dialog_probe(dialog_vision)
+            raise RuntimeError("Hardware selection dialog was not detected")
+
+        print(
+            f"[HARDWARE] dialog=({layout.x},{layout.y},"
+            f"{layout.width}x{layout.height})"
+        )
+        print(
+            f"[HARDWARE] selecting first visible family "
+            f"(UR ACTIVPILOT) at={layout.first_tree_item_point}"
+        )
+
+        origin = self._screen_origin()
+        self.click.click_xy(
+            layout.first_tree_item_point[0],
+            layout.first_tree_item_point[1],
+            origin=origin,
+        )
+
+        time.sleep(0.5)
+        selected_vision = self.locator.vision.capture()
+        self.context.cache.screenshot = selected_vision
+        self.context.window = selected_vision.window
+
+        refreshed = self.hardware_dialog.resolve(selected_vision.screenshot.image)
+        if refreshed is None:
+            self._save_hardware_dialog_probe(selected_vision)
+            raise RuntimeError("Hardware dialog disappeared after family selection")
+
+        print(
+            f"[HARDWARE] confirm OK at={refreshed.ok_point}"
+        )
+        origin = self._screen_origin()
+        self.click.click_xy(
+            refreshed.ok_point[0],
+            refreshed.ok_point[1],
+            origin=origin,
+        )
+
+        time.sleep(0.6)
+        after = self.locator.vision.capture()
+        self.context.cache.screenshot = after
+        self.context.window = after.window
+
+        dialog_after = self.hardware_dialog.resolve(after.screenshot.image)
+        dialog_closed = dialog_after is None
+        print(f"[HARDWARE] dialog closed={dialog_closed}")
+
+        self._save_hardware_dialog_probe(after)
+
+        if not dialog_closed:
+            raise RuntimeError("Hardware dialog did not close after OK")
+
+        self.context.cache.clear()
+        duration_ms = int((time.perf_counter() - start_time) * 1000)
+        return ActionResult(
+            True,
+            1.0,
+            "HARDWARE_APPLIED",
+            duration_ms,
+        )
 
     def _save_hardware_dialog_probe(self, vision) -> None:
         output = Path("outputs/debug/hardware_dialog_probe.png")
