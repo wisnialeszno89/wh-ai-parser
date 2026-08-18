@@ -48,8 +48,9 @@ def _send_mouse_click(hwnd: int, x: int, y: int) -> None:
     user32.SendMessageW(hwnd, WM_LBUTTONUP, 0, point)
 
 
-def _button_state(toolbar: int, index: int) -> int:
-    return int(user32.SendMessageW(toolbar, TB_GETSTATE, index, 0))
+def _button_state(toolbar: int, command_id: int) -> int:
+    # TB_GETSTATE expects the button COMMAND ID in wParam, not the toolbar index.
+    return int(user32.SendMessageW(toolbar, TB_GETSTATE, int(command_id), 0))
 
 
 def _capture_array() -> np.ndarray:
@@ -126,7 +127,7 @@ def main() -> None:
     time.sleep(0.4)
 
     for button in active:
-        before = _button_state(toolbar, button.index)
+        before = _button_state(toolbar, button.command_id)
         print(
             f"[CALIBRATION] index={button.index} command_id={button.command_id} "
             f"before=0x{before:02X} rect={button.screen_rect}"
@@ -139,7 +140,7 @@ def main() -> None:
         _send_mouse_click(toolbar, cx, cy)
         time.sleep(0.45)
 
-        after = _button_state(toolbar, button.index)
+        after = _button_state(toolbar, button.command_id)
         image = _capture_array()
         crop_path = output_dir / f"button_{button.index:02}_cmd_{button.command_id}.png"
         _save_crop(image, button.screen_rect, crop_path)
