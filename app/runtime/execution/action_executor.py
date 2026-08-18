@@ -14,6 +14,7 @@ from app.runtime.execution.click_executor import ClickExecutor
 from app.runtime.execution.handlers.handler_registry import HandlerRegistry
 from app.runtime.execution.handlers.handler_context import HandlerContext
 from app.runtime.execution.interactions.interaction_runtime import InteractionRuntime
+from app.runtime.execution.hardware_native_selector import NativeHardwareSelector
 
 
 class ActionExecutor:
@@ -146,11 +147,6 @@ class ActionExecutor:
     def _resolve_panel_point(self, vision, tool) -> tuple[int, int] | None:
         mullion = self.context.gui_state.mullion_point
 
-        # Simple construction: there is only one panel/cell.  The frame center
-        # is no longer a safe source because after FRAME creation it is stored in
-        # last_created_point and subsequent CREATE actions would keep clicking
-        # the same remembered point even when Vision has found the live canvas.
-        # Use the stable workspace center instead.
         if mullion is None:
             canvas = self._workspace_rect(vision)
             if canvas is None:
@@ -294,19 +290,56 @@ class ActionExecutor:
 
         if action.tool == GuiTool.HARDWARE:
             self._save_hardware_dialog_probe(vision)
-            duration_ms = int((time.perf_counter() - start_time) * 1000)
-            print("[HARDWARE] Dialog probe captured; selection not automated yet")
-            return ActionResult(
-                True,
-                element.confidence,
-                "HARDWARE_DIALOG_PROBE",
-                duration_ms,
+            return self._execute_hardware_selection(
+                element_confidence=element.confidence,
+                before=before,
+                start_time=start_time,
             )
 
         verification = self.verifier.verify_change(before)
         self.context.cache.clear()
         duration_ms = int((time.perf_counter() - start_time) * 1000)
         return ActionResult(verification.changed, element.confidence, action.tool.name, duration_ms)
+
+    def _execute_hardware_selection(
+        self,
+        *,
+        element_confidence: float,
+        before,
+        start_time: float,
+    ) -> ActionResult:
+        """Complete the native WindowHub hardware-selection dialog."""
+        time.sleep(0.7)
+        selector = NativeHardwareSelector()
+        target = selector.find_item("UR ACTIVPILOT", prefix=True)
+        if target is None:
+            raise RuntimeError("Preferred hardware 'UR ACTIVPILOT' was not found")
+
+        print(f"[HARDWARE SELECT] target={target}")
+        point = selector.click_item(target)
+        print(f"[HARDWARE SELECT] clicked tree item at screen={point}")
+        time.sleep(0.25)
+
+        ok_hwnd = selector.find_ok()
+        print(f"[HARDWARE SELECT] OK hwnd={ok_hwnd}")
+        selector.click_ok()
+        print("[HARDWARE SELECT] clicked OK")
+
+        deadline = time.perf_counter() + 2.0
+        while time.perf_counter() < deadline:
+            try:
+                from app.runtime.execution.hardware_dialog_inspector import find_dialog
+                if find_dialog() is None:
+                    break
+            except Exception:
+                break
+            time.sleep(0.1)
+        else:
+            raise RuntimeError("Hardware dialog is still visible after OK")
+
+        self.context.cache.clear()
+        duration_ms = int((time.perf_counter() - start_time) * 1000)
+        return ActionResult(True, element_confidence, "HARDWARE_APPLIED", duration_ms)
 
     def _save_hardware_dialog_probe(self, vision) -> None:
         output = Path("outputs/debug/hardware_dialog_probe.png")
