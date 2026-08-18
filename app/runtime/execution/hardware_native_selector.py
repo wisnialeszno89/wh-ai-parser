@@ -26,10 +26,10 @@ TVM_GETITEMW = TV_FIRST + 62
 TVGN_ROOT = 0x0000
 TVGN_NEXT = 0x0001
 TVGN_CHILD = 0x0004
+TVGN_CARET = 0x0009
 TVIF_TEXT = 0x0001
 BM_CLICK = 0x00F5
 
-# IsWow64Process2 constants.
 IMAGE_FILE_MACHINE_UNKNOWN = 0x0000
 IMAGE_FILE_MACHINE_I386 = 0x014C
 IMAGE_FILE_MACHINE_AMD64 = 0x8664
@@ -85,12 +85,7 @@ class TreeItemInfo:
 
 
 class NativeHardwareSelector:
-    """Interact with the native SysTreeView32 and OK button in WindowHub.
-
-    WindowHub is an older native application and may be 32-bit while the Python
-    runtime is 64-bit. TVITEMW contains pointer-sized members, so the structure
-    written into the target process must match the target process bitness.
-    """
+    """Interact with the native SysTreeView32 and OK button in WindowHub."""
 
     def __init__(self, dialog_hwnd: int | None = None) -> None:
         self.dialog_hwnd = int(dialog_hwnd or find_dialog() or 0)
@@ -130,16 +125,10 @@ class NativeHardwareSelector:
     def _machine_type(process: wintypes.HANDLE) -> tuple[int, int]:
         is_wow64_process2 = getattr(kernel32, "IsWow64Process2", None)
         if is_wow64_process2 is None:
-            # Fallback: the target is very likely the legacy 32-bit WindowHub build.
             return IMAGE_FILE_MACHINE_I386, IMAGE_FILE_MACHINE_AMD64
-
         process_machine = wintypes.USHORT()
         native_machine = wintypes.USHORT()
-        if not is_wow64_process2(
-            process,
-            ctypes.byref(process_machine),
-            ctypes.byref(native_machine),
-        ):
+        if not is_wow64_process2(process, ctypes.byref(process_machine), ctypes.byref(native_machine)):
             raise RuntimeError("IsWow64Process2 failed")
         return int(process_machine.value), int(native_machine.value)
 
@@ -160,30 +149,16 @@ class NativeHardwareSelector:
         try:
             process_machine, native_machine = cls._machine_type(process)
             struct_type = cls._structure_for_machine(process_machine)
-            pointer_size = ctypes.sizeof(ctypes.c_uint32) if struct_type is TVITEMW32 else ctypes.sizeof(ctypes.c_uint64)
             print(
                 f"[NATIVE TREE] target_pid={pid} process_machine=0x{process_machine:04X} "
-                f"native_machine=0x{native_machine:04X} pointer_size={pointer_size} "
-                f"TVITEMW_size={ctypes.sizeof(struct_type)}"
+                f"native_machine=0x{native_machine:04X} pointer_size="
+                f"{4 if struct_type is TVITEMW32 else 8} TVITEMW_size={ctypes.sizeof(struct_type)}"
             )
 
             text_capacity = 1024
-            text_bytes = text_capacity * 2  # UTF-16LE/WCHAR in the target Windows process.
-            text_remote = kernel32.VirtualAllocEx(
-                process,
-                None,
-                text_bytes,
-                MEM_COMMIT | MEM_RESERVE,
-                PAGE_READWRITE,
-            )
-            item_remote = kernel32.VirtualAllocEx(
-                process,
-                None,
-                ctypes.sizeof(struct_type),
-                MEM_COMMIT | MEM_RESERVE,
-                PAGE_READWRITE,
-            )
-
+            text_bytes = text_capacity * 2
+            text_remote = kernel32.VirtualAllocEx(process, None, text_bytes, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE)
+            item_remote = kernel32.VirtualAllocEx(process, None, ctypes.sizeof(struct_type), MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE)
             if not text_remote or not item_remote:
                 if text_remote:
                     kernel32.VirtualFreeEx(process, ctypes.c_void_p(text_remote), 0, MEM_RELEASE)
@@ -208,17 +183,9 @@ class NativeHardwareSelector:
                 ):
                     raise RuntimeError("WriteProcessMemory failed for TVITEMW")
 
-                result = user32.SendMessageW(
-                    tree_hwnd,
-                    TVM_GETITEMW,
-                    0,
-                    ctypes.c_void_p(item_remote),
-                )
-                if not result:
+                if not user32.SendMessageW(tree_hwnd, TVM_GETITEMW, 0, ctypes.c_void_p(item_remote)):
                     return ""
 
-                # Read the UTF-16LE text directly; do not depend on Python's
-                # process-wide wchar_t size, which is platform-specific.
                 raw = ctypes.create_string_buffer(text_bytes)
                 read = ctypes.c_size_t()
                 if not kernel32.ReadProcessMemory(
@@ -231,8 +198,11 @@ class NativeHardwareSelector:
                     raise RuntimeError("ReadProcessMemory failed for TreeView text")
 
                 data = raw.raw[: int(read.value)]
-                if b"\x00\x00" in data:
-                    data = data[: data.find(b"\x00\x00")]
+                # Strip UTF-16LE NUL padding only at the end. Searching for the
+                # first b'\\x00\\x00' can hit the second byte of an ordinary
+                # ASCII character and truncate the final letter.
+                while data.endswith(b"\x00\x00"):
+                    data = data[:-2]
                 if len(data) % 2:
                     data = data[:-1]
                 return data.decode("utf-16-le", errors="replace").strip()
@@ -260,14 +230,19 @@ class NativeHardwareSelector:
             walk(root, 0)
         return items
 
-    def find_item(self, text: str) -> TreeItemInfo | None:
+    def find_item(self, text: str, *, prefix: bool = False) -> TreeItemInfo | None:
         wanted = " ".join(text.casefold().split())
-        exact = [item for item in self.enumerate_items() if " ".join(item.text.casefold().split()) == wanted]
-        return exact[0] if exact else None
+        for item in self.enumerate_items():
+            normalized = " ".join(item.text.casefold().split())
+            if normalized == wanted:
+                return item
+            if prefix and normalized.startswith(wanted):
+                return item
+        return None
 
     def select_item(self, item: TreeItemInfo) -> None:
         tree = self.find_tree()
-        result = user32.SendMessageW(tree, TVM_SELECTITEM, TVGN_ROOT, item.handle)
+        result = user32.SendMessageW(tree, TVM_SELECTITEM, TVGN_CARET, item.handle)
         if not result:
             raise RuntimeError(f"Failed to select TreeView item: {item.text!r}")
 
@@ -275,14 +250,11 @@ class NativeHardwareSelector:
         tree = self.find_tree()
         rect = RECT()
         rect.left = item.handle
-        ok = user32.SendMessageW(tree, TVM_GETITEMRECT, 1, ctypes.byref(rect))
-        if not ok:
+        if not user32.SendMessageW(tree, TVM_GETITEMRECT, 1, ctypes.byref(rect)):
             raise RuntimeError(f"Unable to get rectangle for TreeView item: {item.text!r}")
-
         point = wintypes.POINT((rect.left + rect.right) // 2, (rect.top + rect.bottom) // 2)
         if not user32.ClientToScreen(tree, ctypes.byref(point)):
             raise RuntimeError("ClientToScreen failed for TreeView item")
-
         user32.SetCursorPos(point.x, point.y)
         user32.mouse_event(0x0002, 0, 0, 0, 0)
         user32.mouse_event(0x0004, 0, 0, 0, 0)
