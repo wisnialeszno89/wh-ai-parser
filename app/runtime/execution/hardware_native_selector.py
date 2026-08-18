@@ -30,7 +30,6 @@ TVGN_CARET = 0x0009
 TVIF_TEXT = 0x0001
 BM_CLICK = 0x00F5
 
-IMAGE_FILE_MACHINE_UNKNOWN = 0x0000
 IMAGE_FILE_MACHINE_I386 = 0x014C
 IMAGE_FILE_MACHINE_AMD64 = 0x8664
 IMAGE_FILE_MACHINE_ARM64 = 0xAA64
@@ -134,18 +133,20 @@ class NativeHardwareSelector:
 
     @staticmethod
     def _structure_for_machine(process_machine: int):
-        if process_machine == IMAGE_FILE_MACHINE_I386:
-            return TVITEMW32
-        return TVITEMW64
+        return TVITEMW32 if process_machine == IMAGE_FILE_MACHINE_I386 else TVITEMW64
 
     @classmethod
-    def _text(cls, tree_hwnd: int, item: int) -> str:
+    def _open_target_process(cls, tree_hwnd: int):
         pid = cls._process_id(tree_hwnd)
         access = PROCESS_QUERY_INFORMATION | PROCESS_VM_OPERATION | PROCESS_VM_READ | PROCESS_VM_WRITE
         process = kernel32.OpenProcess(access, False, pid)
         if not process:
             raise RuntimeError(f"OpenProcess failed for PID={pid}")
+        return process, pid
 
+    @classmethod
+    def _text(cls, tree_hwnd: int, item: int) -> str:
+        process, pid = cls._open_target_process(tree_hwnd)
         try:
             process_machine, native_machine = cls._machine_type(process)
             struct_type = cls._structure_for_machine(process_machine)
@@ -198,9 +199,6 @@ class NativeHardwareSelector:
                     raise RuntimeError("ReadProcessMemory failed for TreeView text")
 
                 data = raw.raw[: int(read.value)]
-                # Strip UTF-16LE NUL padding only at the end. Searching for the
-                # first b'\\x00\\x00' can hit the second byte of an ordinary
-                # ASCII character and truncate the final letter.
                 while data.endswith(b"\x00\x00"):
                     data = data[:-2]
                 if len(data) % 2:
@@ -246,19 +244,82 @@ class NativeHardwareSelector:
         if not result:
             raise RuntimeError(f"Failed to select TreeView item: {item.text!r}")
 
-    def click_item(self, item: TreeItemInfo) -> tuple[int, int]:
+    def _item_rect_screen(self, item: TreeItemInfo) -> tuple[int, int, int, int]:
+        """Get a TreeView item's client rect using a target-process RECT."""
         tree = self.find_tree()
-        rect = RECT()
-        rect.left = item.handle
-        if not user32.SendMessageW(tree, TVM_GETITEMRECT, 1, ctypes.byref(rect)):
-            raise RuntimeError(f"Unable to get rectangle for TreeView item: {item.text!r}")
-        point = wintypes.POINT((rect.left + rect.right) // 2, (rect.top + rect.bottom) // 2)
-        if not user32.ClientToScreen(tree, ctypes.byref(point)):
-            raise RuntimeError("ClientToScreen failed for TreeView item")
-        user32.SetCursorPos(point.x, point.y)
-        user32.mouse_event(0x0002, 0, 0, 0, 0)
-        user32.mouse_event(0x0004, 0, 0, 0, 0)
-        return point.x, point.y
+        process, _pid = self._open_target_process(tree)
+        remote_rect = 0
+        try:
+            remote_rect = kernel32.VirtualAllocEx(
+                process,
+                None,
+                ctypes.sizeof(RECT),
+                MEM_COMMIT | MEM_RESERVE,
+                PAGE_READWRITE,
+            )
+            if not remote_rect:
+                raise RuntimeError("VirtualAllocEx failed for TreeView item RECT")
+
+            seed = RECT()
+            seed.left = int(item.handle)
+            written = ctypes.c_size_t()
+            if not kernel32.WriteProcessMemory(
+                process,
+                ctypes.c_void_p(remote_rect),
+                ctypes.byref(seed),
+                ctypes.sizeof(seed),
+                ctypes.byref(written),
+            ):
+                raise RuntimeError("WriteProcessMemory failed for TreeView item RECT")
+
+            # TVM_GETITEMRECT expects the RECT pointer in the TreeView process.
+            result = user32.SendMessageW(
+                tree,
+                TVM_GETITEMRECT,
+                1,
+                ctypes.c_void_p(remote_rect),
+            )
+            if not result:
+                raise RuntimeError(f"TVM_GETITEMRECT failed for TreeView item: {item.text!r}")
+
+            rect = RECT()
+            read = ctypes.c_size_t()
+            if not kernel32.ReadProcessMemory(
+                process,
+                ctypes.c_void_p(remote_rect),
+                ctypes.byref(rect),
+                ctypes.sizeof(rect),
+                ctypes.byref(read),
+            ):
+                raise RuntimeError(f"ReadProcessMemory failed for TreeView item RECT: {item.text!r}")
+
+            point = wintypes.POINT(
+                (rect.left + rect.right) // 2,
+                (rect.top + rect.bottom) // 2,
+            )
+            if not user32.ClientToScreen(tree, ctypes.byref(point)):
+                raise RuntimeError("ClientToScreen failed for TreeView item")
+            return point.x, point.y, rect.right - rect.left, rect.bottom - rect.top
+        finally:
+            if remote_rect:
+                kernel32.VirtualFreeEx(process, ctypes.c_void_p(remote_rect), 0, MEM_RELEASE)
+            kernel32.CloseHandle(process)
+
+    def click_item(self, item: TreeItemInfo) -> tuple[int, int]:
+        self.select_item(item)
+        try:
+            point_x, point_y, width, height = self._item_rect_screen(item)
+            print(
+                f"[NATIVE SELECT] TreeItem rect center=({point_x},{point_y}) "
+                f"size={width}x{height}"
+            )
+            user32.SetCursorPos(point_x, point_y)
+            user32.mouse_event(0x0002, 0, 0, 0, 0)
+            user32.mouse_event(0x0004, 0, 0, 0, 0)
+            return point_x, point_y
+        except RuntimeError as exc:
+            print(f"[NATIVE SELECT] rect fallback unavailable: {exc}; native selection already sent")
+            return (-1, -1)
 
     def find_ok(self) -> int:
         result: list[int] = []
