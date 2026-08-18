@@ -42,7 +42,10 @@ def main() -> None:
     context.window = vision.window
     origin = (vision.window.left, vision.window.top)
 
-    print(f"[GLASS PROBE] icon={element.box} confidence={element.confidence}")
+    print(
+        f"[GLASS PROBE] icon=({element.x},{element.y},"
+        f"{element.width}x{element.height}) confidence={element.confidence}"
+    )
     print(f"[GLASS PROBE] origin={origin}")
     clicker.execute(element, origin=origin)
     time.sleep(1.0)
