@@ -17,12 +17,13 @@ WM_LBUTTONDOWN = 0x0201
 WM_LBUTTONUP = 0x0202
 MK_LBUTTON = 0x0001
 TB_GETSTATE = 0x0412
-TB_BUTTONCOUNT = 0x0418
-TB_GETBUTTON = 0x0417
-
 TBSTATE_CHECKED = 0x01
 TBSTATE_PRESSED = 0x02
 TBSTATE_ENABLED = 0x04
+
+# We already proved this command is HARDWARE. Clicking it opens a modal dialog,
+# which would interrupt the calibration of the remaining toolbar tools.
+KNOWN_HARDWARE_COMMAND_ID = 32789
 
 
 @dataclass
@@ -41,7 +42,6 @@ class CalibrationResult:
 
 
 def _send_mouse_click(hwnd: int, x: int, y: int) -> None:
-    # Coordinates are client-relative to the toolbar. This never targets the canvas.
     point = (int(y) << 16) | (int(x) & 0xFFFF)
     user32.SendMessageW(hwnd, WM_LBUTTONDOWN, MK_LBUTTON, point)
     time.sleep(0.08)
@@ -58,7 +58,7 @@ def _capture_array() -> np.ndarray:
 
 def _save_crop(image: np.ndarray, rect: tuple[int, int, int, int], path: Path) -> None:
     left, top, width, height = rect
-    # RuntimeVision image is in screen coordinates with the WindowHub screenshot origin.
+    # Current WindowHub screen origin from the live runtime is (-8, -8).
     origin_left = -8
     origin_top = -8
     x0 = max(0, left - origin_left)
@@ -72,33 +72,34 @@ def _save_crop(image: np.ndarray, rect: tuple[int, int, int, int], path: Path) -
         cv2.imwrite(str(path), crop)
 
 
+def _find_root_hwnd() -> int:
+    found: list[int] = []
+    enum = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
+
+    @enum
+    def cb(hwnd: int, _lparam: int) -> bool:
+        buf = ctypes.create_unicode_buffer(256)
+        user32.GetWindowTextW(hwnd, buf, len(buf))
+        if buf.value.strip() == "Okna -":
+            found.append(int(hwnd))
+            return False
+        return True
+
+    user32.EnumWindows(cb, 0)
+    if not found:
+        raise RuntimeError("WindowHub root window not found")
+    return found[0]
+
+
 def main() -> None:
     print("=" * 80)
     print("WINDOWHUB NATIVE TOOLBAR CLICK CALIBRATION")
     print("=" * 80)
     print("SAFE MODE: toolbar clicks only; canvas is never clicked.")
+    print(f"[CALIBRATION] skipping known HARDWARE command_id={KNOWN_HARDWARE_COMMAND_ID}")
 
     vision = RuntimeVision().capture()
-    root_hwnd = int(user32.GetAncestor(int(vision.window.hwnd), 2)) if getattr(vision.window, "hwnd", None) else 0
-    if not root_hwnd:
-        # Fallback to the known WindowHub title enumeration used by the working probe.
-        enum = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
-        found: list[int] = []
-
-        @enum
-        def cb(hwnd: int, _lparam: int) -> bool:
-            buf = ctypes.create_unicode_buffer(256)
-            user32.GetWindowTextW(hwnd, buf, len(buf))
-            if buf.value.strip() == "Okna -":
-                found.append(int(hwnd))
-                return False
-            return True
-
-        user32.EnumWindows(cb, 0)
-        if not found:
-            raise RuntimeError("WindowHub root window not found")
-        root_hwnd = found[0]
-
+    root_hwnd = _find_root_hwnd()
     toolbar = _find_toolbar(root_hwnd, "Narzędzia")
     if toolbar is None:
         raise RuntimeError("Native Narzędzia toolbar was not found")
@@ -107,14 +108,20 @@ def main() -> None:
     print(f"[CALIBRATION] root={root_hwnd} toolbar={toolbar} rect={toolbar_rect}")
 
     buttons = _toolbar_buttons(toolbar)
-    active = [b for b in buttons if b.command_id and (b.state & TBSTATE_ENABLED) and b.screen_rect]
-    print(f"[CALIBRATION] active buttons={len(active)} / {len(buttons)}")
+    active = [
+        b
+        for b in buttons
+        if b.command_id
+        and (b.state & TBSTATE_ENABLED)
+        and b.screen_rect
+        and b.command_id != KNOWN_HARDWARE_COMMAND_ID
+    ]
+    print(f"[CALIBRATION] active test buttons={len(active)} / {len(buttons)}")
 
     output_dir = Path("outputs/debug/native_toolbar_click_calibration")
     output_dir.mkdir(parents=True, exist_ok=True)
     results: list[CalibrationResult] = []
 
-    # Put the cursor well outside the canvas before starting. All actual input is sent to toolbar HWND.
     user32.SetCursorPos(1800, 1100)
     time.sleep(0.4)
 
@@ -125,10 +132,7 @@ def main() -> None:
             f"before=0x{before:02X} rect={button.screen_rect}"
         )
 
-        if not button.screen_rect:
-            continue
         left, top, width, height = button.screen_rect
-        # Convert screen rect to toolbar client coordinates.
         tl, tt, _, _ = toolbar_rect
         cx = max(1, int(round((left - tl) + width / 2)))
         cy = max(1, int(round((top - tt) + height / 2)))
@@ -163,7 +167,6 @@ def main() -> None:
             )
         )
 
-        # Return cursor away from the work area between clicks.
         user32.SetCursorPos(1800, 1100)
         time.sleep(0.25)
 
@@ -173,7 +176,7 @@ def main() -> None:
         encoding="utf-8",
     )
     print(f"[CALIBRATION] Saved: {output}")
-    print("[CALIBRATION] COMPLETE. No canvas click was sent.")
+    print("[CALIBRATION] COMPLETE. No canvas click was sent; HARDWARE was skipped.")
 
 
 if __name__ == "__main__":
