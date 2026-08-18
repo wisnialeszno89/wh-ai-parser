@@ -29,19 +29,42 @@ TVGN_CHILD = 0x0004
 TVIF_TEXT = 0x0001
 BM_CLICK = 0x00F5
 
+# IsWow64Process2 constants.
+IMAGE_FILE_MACHINE_UNKNOWN = 0x0000
+IMAGE_FILE_MACHINE_I386 = 0x014C
+IMAGE_FILE_MACHINE_AMD64 = 0x8664
+IMAGE_FILE_MACHINE_ARM64 = 0xAA64
 
-class TVITEMW_REMOTE(ctypes.Structure):
+
+class TVITEMW32(ctypes.Structure):
+    _pack_ = 4
     _fields_ = [
-        ("mask", wintypes.UINT),
-        ("hItem", wintypes.HANDLE),
-        ("state", wintypes.UINT),
-        ("stateMask", wintypes.UINT),
-        ("pszText", ctypes.c_void_p),
-        ("cchTextMax", wintypes.INT),
-        ("iImage", wintypes.INT),
-        ("iSelectedImage", wintypes.INT),
-        ("cChildren", wintypes.INT),
-        ("lParam", ctypes.c_void_p),
+        ("mask", ctypes.c_uint32),
+        ("hItem", ctypes.c_uint32),
+        ("state", ctypes.c_uint32),
+        ("stateMask", ctypes.c_uint32),
+        ("pszText", ctypes.c_uint32),
+        ("cchTextMax", ctypes.c_int32),
+        ("iImage", ctypes.c_int32),
+        ("iSelectedImage", ctypes.c_int32),
+        ("cChildren", ctypes.c_int32),
+        ("lParam", ctypes.c_int32),
+    ]
+
+
+class TVITEMW64(ctypes.Structure):
+    _pack_ = 8
+    _fields_ = [
+        ("mask", ctypes.c_uint32),
+        ("hItem", ctypes.c_uint64),
+        ("state", ctypes.c_uint32),
+        ("stateMask", ctypes.c_uint32),
+        ("pszText", ctypes.c_uint64),
+        ("cchTextMax", ctypes.c_int32),
+        ("iImage", ctypes.c_int32),
+        ("iSelectedImage", ctypes.c_int32),
+        ("cChildren", ctypes.c_int32),
+        ("lParam", ctypes.c_int64),
     ]
 
 
@@ -64,10 +87,9 @@ class TreeItemInfo:
 class NativeHardwareSelector:
     """Interact with the native SysTreeView32 and OK button in WindowHub.
 
-    SysTreeView32 belongs to the WindowHub process, not to this Python process.
-    TVM_GETITEMW therefore cannot receive a Python-process pointer directly.
-    We allocate the TVITEMW and text buffer inside the target process and copy
-    the result back with ReadProcessMemory.
+    WindowHub is an older native application and may be 32-bit while the Python
+    runtime is 64-bit. TVITEMW contains pointer-sized members, so the structure
+    written into the target process must match the target process bitness.
     """
 
     def __init__(self, dialog_hwnd: int | None = None) -> None:
@@ -77,7 +99,6 @@ class NativeHardwareSelector:
 
     def find_tree(self) -> int:
         result: list[int] = []
-
         EnumChildProc = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
 
         @EnumChildProc
@@ -105,6 +126,29 @@ class NativeHardwareSelector:
             raise RuntimeError(f"Unable to get process id for HWND={hwnd}")
         return int(pid.value)
 
+    @staticmethod
+    def _machine_type(process: wintypes.HANDLE) -> tuple[int, int]:
+        is_wow64_process2 = getattr(kernel32, "IsWow64Process2", None)
+        if is_wow64_process2 is None:
+            # Fallback: the target is very likely the legacy 32-bit WindowHub build.
+            return IMAGE_FILE_MACHINE_I386, IMAGE_FILE_MACHINE_AMD64
+
+        process_machine = wintypes.USHORT()
+        native_machine = wintypes.USHORT()
+        if not is_wow64_process2(
+            process,
+            ctypes.byref(process_machine),
+            ctypes.byref(native_machine),
+        ):
+            raise RuntimeError("IsWow64Process2 failed")
+        return int(process_machine.value), int(native_machine.value)
+
+    @staticmethod
+    def _structure_for_machine(process_machine: int):
+        if process_machine == IMAGE_FILE_MACHINE_I386:
+            return TVITEMW32
+        return TVITEMW64
+
     @classmethod
     def _text(cls, tree_hwnd: int, item: int) -> str:
         pid = cls._process_id(tree_hwnd)
@@ -113,69 +157,89 @@ class NativeHardwareSelector:
         if not process:
             raise RuntimeError(f"OpenProcess failed for PID={pid}")
 
-        text_capacity = 1024
-        text_bytes = text_capacity * ctypes.sizeof(ctypes.c_wchar)
-        text_remote = kernel32.VirtualAllocEx(
-            process,
-            None,
-            text_bytes,
-            MEM_COMMIT | MEM_RESERVE,
-            PAGE_READWRITE,
-        )
-        item_remote = kernel32.VirtualAllocEx(
-            process,
-            None,
-            ctypes.sizeof(TVITEMW_REMOTE),
-            MEM_COMMIT | MEM_RESERVE,
-            PAGE_READWRITE,
-        )
-
         try:
+            process_machine, native_machine = cls._machine_type(process)
+            struct_type = cls._structure_for_machine(process_machine)
+            pointer_size = ctypes.sizeof(ctypes.c_uint32) if struct_type is TVITEMW32 else ctypes.sizeof(ctypes.c_uint64)
+            print(
+                f"[NATIVE TREE] target_pid={pid} process_machine=0x{process_machine:04X} "
+                f"native_machine=0x{native_machine:04X} pointer_size={pointer_size} "
+                f"TVITEMW_size={ctypes.sizeof(struct_type)}"
+            )
+
+            text_capacity = 1024
+            text_bytes = text_capacity * 2  # UTF-16LE/WCHAR in the target Windows process.
+            text_remote = kernel32.VirtualAllocEx(
+                process,
+                None,
+                text_bytes,
+                MEM_COMMIT | MEM_RESERVE,
+                PAGE_READWRITE,
+            )
+            item_remote = kernel32.VirtualAllocEx(
+                process,
+                None,
+                ctypes.sizeof(struct_type),
+                MEM_COMMIT | MEM_RESERVE,
+                PAGE_READWRITE,
+            )
+
             if not text_remote or not item_remote:
+                if text_remote:
+                    kernel32.VirtualFreeEx(process, ctypes.c_void_p(text_remote), 0, MEM_RELEASE)
+                if item_remote:
+                    kernel32.VirtualFreeEx(process, ctypes.c_void_p(item_remote), 0, MEM_RELEASE)
                 raise RuntimeError("VirtualAllocEx failed for TreeView text retrieval")
 
-            tvitem = TVITEMW_REMOTE()
-            tvitem.mask = TVIF_TEXT
-            tvitem.hItem = wintypes.HANDLE(item)
-            tvitem.pszText = ctypes.c_void_p(text_remote)
-            tvitem.cchTextMax = text_capacity
+            try:
+                tvitem = struct_type()
+                tvitem.mask = TVIF_TEXT
+                tvitem.hItem = int(item)
+                tvitem.pszText = int(text_remote)
+                tvitem.cchTextMax = text_capacity
 
-            written = ctypes.c_size_t()
-            if not kernel32.WriteProcessMemory(
-                process,
-                ctypes.c_void_p(item_remote),
-                ctypes.byref(tvitem),
-                ctypes.sizeof(tvitem),
-                ctypes.byref(written),
-            ):
-                raise RuntimeError("WriteProcessMemory failed for TVITEMW")
+                written = ctypes.c_size_t()
+                if not kernel32.WriteProcessMemory(
+                    process,
+                    ctypes.c_void_p(item_remote),
+                    ctypes.byref(tvitem),
+                    ctypes.sizeof(tvitem),
+                    ctypes.byref(written),
+                ):
+                    raise RuntimeError("WriteProcessMemory failed for TVITEMW")
 
-            result = user32.SendMessageW(
-                tree_hwnd,
-                TVM_GETITEMW,
-                0,
-                ctypes.c_void_p(item_remote),
-            )
-            if not result:
-                return ""
+                result = user32.SendMessageW(
+                    tree_hwnd,
+                    TVM_GETITEMW,
+                    0,
+                    ctypes.c_void_p(item_remote),
+                )
+                if not result:
+                    return ""
 
-            buffer = ctypes.create_unicode_buffer(text_capacity)
-            read = ctypes.c_size_t()
-            if not kernel32.ReadProcessMemory(
-                process,
-                ctypes.c_void_p(text_remote),
-                buffer,
-                text_bytes,
-                ctypes.byref(read),
-            ):
-                raise RuntimeError("ReadProcessMemory failed for TreeView text")
+                # Read the UTF-16LE text directly; do not depend on Python's
+                # process-wide wchar_t size, which is platform-specific.
+                raw = ctypes.create_string_buffer(text_bytes)
+                read = ctypes.c_size_t()
+                if not kernel32.ReadProcessMemory(
+                    process,
+                    ctypes.c_void_p(text_remote),
+                    raw,
+                    text_bytes,
+                    ctypes.byref(read),
+                ):
+                    raise RuntimeError("ReadProcessMemory failed for TreeView text")
 
-            return buffer.value.strip()
-        finally:
-            if text_remote:
+                data = raw.raw[: int(read.value)]
+                if b"\x00\x00" in data:
+                    data = data[: data.find(b"\x00\x00")]
+                if len(data) % 2:
+                    data = data[:-1]
+                return data.decode("utf-16-le", errors="replace").strip()
+            finally:
                 kernel32.VirtualFreeEx(process, ctypes.c_void_p(text_remote), 0, MEM_RELEASE)
-            if item_remote:
                 kernel32.VirtualFreeEx(process, ctypes.c_void_p(item_remote), 0, MEM_RELEASE)
+        finally:
             kernel32.CloseHandle(process)
 
     def enumerate_items(self) -> list[TreeItemInfo]:
