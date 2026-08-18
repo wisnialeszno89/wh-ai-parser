@@ -27,16 +27,24 @@ def main() -> None:
 
     selection = canvas.resolve(vision)
     print(f"[EXISTING WINDOW] selection point local={selection} origin={origin}")
-    print("[EXISTING WINDOW] Selecting the existing construction object in 2 seconds...")
+    print("[EXISTING WINDOW] Moving to selection point in 2 seconds...")
     time.sleep(2.0)
     clicker.click_xy(selection[0], selection[1], origin=origin)
     context.gui_state.last_selected_point = selection
-    time.sleep(0.8)
+    print("[EXISTING WINDOW] Selection click sent.")
+    time.sleep(1.2)
 
     context.cache.clear()
     vision = locator.vision.capture()
     context.cache.screenshot = vision
     context.window = vision.window
+
+    # Diagnostic only: the exact hardware template is currently matching at
+    # about 0.77 on the user's completed-window screen. Lower the threshold for
+    # this probe so we can test whether the icon is actually active/clickable.
+    # This is NOT changing the production locator threshold.
+    locator.HARDWARE_MIN_CONFIDENCE = 0.70
+    print("[HARDWARE EXISTING] diagnostic threshold=0.70 (probe only)")
 
     element = locator.locate(GuiTool.HARDWARE)
     print(
@@ -47,7 +55,7 @@ def main() -> None:
 
     time.sleep(1.0)
     clicker.execute(element, origin=origin)
-    print("[HARDWARE EXISTING] HARDWARE icon clicked. Inspect the dialog.")
+    print("[HARDWARE EXISTING] HARDWARE icon clicked. Inspect whether the hardware dialog opened.")
 
 
 if __name__ == "__main__":
