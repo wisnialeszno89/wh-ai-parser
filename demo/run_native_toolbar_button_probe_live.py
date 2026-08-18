@@ -141,19 +141,19 @@ def _get_process_id(hwnd: int) -> int:
 
 
 def _parse_tbbttn(raw: bytes, pointer_size: int) -> tuple[int, int, int, int]:
-    # TBBUTTON:
-    # bitmap, idCommand, fsState, fsStyle, dwData, iString
+    # TBBUTTON layout:
+    # iBitmap, idCommand, fsState, fsStyle, padding, dwData, iString
     if pointer_size == 4:
         if len(raw) < 20:
             raise RuntimeError("short 32-bit TBBUTTON")
-        i_bitmap, id_command, state, style, _dw_data, i_string = struct.unpack(
+        i_bitmap, id_command, state, style, _padding, _dw_data, _i_string = struct.unpack(
             "<iiBBHII", raw[:20]
         )
     else:
         if len(raw) < 24:
             raise RuntimeError("short 64-bit TBBUTTON")
-        i_bitmap, id_command, state, style, _padding, _dw_data, i_string = struct.unpack(
-            "<iiBBHQq", raw[:24]
+        i_bitmap, id_command, state, style, _padding, _dw_data, _i_string = struct.unpack(
+            "<iiBBHQQ", raw[:24]
         )
     return int(i_bitmap), int(id_command), int(state), int(style)
 
@@ -173,8 +173,6 @@ def _toolbar_buttons(toolbar: int) -> list[ToolbarButton]:
         print(f"[NATIVE TOOLBAR] toolbar={toolbar} pid={pid} buttons={count}")
 
         pointer_size = 4
-        # WindowHub is currently a 32-bit process, but keep the probe explicit.
-        is_wow64 = ctypes.c_bool()
         machine = None
         if hasattr(kernel32, "IsWow64Process2"):
             process_machine = ctypes.c_ushort()
@@ -196,8 +194,7 @@ def _toolbar_buttons(toolbar: int) -> list[ToolbarButton]:
 
         for index in range(count):
             remote = RemoteMemory(process, tbb_size)
-            zero = bytes(tbb_size)
-            remote.write(zero)
+            remote.write(bytes(tbb_size))
             result = int(user32.SendMessageW(toolbar, TB_GETBUTTON, index, remote.address))
             if not result:
                 print(f"[NATIVE TOOLBAR] TB_GETBUTTON failed index={index}")
@@ -221,13 +218,9 @@ def _toolbar_buttons(toolbar: int) -> list[ToolbarButton]:
             text = ""
             text_mem = RemoteMemory(process, 512)
             text_mem.write(bytes(512))
-            # TB_GETBUTTONTEXTW does not require remote buffer on some controls;
-            # use the safer TB_GETBUTTONINFOW path first with remote memory.
             info_size = 56 if pointer_size == 4 else 72
             info = bytearray(info_size)
             struct.pack_into("<I", info, 0, info_size)
-            # TBBUTTONINFOW: cbSize, dwMask, idCommand, iImage, fsState, fsStyle,
-            # cx, lParam, pszText, cchText.
             TBIF_TEXT = 0x0002
             TBIF_COMMAND = 0x0020
             struct.pack_into("<I", info, 4, TBIF_TEXT | TBIF_COMMAND)
