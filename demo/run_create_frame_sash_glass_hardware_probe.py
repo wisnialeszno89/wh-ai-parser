@@ -8,7 +8,7 @@ from app.gui.enums.gui_tool import GuiTool
 from app.gui.gui_action import GuiAction
 from app.runtime.execution.action_executor import ActionExecutor
 from app.runtime.execution.context.execution_context import ExecutionContext
-from app.runtime.execution.hardware_selection_resolver import HardwareSelectionResolver
+from app.runtime.execution.hardware_dialog_uia import HardwareDialogUIA
 
 
 def _capture(executor, context):
@@ -28,7 +28,6 @@ def _save_probe(vision, name: str) -> None:
 def main():
     context = ExecutionContext(mouse_enabled=True)
     executor = ActionExecutor(context)
-    resolver = HardwareSelectionResolver()
 
     actions = [
         GuiAction(tool=GuiTool.FRAME, intent=GuiIntent.CREATE),
@@ -52,37 +51,29 @@ def main():
 
         if action.tool == GuiTool.HARDWARE:
             print()
-            print("[HARDWARE SELECT] Dialog is open; starting semantic selection.")
+            print("[HARDWARE SELECT] Dialog is open; using Windows UI Automation.")
             time.sleep(0.5)
 
             dialog = _capture(executor, context)
             _save_probe(dialog, "hardware_selection_01_dialog")
 
-            ur, _ = resolver.resolve(dialog.screenshot.image)
-            if ur is None:
-                raise RuntimeError("UR ACTIVPILOT was not found in the hardware tree")
-
-            origin = (context.window.left, context.window.top)
-            executor.click.click_xy(ur.point[0], ur.point[1], origin=origin)
-            print("[HARDWARE SELECT] clicked UR ACTIVPILOT")
+            ui = HardwareDialogUIA()
+            ui.attach()
+            ui.select_preferred_hardware("UR ACTIVPILOT")
+            print("[HARDWARE SELECT] selected UR ACTIVPILOT")
 
             time.sleep(0.5)
             selected = _capture(executor, context)
             _save_probe(selected, "hardware_selection_02_selected")
 
-            _, ok = resolver.resolve(selected.screenshot.image)
-            if ok is None:
-                raise RuntimeError("OK button was not found after hardware selection")
-
-            executor.click.click_xy(ok.point[0], ok.point[1], origin=origin)
-            print("[HARDWARE SELECT] clicked OK")
+            ui.confirm()
+            print("[HARDWARE SELECT] confirmed OK")
 
             time.sleep(0.7)
             after = _capture(executor, context)
             _save_probe(after, "hardware_selection_03_after_ok")
 
-            remaining_ur, remaining_ok = resolver.resolve(after.screenshot.image)
-            dialog_closed = remaining_ur is None and remaining_ok is None
+            dialog_closed = ui.wait_closed(timeout=5.0)
             print(f"[HARDWARE SELECT] dialog closed={dialog_closed}")
 
             if not dialog_closed:
