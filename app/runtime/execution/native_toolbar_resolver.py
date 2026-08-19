@@ -26,10 +26,10 @@ class NativeToolbarResolver:
 
     ROOT_TITLE = "Okna -"
     TOOLBAR_TITLE = "Narzędzia"
-    # Calibrated from the labeled live toolbar map supplied by the user.
-    # The previously guessed 32789 was actually the sash-like inactive icon.
+    # Calibrated against the actual toolbar icon shown in the user's WindowHub
+    # screenshot: the gray square containing the crossed/diamond hardware mark.
     DEFINITIONS = {
-        GuiTool.HARDWARE: NativeToolDefinition(GuiTool.HARDWARE, 32786),
+        GuiTool.HARDWARE: NativeToolDefinition(GuiTool.HARDWARE, 32791),
     }
 
     def __init__(self) -> None:
