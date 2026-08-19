@@ -20,15 +20,14 @@ class NativeToolbarResolver:
     """Resolve known WindowHub tools from the native MFC toolbar.
 
     This deliberately does not use template matching. The resolver discovers
-    the current toolbar HWND and current button RECT on every lookup, so moving
-    the toolbar does not invalidate its coordinates.
+    the current native toolbar and current button RECT on every lookup, so
+    moving the toolbar does not invalidate its coordinates.
     """
 
     ROOT_TITLE = "Okna -"
     TOOLBAR_TITLE = "Narzędzia"
-    # Calibrated against the actual hardware icon found in the user's full
-    # WindowHub screenshot: the crossed/diamond square at screen y≈772.
-    # The corresponding native toolbar button is index 17 / command 32792.
+    # Verified against the actual hardware icon and the successful live click:
+    # toolbar index 17 / command 32792.
     DEFINITIONS = {
         GuiTool.HARDWARE: NativeToolDefinition(GuiTool.HARDWARE, 32792),
     }
@@ -41,8 +40,8 @@ class NativeToolbarResolver:
         if definition is None:
             raise RuntimeError(f"No native toolbar mapping for {tool.name}")
 
-        root = self._find_root_hwnd()
-        toolbar = _find_toolbar(root, self.TOOLBAR_TITLE)
+        root, toolbar = self._find_root_and_toolbar()
+        self._root_hwnd = root
         if toolbar is None:
             raise RuntimeError("Native Narzędzia toolbar was not found")
 
@@ -76,7 +75,7 @@ class NativeToolbarResolver:
 
         print(
             f"[NATIVE TOOLBAR] {tool.name} command_id={button.command_id} "
-            f"toolbar={toolbar} toolbar_rect={toolbar_rect} "
+            f"root={root} toolbar={toolbar} toolbar_rect={toolbar_rect} "
             f"screen_rect={button.screen_rect} local_rect=({local_x},{local_y},{width},{height})"
         )
 
@@ -89,26 +88,64 @@ class NativeToolbarResolver:
             confidence=1.0,
         )
 
-    def _find_root_hwnd(self) -> int:
+    def _find_root_and_toolbar(self) -> tuple[int, int | None]:
+        """Find WindowHub by its native toolbar, not only by caption text.
+
+        The WindowHub caption can vary between runtime states. The MFC
+        'Narzędzia' toolbar is a more stable native anchor, so inspect each
+        visible top-level window and find the toolbar under it.
+        """
         if self._root_hwnd and user32.IsWindow(self._root_hwnd):
-            return self._root_hwnd
+            toolbar = _find_toolbar(self._root_hwnd, self.TOOLBAR_TITLE)
+            if toolbar is not None:
+                return self._root_hwnd, toolbar
 
         enum = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
-        found: list[int] = []
+        found: list[tuple[int, int]] = []
 
         @enum
         def callback(hwnd: int, _lparam: int) -> bool:
-            title = ctypes.create_unicode_buffer(256)
-            user32.GetWindowTextW(hwnd, title, len(title))
-            if title.value.strip() == self.ROOT_TITLE:
-                found.append(int(hwnd))
+            if not user32.IsWindowVisible(hwnd):
+                return True
+            toolbar = _find_toolbar(int(hwnd), self.TOOLBAR_TITLE)
+            if toolbar is not None:
+                found.append((int(hwnd), int(toolbar)))
                 return False
             return True
 
         user32.EnumWindows(callback, 0)
-        if not found:
-            raise RuntimeError(f"WindowHub root window not found: {self.ROOT_TITLE!r}")
+        if found:
+            root, toolbar = found[0]
+            print(f"[NATIVE TOOLBAR] root_hwnd={root} toolbar={toolbar}")
+            return root, toolbar
 
-        self._root_hwnd = found[0]
-        print(f"[NATIVE TOOLBAR] root_hwnd={self._root_hwnd}")
-        return self._root_hwnd
+        # Diagnostic fallback: emit visible top-level windows instead of a
+        # misleading title-only error.
+        diagnostics: list[str] = []
+
+        @enum
+        def diagnostic_callback(hwnd: int, _lparam: int) -> bool:
+            if not user32.IsWindowVisible(hwnd):
+                return True
+            title = ctypes.create_unicode_buffer(256)
+            cls = ctypes.create_unicode_buffer(256)
+            user32.GetWindowTextW(hwnd, title, len(title))
+            user32.GetClassNameW(hwnd, cls, len(cls))
+            title_value = title.value.strip()
+            if title_value or "Afx" in cls.value:
+                diagnostics.append(
+                    f"hwnd={int(hwnd)} class={cls.value!r} title={title_value!r}"
+                )
+            return len(diagnostics) < 80
+
+        user32.EnumWindows(diagnostic_callback, 0)
+        for line in diagnostics:
+            print(f"[WINDOW] {line}")
+
+        raise RuntimeError(
+            "WindowHub native toolbar was not found by top-level enumeration"
+        )
+
+    def _find_root_hwnd(self) -> int:
+        root, _toolbar = self._find_root_and_toolbar()
+        return root
