@@ -44,7 +44,7 @@ def main() -> None:
         ("bottom_right_inside", (right - 8, bottom - 8)),
     ]
 
-    clicker = ClickExecutor(context)
+    clicker = ClickExecutor()
     resolver = HardwarePreconditionResolver(context)
     origin = (vision.window.left, vision.window.top)
 
