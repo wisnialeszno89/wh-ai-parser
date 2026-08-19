@@ -30,6 +30,10 @@ from app.runtime.execution.vision.analyzers.canvas_analyzer import (
     CanvasAnalyzer,
 )
 
+from app.runtime.execution.vision.analyzers.construction_analyzer import (
+    ConstructionAnalyzer,
+)
+
 from app.runtime.execution.vision.roi.roi_extractor import (
     ROIExtractor,
 )
@@ -50,6 +54,8 @@ class VisionPipeline:
         self.toolbar_detector = LegacyToolbarBandDetector()
 
         self.canvas_analyzer = CanvasAnalyzer()
+
+        self.construction_analyzer = ConstructionAnalyzer()
 
         self.section_analyzer = SectionAnalyzer()
 
@@ -103,10 +109,14 @@ class VisionPipeline:
         context.toolbar = toolbar
 
         #
-        # Canvas.
+        # Canvas / construction.
         #
 
         context = self.canvas_analyzer.analyze(
+            context,
+        )
+
+        context.construction = self.construction_analyzer.analyze(
             context,
         )
 
@@ -150,9 +160,9 @@ class VisionPipeline:
         #
 
         self.debug_overlay.render(
-        screenshot=screenshot,
-        toolbar=toolbar,
-        canvas=context.canvas,
-    )
+            screenshot=screenshot,
+            toolbar=toolbar,
+            canvas=context.canvas,
+        )
 
         return context
