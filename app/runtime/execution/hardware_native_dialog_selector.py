@@ -7,7 +7,6 @@ from dataclasses import dataclass
 user32 = ctypes.windll.user32
 kernel32 = ctypes.windll.kernel32
 
-# TreeView messages/constants.
 TV_FIRST = 0x1100
 TVM_GETNEXTITEM = TV_FIRST + 10
 TVM_GETITEMW = TV_FIRST + 62
@@ -15,15 +14,13 @@ TVM_SELECTITEM = TV_FIRST + 11
 TVGN_ROOT = 0x0
 TVGN_NEXT = 0x1
 TVGN_CHILD = 0x4
-
-# Dialog/button messages.
+TVGN_CARET = 0x9
 BM_CLICK = 0x00F5
 
 PROCESS_VM_OPERATION = 0x0008
 PROCESS_VM_READ = 0x0010
 PROCESS_VM_WRITE = 0x0020
 PROCESS_QUERY_INFORMATION = 0x0400
-
 MEM_COMMIT = 0x1000
 MEM_RESERVE = 0x2000
 MEM_RELEASE = 0x8000
@@ -39,6 +36,7 @@ class NativeTreeItem:
 
 class HardwareNativeDialogSelector:
     DIALOG_TITLE_PREFIX = "Wybór okuć:"
+    DIALOG_TITLE_TOKEN = "Wybór okuć"
     TARGET_TEXT = "UR ACTIVPILOT"
 
     def select_and_confirm(self, timeout_s: float = 5.0) -> None:
@@ -51,12 +49,11 @@ class HardwareNativeDialogSelector:
         print(f"[NATIVE HARDWARE] tree={tree} items={len(items)}")
         for item in items:
             print(
-                f"[TREE] depth={item.depth} handle={item.handle} "
-                f"text={item.text!r}"
+                f"[TREE] depth={item.depth} handle={item.handle} text={item.text!r}"
             )
 
         target = next(
-            (item for item in items if item.text.strip() == self.TARGET_TEXT),
+            (item for item in items if item.text.strip().startswith(self.TARGET_TEXT)),
             None,
         )
         if target is None:
@@ -65,8 +62,7 @@ class HardwareNativeDialogSelector:
             )
 
         print(
-            f"[NATIVE HARDWARE] selecting {target.text!r} "
-            f"handle={target.handle}"
+            f"[NATIVE HARDWARE] selecting {target.text!r} handle={target.handle}"
         )
         result = user32.SendMessageW(
             tree,
@@ -99,29 +95,41 @@ class HardwareNativeDialogSelector:
 
     def _find_dialog(self, timeout_s: float) -> int:
         deadline = time.time() + timeout_s
+        enum = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
+        last_seen: list[str] = []
+
         while time.time() < deadline:
             found: list[int] = []
-
-            enum = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
 
             @enum
             def callback(hwnd: int, _lparam: int) -> bool:
                 title = ctypes.create_unicode_buffer(256)
+                cls = ctypes.create_unicode_buffer(256)
                 user32.GetWindowTextW(hwnd, title, len(title))
+                user32.GetClassNameW(hwnd, cls, len(cls))
                 value = title.value.strip()
-                if value.startswith(self.DIALOG_TITLE_PREFIX):
+                if value:
+                    last_seen.append(value)
+                if self.DIALOG_TITLE_TOKEN.lower() in value.lower():
                     found.append(int(hwnd))
+                    print(
+                        f"[NATIVE HARDWARE] dialog candidate hwnd={int(hwnd)} "
+                        f"class={cls.value!r} title={value!r}"
+                    )
                     return False
                 return True
 
             user32.EnumWindows(callback, 0)
             if found:
-                print(f"[NATIVE HARDWARE] dialog hwnd={found[0]}")
                 return found[0]
             time.sleep(0.1)
 
+        print("[NATIVE HARDWARE] No matching dialog title found. Recent window titles:")
+        for value in last_seen[-20:]:
+            print(f"[WINDOW] {value!r}")
         raise RuntimeError(
-            f"Hardware dialog was not found within {timeout_s:.1f}s"
+            f"Hardware dialog was not found within {timeout_s:.1f}s; "
+            f"looked for title token {self.DIALOG_TITLE_TOKEN!r}"
         )
 
     def _find_child_by_class(self, parent: int, class_name: str) -> int | None:
@@ -170,39 +178,16 @@ class HardwareNativeDialogSelector:
                 text = self._get_item_text(tree, current)
                 result.append(NativeTreeItem(current, text, depth))
 
-                child = int(
-                    user32.SendMessageW(
-                        tree,
-                        TVM_GETNEXTITEM,
-                        TVGN_CHILD,
-                        current,
-                    )
-                )
+                child = int(user32.SendMessageW(tree, TVM_GETNEXTITEM, TVGN_CHILD, current))
                 if child:
                     walk(child, depth + 1)
 
-                current = int(
-                    user32.SendMessageW(
-                        tree,
-                        TVM_GETNEXTITEM,
-                        TVGN_NEXT,
-                        current,
-                    )
-                )
+                current = int(user32.SendMessageW(tree, TVM_GETNEXTITEM, TVGN_NEXT, current))
 
         walk(root, 0)
         return result
 
     def _get_item_text(self, tree: int, item: int) -> str:
-        # WindowHub is a 32-bit process under the observed runtime, therefore
-        # the native TreeView TVITEMW structure uses 32-bit pointer fields.
-        # Keep this isolated so the rest of the selector remains semantic.
-        pointer_size = self._remote_pointer_size(tree)
-        if pointer_size != 4:
-            raise RuntimeError(
-                f"Unsupported TreeView target pointer size: {pointer_size}"
-            )
-
         text_capacity = 512
         text_bytes = text_capacity * 2
         struct_size = 40
@@ -211,10 +196,7 @@ class HardwareNativeDialogSelector:
         pid = ctypes.c_ulong()
         user32.GetWindowThreadProcessId(tree, ctypes.byref(pid))
         process = kernel32.OpenProcess(
-            PROCESS_QUERY_INFORMATION
-            | PROCESS_VM_OPERATION
-            | PROCESS_VM_READ
-            | PROCESS_VM_WRITE,
+            PROCESS_QUERY_INFORMATION | PROCESS_VM_OPERATION | PROCESS_VM_READ | PROCESS_VM_WRITE,
             False,
             pid.value,
         )
@@ -223,11 +205,7 @@ class HardwareNativeDialogSelector:
 
         try:
             remote = kernel32.VirtualAllocEx(
-                process,
-                None,
-                total_size,
-                MEM_COMMIT | MEM_RESERVE,
-                PAGE_READWRITE,
+                process, None, total_size, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE
             )
             if not remote:
                 raise OSError("VirtualAllocEx failed")
@@ -235,8 +213,7 @@ class HardwareNativeDialogSelector:
             try:
                 remote_text = remote + struct_size
                 tvitem = (
-                    0x0001  # TVIF_TEXT
-                    .to_bytes(4, "little")
+                    (0x0001).to_bytes(4, "little")
                     + int(item).to_bytes(4, "little")
                     + (0).to_bytes(4, "little")
                     + (0).to_bytes(4, "little")
@@ -249,31 +226,18 @@ class HardwareNativeDialogSelector:
                 )
                 written = ctypes.c_size_t()
                 if not kernel32.WriteProcessMemory(
-                    process,
-                    ctypes.c_void_p(remote),
-                    tvitem,
-                    len(tvitem),
-                    ctypes.byref(written),
+                    process, ctypes.c_void_p(remote), tvitem, len(tvitem), ctypes.byref(written)
                 ):
                     raise OSError("WriteProcessMemory(TVITEMW) failed")
 
-                result = user32.SendMessageW(
-                    tree,
-                    TVM_GETITEMW,
-                    0,
-                    remote,
-                )
+                result = user32.SendMessageW(tree, TVM_GETITEMW, 0, remote)
                 if result == 0:
                     return ""
 
                 buffer = ctypes.create_string_buffer(text_bytes)
                 read = ctypes.c_size_t()
                 if not kernel32.ReadProcessMemory(
-                    process,
-                    ctypes.c_void_p(remote_text),
-                    buffer,
-                    text_bytes,
-                    ctypes.byref(read),
+                    process, ctypes.c_void_p(remote_text), buffer, text_bytes, ctypes.byref(read)
                 ):
                     raise OSError("ReadProcessMemory(TreeView text) failed")
 
@@ -281,19 +245,5 @@ class HardwareNativeDialogSelector:
                 return raw.decode("utf-16-le", errors="ignore").split("\x00", 1)[0]
             finally:
                 kernel32.VirtualFreeEx(process, ctypes.c_void_p(remote), 0, MEM_RELEASE)
-        finally:
-            kernel32.CloseHandle(process)
-
-    def _remote_pointer_size(self, tree: int) -> int:
-        pid = ctypes.c_ulong()
-        user32.GetWindowThreadProcessId(tree, ctypes.byref(pid))
-        process = kernel32.OpenProcess(PROCESS_QUERY_INFORMATION, False, pid.value)
-        if not process:
-            return 4
-        try:
-            # The current WindowHub target is the observed 32-bit executable.
-            # Keep the method explicit so this can be extended for a native
-            # 64-bit build later without changing the selector API.
-            return 4
         finally:
             kernel32.CloseHandle(process)
