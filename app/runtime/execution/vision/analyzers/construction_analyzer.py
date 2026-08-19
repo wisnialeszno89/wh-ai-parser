@@ -7,17 +7,14 @@ from app.runtime.execution.vision.models.rect import Rect
 
 
 class ConstructionAnalyzer:
-    """Detect the colored WindowHub construction object itself.
+    """Detect the colored WindowHub construction object itself."""
 
-    This is intentionally separate from CanvasAnalyzer. The canvas is a work
-    area and may contain large white UI panels; a finished construction has a
-    much stronger visual signature: saturated colors, compact geometry and a
-    dense cluster of internal edges.
-    """
-
-    MIN_CANDIDATE_WIDTH = 40
-    MIN_CANDIDATE_HEIGHT = 40
-    MIN_CANDIDATE_AREA = 1_500
+    # The false positive from the last run was only 48x50. A real finished
+    # WindowHub construction is substantially larger, so require a useful
+    # minimum object footprint before scoring candidates.
+    MIN_CANDIDATE_WIDTH = 80
+    MIN_CANDIDATE_HEIGHT = 80
+    MIN_CANDIDATE_AREA = 6_000
 
     def analyze(self, context):
         image = context.screenshot.image
@@ -27,7 +24,7 @@ class ConstructionAnalyzer:
             return None
 
         height, width = image.shape[:2]
-        y_start = max(120, int(height * 0.10))
+        y_start = max(100, int(height * 0.08))
         y_end = min(height, int(height * 0.92))
         if y_end <= y_start:
             return None
@@ -35,35 +32,39 @@ class ConstructionAnalyzer:
         roi = image[y_start:y_end, :]
         hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
 
-        # WindowHub constructions use vivid blue/green/cyan fills and borders.
-        # Keep the saturation gate broad enough for anti-aliased/zoomed views.
         mask = cv2.inRange(
             hsv,
             np.array([0, 60, 35], dtype=np.uint8),
             np.array([179, 255, 255], dtype=np.uint8),
         )
 
-        # The vertical toolbar itself contains colorful icons and must never be
-        # treated as part of the finished construction.
+        # Remove only the narrow native toolbar footprint. Do not use its full
+        # height as a vertical ROI cutoff because the construction may sit beside
+        # or above/below it depending on WindowHub layout.
         tb = toolbar.bounds
-        tx1 = max(0, min(width, tb.x - 4))
-        tx2 = max(0, min(width, tb.x + tb.width + 4))
-        ty1 = max(y_start, min(y_end, tb.y - 4)) - y_start
-        ty2 = max(y_start, min(y_end, tb.y + tb.height + 4)) - y_start
-        if tx2 > tx1 and ty2 > ty1:
-            mask[ty1:ty2, tx1:tx2] = 0
+        tx1 = max(0, min(width, tb.x - 3))
+        tx2 = max(0, min(width, tb.x + tb.width + 3))
+        ty1_abs = max(y_start, min(y_end, tb.y - 3))
+        ty2_abs = max(y_start, min(y_end, tb.y + tb.height + 3))
+        if tx2 > tx1 and ty2_abs > ty1_abs:
+            mask[ty1_abs - y_start:ty2_abs - y_start, tx1:tx2] = 0
 
-        kernel = np.ones((3, 3), np.uint8)
-        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel, iterations=1)
+        mask = cv2.morphologyEx(
+            mask,
+            cv2.MORPH_OPEN,
+            np.ones((3, 3), np.uint8),
+            iterations=1,
+        )
+        # Join adjacent coloured frame/panel pieces into one construction.
         mask = cv2.morphologyEx(
             mask,
             cv2.MORPH_CLOSE,
-            np.ones((5, 5), np.uint8),
+            np.ones((7, 7), np.uint8),
             iterations=2,
         )
         mask = cv2.dilate(
             mask,
-            cv2.getStructuringElement(cv2.MORPH_RECT, (5, 5)),
+            cv2.getStructuringElement(cv2.MORPH_RECT, (7, 7)),
             iterations=1,
         )
 
@@ -79,19 +80,18 @@ class ConstructionAnalyzer:
 
         candidates = []
         image_area = float(width * height)
-
         gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
         edges = cv2.Canny(gray, 50, 150)
 
         for contour in contours:
             x, y, w, h = cv2.boundingRect(contour)
             area = w * h
-            contour_area = cv2.contourArea(contour)
-
-            if area < self.MIN_CANDIDATE_AREA:
-                continue
             if w < self.MIN_CANDIDATE_WIDTH or h < self.MIN_CANDIDATE_HEIGHT:
                 continue
+            if area < self.MIN_CANDIDATE_AREA:
+                continue
+
+            contour_area = cv2.contourArea(contour)
             if contour_area <= 0:
                 continue
 
@@ -105,7 +105,6 @@ class ConstructionAnalyzer:
 
             candidate_mask = mask[y:y + h, x:x + w]
             saturation_ratio = float(np.count_nonzero(candidate_mask)) / float(max(area, 1))
-
             edge_crop = edges[y:y + h, x:x + w]
             edge_density = float(np.count_nonzero(edge_crop)) / float(max(area, 1))
 
@@ -118,9 +117,8 @@ class ConstructionAnalyzer:
             x_full = x
             y_full = y + y_start
 
-            # Reject obvious UI overlays/panels on the far right when they are
-            # wide, low-information saturated regions. Real constructions have
-            # substantially more internal edge structure.
+            # Prefer compact objects with visible internal construction detail.
+            # Large flat panels on the far right are not construction candidates.
             if x_full > width * 0.70 and edge_density < 0.035:
                 continue
 
@@ -128,19 +126,14 @@ class ConstructionAnalyzer:
                 saturation_ratio * 7.0
                 + min(edge_density * 18.0, 3.0)
                 + square_score * 2.0
-                + compact_score * 1.5
                 + min(fill, 1.0) * 2.0
+                + compact_score * 1.5
             )
 
             candidates.append(
                 (
                     score,
-                    Rect(
-                        x=x_full,
-                        y=y_full,
-                        width=w,
-                        height=h,
-                    ),
+                    Rect(x=x_full, y=y_full, width=w, height=h),
                     saturation_ratio,
                     edge_density,
                 )
