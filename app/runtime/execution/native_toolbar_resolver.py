@@ -26,10 +26,11 @@ class NativeToolbarResolver:
 
     ROOT_TITLE = "Okna -"
     TOOLBAR_TITLE = "Narzędzia"
-    # Calibrated against the actual toolbar icon shown in the user's WindowHub
-    # screenshot: the gray square containing the crossed/diamond hardware mark.
+    # Calibrated against the actual hardware icon found in the user's full
+    # WindowHub screenshot: the crossed/diamond square at screen y≈772.
+    # The corresponding native toolbar button is index 17 / command 32792.
     DEFINITIONS = {
-        GuiTool.HARDWARE: NativeToolDefinition(GuiTool.HARDWARE, 32791),
+        GuiTool.HARDWARE: NativeToolDefinition(GuiTool.HARDWARE, 32792),
     }
 
     def __init__(self) -> None:
