@@ -78,8 +78,9 @@ def main() -> None:
         before_states = {cmd: _button_state(toolbar, cmd) for cmd in command_ids}
         print(f"[ACTIVATE] index={button.index} command_id={button.command_id} before=0x{before_states[button.command_id]:02X}")
 
-        wparam = ctypes.wparam(button.command_id)
-        user32.SendMessageW(root_hwnd, WM_COMMAND, wparam, 0)
+        # ctypes has no wparam constructor. WM_COMMAND's wParam is an integer
+        # command identifier; SendMessageW accepts it directly as a WPARAM value.
+        user32.SendMessageW(root_hwnd, WM_COMMAND, int(button.command_id), 0)
         time.sleep(0.35)
 
         after_states = {cmd: _button_state(toolbar, cmd) for cmd in command_ids}
