@@ -4,6 +4,8 @@ from app.runtime.execution.window.window_rect import WindowRect
 from app.wh.vision.screenshot import Screenshot
 
 from app.runtime.execution.vision.models.canvas import Canvas
+from app.runtime.execution.vision.models.rect import Rect
+
 
 @dataclass(slots=True)
 class VisionContext:
@@ -19,3 +21,5 @@ class VisionContext:
     scene_graph: object | None = None
 
     canvas: Canvas | None = None
+
+    construction: Rect | None = None
