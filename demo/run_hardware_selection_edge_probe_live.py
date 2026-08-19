@@ -19,16 +19,19 @@ def main() -> None:
     vision = RuntimeVision().capture()
     context.window = vision.window
 
-    workspace = getattr(vision, "workspace", None)
-    if workspace is None:
-        raise RuntimeError("Runtime vision did not expose workspace geometry")
+    # VisionPipeline exposes the detected editable area as vision.canvas,
+    # not vision.workspace. Canvas geometry is defined by canvas.bounds.
+    canvas = getattr(vision, "canvas", None)
+    if canvas is None or getattr(canvas, "bounds", None) is None:
+        raise RuntimeError("Runtime vision did not expose canvas geometry")
 
-    left = workspace.x
-    top = workspace.y
-    right = workspace.x + workspace.width
-    bottom = workspace.y + workspace.height
-    cx = left + workspace.width // 2
-    cy = top + workspace.height // 2
+    bounds = canvas.bounds
+    left = bounds.x
+    top = bounds.y
+    right = bounds.x + bounds.width
+    bottom = bounds.y + bounds.height
+    cx = left + bounds.width // 2
+    cy = top + bounds.height // 2
 
     candidates = [
         ("top_left_inside", (left + 8, top + 8)),
@@ -46,7 +49,7 @@ def main() -> None:
     origin = (vision.window.left, vision.window.top)
 
     print(
-        f"[WORKSPACE] local=({left},{top},{workspace.width}x{workspace.height}) "
+        f"[CANVAS] local=({left},{top},{bounds.width}x{bounds.height}) "
         f"origin={origin}"
     )
 
@@ -54,7 +57,9 @@ def main() -> None:
         print(f"[CANDIDATE] {name} local={point}")
         clicker.click_xy(point[0], point[1], origin=origin)
         time.sleep(0.35)
-        context.window = RuntimeVision().capture().window
+
+        refreshed = RuntimeVision().capture()
+        context.window = refreshed.window
         result = resolver.inspect()
         print(
             f"[RESULT] {name} ready={result.ready} reason={result.reason!r} "
@@ -64,7 +69,7 @@ def main() -> None:
             print(f"[SUCCESS] Selection candidate accepted: {name} {point}")
             return
 
-    raise RuntimeError("No workspace-edge candidate enabled HARDWARE")
+    raise RuntimeError("No canvas-edge candidate enabled HARDWARE")
 
 
 if __name__ == "__main__":
