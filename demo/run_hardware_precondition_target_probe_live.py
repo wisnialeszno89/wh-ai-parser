@@ -11,6 +11,7 @@ from app.runtime.execution.context.execution_context import ExecutionContext
 from app.runtime.execution.native_toolbar_resolver import NativeToolbarResolver
 from app.runtime.execution.native_drawing_view_resolver import NativeDrawingViewResolver
 from app.runtime.execution.native_construction_point_resolver import resolve_construction_interior_point
+from demo.run_native_toolbar_button_probe_live import _get_window_rect
 
 
 def main() -> None:
@@ -35,21 +36,16 @@ def main() -> None:
         f"rect={view['rect']} hits={view['hits']}"
     )
 
-    vision = context.window
     point_screen = resolve_construction_interior_point()
     print(f"[RESOLVER] screen_point={point_screen}")
 
     if point_screen is None:
         raise RuntimeError("Construction interior resolver returned no point")
 
-    # Current WindowHub root geometry from the vision runtime is required for
-    # screen -> local normalization. Capture a screenshot and derive the root
-    # window rectangle via the native toolbar resolver rather than assuming a
-    # fixed origin.
-    root_rect = NativeToolbarResolver()._get_window_rect(root)
+    root_rect = _get_window_rect(root)
     print(f"[ROOT RECT] {root_rect}")
 
-    origin = (root_rect[0], root_rect[1])
+    origin = (root_rect.left, root_rect.top)
     local_point = (
         point_screen[0] - origin[0],
         point_screen[1] - origin[1],
@@ -76,6 +72,7 @@ def main() -> None:
         "toolbar": toolbar,
         "drawing_view": view,
         "screen_point": point_screen,
+        "root_rect": list(root_rect),
         "root_origin": origin,
         "local_point": local_point,
         "final_screen": final_screen,
