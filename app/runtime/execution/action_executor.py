@@ -116,12 +116,13 @@ class ActionExecutor:
 
         if action.tool == GuiTool.HARDWARE:
             point = (
-                self.context.gui_state.last_selected_point
+                self.context.gui_state.sash_point
+                or self.context.gui_state.frame_point
                 or self.context.gui_state.last_created_point
             )
             if point is None:
                 raise RuntimeError(
-                    "HARDWARE CREATE requires a selected or last-created frame point"
+                    "HARDWARE CREATE requires a sash, frame, or last-created point"
                 )
             return point
 
@@ -177,6 +178,7 @@ class ActionExecutor:
             state = self.context.gui_state
             if tool == GuiTool.SASH:
                 state.panel_pair_point = point
+                state.sash_point = point
                 state.last_panel_component = "SASH"
             elif tool == GuiTool.GLASS:
                 if state.panel_pair_point is not None:
@@ -233,6 +235,7 @@ class ActionExecutor:
 
         if tool == GuiTool.SASH:
             state.panel_pair_point = point
+            state.sash_point = point
             state.last_panel_component = "SASH"
         elif tool == GuiTool.GLASS:
             if state.panel_pair_point is not None:
@@ -263,9 +266,10 @@ class ActionExecutor:
         self._establish_workspace_before_first_tool_click()
 
         # HARDWARE has an application-level precondition: WindowHub requires a
-        # selected/last-created construction object before the native toolbar
-        # command becomes enabled. Drive that state explicitly instead of
-        # guessing a point in the finished drawing.
+        # selected construction object before the native toolbar command becomes
+        # enabled. The live differential probe established that selecting the
+        # sash interior activates HARDWARE, so the persistent sash_point is now
+        # the primary precondition anchor.
         if action.tool == GuiTool.HARDWARE and self.context.mouse_enabled:
             print("[HARDWARE] ensuring native selection precondition")
             self.hardware_precondition.ensure_ready(timeout_s=3.0)
@@ -304,6 +308,7 @@ class ActionExecutor:
                 else "left"
             )
             self.context.gui_state.panel_pair_point = None
+            self.context.gui_state.sash_point = None
             self.context.gui_state.last_panel_component = None
 
         if action.tool == GuiTool.GLASS:
