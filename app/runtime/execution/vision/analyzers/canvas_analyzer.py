@@ -16,8 +16,9 @@ class CanvasAnalyzer:
     Detects the movable WindowHub construction workspace.
 
     A bright rectangle is useful only when the pixels actually belong to the
-    WindowHub window. This prevents white VS Code/Explorer/other application
-    panels from being selected as the workspace when they overlap the capture.
+    WindowHub window. The detector also handles a vertical native toolbar:
+    in that layout the toolbar height must not be used as a vertical cutoff,
+    because the drawing workspace can sit above or alongside the toolbar.
     """
 
     MIN_WIDTH = 60
@@ -33,7 +34,7 @@ class CanvasAnalyzer:
 
         detected = self._detect_workspace(
             screenshot.image,
-            toolbar.bounds.bottom,
+            toolbar.bounds,
             context,
         )
 
@@ -42,7 +43,7 @@ class CanvasAnalyzer:
             detected = self._fallback(
                 screenshot.width,
                 screenshot.height,
-                toolbar.bounds.bottom,
+                toolbar.bounds,
             )
         else:
             print(
@@ -54,21 +55,34 @@ class CanvasAnalyzer:
         context.canvas = Canvas(bounds=detected)
         return context
 
-    def _detect_workspace(self, image, toolbar_bottom: int, context) -> Rect | None:
+    def _detect_workspace(self, image, toolbar_bounds, context) -> Rect | None:
         if image is None or image.size == 0:
             return None
 
         height, width = image.shape[:2]
-        top_limit = max(toolbar_bottom + 10, int(height * 0.18))
-        bottom_limit = int(height * 0.92)
 
+        # Legacy toolbar detection returns a tall rectangle for the real
+        # vertical WindowHub toolbar. Its bottom is around the drawing area, so
+        # using toolbar.bottom as top_limit would discard the actual window.
+        vertical_toolbar = toolbar_bounds.height > toolbar_bounds.width * 2
+        if vertical_toolbar:
+            top_limit = int(height * 0.18)
+        else:
+            top_limit = max(toolbar_bounds.bottom + 10, int(height * 0.18))
+
+        bottom_limit = int(height * 0.92)
         if bottom_limit <= top_limit:
             return None
 
         root_hwnd = None
+        native_toolbar_rect = None
         try:
-            root_hwnd, _toolbar = NativeToolbarResolver()._find_root_and_toolbar()
+            root_hwnd, native_toolbar = NativeToolbarResolver()._find_root_and_toolbar()
+            if native_toolbar:
+                native_toolbar_rect = self._safe_native_rect(native_toolbar)
             print(f"[CANVAS] native WindowHub root={root_hwnd}")
+            if native_toolbar_rect:
+                print(f"[CANVAS] native toolbar rect={native_toolbar_rect}")
         except Exception as exc:
             print(f"[CANVAS] native root unavailable; ownership filter disabled: {exc}")
 
@@ -83,11 +97,23 @@ class CanvasAnalyzer:
         if bright is not None:
             return bright
 
+        # The line-based fallback must use the same ownership filter as the
+        # bright detector; otherwise bottom notes/status regions can win after
+        # a valid bright candidate is rejected by window ownership.
         return self._detect_workspace_from_lines(
             image,
             top_limit,
             bottom_limit,
+            context,
+            root_hwnd,
         )
+
+    @staticmethod
+    def _safe_native_rect(hwnd: int):
+        rect = ctypes.wintypes.RECT()
+        if not user32.GetWindowRect(hwnd, ctypes.byref(rect)):
+            return None
+        return (rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top)
 
     def _belongs_to_root(self, image_x: int, image_y: int, context, root_hwnd: int | None) -> bool:
         if root_hwnd is None:
@@ -214,8 +240,14 @@ class CanvasAnalyzer:
 
         return rect
 
-    # Geometry-only fallback retained unchanged below.
-    def _detect_workspace_from_lines(self, image, top_limit: int, bottom_limit: int) -> Rect | None:
+    def _detect_workspace_from_lines(
+        self,
+        image,
+        top_limit: int,
+        bottom_limit: int,
+        context,
+        root_hwnd: int | None,
+    ) -> Rect | None:
         height, width = image.shape[:2]
         roi = image[top_limit:bottom_limit, :]
         gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
@@ -224,9 +256,17 @@ class CanvasAnalyzer:
         min_dimension = min(width, height)
         min_line_length = max(50, int(min_dimension * 0.10))
         threshold = max(35, int(min_dimension * 0.055))
-        lines = cv2.HoughLinesP(edges, 1, np.pi / 180.0, threshold=threshold, minLineLength=min_line_length, maxLineGap=12)
+        lines = cv2.HoughLinesP(
+            edges,
+            1,
+            np.pi / 180.0,
+            threshold=threshold,
+            minLineLength=min_line_length,
+            maxLineGap=12,
+        )
         if lines is None:
             return None
+
         horizontals = []
         verticals = []
         for raw in lines[:, 0]:
@@ -240,10 +280,12 @@ class CanvasAnalyzer:
                 horizontals.append(((y1 + y2) / 2 + top_limit, min(x1, x2), max(x1, x2), length))
             elif dy >= dx * 6 and dy >= 50:
                 verticals.append(((x1 + x2) / 2, min(y1, y2) + top_limit, max(y1, y2) + top_limit, length))
+
         horizontals = self._cluster_lines(horizontals)
         verticals = self._cluster_lines(verticals)
         if len(horizontals) < 2 or len(verticals) < 2:
             return None
+
         candidates = []
         for left_index, left in enumerate(verticals):
             for right in verticals[left_index + 1:]:
@@ -275,6 +317,21 @@ class CanvasAnalyzer:
                             continue
                         if min(vertical_left_overlap, vertical_right_overlap) < rect_height * 0.45:
                             continue
+
+                        center_x = (left_x + right_x) / 2.0
+                        center_y = (top_y + bottom_y) / 2.0
+                        if not self._belongs_to_root(
+                            int(center_x),
+                            int(center_y),
+                            context,
+                            root_hwnd,
+                        ):
+                            print(
+                                f"[CANVAS REJECT] line candidate belongs outside WindowHub "
+                                f"rect={int(left_x)},{int(top_y)} {int(rect_width)}x{int(rect_height)}"
+                            )
+                            continue
+
                         coverage = ((horizontal_top_overlap + horizontal_bottom_overlap) / (2.0 * rect_width) + (vertical_left_overlap + vertical_right_overlap) / (2.0 * rect_height))
                         square_score = max(0.0, 1.0 - min(abs(1.0 - aspect), 1.0))
                         area_ratio = area / float(width * height)
@@ -283,12 +340,30 @@ class CanvasAnalyzer:
                         score = coverage * 6.0 + square_score * 2.0 + compact_score * 1.5 + line_score * 2.0
                         if left_x < width * 0.60:
                             score += 0.75
-                        candidates.append((score, Rect(x=int(round(left_x)), y=int(round(top_y)), width=int(round(rect_width)), height=int(round(rect_height)))))
+
+                        candidates.append(
+                            (
+                                score,
+                                Rect(
+                                    x=int(round(left_x)),
+                                    y=int(round(top_y)),
+                                    width=int(round(rect_width)),
+                                    height=int(round(rect_height)),
+                                ),
+                            )
+                        )
+
         if not candidates:
             return None
+
         candidates.sort(key=lambda item: item[0], reverse=True)
         best_score, best_rect = candidates[0]
-        print(f"[CANVAS] border candidate score={best_score:.2f} rect={best_rect.x},{best_rect.y} {best_rect.width}x{best_rect.height} candidates={len(candidates)}")
+        print(
+            f"[CANVAS] border candidate score={best_score:.2f} "
+            f"rect={best_rect.x},{best_rect.y} "
+            f"{best_rect.width}x{best_rect.height} "
+            f"candidates={len(candidates)}"
+        )
         return best_rect
 
     @staticmethod
@@ -315,9 +390,22 @@ class CanvasAnalyzer:
     def _overlap(a1, a2, b1, b2):
         return max(0.0, min(a2, b2) - max(a1, b1))
 
-    def _fallback(self, width: int, height: int, toolbar_bottom: int) -> Rect:
-        left = int(width * 0.10)
-        right = int(width * 0.80)
-        top = toolbar_bottom + 8
-        bottom = int(height * 0.82)
-        return Rect(x=left, y=top, width=max(1, right - left), height=max(1, bottom - top))
+    def _fallback(self, width: int, height: int, toolbar_bounds) -> Rect:
+        vertical_toolbar = toolbar_bounds.height > toolbar_bounds.width * 2
+        if vertical_toolbar:
+            left = int(width * 0.08)
+            right = int(width * 0.70)
+            top = int(height * 0.18)
+            bottom = int(height * 0.72)
+        else:
+            left = int(width * 0.10)
+            right = int(width * 0.80)
+            top = toolbar_bounds.bottom + 8
+            bottom = int(height * 0.82)
+
+        return Rect(
+            x=left,
+            y=top,
+            width=max(1, right - left),
+            height=max(1, bottom - top),
+        )
