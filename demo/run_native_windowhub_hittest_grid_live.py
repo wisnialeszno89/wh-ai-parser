@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ctypes
+import ctypes.wintypes
 import json
 from collections import Counter
 from pathlib import Path
@@ -58,7 +59,6 @@ def main() -> None:
     right = left + width
     bottom = top + height
 
-    # Coarse screen grid, plus a denser grid in the left/middle content area.
     points: list[tuple[int, int, str]] = []
     for y in range(max(top + 120, 0), bottom, 80):
         for x in range(left + 50, right, 100):
