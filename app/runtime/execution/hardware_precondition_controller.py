@@ -10,9 +10,11 @@ from app.runtime.execution.models.screen_element import ScreenElement
 class HardwarePreconditionController:
     """Drive WindowHub into the native state required to choose HARDWARE.
 
-    This first version is deliberately narrow: when HARDWARE is disabled and
-    no selection exists, it tries the last created point as the selection target.
-    It never guesses an arbitrary canvas location.
+    HARDWARE belongs to the frame/window selection, not the most recently
+    created panel component. During FRAME -> SASH -> GLASS creation the generic
+    last_selected_point can legitimately point at the sash/glass cell, so this
+    controller deliberately prefers the persistent frame_point as the selection
+    target for HARDWARE.
     """
 
     def __init__(self, context, click_executor, refresh):
@@ -27,17 +29,20 @@ class HardwarePreconditionController:
             return self._element_from_point(result.selected_point)
 
         state = self.context.gui_state
-        selected = state.last_selected_point
-        target = selected or state.last_created_point
+        # HARDWARE requires the frame/window to be selected. Do not reuse the
+        # generic last_selected_point here because SASH/GLASS creation updates
+        # it to the panel cell under construction.
+        target = state.frame_point or state.last_created_point
         if target is None:
             raise RuntimeError(
-                "HARDWARE precondition not met: no selected or last-created point available"
+                "HARDWARE precondition not met: no frame or last-created point available"
             )
 
-        if selected is None:
+        current_selected = state.last_selected_point
+        if current_selected != target:
             print(
-                f"[PRECONDITION] selecting last-created object at {target} "
-                "before HARDWARE"
+                f"[PRECONDITION] selecting frame for HARDWARE at {target}; "
+                f"previous selected={current_selected}"
             )
             origin = self._origin()
             self.click.click_xy(target[0], target[1], origin=origin)
@@ -56,7 +61,7 @@ class HardwarePreconditionController:
 
         raise RuntimeError(
             "HARDWARE precondition could not be satisfied after selecting the "
-            f"last-created object: {last_reason}"
+            f"frame point: {last_reason}"
         )
 
     def _origin(self) -> tuple[int, int]:
