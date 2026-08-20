@@ -5,18 +5,19 @@ import time
 from app.gui.enums.gui_tool import GuiTool
 from app.runtime.execution.hardware_precondition_resolver import HardwarePreconditionResolver
 from app.runtime.execution.models.screen_element import ScreenElement
+from app.runtime.execution.native_construction_point_resolver import (
+    resolve_construction_interior_point,
+)
 
 
 class HardwarePreconditionController:
     """Drive WindowHub into the native state required to choose HARDWARE.
 
-    HARDWARE is enabled when the sash/panel object is selected. During
-    FRAME -> SASH -> GLASS creation the generic last_selected_point can remain
-    equal to the sash anchor even though GLASS creation has changed WindowHub's
-    actual native selection. Therefore coordinate equality is not sufficient
-    evidence that the sash is still selected: when HARDWARE is disabled we
-    deliberately re-click the persisted sash anchor and then re-check the
-    native toolbar state.
+    HARDWARE is enabled when the sash/panel object is selected. The reliable
+    live probe demonstrated that the point must be resolved from the CURRENT
+    finished drawing state, not merely reused from the point that was stored
+    during SASH creation. Therefore we refresh the construction interior just
+    before the HARDWARE precondition click whenever HARDWARE is disabled.
     """
 
     def __init__(self, context, click_executor, refresh):
@@ -31,22 +32,20 @@ class HardwarePreconditionController:
             return self._element_from_point(result.selected_point)
 
         state = self.context.gui_state
-        target = state.sash_point or state.frame_point or state.last_created_point
+        target = self._refresh_current_sash_target() or state.sash_point or state.frame_point or state.last_created_point
         if target is None:
             raise RuntimeError(
-                "HARDWARE precondition not met: no sash, frame, or last-created point available"
+                "HARDWARE precondition not met: no current sash, frame, or last-created point available"
             )
 
-        # Native selection is application state, not merely a coordinate stored
-        # in our runtime memory. If HARDWARE is disabled, always perform the
-        # known-good sash click, even when last_selected_point == target.
         print(
-            f"[PRECONDITION] reselecting sash for HARDWARE at {target}; "
+            f"[PRECONDITION] reselecting current sash for HARDWARE at {target}; "
             f"previous selected={state.last_selected_point}"
         )
         origin = self._origin()
         self.click.click_xy(target[0], target[1], origin=origin)
         state.last_selected_point = target
+        state.sash_point = target
         self.refresh()
 
         deadline = time.time() + timeout_s
@@ -61,8 +60,35 @@ class HardwarePreconditionController:
 
         raise RuntimeError(
             "HARDWARE precondition could not be satisfied after reselecting the "
-            f"sash point: {last_reason}"
+            f"current sash point: {last_reason}"
         )
+
+    def _refresh_current_sash_target(self) -> tuple[int, int] | None:
+        """Resolve a fresh sash point from the current screen and normalize it to local coordinates."""
+        try:
+            screen_point = resolve_construction_interior_point()
+        except Exception as exc:  # diagnostics must not break the existing fallback path
+            print(f"[PRECONDITION] current sash resolver failed: {exc}")
+            return None
+
+        if screen_point is None:
+            print("[PRECONDITION] current sash resolver found no construction interior")
+            return None
+
+        window = self.context.window
+        if window is None:
+            print("[PRECONDITION] window origin unavailable; cannot normalize fresh sash point")
+            return None
+
+        local_point = (
+            int(screen_point[0] - window.left),
+            int(screen_point[1] - window.top),
+        )
+        print(
+            f"[PRECONDITION] fresh sash screen={screen_point} "
+            f"origin=({window.left},{window.top}) -> local={local_point}"
+        )
+        return local_point
 
     def _origin(self) -> tuple[int, int]:
         window = self.context.window
