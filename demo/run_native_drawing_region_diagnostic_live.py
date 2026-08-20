@@ -10,6 +10,16 @@ from app.runtime.execution.native_toolbar_resolver import NativeToolbarResolver,
 from app.runtime.execution.vision.runtime_vision import RuntimeVision
 
 user32 = ctypes.windll.user32
+GA_ROOT = 2
+
+
+def _point_belongs_to_root(screen_x: int, screen_y: int, root_hwnd: int) -> bool:
+    """Reject pixels currently covered by another top-level application window."""
+    hwnd = int(user32.WindowFromPoint(ctypes.wintypes.POINT(screen_x, screen_y)))
+    if not hwnd:
+        return False
+    root = int(user32.GetAncestor(hwnd, GA_ROOT))
+    return root == int(root_hwnd)
 
 
 def _save_overlay(image, toolbar_rect, candidates):
@@ -56,9 +66,8 @@ def main() -> None:
     h, w = image.shape[:2]
     tx, ty, tw, th = toolbar_rect
 
-    # WindowRect exposes left/top, not x/y. Vision coordinates are relative to
-    # the captured WindowHub screenshot, while the Win32 toolbar RECT is screen
-    # coordinates. Convert the native toolbar to screenshot-local coordinates.
+    # Work in screenshot coordinates. Native toolbar rectangles are screen
+    # coordinates, so subtract the captured WindowHub origin.
     wx, wy = vision.window.left, vision.window.top
     local_tb = (tx - wx, ty - wy, tw, th)
     lx, ly, lw, lh = local_tb
@@ -70,22 +79,41 @@ def main() -> None:
     edges = cv2.Canny(gray, 45, 140)
 
     # Analyze broad regions on both sides of the actual native toolbar.
-    regions = []
+    regions: list[tuple[int, int, int, int]] = []
     margin = 12
-    if lx > 0:
-        regions.append((0, max(0, lx - margin), 0, h))
+    if lx > margin:
+        regions.append((0, lx - margin, 0, h))
     if lx + lw + margin < w:
-        regions.append((min(w, lx + lw + margin), w, 0, h))
+        regions.append((lx + lw + margin, w, 0, h))
 
     candidates = []
     for rx1, rx2, ry1, ry2 in regions:
+        if rx2 <= rx1 or ry2 <= ry1:
+            continue
+
         roi_mask = sat[ry1:ry2, rx1:rx2].copy()
         roi_edges = edges[ry1:ry2, rx1:rx2]
+        if roi_mask.size == 0:
+            continue
 
-        roi_mask = cv2.morphologyEx(roi_mask, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8), iterations=1)
-        roi_mask = cv2.morphologyEx(roi_mask, cv2.MORPH_CLOSE, np.ones((7, 7), np.uint8), iterations=2)
+        roi_mask = cv2.morphologyEx(
+            roi_mask,
+            cv2.MORPH_OPEN,
+            np.ones((3, 3), np.uint8),
+            iterations=1,
+        )
+        roi_mask = cv2.morphologyEx(
+            roi_mask,
+            cv2.MORPH_CLOSE,
+            np.ones((7, 7), np.uint8),
+            iterations=2,
+        )
 
-        contours, _ = cv2.findContours(roi_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        contours, _ = cv2.findContours(
+            roi_mask,
+            cv2.RETR_EXTERNAL,
+            cv2.CHAIN_APPROX_SIMPLE,
+        )
         for contour in contours:
             x, y, cw, ch = cv2.boundingRect(contour)
             area = cw * ch
@@ -106,6 +134,20 @@ def main() -> None:
             edge_ratio = float(np.count_nonzero(crop_edges)) / float(area)
             aspect = cw / float(ch)
             shape_score = max(0.0, 1.0 - min(abs(1.0 - aspect), 1.0))
+
+            screen_x = int(rx1 + x + cw / 2)
+            screen_y = int(ry1 + y + ch / 2)
+            # The screenshot is WindowHub-local; translate candidate center to
+            # screen coordinates before asking Windows which top-level app owns it.
+            absolute_x = int(wx + screen_x)
+            absolute_y = int(wy + screen_y)
+            if not _point_belongs_to_root(absolute_x, absolute_y, root):
+                print(
+                    f"[CANDIDATE REJECT] covered_by_other_window "
+                    f"rect={rx1 + x},{ry1 + y} {cw}x{ch} "
+                    f"screen_center=({absolute_x},{absolute_y})"
+                )
+                continue
 
             score = sat_ratio * 6.0 + min(edge_ratio * 20.0, 4.0) + fill * 2.0 + shape_score
             candidates.append((score, rx1 + x, ry1 + y, cw, ch))
