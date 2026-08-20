@@ -56,7 +56,7 @@ def main() -> None:
     )
     print(f"[NORMALIZE] origin={origin} local={local_point} final_screen={final_screen}")
 
-    image = np.array(pyautogui.screenshot())[:, :, ::-1]
+    image = np.ascontiguousarray(np.array(pyautogui.screenshot())[:, :, ::-1])
     x, y = final_screen
     cv2.circle(image, (x, y), 14, (0, 0, 255), 3)
     cv2.line(image, (x - 22, y), (x + 22, y), (0, 0, 255), 2)
