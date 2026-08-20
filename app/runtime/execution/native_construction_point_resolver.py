@@ -49,12 +49,12 @@ def _belongs_to_windowhub_root(root_hwnd: int, screen_x: int, screen_y: int) -> 
 
 
 def _full_screen_root_owned_fallback(root_hwnd: int, toolbar_hwnd: int | None) -> tuple[int, int] | None:
-    """Reuse the proven root-ownership idea from ConstructionAnalyzer.
+    """Find a large root-owned construction candidate on the full screen.
 
-    The native drawing-view ROI can contain covered/foreign content at its edges.
-    When ROI-local CV finds nothing useful, scan the whole screenshot for a
-    saturated construction and keep only candidates whose center belongs to the
-    WindowHub root according to the native WindowFromPoint hit-test.
+    The native drawing-view ROI can contain fragments from covered windows at
+    its edges. When ROI-local CV finds nothing useful, scan the full screen,
+    keep only candidates whose centers belong to the WindowHub root, and prefer
+    construction-sized regions over tiny UI fragments.
     """
     image = np.ascontiguousarray(np.array(pyautogui.screenshot())[:, :, ::-1])
     height, width = image.shape[:2]
@@ -90,10 +90,10 @@ def _full_screen_root_owned_fallback(root_hwnd: int, toolbar_hwnd: int | None) -
         x, y, w, h = cv2.boundingRect(contour)
         area = w * h
         contour_area = cv2.contourArea(contour)
-        if w < 60 or h < 60 or area < 3500 or contour_area < 30:
+        if w < 100 or h < 100 or area < 20_000 or contour_area < 30:
             continue
-        aspect = w / float(max(1, h))
-        if aspect < 0.45 or aspect > 2.4:
+        aspect_raw = w / float(max(1, h))
+        if aspect_raw < 0.45 or aspect_raw > 2.4:
             continue
 
         sx, sy = x, y + y_start
@@ -113,15 +113,19 @@ def _full_screen_root_owned_fallback(root_hwnd: int, toolbar_hwnd: int | None) -
 
         edge_gray = cv2.cvtColor(roi[y:y+h, x:x+w], cv2.COLOR_BGR2GRAY)
         edge_density = float(np.count_nonzero(cv2.Canny(edge_gray, 50, 150))) / float(max(1, area))
-        square_score = max(0.0, 1.0 - min(abs(1.0 - min(w / max(1, h), h / max(1, w))), 1.0))
-        compact_score = max(0.0, 1.0 - min(area / 300000.0, 1.0))
+        square_score = min(w / max(1, h), h / max(1, w))
+        size_score = min(area / 160_000.0, 1.0)
+        fill_score = min(contour_area / float(max(1, area)), 1.0)
 
+        # Larger construction-shaped candidates should win. The previous
+        # compactness term rewarded small fragments and was the reason a
+        # 105x78 fragment beat the actual 300-400px construction.
         score = (
-            min(sat_ratio * 8.0, 6.0)
-            + min(edge_density * 24.0, 4.0)
-            + square_score * 2.0
-            + min(contour_area / float(max(1, area)), 1.0) * 1.5
-            + compact_score * 1.5
+            min(sat_ratio * 8.0, 5.0)
+            + min(edge_density * 20.0, 3.0)
+            + square_score * 3.0
+            + size_score * 8.0
+            + fill_score * 1.5
         )
         candidates.append((score, x, y, w, h))
 
@@ -221,7 +225,7 @@ def resolve_construction_interior_point() -> tuple[int, int] | None:
         for contour in fallback_contours:
             x, y, w, h = cv2.boundingRect(contour)
             area = w * h
-            if w < 120 or h < 120 or area < 12000:
+            if w < 120 or h < 120 or area < 12_000:
                 continue
             sx, sy = vx + x, vy + y
             if _candidate_touches_view_edge(vx, vy, vw, vh, sx, sy, w, h):
@@ -237,7 +241,8 @@ def resolve_construction_interior_point() -> tuple[int, int] | None:
                 center_y - vy,
                 (vy + vh) - center_y,
             ) / max(1.0, min(vw, vh))
-            score = 7.0 * aspect + 5.0 * min(area / 180000.0, 1.0) + 2.0 * sat_mean + 3.0 * max(center_margin, 0.0)
+            size_score = min(area / 180_000.0, 1.0)
+            score = 7.0 * aspect + 5.0 * size_score + 2.0 * sat_mean + 3.0 * max(center_margin, 0.0)
             fallback_candidates.append((score, x, y, w, h))
         selected = _pick_candidate(fallback_candidates)
         if selected is not None:
