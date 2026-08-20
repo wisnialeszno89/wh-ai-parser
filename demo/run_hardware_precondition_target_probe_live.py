@@ -45,14 +45,14 @@ def main() -> None:
     root_rect = _get_window_rect(root)
     print(f"[ROOT RECT] {root_rect}")
 
-    origin = (root_rect.left, root_rect.top)
+    origin = (int(root_rect[0]), int(root_rect[1]))
     local_point = (
-        point_screen[0] - origin[0],
-        point_screen[1] - origin[1],
+        int(point_screen[0] - origin[0]),
+        int(point_screen[1] - origin[1]),
     )
     final_screen = (
-        local_point[0] + origin[0],
-        local_point[1] + origin[1],
+        int(local_point[0] + origin[0]),
+        int(local_point[1] + origin[1]),
     )
     print(f"[NORMALIZE] origin={origin} local={local_point} final_screen={final_screen}")
 
