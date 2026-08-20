@@ -14,6 +14,7 @@ class GuiExecutionState:
 
     # Geometry anchors for compound constructions.
     frame_point: tuple[int, int] | None = None
+    sash_point: tuple[int, int] | None = None
     mullion_point: tuple[int, int] | None = None
     workspace_bounds: tuple[int, int, int, int] | None = None
 
