@@ -18,7 +18,7 @@ def resolve_construction_interior_point() -> tuple[int, int] | None:
         return None
 
     vx, vy, vw, vh = view["rect"]
-    image = np.array(pyautogui.screenshot())[:, :, ::-1]
+    image = np.ascontiguousarray(np.array(pyautogui.screenshot())[:, :, ::-1])
 
     left, top = max(vx, 0), max(vy, 0)
     right = min(vx + vw, image.shape[1])
@@ -38,11 +38,28 @@ def resolve_construction_interior_point() -> tuple[int, int] | None:
 
     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     candidates: list[tuple[float, int, int, int, int]] = []
+    edge_margin = 8
     for contour in contours:
         x, y, w, h = cv2.boundingRect(contour)
         area = w * h
         if w < 60 or h < 60 or area < 4000:
             continue
+
+        absolute_x = vx + x
+        absolute_y = vy + y
+        touches_view_edge = (
+            absolute_x <= vx + edge_margin
+            or absolute_y <= vy + edge_margin
+            or absolute_x + w >= vx + vw - edge_margin
+            or absolute_y + h >= vy + vh - edge_margin
+        )
+        if touches_view_edge:
+            print(
+                f"[CONSTRUCTION REJECT] drawing_view_edge rect="
+                f"{(absolute_x, absolute_y, w, h)}"
+            )
+            continue
+
         roi = sat[y:y+h, x:x+w]
         edge_roi = edges[y:y+h, x:x+w]
         sat_mean = float(np.mean(roi)) / 255.0
