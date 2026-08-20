@@ -1,11 +1,17 @@
 from __future__ import annotations
 
+import ctypes
+import ctypes.wintypes
+
 import cv2
 import numpy as np
 import pyautogui
 
 from app.runtime.execution.native_drawing_view_resolver import NativeDrawingViewResolver
 from app.runtime.execution.native_toolbar_resolver import NativeToolbarResolver
+
+user32 = ctypes.windll.user32
+GA_ROOT = 2
 
 
 def _candidate_touches_view_edge(vx: int, vy: int, vw: int, vh: int, x: int, y: int, w: int, h: int) -> bool:
@@ -29,6 +35,115 @@ def _pick_candidate(
         return None
     candidates.sort(reverse=True)
     return candidates[0]
+
+
+def _belongs_to_windowhub_root(root_hwnd: int, screen_x: int, screen_y: int) -> bool:
+    try:
+        point = ctypes.wintypes.POINT(int(screen_x), int(screen_y))
+        hwnd = int(user32.WindowFromPoint(point))
+        if not hwnd:
+            return False
+        return int(user32.GetAncestor(hwnd, GA_ROOT)) == int(root_hwnd)
+    except Exception:
+        return False
+
+
+def _full_screen_root_owned_fallback(root_hwnd: int, toolbar_hwnd: int | None) -> tuple[int, int] | None:
+    """Reuse the proven root-ownership idea from ConstructionAnalyzer.
+
+    The native drawing-view ROI can contain covered/foreign content at its edges.
+    When ROI-local CV finds nothing useful, scan the whole screenshot for a
+    saturated construction and keep only candidates whose center belongs to the
+    WindowHub root according to the native WindowFromPoint hit-test.
+    """
+    image = np.ascontiguousarray(np.array(pyautogui.screenshot())[:, :, ::-1])
+    height, width = image.shape[:2]
+    y_start = max(70, int(height * 0.06))
+    y_end = min(height, int(height * 0.94))
+    roi = image[y_start:y_end, :]
+
+    hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
+    mask = cv2.inRange(
+        hsv,
+        np.array([0, 60, 35], dtype=np.uint8),
+        np.array([179, 255, 255], dtype=np.uint8),
+    )
+
+    if toolbar_hwnd:
+        try:
+            toolbar_rect = _get_window_rect(toolbar_hwnd)
+            tx1, ty1, tx2, ty2 = toolbar_rect
+            tx1 = max(0, tx1 - 4)
+            tx2 = min(width, tx2 + 4)
+            ty1 = max(y_start, ty1 - 4)
+            ty2 = min(y_end, ty2 + 4)
+            if tx2 > tx1 and ty2 > ty1:
+                mask[ty1 - y_start:ty2 - y_start, tx1:tx2] = 0
+        except Exception:
+            pass
+
+    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8), iterations=1)
+    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+    candidates: list[tuple[float, int, int, int, int]] = []
+    for contour in contours:
+        x, y, w, h = cv2.boundingRect(contour)
+        area = w * h
+        contour_area = cv2.contourArea(contour)
+        if w < 60 or h < 60 or area < 3500 or contour_area < 30:
+            continue
+        aspect = w / float(max(1, h))
+        if aspect < 0.45 or aspect > 2.4:
+            continue
+
+        sx, sy = x, y + y_start
+        cx = sx + w // 2
+        cy = sy + h // 2
+        if not _belongs_to_windowhub_root(root_hwnd, cx, cy):
+            print(
+                f"[CONSTRUCTION REJECT] covered_by_other_window "
+                f"rect=({sx},{sy},{w},{h}) center=({cx},{cy})"
+            )
+            continue
+
+        crop_mask = mask[y:y+h, x:x+w]
+        sat_ratio = float(np.count_nonzero(crop_mask)) / float(max(1, area))
+        if sat_ratio < 0.08:
+            continue
+
+        edge_gray = cv2.cvtColor(roi[y:y+h, x:x+w], cv2.COLOR_BGR2GRAY)
+        edge_density = float(np.count_nonzero(cv2.Canny(edge_gray, 50, 150))) / float(max(1, area))
+        square_score = max(0.0, 1.0 - min(abs(1.0 - min(w / max(1, h), h / max(1, w))), 1.0))
+        compact_score = max(0.0, 1.0 - min(area / 300000.0, 1.0))
+
+        score = (
+            min(sat_ratio * 8.0, 6.0)
+            + min(edge_density * 24.0, 4.0)
+            + square_score * 2.0
+            + min(contour_area / float(max(1, area)), 1.0) * 1.5
+            + compact_score * 1.5
+        )
+        candidates.append((score, x, y, w, h))
+
+    selected = _pick_candidate(candidates)
+    if selected is None:
+        return None
+
+    score, x, y, w, h = selected
+    px = x + w // 2
+    py = y + h // 2 + min(20, max(8, h // 16))
+    print(
+        f"[CONSTRUCTION ROOT FALLBACK] rect=({x},{y+y_start},{w},{h}) "
+        f"score={score:.2f} -> screen=({px},{py})"
+    )
+    return int(px), int(py)
+
+
+def _get_window_rect(hwnd: int) -> tuple[int, int, int, int]:
+    rect = ctypes.wintypes.RECT()
+    if not user32.GetWindowRect(hwnd, ctypes.byref(rect)):
+        raise RuntimeError(f"GetWindowRect failed for hwnd={hwnd}")
+    return rect.left, rect.top, rect.right, rect.bottom
 
 
 def resolve_construction_interior_point() -> tuple[int, int] | None:
@@ -55,7 +170,6 @@ def resolve_construction_interior_point() -> tuple[int, int] | None:
     gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
     edges = cv2.Canny(gray, 60, 140)
 
-    # Primary mask: keep saturated pixels that also have visible structure.
     mask = np.zeros_like(sat, dtype=np.uint8)
     mask[(sat >= 70) & (edges > 0)] = 255
     mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((5, 5), np.uint8), iterations=2)
@@ -97,8 +211,6 @@ def resolve_construction_interior_point() -> tuple[int, int] | None:
 
     selected = _pick_candidate(candidates)
 
-    # Fallback: some real WindowHub constructions have weak/fragmented edges.
-    # Use saturation alone and the same geometric edge rejection.
     if selected is None:
         fallback = np.zeros_like(sat, dtype=np.uint8)
         fallback[sat >= 55] = 255
@@ -133,7 +245,8 @@ def resolve_construction_interior_point() -> tuple[int, int] | None:
             print(f"[CONSTRUCTION FALLBACK] rect=({vx+x}, {vy+y}, {w}, {h}) score={score:.2f}")
 
     if selected is None:
-        return None
+        print("[CONSTRUCTION] drawing-view CV found no safe candidate; using root-owned full-screen fallback")
+        return _full_screen_root_owned_fallback(root, toolbar)
 
     score, x, y, w, h = selected
     inset_x = max(12, min(28, w // 8))
