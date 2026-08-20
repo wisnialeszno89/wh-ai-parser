@@ -15,6 +15,7 @@ from app.runtime.execution.handlers.handler_registry import HandlerRegistry
 from app.runtime.execution.handlers.handler_context import HandlerContext
 from app.runtime.execution.interactions.interaction_runtime import InteractionRuntime
 from app.runtime.execution.hardware_precondition_controller import HardwarePreconditionController
+from app.runtime.execution.native_construction_point_resolver import resolve_construction_interior_point
 
 
 class ActionExecutor:
@@ -74,7 +75,6 @@ class ActionExecutor:
         )
 
     def _refresh_runtime_observation(self) -> None:
-        """Refresh the runtime observation after a state-changing native click."""
         vision = self.locator.vision.capture()
         self.context.cache.screenshot = vision
         self.context.window = vision.window
@@ -265,11 +265,6 @@ class ActionExecutor:
     def _execute_create(self, action, start_time: float) -> ActionResult:
         self._establish_workspace_before_first_tool_click()
 
-        # HARDWARE has an application-level precondition: WindowHub requires a
-        # selected construction object before the native toolbar command becomes
-        # enabled. The live differential probe established that selecting the
-        # sash interior activates HARDWARE, so the persistent sash_point is now
-        # the primary precondition anchor.
         if action.tool == GuiTool.HARDWARE and self.context.mouse_enabled:
             print("[HARDWARE] ensuring native selection precondition")
             self.hardware_precondition.ensure_ready(timeout_s=3.0)
@@ -295,6 +290,16 @@ class ActionExecutor:
         self.click.click_xy(placement[0], placement[1], origin=origin)
         self.context.gui_state.last_created_point = placement
 
+        if action.tool == GuiTool.SASH:
+            detected = resolve_construction_interior_point()
+            if detected is not None:
+                self.context.gui_state.sash_point = detected
+                self.context.gui_state.last_selected_point = detected
+                print(f"[SASH] dynamic hardware selection point={detected}")
+            else:
+                self.context.gui_state.sash_point = placement
+                print(f"[SASH] construction interior unresolved; fallback={placement}")
+
         if action.tool in (GuiTool.MULLION, GuiTool.HORIZONTAL_MULLION, GuiTool.MOVABLE_MULLION):
             self.context.gui_state.mullion_point = placement
             self.context.gui_state.mullion_orientation = (
@@ -318,12 +323,7 @@ class ActionExecutor:
             self._save_hardware_dialog_probe(vision)
             duration_ms = int((time.perf_counter() - start_time) * 1000)
             print("[HARDWARE] Dialog probe captured; selection not automated yet")
-            return ActionResult(
-                True,
-                element.confidence,
-                "HARDWARE_DIALOG_PROBE",
-                duration_ms,
-            )
+            return ActionResult(True, element.confidence, "HARDWARE_DIALOG_PROBE", duration_ms)
 
         verification = self.verifier.verify_change(before)
         self.context.cache.clear()
