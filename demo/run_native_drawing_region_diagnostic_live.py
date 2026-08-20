@@ -47,18 +47,22 @@ def main() -> None:
 
     resolver = NativeToolbarResolver()
     root, toolbar = resolver._find_root_and_toolbar()
+    if toolbar is None:
+        raise RuntimeError("Native WindowHub toolbar was not found")
+
     toolbar_rect = _get_window_rect(toolbar)
     print(f"[NATIVE DRAWING] root={root} toolbar={toolbar} rect={toolbar_rect}")
 
     h, w = image.shape[:2]
     tx, ty, tw, th = toolbar_rect
 
-    # Work in screenshot coordinates. Native toolbar rectangles are screen
-    # coordinates, so subtract the captured WindowHub origin.
-    wx, wy = vision.window.x, vision.window.y
+    # WindowRect exposes left/top, not x/y. Vision coordinates are relative to
+    # the captured WindowHub screenshot, while the Win32 toolbar RECT is screen
+    # coordinates. Convert the native toolbar to screenshot-local coordinates.
+    wx, wy = vision.window.left, vision.window.top
     local_tb = (tx - wx, ty - wy, tw, th)
     lx, ly, lw, lh = local_tb
-    print(f"[NATIVE DRAWING] local_toolbar={local_tb}")
+    print(f"[NATIVE DRAWING] window_origin=({wx},{wy}) local_toolbar={local_tb}")
 
     hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
     sat = cv2.inRange(hsv, np.array([0, 55, 35], np.uint8), np.array([179, 255, 255], np.uint8))
@@ -77,7 +81,6 @@ def main() -> None:
     for rx1, rx2, ry1, ry2 in regions:
         roi_mask = sat[ry1:ry2, rx1:rx2].copy()
         roi_edges = edges[ry1:ry2, rx1:rx2]
-        roi_gray = gray[ry1:ry2, rx1:rx2]
 
         roi_mask = cv2.morphologyEx(roi_mask, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8), iterations=1)
         roi_mask = cv2.morphologyEx(roi_mask, cv2.MORPH_CLOSE, np.ones((7, 7), np.uint8), iterations=2)
