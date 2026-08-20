@@ -75,6 +75,7 @@ class ActionExecutor:
         )
 
     def _refresh_runtime_observation(self) -> None:
+        """Refresh the runtime observation after a state-changing native click."""
         vision = self.locator.vision.capture()
         self.context.cache.screenshot = vision
         self.context.window = vision.window
@@ -245,6 +246,29 @@ class ActionExecutor:
         state.last_selected_point = point
         return point
 
+    def _capture_dynamic_sash_anchor(self) -> None:
+        """Capture the sash interior from the full-screen probe and normalize to local coordinates."""
+        screen_point = resolve_construction_interior_point()
+        if screen_point is None:
+            print("[SASH] native interior resolver found no point; keeping creation point")
+            return
+
+        window = self.context.window
+        if window is None:
+            print("[SASH] window origin unavailable; keeping creation point")
+            return
+
+        local_point = (
+            int(screen_point[0] - window.left),
+            int(screen_point[1] - window.top),
+        )
+        self.context.gui_state.sash_point = local_point
+        self.context.gui_state.last_selected_point = local_point
+        print(
+            f"[SASH] dynamic hardware selection screen={screen_point} "
+            f"origin=({window.left},{window.top}) -> local={local_point}"
+        )
+
     def _advance_panel_after_glass(self) -> None:
         state = self.context.gui_state
         if state.last_panel_component != "GLASS":
@@ -291,14 +315,7 @@ class ActionExecutor:
         self.context.gui_state.last_created_point = placement
 
         if action.tool == GuiTool.SASH:
-            detected = resolve_construction_interior_point()
-            if detected is not None:
-                self.context.gui_state.sash_point = detected
-                self.context.gui_state.last_selected_point = detected
-                print(f"[SASH] dynamic hardware selection point={detected}")
-            else:
-                self.context.gui_state.sash_point = placement
-                print(f"[SASH] construction interior unresolved; fallback={placement}")
+            self._capture_dynamic_sash_anchor()
 
         if action.tool in (GuiTool.MULLION, GuiTool.HORIZONTAL_MULLION, GuiTool.MOVABLE_MULLION):
             self.context.gui_state.mullion_point = placement
