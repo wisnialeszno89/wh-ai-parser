@@ -1,50 +1,50 @@
 from __future__ import annotations
 
+import ctypes
+
 import cv2
 import numpy as np
 
+from app.runtime.execution.native_toolbar_resolver import NativeToolbarResolver
 from app.runtime.execution.vision.models.rect import Rect
+
+user32 = ctypes.windll.user32
+GA_ROOT = 2
 
 
 class ConstructionAnalyzer:
     """Detect the actual colored WindowHub construction object.
 
-    Candidate search is constrained to the detected WindowHub canvas. This is
-    important because other applications can contain vivid colored regions even
-    when those regions are already filtered by window ownership.
+    Construction detection is intentionally independent from CanvasAnalyzer.
+    The canvas detector answers "where is the workspace?" while this analyzer
+    answers "where is the finished colored construction?". The distinction is
+    important because the canvas can be ambiguous or visually occluded.
     """
 
     MIN_COMPONENT_AREA = 30
-    MIN_CANDIDATE_WIDTH = 50
-    MIN_CANDIDATE_HEIGHT = 50
-    MIN_CANDIDATE_AREA = 2_000
-    CLUSTER_GAP = 18
+    MIN_CANDIDATE_WIDTH = 60
+    MIN_CANDIDATE_HEIGHT = 60
+    MIN_CANDIDATE_AREA = 3_500
+    CLUSTER_GAP = 16
+    MIN_SATURATION_RATIO = 0.08
 
     def analyze(self, context):
         image = context.screenshot.image
         toolbar = context.toolbar
-        canvas = getattr(context, "canvas", None)
         if image is None or image.size == 0 or toolbar is None:
             return None
 
         height, width = image.shape[:2]
+        root_hwnd = self._find_root_hwnd()
+        if root_hwnd is not None:
+            print(f"[CONSTRUCTION] native WindowHub root={root_hwnd}")
 
-        if canvas is not None and canvas.bounds is not None:
-            bounds = canvas.bounds
-            roi_x1 = max(0, int(bounds.x))
-            roi_y1 = max(0, int(bounds.y))
-            roi_x2 = min(width, int(bounds.x + bounds.width))
-            roi_y2 = min(height, int(bounds.y + bounds.height))
-            if roi_x2 <= roi_x1 or roi_y2 <= roi_y1:
-                print("[CONSTRUCTION] NONE: detected canvas bounds are invalid")
-                return None
-        else:
-            roi_x1 = 0
-            roi_y1 = max(100, int(height * 0.08))
-            roi_x2 = width
-            roi_y2 = min(height, int(height * 0.90))
+        # Search the WindowHub capture directly. Do not inherit CanvasAnalyzer's
+        # geometry because a wrong canvas would otherwise hide the real object.
+        y_start = max(70, int(height * 0.06))
+        y_end = min(height, int(height * 0.94))
+        roi = image[y_start:y_end, :]
 
-        roi = image[roi_y1:roi_y2, roi_x1:roi_x2]
         hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
         mask = cv2.inRange(
             hsv,
@@ -52,14 +52,16 @@ class ConstructionAnalyzer:
             np.array([179, 255, 255], dtype=np.uint8),
         )
 
-        # Remove the native toolbar if it overlaps the detected canvas.
+        # Remove the current native toolbar footprint only. This works for
+        # vertical or horizontal toolbar placement because its native RECT is
+        # discovered at runtime.
         tb = toolbar.bounds
-        tx1 = max(roi_x1, int(tb.x - 3))
-        tx2 = min(roi_x2, int(tb.x + tb.width + 3))
-        ty1 = max(roi_y1, int(tb.y - 3))
-        ty2 = min(roi_y2, int(tb.y + tb.height + 3))
+        tx1 = max(0, int(tb.x - 4))
+        tx2 = min(width, int(tb.x + tb.width + 4))
+        ty1 = max(y_start, int(tb.y - 4))
+        ty2 = min(y_end, int(tb.y + tb.height + 4))
         if tx2 > tx1 and ty2 > ty1:
-            mask[ty1 - roi_y1:ty2 - roi_y1, tx1 - roi_x1:tx2 - roi_x1] = 0
+            mask[ty1 - y_start:ty2 - y_start, tx1:tx2] = 0
 
         mask = cv2.morphologyEx(
             mask,
@@ -78,14 +80,12 @@ class ConstructionAnalyzer:
         for contour in contours:
             x, y, w, h = cv2.boundingRect(contour)
             contour_area = cv2.contourArea(contour)
-            if contour_area < self.MIN_COMPONENT_AREA:
-                continue
-            if w < 3 or h < 3:
+            if contour_area < self.MIN_COMPONENT_AREA or w < 3 or h < 3:
                 continue
             components.append(
                 {
                     "x": x,
-                    "y": y + roi_y1,
+                    "y": y + y_start,
                     "w": w,
                     "h": h,
                     "contour_area": contour_area,
@@ -93,7 +93,7 @@ class ConstructionAnalyzer:
             )
 
         if not components:
-            print("[CONSTRUCTION] NONE: no saturated components inside canvas")
+            print("[CONSTRUCTION] NONE: no saturated components")
             return None
 
         clusters = []
@@ -109,7 +109,7 @@ class ConstructionAnalyzer:
 
         gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
         edges = cv2.Canny(gray, 50, 150)
-        canvas_area = float(max(roi.shape[0] * roi.shape[1], 1))
+        image_area = float(max(width * height, 1))
         candidates = []
 
         for cluster in clusters:
@@ -132,29 +132,43 @@ class ConstructionAnalyzer:
 
             total_component_area = sum(item["contour_area"] for item in cluster)
             fill = total_component_area / float(max(area, 1))
-            if fill < 0.05:
+            if fill < 0.04:
                 continue
 
-            crop_mask = mask[y1 - roi_y1:y2 - roi_y1, x1 - roi_x1:x2 - roi_x1]
+            crop_mask = mask[y1 - y_start:y2 - y_start, x1:x2]
             saturation_ratio = float(np.count_nonzero(crop_mask)) / float(max(area, 1))
+            if saturation_ratio < self.MIN_SATURATION_RATIO:
+                continue
 
-            edge_crop = edges[y1 - roi_y1:y2 - roi_y1, x1 - roi_x1:x2 - roi_x1]
+            edge_crop = edges[y1 - y_start:y2 - y_start, x1:x2]
             edge_density = float(np.count_nonzero(edge_crop)) / float(max(area, 1))
 
-            component_bonus = min(len(cluster), 10) / 10.0
+            center_x = int(x1 + w / 2)
+            center_y = int(y1 + h / 2)
+            if not self._belongs_to_root(center_x, center_y, context, root_hwnd):
+                print(
+                    f"[CONSTRUCTION REJECT] covered_by_other_window "
+                    f"rect={x1},{y1} {w}x{h} center=({center_x},{center_y})"
+                )
+                continue
+
+            component_bonus = min(len(cluster), 12) / 12.0
             square_score = max(0.0, 1.0 - min(abs(1.0 - aspect), 1.0))
             compact_score = max(
                 0.0,
-                1.0 - min((area / canvas_area) / 0.35, 1.0),
+                1.0 - min((area / image_area) / 0.18, 1.0),
             )
 
+            structure_score = min(edge_density * 24.0, 4.0)
+            saturation_score = min(saturation_ratio * 8.0, 6.0)
+
             score = (
-                saturation_ratio * 7.0
-                + min(edge_density * 18.0, 3.5)
+                saturation_score
+                + structure_score
                 + square_score * 2.0
-                + min(fill, 1.0) * 2.0
+                + min(fill, 1.0) * 1.5
                 + compact_score * 1.5
-                + component_bonus * 2.5
+                + component_bonus * 3.0
             )
 
             candidates.append(
@@ -168,7 +182,7 @@ class ConstructionAnalyzer:
             )
 
         if not candidates:
-            print("[CONSTRUCTION] NONE: no valid construction clusters inside canvas")
+            print("[CONSTRUCTION] NONE: no valid construction clusters")
             return None
 
         candidates.sort(key=lambda item: item[0], reverse=True)
@@ -183,6 +197,30 @@ class ConstructionAnalyzer:
         )
 
         return rect
+
+    @staticmethod
+    def _find_root_hwnd() -> int | None:
+        try:
+            root_hwnd, _toolbar = NativeToolbarResolver()._find_root_and_toolbar()
+            return int(root_hwnd)
+        except Exception:
+            return None
+
+    @staticmethod
+    def _belongs_to_root(image_x: int, image_y: int, context, root_hwnd: int | None) -> bool:
+        if root_hwnd is None:
+            return True
+
+        try:
+            screen_x = int(context.window.left + image_x)
+            screen_y = int(context.window.top + image_y)
+            point = ctypes.wintypes.POINT(screen_x, screen_y)
+            hwnd = int(user32.WindowFromPoint(point))
+            if not hwnd:
+                return False
+            return int(user32.GetAncestor(hwnd, GA_ROOT)) == int(root_hwnd)
+        except Exception:
+            return True
 
     def _near_cluster(self, component, cluster):
         x1 = component["x"]
