@@ -11,10 +11,12 @@ class HardwarePreconditionController:
     """Drive WindowHub into the native state required to choose HARDWARE.
 
     HARDWARE is enabled when the sash/panel object is selected. During
-    FRAME -> SASH -> GLASS creation the generic last_selected_point can drift
-    to the glass/panel placement cell, while the successful live differential
-    probe showed that the sash interior anchor activates HARDWARE. Prefer the
-    persistent sash_point, then fall back to frame/last-created state.
+    FRAME -> SASH -> GLASS creation the generic last_selected_point can remain
+    equal to the sash anchor even though GLASS creation has changed WindowHub's
+    actual native selection. Therefore coordinate equality is not sufficient
+    evidence that the sash is still selected: when HARDWARE is disabled we
+    deliberately re-click the persisted sash anchor and then re-check the
+    native toolbar state.
     """
 
     def __init__(self, context, click_executor, refresh):
@@ -35,16 +37,17 @@ class HardwarePreconditionController:
                 "HARDWARE precondition not met: no sash, frame, or last-created point available"
             )
 
-        current_selected = state.last_selected_point
-        if current_selected != target:
-            print(
-                f"[PRECONDITION] selecting sash for HARDWARE at {target}; "
-                f"previous selected={current_selected}"
-            )
-            origin = self._origin()
-            self.click.click_xy(target[0], target[1], origin=origin)
-            state.last_selected_point = target
-            self.refresh()
+        # Native selection is application state, not merely a coordinate stored
+        # in our runtime memory. If HARDWARE is disabled, always perform the
+        # known-good sash click, even when last_selected_point == target.
+        print(
+            f"[PRECONDITION] reselecting sash for HARDWARE at {target}; "
+            f"previous selected={state.last_selected_point}"
+        )
+        origin = self._origin()
+        self.click.click_xy(target[0], target[1], origin=origin)
+        state.last_selected_point = target
+        self.refresh()
 
         deadline = time.time() + timeout_s
         last_reason = result.reason
@@ -57,7 +60,7 @@ class HardwarePreconditionController:
             time.sleep(0.15)
 
         raise RuntimeError(
-            "HARDWARE precondition could not be satisfied after selecting the "
+            "HARDWARE precondition could not be satisfied after reselecting the "
             f"sash point: {last_reason}"
         )
 
