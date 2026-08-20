@@ -14,6 +14,7 @@ from app.runtime.execution.click_executor import ClickExecutor
 from app.runtime.execution.handlers.handler_registry import HandlerRegistry
 from app.runtime.execution.handlers.handler_context import HandlerContext
 from app.runtime.execution.interactions.interaction_runtime import InteractionRuntime
+from app.runtime.execution.hardware_precondition_controller import HardwarePreconditionController
 
 
 class ActionExecutor:
@@ -26,6 +27,11 @@ class ActionExecutor:
         self.handlers = HandlerRegistry()
         self.interactions = InteractionRuntime()
         self.verifier = ScreenVerifier()
+        self.hardware_precondition = HardwarePreconditionController(
+            context=self.context,
+            click_executor=self.click,
+            refresh=self._refresh_runtime_observation,
+        )
 
     def execute(self, action) -> ActionResult:
         start_time = time.perf_counter()
@@ -67,15 +73,19 @@ class ActionExecutor:
             f"({bounds.left},{bounds.top},{bounds.width}x{bounds.height})"
         )
 
+    def _refresh_runtime_observation(self) -> None:
+        """Refresh the runtime observation after a state-changing native click."""
+        vision = self.locator.vision.capture()
+        self.context.cache.screenshot = vision
+        self.context.window = vision.window
+        self._remember_workspace(vision)
+
     def _establish_workspace_before_first_tool_click(self) -> None:
         if self.context.gui_state.workspace_bounds is not None:
             return
 
         print("[PLACEMENT] establishing workspace before first tool click")
-        vision = self.locator.vision.capture()
-        self.context.cache.screenshot = vision
-        self.context.window = vision.window
-        self._remember_workspace(vision)
+        self._refresh_runtime_observation()
 
         if self.context.gui_state.workspace_bounds is None:
             raise RuntimeError(
@@ -105,10 +115,13 @@ class ActionExecutor:
             return point
 
         if action.tool == GuiTool.HARDWARE:
-            point = self.context.gui_state.last_selected_point
+            point = (
+                self.context.gui_state.last_selected_point
+                or self.context.gui_state.last_created_point
+            )
             if point is None:
                 raise RuntimeError(
-                    "HARDWARE CREATE requires a selected frame point"
+                    "HARDWARE CREATE requires a selected or last-created frame point"
                 )
             return point
 
@@ -146,11 +159,6 @@ class ActionExecutor:
     def _resolve_panel_point(self, vision, tool) -> tuple[int, int] | None:
         mullion = self.context.gui_state.mullion_point
 
-        # Simple construction: there is only one panel/cell.  The frame center
-        # is no longer a safe source because after FRAME creation it is stored in
-        # last_created_point and subsequent CREATE actions would keep clicking
-        # the same remembered point even when Vision has found the live canvas.
-        # Use the stable workspace center instead.
         if mullion is None:
             canvas = self._workspace_rect(vision)
             if canvas is None:
@@ -253,6 +261,15 @@ class ActionExecutor:
 
     def _execute_create(self, action, start_time: float) -> ActionResult:
         self._establish_workspace_before_first_tool_click()
+
+        # HARDWARE has an application-level precondition: WindowHub requires a
+        # selected/last-created construction object before the native toolbar
+        # command becomes enabled. Drive that state explicitly instead of
+        # guessing a point in the finished drawing.
+        if action.tool == GuiTool.HARDWARE and self.context.mouse_enabled:
+            print("[HARDWARE] ensuring native selection precondition")
+            self.hardware_precondition.ensure_ready(timeout_s=3.0)
+            self.context.cache.clear()
 
         element = self.locator.locate(action.tool)
         if not self.context.mouse_enabled:
