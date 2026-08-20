@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ctypes
+import ctypes.wintypes
 import json
 from pathlib import Path
 
@@ -75,8 +76,6 @@ def main() -> None:
                 f"visible={bool(user32.IsWindowVisible(hwnd))} enabled={bool(user32.IsWindowEnabled(hwnd))} rect={r}"
             )
 
-    # Probe points across the native Static view rect to see whether hit-testing
-    # stays on the Static or reveals a deeper drawing/control HWND.
     if target:
         x, y, w, h = rect(target)
         points = []
