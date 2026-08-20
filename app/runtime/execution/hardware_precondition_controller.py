@@ -30,6 +30,14 @@ class HardwarePreconditionController:
             return self._element_from_point(result.selected_point)
 
         state = self.context.gui_state
+
+        # The native drawing resolver returns SCREEN coordinates. Before
+        # converting them to WindowHub-local coordinates, refresh the runtime
+        # observation so the window origin is current. The toolbar/root can move
+        # by a few pixels between steps; using a stale origin makes the same
+        # visual target land on the wrong object.
+        self.refresh()
+
         fresh_target = self._refresh_current_sash_target()
         target = fresh_target or state.sash_point or state.frame_point or state.last_created_point
         if target is None:
