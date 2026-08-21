@@ -31,14 +31,13 @@ class HardwarePreconditionController:
 
         state = self.context.gui_state
 
-        # Refresh first so context.cache.screenshot contains the latest
-        # VisionPipeline result, including the shared ConstructionAnalyzer
-        # output. Vision coordinates are local to the captured WindowHub image.
         self.refresh()
 
         fresh_target = self._resolve_shared_construction_target()
         if fresh_target is None:
             fresh_target = self._refresh_current_sash_target()
+        if fresh_target is None:
+            fresh_target = self._resolve_workspace_sash_target()
 
         target = fresh_target or state.sash_point or state.frame_point or state.last_created_point
         if target is None:
@@ -54,7 +53,7 @@ class HardwarePreconditionController:
         )
         self._save_target_diagnostic(final_screen)
 
-        print("[PRECONDITION] selecting shared construction interior for HARDWARE...")
+        print("[PRECONDITION] selecting current sash/construction target for HARDWARE...")
         self.click.click_xy(target[0], target[1], origin=origin)
         state.last_selected_point = target
         state.sash_point = target
@@ -83,9 +82,6 @@ class HardwarePreconditionController:
             print("[PRECONDITION] shared ConstructionAnalyzer returned no construction")
             return None
 
-        # ConstructionAnalyzer coordinates are screenshot-local / WindowHub-local.
-        # Choose a point safely inside the detected construction, slightly below
-        # its center. This matches the empirically verified sash interior target.
         inset_x = max(12, min(28, construction.width // 8))
         inset_y = max(12, min(28, construction.height // 8))
         x = construction.x + construction.width // 2
@@ -101,6 +97,28 @@ class HardwarePreconditionController:
             f"{construction.width}x{construction.height}) -> local=({x},{y})"
         )
         return int(x), int(y)
+
+    def _resolve_workspace_sash_target(self) -> tuple[int, int] | None:
+        """Fallback to a stable interior point derived from the remembered workspace.
+
+        The verified manual selection landed slightly down/right of the workspace
+        center. Use the same relative position rather than the stale creation point.
+        """
+        bounds = self.context.gui_state.workspace_bounds
+        if bounds is None:
+            print("[PRECONDITION] no workspace anchor available for sash fallback")
+            return None
+
+        x, y, width, height = bounds
+        target = (
+            int(x + width * 0.60),
+            int(y + height * 0.64),
+        )
+        print(
+            f"[PRECONDITION] workspace sash fallback bounds=({x},{y},{width}x{height}) "
+            f"-> local={target}"
+        )
+        return target
 
     def _refresh_current_sash_target(self) -> tuple[int, int] | None:
         try:
