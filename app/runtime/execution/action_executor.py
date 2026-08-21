@@ -16,6 +16,7 @@ from app.runtime.execution.handlers.handler_context import HandlerContext
 from app.runtime.execution.interactions.interaction_runtime import InteractionRuntime
 from app.runtime.execution.hardware_precondition_controller import HardwarePreconditionController
 from app.runtime.execution.native_construction_point_resolver import resolve_construction_interior_point
+from app.runtime.execution.construction_state_observer import ConstructionStateObserver, ConstructionStage
 
 
 class ActionExecutor:
@@ -28,6 +29,7 @@ class ActionExecutor:
         self.handlers = HandlerRegistry()
         self.interactions = InteractionRuntime()
         self.verifier = ScreenVerifier()
+        self.construction_state = ConstructionStateObserver()
         self.hardware_precondition = HardwarePreconditionController(
             context=self.context,
             click_executor=self.click,
@@ -80,6 +82,52 @@ class ActionExecutor:
         self.context.cache.screenshot = vision
         self.context.window = vision.window
         self._remember_workspace(vision)
+
+    def _observe_construction_state(self, vision):
+        observation = self.construction_state.observe(
+            vision,
+            self.context.gui_state,
+        )
+        print(
+            f"[CONSTRUCTION STATE] stage={observation.stage.value} "
+            f"construction_present={observation.construction_present} "
+            f"runtime_history={observation.runtime_history_present} "
+            f"reason={observation.reason}"
+        )
+        return observation
+
+    def _guard_create_against_unknown_existing_construction(self, action, vision, start_time):
+        observation = self._observe_construction_state(vision)
+        if action.tool == GuiTool.HARDWARE:
+            return None
+
+        if action.tool == GuiTool.FRAME and self.context.gui_state.frame_point is not None:
+            duration_ms = int((time.perf_counter() - start_time) * 1000)
+            print("[STATE GUARD] FRAME already exists in runtime state; refusing duplicate CREATE")
+            return ActionResult(
+                success=False,
+                message="FRAME already exists; duplicate CREATE blocked",
+                confidence=1.0,
+                duration_ms=duration_ms,
+            )
+
+        if observation.stage == ConstructionStage.EXTERNAL_CONSTRUCTION:
+            duration_ms = int((time.perf_counter() - start_time) * 1000)
+            print(
+                "[STATE GUARD] Existing construction detected without runtime creation history; "
+                f"refusing {action.tool.name} CREATE"
+            )
+            return ActionResult(
+                success=False,
+                message=(
+                    f"External construction detected; {action.tool.name} CREATE blocked "
+                    "until the current construction is explicitly understood"
+                ),
+                confidence=0.90,
+                duration_ms=duration_ms,
+            )
+
+        return None
 
     def _establish_workspace_before_first_tool_click(self) -> None:
         if self.context.gui_state.workspace_bounds is not None:
@@ -288,6 +336,15 @@ class ActionExecutor:
 
     def _execute_create(self, action, start_time: float) -> ActionResult:
         self._establish_workspace_before_first_tool_click()
+
+        vision = self.context.cache.screenshot
+        guard_result = self._guard_create_against_unknown_existing_construction(
+            action,
+            vision,
+            start_time,
+        )
+        if guard_result is not None:
+            return guard_result
 
         if action.tool == GuiTool.HARDWARE and self.context.mouse_enabled:
             print("[HARDWARE] ensuring native selection precondition")
