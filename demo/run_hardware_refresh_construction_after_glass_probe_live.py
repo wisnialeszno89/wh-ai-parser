@@ -1,0 +1,45 @@
+from app.gui.enums.gui_tool import GuiTool
+from app.runtime.execution.action_executor import ActionExecutor
+from app.runtime.execution.context.execution_context import ExecutionContext
+from app.runtime.execution.execution_mode import ExecutionMode
+from app.runtime.execution.models.gui_action import GuiAction
+
+
+def main():
+    print("=" * 80)
+    print("WINDOWHUB FRESH CONSTRUCTION AFTER GLASS PROBE LIVE")
+    print("=" * 80)
+    print("SAFE MODE: BUILD FRAME/SASH/GLASS, THEN REFRESH ONLY")
+
+    context = ExecutionContext(mouse_enabled=True, execution_mode=ExecutionMode.LIVE)
+    executor = ActionExecutor(context)
+
+    for tool in (GuiTool.FRAME, GuiTool.SASH, GuiTool.GLASS):
+        print(f"\n[STEP] CREATE {tool.name}")
+        result = executor.execute(GuiAction(intent="CREATE", tool=tool))
+        print(f"[RESULT] {tool.name}: {result}")
+        state = context.gui_state
+        print(
+            f"[STATE] frame={state.frame_point} sash={state.sash_point} "
+            f"last_created={state.last_created_point} "
+            f"last_selected={state.last_selected_point}"
+        )
+        vision = context.cache.screenshot
+        print(f"[VISION BEFORE EXPLICIT REFRESH] construction={getattr(vision, 'construction', None)}")
+
+    print("\n[REFRESH] Capturing a brand-new VisionPipeline observation")
+    executor._refresh_runtime_observation()
+    vision = context.cache.screenshot
+    print(f"[VISION AFTER EXPLICIT REFRESH] construction={getattr(vision, 'construction', None)}")
+    print(f"[WINDOW] {context.window}")
+
+    target = executor.hardware_precondition._resolve_shared_construction_target()
+    print(f"[TARGET AFTER EXPLICIT REFRESH] {target}")
+
+    ready = executor.hardware_precondition.resolver.inspect()
+    print(f"[HARDWARE STATE] ready={ready.ready} reason={ready.reason}")
+    print("[PROBE] COMPLETE. No HARDWARE click and no precondition click were sent.")
+
+
+if __name__ == "__main__":
+    main()
