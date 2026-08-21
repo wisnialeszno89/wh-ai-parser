@@ -22,12 +22,11 @@ class ConstructionStateObservation:
 
 
 class ConstructionStateObserver:
-    """Infer the safest coarse construction state before executing an action.
+    """Infer a conservative coarse state from observation + execution history.
 
-    This observer is deliberately conservative. It does not pretend to know
-    the exact product from pixels. Its first job is to prevent the agent from
-    blindly rebuilding an already-existing construction when the runtime has
-    no creation history for the current WindowHub window.
+    Runtime history is evidence of what this agent attempted, not proof of what
+    WindowHub currently contains. Native toolbar state is the only evidence
+    used here to claim that HARDWARE is actually available.
     """
 
     def observe(self, vision, gui_state, hardware_ready: bool = False) -> ConstructionStateObservation:
@@ -45,12 +44,12 @@ class ConstructionStateObserver:
         if hardware_ready:
             stage = ConstructionStage.HARDWARE_READY
             reason = "native HARDWARE command is enabled"
-        elif gui_state.frame_point is not None and gui_state.sash_point is not None:
-            stage = ConstructionStage.READY_FOR_HARDWARE
-            reason = "runtime history contains FRAME and SASH"
         elif runtime_history_present:
             stage = ConstructionStage.BUILDING
-            reason = "runtime history contains a locally created construction component"
+            reason = (
+                "runtime history contains locally created components, but native "
+                "HARDWARE is not enabled; current completion is not assumed"
+            )
         elif construction_present:
             stage = ConstructionStage.EXTERNAL_CONSTRUCTION
             reason = "construction is visible but runtime has no creation history"
