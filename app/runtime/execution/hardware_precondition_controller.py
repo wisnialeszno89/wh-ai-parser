@@ -31,18 +31,19 @@ class HardwarePreconditionController:
 
         state = self.context.gui_state
 
-        # The native drawing resolver returns SCREEN coordinates. Before
-        # converting them to WindowHub-local coordinates, refresh the runtime
-        # observation so the window origin is current. The toolbar/root can move
-        # by a few pixels between steps; using a stale origin makes the same
-        # visual target land on the wrong object.
+        # Refresh first so context.cache.screenshot contains the latest
+        # VisionPipeline result, including the shared ConstructionAnalyzer
+        # output. Vision coordinates are local to the captured WindowHub image.
         self.refresh()
 
-        fresh_target = self._refresh_current_sash_target()
+        fresh_target = self._resolve_shared_construction_target()
+        if fresh_target is None:
+            fresh_target = self._refresh_current_sash_target()
+
         target = fresh_target or state.sash_point or state.frame_point or state.last_created_point
         if target is None:
             raise RuntimeError(
-                "HARDWARE precondition not met: no current sash, frame, or last-created point available"
+                "HARDWARE precondition not met: no current construction, sash, frame, or last-created point available"
             )
 
         origin = self._origin()
@@ -53,7 +54,7 @@ class HardwarePreconditionController:
         )
         self._save_target_diagnostic(final_screen)
 
-        print("[PRECONDITION] reselecting current sash for HARDWARE...")
+        print("[PRECONDITION] selecting shared construction interior for HARDWARE...")
         self.click.click_xy(target[0], target[1], origin=origin)
         state.last_selected_point = target
         state.sash_point = target
@@ -70,9 +71,36 @@ class HardwarePreconditionController:
             time.sleep(0.15)
 
         raise RuntimeError(
-            "HARDWARE precondition could not be satisfied after reselecting the "
-            f"current sash point: {last_reason}"
+            "HARDWARE precondition could not be satisfied after selecting the "
+            f"current construction target: {last_reason}"
         )
+
+    def _resolve_shared_construction_target(self) -> tuple[int, int] | None:
+        """Use the same ConstructionAnalyzer result produced by VisionPipeline."""
+        vision = self.context.cache.screenshot
+        construction = getattr(vision, "construction", None)
+        if construction is None:
+            print("[PRECONDITION] shared ConstructionAnalyzer returned no construction")
+            return None
+
+        # ConstructionAnalyzer coordinates are screenshot-local / WindowHub-local.
+        # Choose a point safely inside the detected construction, slightly below
+        # its center. This matches the empirically verified sash interior target.
+        inset_x = max(12, min(28, construction.width // 8))
+        inset_y = max(12, min(28, construction.height // 8))
+        x = construction.x + construction.width // 2
+        y = construction.y + construction.height // 2 + min(
+            20,
+            max(8, construction.height // 16),
+        )
+        x = max(construction.x + inset_x, min(x, construction.x + construction.width - inset_x))
+        y = max(construction.y + inset_y, min(y, construction.y + construction.height - inset_y))
+
+        print(
+            f"[PRECONDITION] shared construction rect=({construction.x},{construction.y},"
+            f"{construction.width}x{construction.height}) -> local=({x},{y})"
+        )
+        return int(x), int(y)
 
     def _refresh_current_sash_target(self) -> tuple[int, int] | None:
         try:
@@ -102,7 +130,7 @@ class HardwarePreconditionController:
 
     def _save_target_diagnostic(self, screen_point: tuple[int, int]) -> None:
         try:
-            image = np.array(pyautogui.screenshot())[:, :, ::-1]
+            image = np.ascontiguousarray(np.array(pyautogui.screenshot())[:, :, ::-1])
             x, y = screen_point
             cv2.circle(image, (x, y), 12, (0, 0, 255), 3)
             cv2.line(image, (x - 18, y), (x + 18, y), (0, 0, 255), 2)
