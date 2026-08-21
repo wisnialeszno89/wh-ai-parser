@@ -26,7 +26,13 @@ class ConstructionStateObservation:
 
 
 class ConstructionStateObserver:
-    """Infer a conservative, action-oriented construction state."""
+    """Infer a conservative action-oriented state.
+
+    IMPORTANT: native HARDWARE ``enabled`` is a capability/precondition signal,
+    not proof that hardware has already been inserted. It may change because
+    of selection/tool context. We therefore never use it alone to claim that
+    a construction is complete.
+    """
 
     def observe(self, vision, gui_state, hardware_ready: bool = False) -> ConstructionStateObservation:
         construction_present = getattr(vision, "construction", None) is not None
@@ -44,12 +50,13 @@ class ConstructionStateObserver:
             )
         )
 
-        if hardware_ready:
-            stage = ConstructionStage.HARDWARE_READY
-            reason = "native HARDWARE command is enabled"
-        elif frame_present and sash_present and glass_present:
-            stage = ConstructionStage.READY_FOR_HARDWARE
-            reason = "runtime state contains FRAME, SASH and GLASS; HARDWARE is not enabled"
+        if frame_present and sash_present and glass_present:
+            stage = ConstructionStage.HARDWARE_READY if hardware_ready else ConstructionStage.READY_FOR_HARDWARE
+            reason = (
+                "runtime state contains FRAME, SASH and GLASS; native HARDWARE is enabled"
+                if hardware_ready
+                else "runtime state contains FRAME, SASH and GLASS; HARDWARE is not enabled"
+            )
         elif runtime_history_present:
             stage = ConstructionStage.BUILDING
             reason = "runtime history contains locally created components; completion is not assumed"
@@ -57,8 +64,13 @@ class ConstructionStateObserver:
             stage = ConstructionStage.EXTERNAL_CONSTRUCTION
             reason = "construction is visible but runtime has no creation history"
         else:
-            stage = ConstructionStage.EMPTY_WORKSPACE
-            reason = "no construction is visible and runtime has no creation history"
+            stage = ConstructionStage.UNKNOWN if hardware_ready else ConstructionStage.EMPTY_WORKSPACE
+            reason = (
+                "native HARDWARE is enabled but no construction was independently observed; "
+                "hardware availability is not treated as construction presence"
+                if hardware_ready
+                else "no construction is visible and runtime has no creation history"
+            )
 
         return ConstructionStateObservation(
             stage=stage,
