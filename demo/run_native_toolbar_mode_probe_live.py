@@ -6,50 +6,65 @@ from app.runtime.execution.action_executor import ActionExecutor
 from app.runtime.execution.context.execution_context import ExecutionContext
 from app.runtime.execution.execution_mode import ExecutionMode
 from app.runtime.execution.native_toolbar_resolver import NativeToolbarResolver
+from demo.run_native_toolbar_button_probe_live import _toolbar_buttons
 
 
-def snapshot(label):
-    resolver = NativeToolbarResolver()
-    state = resolver.inspect_buttons()
-    print(f"[TOOLBAR {label}] commands={len(state)}")
-    for item in state:
-        if item.get("enabled") or item.get("checked") or item.get("pressed"):
+def toolbar_state(resolver):
+    root, toolbar = resolver._find_root_and_toolbar()
+    buttons = _toolbar_buttons(toolbar)
+    state = {}
+    for button in buttons:
+        if button.command_id == 0:
+            continue
+        state[int(button.command_id)] = {
+            "enabled": bool(button.state & 0x04),
+            "checked": bool(button.state & 0x01),
+            "pressed": bool(button.state & 0x08),
+            "state": int(button.state),
+            "screen_rect": button.screen_rect,
+        }
+    return root, toolbar, state
+
+
+def print_active(label, state):
+    print(f"[TOOLBAR {label}]")
+    for cid in sorted(state):
+        item = state[cid]
+        if item["enabled"] or item["checked"] or item["pressed"]:
             print(
-                f"[ACTIVE] id={item.get('id')} enabled={item.get('enabled')} "
-                f"checked={item.get('checked')} pressed={item.get('pressed')} "
-                f"rect={item.get('rect')}"
+                f"[ACTIVE] id={cid} enabled={item['enabled']} "
+                f"checked={item['checked']} pressed={item['pressed']} "
+                f"state=0x{item['state']:02X} rect={item['screen_rect']}"
             )
-    return state
 
 
-def diff(before, after):
-    bm = {int(x["id"]): x for x in before if int(x["id"]) != 0}
-    am = {int(x["id"]): x for x in after if int(x["id"]) != 0}
+def print_diff(before, after):
     changed = []
-    for cid in sorted(set(bm) | set(am)):
-        b = bm.get(cid, {})
-        a = am.get(cid, {})
+    for cid in sorted(set(before) | set(after)):
+        b = before.get(cid, {})
+        a = after.get(cid, {})
         fields = ("enabled", "checked", "pressed", "state")
-        if any(b.get(f) != a.get(f) for f in fields):
+        if any(b.get(field) != a.get(field) for field in fields):
             changed.append((cid, b, a))
+
     if not changed:
         print("[NATIVE DIFF] none")
         return
+
     for cid, b, a in changed:
         print(
             f"[NATIVE CHANGED] id={cid} "
-            f"before=(enabled={b.get('enabled')},checked={b.get('checked')},pressed={b.get('pressed')},state={b.get('state')}) "
-            f"after=(enabled={a.get('enabled')},checked={a.get('checked')},pressed={a.get('pressed')},state={a.get('state')})"
+            f"before=(enabled={b.get('enabled')},checked={b.get('checked')},pressed={b.get('pressed')},state=0x{b.get('state', 0):02X}) "
+            f"after=(enabled={a.get('enabled')},checked={a.get('checked')},pressed={a.get('pressed')},state=0x{a.get('state', 0):02X})"
         )
 
 
 def hardware_state(executor, label):
     state = executor.hardware_precondition.resolver.inspect()
     print(
-        f"[HARDWARE {label}] ready={state.ready} reason={state.reason} "
-        f"selected_point={state.selected_point}"
+        f"[HARDWARE {label}] ready={state.ready} "
+        f"reason={state.reason} selected_point={state.selected_point}"
     )
-    return state
 
 
 def main():
@@ -65,32 +80,35 @@ def main():
 
     for tool in (GuiTool.FRAME, GuiTool.SASH, GuiTool.GLASS):
         result = executor.execute(SimpleNamespace(intent=GuiIntent.CREATE, tool=tool))
-        print(f"[BUILD RESULT] {tool.name} success={result.success} message={result.message}")
+        print(
+            f"[BUILD RESULT] {tool.name} "
+            f"success={result.success} message={result.message}"
+        )
 
     executor._refresh_runtime_observation()
-    before = snapshot("BEFORE MODE TEST")
+    resolver = NativeToolbarResolver()
+    _root, _toolbar, before = toolbar_state(resolver)
+    print_active("BEFORE MODE TEST", before)
     hardware_state(executor, "BEFORE MODE TEST")
 
-    resolver = NativeToolbarResolver()
-    current = resolver.inspect_buttons()
     candidates = [
-        x for x in current
-        if x.get("id") not in (0, 32792)
-        and x.get("enabled")
-        and x.get("rect")
+        (cid, item)
+        for cid, item in before.items()
+        if cid != 32792 and item["enabled"] and item["screen_rect"]
     ]
 
-    for item in candidates:
-        cid = int(item["id"])
-        rect = item["rect"]
-        # rect is expected as (x, y, w, h) in toolbar-local coordinates.
-        x, y, w, h = [int(v) for v in rect]
-        point = (x + w // 2, y + h // 2)
-        print(f"[MODE CLICK] command_id={cid} point={point}")
-        resolver.click_command(cid)
+    for cid, item in candidates:
+        sx, sy, width, height = [int(value) for value in item["screen_rect"]]
+        local_x = sx - context.window.left
+        local_y = sy - context.window.top
+        point = (local_x + width // 2, local_y + height // 2)
+        print(f"[MODE CLICK] command_id={cid} local={point}")
+        executor.click.click_xy(point[0], point[1], origin=executor._screen_origin())
         executor._refresh_runtime_observation()
-        after = snapshot(f"AFTER {cid}")
-        diff(before, after)
+
+        _root, _toolbar, after = toolbar_state(resolver)
+        print_active(f"AFTER {cid}", after)
+        print_diff(before, after)
         hardware_state(executor, f"AFTER {cid}")
         before = after
 
