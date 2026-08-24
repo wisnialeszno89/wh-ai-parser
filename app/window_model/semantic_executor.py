@@ -27,6 +27,48 @@ class SemanticExecutionBridge:
         self.executor = executor
         self.dependency_planner = DependencyPlanner()
 
+    def execute_next(
+        self,
+        desired: WindowModel,
+        topology: WindowTopology,
+        observed: WindowModel,
+    ) -> SemanticExecutionResult:
+        changes = diff_models(desired, observed)
+        pending_ids = {
+            change.element_id
+            for change in changes
+            if change.change == WindowChangeType.ADD
+        }
+        if not pending_ids:
+            return SemanticExecutionResult("COMPLETE", (), (), ())
+
+        steps = self.dependency_planner.plan(desired, topology)
+        for step in steps:
+            if step.element_id not in pending_ids:
+                continue
+            if step.gui_tool == GuiTool.HARDWARE:
+                return SemanticExecutionResult("BLOCKED", (), (step.element_id,), tuple(sorted(pending_ids)))
+
+            action = SimpleNamespace(intent=GuiIntent.CREATE, tool=step.gui_tool)
+            result = self.executor.execute(action)
+            if not result.success:
+                return SemanticExecutionResult(
+                    "BLOCKED",
+                    (),
+                    (step.element_id,),
+                    tuple(sorted(pending_ids)),
+                )
+
+            remaining = tuple(sorted(pending_ids - {step.element_id}))
+            return SemanticExecutionResult(
+                "PARTIAL" if remaining else "COMPLETE",
+                (step.element_id,),
+                (),
+                remaining,
+            )
+
+        return SemanticExecutionResult("NO_PROGRESS", (), (), tuple(sorted(pending_ids)))
+
     def execute_until_blocked(
         self,
         desired: WindowModel,
