@@ -27,6 +27,17 @@ class SemanticExecutionBridge:
         self.executor = executor
         self.dependency_planner = DependencyPlanner()
 
+    def _remember_success(self, step) -> None:
+        state = self.executor.context.gui_state
+        point = state.last_created_point
+        if point is not None:
+            state.created_element_points[step.element_id] = point
+        state.created_element_sides[step.element_id] = step.side.value
+        print(
+            f"[SEMANTIC MEMORY] created={step.element_id} "
+            f"side={step.side.value} point={point}"
+        )
+
     def execute_next(
         self,
         desired: WindowModel,
@@ -47,9 +58,16 @@ class SemanticExecutionBridge:
             if step.element_id not in pending_ids:
                 continue
             if step.gui_tool == GuiTool.HARDWARE:
-                return SemanticExecutionResult("BLOCKED", (), (step.element_id,), tuple(sorted(pending_ids)))
+                return SemanticExecutionResult(
+                    "BLOCKED", (), (step.element_id,), tuple(sorted(pending_ids))
+                )
 
-            action = SimpleNamespace(intent=GuiIntent.CREATE, tool=step.gui_tool)
+            action = SimpleNamespace(
+                intent=GuiIntent.CREATE,
+                tool=step.gui_tool,
+                semantic_id=step.element_id,
+                semantic_side=step.side.value,
+            )
             result = self.executor.execute(action)
             if not result.success:
                 return SemanticExecutionResult(
@@ -59,6 +77,7 @@ class SemanticExecutionBridge:
                     tuple(sorted(pending_ids)),
                 )
 
+            self._remember_success(step)
             remaining = tuple(sorted(pending_ids - {step.element_id}))
             return SemanticExecutionResult(
                 "PARTIAL" if remaining else "COMPLETE",
@@ -95,11 +114,17 @@ class SemanticExecutionBridge:
                 blocked.append(step.element_id)
                 break
 
-            action = SimpleNamespace(intent=GuiIntent.CREATE, tool=step.gui_tool)
+            action = SimpleNamespace(
+                intent=GuiIntent.CREATE,
+                tool=step.gui_tool,
+                semantic_id=step.element_id,
+                semantic_side=step.side.value,
+            )
             result = self.executor.execute(action)
             if not result.success:
                 blocked.append(step.element_id)
                 break
+            self._remember_success(step)
             executed.append(step.element_id)
 
         remaining = tuple(
