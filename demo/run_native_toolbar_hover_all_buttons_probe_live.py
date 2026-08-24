@@ -14,9 +14,8 @@ user32 = ctypes.windll.user32
 
 
 def hover_point(toolbar_hwnd, button):
-    toolbar_left, toolbar_top, _, _ = _get_window_rect(toolbar_hwnd)
     x, y, w, h = button.screen_rect
-    return int(toolbar_left + x + w // 2), int(toolbar_top + y + h // 2)
+    return int(x + w // 2), int(y + h // 2)
 
 
 def hardware_snapshot(executor, label):
@@ -57,6 +56,8 @@ def main():
     buttons = _toolbar_buttons(toolbar)
     print(f"[HOVER] toolbar={toolbar} buttons={len(buttons)}")
 
+    toolbar_left, toolbar_top, _, _ = _get_window_rect(toolbar)
+
     for index, button in enumerate(buttons):
         if not button.screen_rect:
             print(f"[HOVER SKIP] index={index} id={button.command_id}: no screen rect")
@@ -65,10 +66,12 @@ def main():
             print(f"[HOVER SKIP] index={index} separator id=0")
             continue
 
-        point = hover_point(toolbar, button)
+        x, y, w, h = button.screen_rect
+        # _toolbar_buttons exposes screen-space rects.
+        point = (int(x + w // 2), int(y + h // 2))
         print(
             f"[HOVER] index={index:02d} id={button.command_id} "
-            f"enabled={button.enabled} point={point}"
+            f"state=0x{button.state:02X} point={point}"
         )
         user32.SetCursorPos(point[0], point[1])
         time.sleep(0.50)
@@ -81,7 +84,7 @@ def main():
             )
             break
 
-    user32.SetCursorPos(0, 0)
+    user32.SetCursorPos(toolbar_left - 50, toolbar_top - 50)
     hardware_snapshot(executor, "FINAL")
     print("[PROBE] COMPLETE. No toolbar button was clicked.")
 
