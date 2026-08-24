@@ -1,4 +1,5 @@
 from pathlib import Path
+from types import SimpleNamespace
 
 import cv2
 import numpy as np
@@ -10,9 +11,11 @@ from app.runtime.execution.context.execution_context import ExecutionContext
 from app.runtime.execution.execution_mode import ExecutionMode
 
 
-def snapshot(executor, label):
+def snapshot(executor):
     vision = executor.locator.vision.capture()
-    executor.context.cache.screenshot = vision if hasattr(executor, 'context') else vision
+    executor.context.cache.screenshot = vision
+    executor.context.window = vision.window
+    executor._remember_workspace(vision)
     return vision
 
 
@@ -44,8 +47,22 @@ def metrics(crop):
 
 
 def compare(base, current):
-    diff = cv2.absdiff(base, current)
-    gray = cv2.cvtColor(diff, cv2.COLOR_RGB2GRAY)
+    height = min(base.shape[0], current.shape[0])
+    width = min(base.shape[1], current.shape[1])
+    channels = min(base.shape[2], current.shape[2]) if base.ndim == 3 and current.ndim == 3 else 1
+
+    base_view = base[:height, :width, :channels] if base.ndim == 3 else base[:height, :width]
+    current_view = current[:height, :width, :channels] if current.ndim == 3 else current[:height, :width]
+
+    if base_view.shape != current_view.shape:
+        return 0.0, 0.0
+
+    diff = cv2.absdiff(base_view, current_view)
+    if diff.ndim == 3:
+        gray = cv2.cvtColor(diff, cv2.COLOR_RGB2GRAY)
+    else:
+        gray = diff
+
     changed = float(np.count_nonzero(gray > 8)) / max(gray.size, 1)
     mean = float(gray.mean())
     return changed, mean
@@ -60,13 +77,8 @@ def main():
 
     context = ExecutionContext(mouse_enabled=True, execution_mode=ExecutionMode.LIVE)
     executor = ActionExecutor(context)
-    executor.context = context
 
-    vision = executor.locator.vision.capture()
-    context.cache.screenshot = vision
-    context.window = vision.window
-    executor._remember_workspace(vision)
-
+    vision = snapshot(executor)
     base_crop, base_path = save_workspace(vision, "baseline")
     base_metrics = metrics(base_crop)
     print(f"[BASELINE] path={base_path}")
@@ -74,21 +86,23 @@ def main():
 
     for tool in (GuiTool.FRAME, GuiTool.SASH, GuiTool.GLASS):
         print(f"\n[STEP] CREATE {tool.name}")
-        from types import SimpleNamespace
         action = SimpleNamespace(intent=GuiIntent.CREATE, tool=tool)
         result = executor.execute(action)
-        print(f"[RESULT] {tool.name}: success={result.success} confidence={result.confidence} message={result.message}")
+        print(
+            f"[RESULT] {tool.name}: success={result.success} "
+            f"confidence={result.confidence} message={result.message}"
+        )
 
-        vision = executor.locator.vision.capture()
-        context.cache.screenshot = vision
-        context.window = vision.window
+        vision = snapshot(executor)
         crop, path = save_workspace(vision, tool.name.lower())
         stage_metrics = metrics(crop)
         changed, mean = compare(base_crop, crop)
         print(f"[{tool.name} PATH] {path}")
-        print(f"[{tool.name} METRICS] edges={stage_metrics[0]:.4f} dark={stage_metrics[1]:.4f} mid={stage_metrics[2]:.4f}")
+        print(
+            f"[{tool.name} METRICS] edges={stage_metrics[0]:.4f} "
+            f"dark={stage_metrics[1]:.4f} mid={stage_metrics[2]:.4f}"
+        )
         print(f"[{tool.name} VS BASELINE] changed_ratio={changed:.4f} mean_diff={mean:.2f}")
-
         executor.context.cache.clear()
 
     print("[PROBE] COMPLETE. Calibration window remains at FRAME+SASH+GLASS; no HARDWARE action was sent.")
