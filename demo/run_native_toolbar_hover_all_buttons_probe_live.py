@@ -15,7 +15,7 @@ user32 = ctypes.windll.user32
 
 def hover_point(toolbar_hwnd, button):
     toolbar_left, toolbar_top, _, _ = _get_window_rect(toolbar_hwnd)
-    x, y, w, h = button.rect
+    x, y, w, h = button.screen_rect
     return int(toolbar_left + x + w // 2), int(toolbar_top + y + h // 2)
 
 
@@ -58,8 +58,8 @@ def main():
     print(f"[HOVER] toolbar={toolbar} buttons={len(buttons)}")
 
     for index, button in enumerate(buttons):
-        if not button.rect:
-            print(f"[HOVER SKIP] index={index} id={button.command_id}: no rect")
+        if not button.screen_rect:
+            print(f"[HOVER SKIP] index={index} id={button.command_id}: no screen rect")
             continue
         if button.command_id == 0:
             print(f"[HOVER SKIP] index={index} separator id=0")
@@ -71,7 +71,7 @@ def main():
             f"enabled={button.enabled} point={point}"
         )
         user32.SetCursorPos(point[0], point[1])
-        time.sleep(0.35)
+        time.sleep(0.50)
 
         state = hardware_snapshot(executor, f"AFTER HOVER {button.command_id}")
         if state.ready and not before.ready:
