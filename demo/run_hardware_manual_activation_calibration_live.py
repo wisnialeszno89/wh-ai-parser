@@ -7,15 +7,22 @@ from app.runtime.execution.action_executor import ActionExecutor
 from app.runtime.execution.context.execution_context import ExecutionContext
 from app.runtime.execution.execution_mode import ExecutionMode
 from app.runtime.execution.native_toolbar_resolver import NativeToolbarResolver
+from demo.run_native_toolbar_button_probe_live import _find_toolbar, _toolbar_buttons
+
+HARDWARE_ID = 32792
 
 
 def snapshot(label):
-    state = NativeToolbarResolver().inspect_buttons()
-    hardware = next((x for x in state if int(x.get("id", 0)) == 32792), None)
+    root, toolbar = NativeToolbarResolver()._find_root_and_toolbar()
+    buttons = _toolbar_buttons(toolbar)
+    hardware = next((b for b in buttons if b.command_id == HARDWARE_ID), None)
     print(
-        f"[SNAPSHOT {label}] HARDWARE={hardware}"
+        f"[SNAPSHOT {label}] HARDWARE="
+        f"id={getattr(hardware, 'command_id', None)} "
+        f"state=0x{getattr(hardware, 'state', 0):02X} "
+        f"screen_rect={getattr(hardware, 'screen_rect', None)}"
     )
-    return state
+    return buttons
 
 
 def main():
@@ -31,9 +38,7 @@ def main():
     executor.context = context
 
     for tool in (GuiTool.FRAME, GuiTool.SASH, GuiTool.GLASS):
-        result = executor.execute(
-            SimpleNamespace(intent=GuiIntent.CREATE, tool=tool)
-        )
+        result = executor.execute(SimpleNamespace(intent=GuiIntent.CREATE, tool=tool))
         print(
             f"[BUILD] {tool.name} success={result.success} "
             f"message={result.message}"
@@ -42,7 +47,7 @@ def main():
             raise RuntimeError(f"Failed to build {tool.name}: {result.message}")
 
     executor._refresh_runtime_observation()
-    snapshot("BEFORE MANUAL ACTION")
+    before = snapshot("BEFORE MANUAL ACTION")
 
     print("\n[ACTION REQUIRED]")
     print("WindowHub is now at FRAME + SASH + GLASS.")
@@ -51,14 +56,31 @@ def main():
     input("After performing that action, press ENTER here to capture the native state... ")
 
     time.sleep(0.5)
-    snapshot("AFTER MANUAL ACTION")
+    after = snapshot("AFTER MANUAL ACTION")
 
-    state = NativeToolbarResolver().inspect_buttons()
-    hardware = next((x for x in state if int(x.get("id", 0)) == 32792), None)
-    if hardware and hardware.get("enabled"):
-        print("[DISCOVERY] HARDWARE IS NOW ENABLED. The manual action is a viable precondition candidate.")
+    def state_map(items):
+        return {int(b.command_id): b for b in items if int(b.command_id) != 0}
+
+    bm = state_map(before)
+    am = state_map(after)
+    print("[NATIVE DIFF]")
+    changed = False
+    for cid in sorted(set(bm) | set(am)):
+        b = bm.get(cid)
+        a = am.get(cid)
+        bs = getattr(b, "state", None)
+        ass = getattr(a, "state", None)
+        if bs != ass:
+            changed = True
+            print(f"[CHANGED] id={cid} state_before={bs} state_after={ass}")
+    if not changed:
+        print("[CHANGED] none")
+
+    hardware = next((b for b in after if b.command_id == HARDWARE_ID), None)
+    if hardware is not None and (hardware.state & 0x04):
+        print("[DISCOVERY] HARDWARE IS NOW ENABLED. Manual action is a viable precondition candidate.")
     else:
-        print("[DISCOVERY] HARDWARE is still disabled. The manual action is not sufficient, or another selection/state is required.")
+        print("[DISCOVERY] HARDWARE is still disabled. Manual action is not sufficient, or another selection/state is required.")
 
     print("[PROBE] COMPLETE. No HARDWARE click was sent by this probe.")
 
