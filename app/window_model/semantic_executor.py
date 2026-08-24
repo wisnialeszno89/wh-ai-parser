@@ -6,10 +6,10 @@ from types import SimpleNamespace
 from app.gui.enums.gui_intent import GuiIntent
 from app.gui.enums.gui_tool import GuiTool
 from app.runtime.execution.action_executor import ActionExecutor
-from app.window_model.dependency_planner import DependencyPlanner, ExecutableStep
-from app.window_model.diff import WindowDiff
+from app.window_model.dependency_planner import DependencyPlanner
+from app.window_model.diff import WindowChangeType, diff_models
 from app.window_model.model import WindowElementType, WindowModel
-from app.window_model.topology import WindowTopology, WindowSide
+from app.window_model.topology import WindowSide, WindowTopology
 
 
 @dataclass(frozen=True)
@@ -33,8 +33,12 @@ class SemanticExecutionBridge:
         topology: WindowTopology,
         observed: WindowModel,
     ) -> SemanticExecutionResult:
-        diff = WindowDiff.compare(desired, observed)
-        pending_ids = {change.element_id for change in diff.changes if change.change_type == "ADD"}
+        changes = diff_models(desired, observed)
+        pending_ids = {
+            change.element_id
+            for change in changes
+            if change.change == WindowChangeType.ADD
+        }
         if not pending_ids:
             return SemanticExecutionResult("COMPLETE", (), (), ())
 
@@ -70,13 +74,13 @@ def single_cell_left_target() -> tuple[WindowModel, WindowTopology]:
     frame = model.add_element("frame", WindowElementType.FRAME)
     cell = model.add_element("cell_left", WindowElementType.MULLION, parent_id=frame.id, role="CELL")
     sash = model.add_element("sash_left", WindowElementType.SASH, parent_id=cell.id, opening="left")
-    model.add_element("glass_left", WindowElementType.GLASS, parent_id=sash.id, panes=3)
-    model.add_element("hardware_left", WindowElementType.HARDWARE, parent_id=sash.id, system="unknown")
+    glass = model.add_element("glass_left", WindowElementType.GLASS, parent_id=sash.id, panes=3)
+    hardware = model.add_element("hardware_left", WindowElementType.HARDWARE, parent_id=sash.id, system="unknown")
 
     topology = WindowTopology()
     topology.add(frame, side=WindowSide.CENTER, role="FRAME")
     topology.add(cell, side=WindowSide.LEFT, position_index=0, role="CELL")
     topology.add(sash, side=WindowSide.LEFT, position_index=0, opening="left")
-    topology.add(next(e for e in model.children_of(sash.id)), side=WindowSide.LEFT, position_index=0)
-    topology.add(next(e for e in model.children_of(sash.id) if e.type == WindowElementType.HARDWARE), side=WindowSide.LEFT, position_index=0)
+    topology.add(glass, side=WindowSide.LEFT, position_index=0)
+    topology.add(hardware, side=WindowSide.LEFT, position_index=0)
     return model, topology
