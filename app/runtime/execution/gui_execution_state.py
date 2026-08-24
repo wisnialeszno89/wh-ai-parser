@@ -26,6 +26,12 @@ class GuiExecutionState:
     # not fixed screen coordinates.
     tool_points: dict[str, tuple[int, int]] = field(default_factory=dict)
 
+    # Semantic execution memory. Entries are recorded only after the
+    # corresponding GUI action verifies as successful. They are deliberately
+    # separate from panel_side, which is merely the next placement direction.
+    created_element_points: dict[str, tuple[int, int]] = field(default_factory=dict)
+    created_element_sides: dict[str, str] = field(default_factory=dict)
+
     # Current construction cell used by the SASH + GLASS pair.
     # Vertical mullion: left/right. Horizontal mullion: top/bottom.
     panel_side: str = "left"
