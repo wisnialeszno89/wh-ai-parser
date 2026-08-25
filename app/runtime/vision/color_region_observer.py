@@ -69,7 +69,7 @@ class ColorRegionObserver:
                 if fill_ratio < 0.20:
                     continue
 
-                mask = labels == label
+                mask = (labels == label).astype(np.uint8) * 255
                 mean_bgr = tuple(float(v) for v in cv2.mean(bgr, mask=mask)[:3])
                 mean_hsv = tuple(float(v) for v in cv2.mean(hsv, mask=mask)[:3])
                 regions.append(
