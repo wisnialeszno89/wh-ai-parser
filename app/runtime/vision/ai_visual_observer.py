@@ -52,8 +52,8 @@ class AIVisualStructureObserver:
     DEFAULT_MODEL = "gpt-5.6-luna"
     DEFAULT_MIN_CONFIDENCE = 0.78
     DEFAULT_MIN_INTERVAL = 1.5
-    DEFAULT_CACHE_VERSION = "v3"
-    PROMPT_VERSION = "window-structure-v2"
+    DEFAULT_CACHE_VERSION = "v4"
+    PROMPT_VERSION = "window-structure-v3"
 
     def observe(
         self,
@@ -62,6 +62,7 @@ class AIVisualStructureObserver:
         *,
         local_confidence: float = 0.0,
         force_ai: bool = False,
+        visual_context: str | None = None,
     ) -> AIVisualObservation:
         if image is None or image.size == 0:
             return AIVisualObservation("EMPTY", 0.0, analysis_rect, (), {}, error="empty image")
@@ -78,7 +79,7 @@ class AIVisualStructureObserver:
             return AIVisualObservation("LOCAL_CONFIDENT", local_confidence, rect, (), {}, cache_hit=False, api_calls=0)
 
         image_bytes = self._encode_png(crop, max_side=768)
-        digest = self._cache_digest(image_bytes, rect)
+        digest = self._cache_digest(image_bytes, rect, visual_context)
         if not force:
             cached = self._load_cache(digest)
             if cached is not None:
@@ -93,7 +94,7 @@ class AIVisualStructureObserver:
 
         self._throttle()
         try:
-            payload = self._call_openai(image_bytes, api_key)
+            payload = self._call_openai(image_bytes, api_key, visual_context=visual_context)
         except Exception as exc:  # noqa: BLE001
             return AIVisualObservation("AI_ERROR", local_confidence, rect, (), {}, error=str(exc))
 
@@ -104,9 +105,10 @@ class AIVisualStructureObserver:
     def _is_ai_needed(local_confidence: float, min_confidence: float) -> bool:
         return local_confidence < min_confidence
 
-    def _call_openai(self, image_bytes: bytes, api_key: str) -> dict[str, Any]:
+    def _call_openai(self, image_bytes: bytes, api_key: str, *, visual_context: str | None) -> dict[str, Any]:
         model = os.getenv(self.MODEL_ENV, self.DEFAULT_MODEL)
         data_url = "data:image/png;base64," + base64.b64encode(image_bytes).decode("ascii")
+        context = visual_context or "No local geometry hints are available. Use the image only."
         body = {
             "model": model,
             "input": [
@@ -116,14 +118,18 @@ class AIVisualStructureObserver:
                         {
                             "type": "input_text",
                             "text": (
-                                "You are WindowHub AI Vision. Analyze only the supplied screenshot crop. "
+                                "You are WindowHub AI Vision. Analyze only the supplied screenshot crop plus the supplied local geometry hints. "
+                                "The image is authoritative; local hints are weak hints and may be wrong. "
                                 "Your job is to describe what is visibly present now, not what may have been created earlier. "
                                 "Do not infer hidden elements from runtime history. "
                                 "Identify the visible construction geometry and relationships using FRAME, MULLION, SASH, GLASS, HARDWARE. "
-                                "A MULLION is a visible structural separator. A SASH is a visible opening/leaf region distinct from a pane. "
-                                "GLASS should be reported only when a visible pane is supported by the image. "
-                                "HARDWARE should be reported only when visibly supported. "
-                                "For ambiguous or occluded details return fewer elements rather than guessing. "
+                                "A MULLION is a visible structural separator between cells. "
+                                "A SASH is a visible opening/leaf region or leaf frame, distinct from the glass pane. "
+                                "GLASS is a visible pane inside a sash. "
+                                "HARDWARE is only reported when a visible hardware shape/icon is supported by the image. "
+                                "For a multi-cell window, distinguish left/right/top/bottom elements when the geometry supports that distinction. "
+                                "Never collapse a visibly divided multi-cell construction into one giant GLASS just because most of the interior is bright. "
+                                "Prefer fewer elements only when the image truly does not support the distinction. "
                                 "Use bbox coordinates relative to the supplied crop. Confidence is 0..1. "
                                 f"Prompt version: {self.PROMPT_VERSION}."
                             ),
@@ -133,7 +139,14 @@ class AIVisualStructureObserver:
                 {
                     "role": "user",
                     "content": [
-                        {"type": "input_text", "text": "Identify the current visible window construction and its element relationships."},
+                        {
+                            "type": "input_text",
+                            "text": (
+                                "Identify the current visible window construction and its element relationships. "
+                                "Here are local geometry hints from a non-AI observer; use them only to help locate candidate structure:\n"
+                                + context
+                            ),
+                        },
                         {"type": "input_image", "image_url": data_url, "detail": "low"},
                     ],
                 },
@@ -248,11 +261,17 @@ class AIVisualStructureObserver:
         }
 
     @classmethod
-    def _cache_digest(cls, image_bytes: bytes, rect: tuple[int, int, int, int]) -> str:
+    def _cache_digest(cls, image_bytes: bytes, rect: tuple[int, int, int, int], visual_context: str | None) -> str:
         version = os.getenv(cls.CACHE_VERSION_ENV, cls.DEFAULT_CACHE_VERSION)
         model = os.getenv(cls.MODEL_ENV, cls.DEFAULT_MODEL)
         seed = json.dumps(
-            {"cache_version": version, "model": model, "prompt_version": cls.PROMPT_VERSION, "rect": rect},
+            {
+                "cache_version": version,
+                "model": model,
+                "prompt_version": cls.PROMPT_VERSION,
+                "rect": rect,
+                "visual_context": visual_context or "",
+            },
             sort_keys=True,
             separators=(",", ":"),
         ).encode("utf-8")
