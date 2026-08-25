@@ -52,52 +52,37 @@ class AIVisualStructureObserver:
     DEFAULT_MODEL = "gpt-5.6-luna"
     DEFAULT_MIN_CONFIDENCE = 0.78
     DEFAULT_MIN_INTERVAL = 1.5
-    DEFAULT_CACHE_VERSION = "v4"
-    PROMPT_VERSION = "window-structure-v3"
+    DEFAULT_CACHE_VERSION = "v5"
+    PROMPT_VERSION = "window-structure-v4"
 
-    def observe(
-        self,
-        image: np.ndarray,
-        analysis_rect: tuple[int, int, int, int] | None,
-        *,
-        local_confidence: float = 0.0,
-        force_ai: bool = False,
-        visual_context: str | None = None,
-    ) -> AIVisualObservation:
+    def observe(self, image: np.ndarray, analysis_rect: tuple[int, int, int, int] | None, *, local_confidence: float = 0.0, force_ai: bool = False, visual_context: str | None = None) -> AIVisualObservation:
         if image is None or image.size == 0:
             return AIVisualObservation("EMPTY", 0.0, analysis_rect, (), {}, error="empty image")
-
         rect = self._clamp_rect(analysis_rect, image.shape[1], image.shape[0]) if analysis_rect else (0, 0, image.shape[1], image.shape[0])
-        crop = image[rect[1] : rect[1] + rect[3], rect[0] : rect[0] + rect[2]]
+        crop = image[rect[1]:rect[1] + rect[3], rect[0]:rect[0] + rect[2]]
         if crop.size == 0:
             return AIVisualObservation("EMPTY", 0.0, rect, (), {}, error="empty analysis crop")
-
         enabled = os.getenv(self.ENABLE_ENV, "0") == "1"
         force = force_ai or os.getenv(self.FORCE_ENV, "0") == "1"
         min_conf = float(os.getenv(self.MIN_CONF_ENV, str(self.DEFAULT_MIN_CONFIDENCE)))
         if not force and not self._is_ai_needed(local_confidence, min_conf):
             return AIVisualObservation("LOCAL_CONFIDENT", local_confidence, rect, (), {}, cache_hit=False, api_calls=0)
-
         image_bytes = self._encode_png(crop, max_side=768)
         digest = self._cache_digest(image_bytes, rect, visual_context)
         if not force:
             cached = self._load_cache(digest)
             if cached is not None:
                 return self._from_payload(cached, rect, cache_hit=True, api_calls=0)
-
         if not enabled:
             return AIVisualObservation("AI_DISABLED", local_confidence, rect, (), self._build_payload_preview(rect, digest), api_calls=0)
-
         api_key = os.getenv(self.API_KEY_ENV, "").strip()
         if not api_key:
             return AIVisualObservation("AI_NOT_CONFIGURED", local_confidence, rect, (), {}, error="OPENAI_API_KEY is not set")
-
         self._throttle()
         try:
             payload = self._call_openai(image_bytes, api_key, visual_context=visual_context)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             return AIVisualObservation("AI_ERROR", local_confidence, rect, (), {}, error=str(exc))
-
         self._save_cache(digest, payload)
         return self._from_payload(payload, rect, cache_hit=False, api_calls=1)
 
@@ -112,61 +97,24 @@ class AIVisualStructureObserver:
         body = {
             "model": model,
             "input": [
-                {
-                    "role": "developer",
-                    "content": [
-                        {
-                            "type": "input_text",
-                            "text": (
-                                "You are WindowHub AI Vision. Analyze only the supplied screenshot crop plus the supplied local geometry hints. "
-                                "The image is authoritative; local hints are weak hints and may be wrong. "
-                                "Your job is to describe what is visibly present now, not what may have been created earlier. "
-                                "Do not infer hidden elements from runtime history. "
-                                "Identify the visible construction geometry and relationships using FRAME, MULLION, SASH, GLASS, HARDWARE. "
-                                "A MULLION is a visible structural separator between cells. "
-                                "A SASH is a visible opening/leaf region or leaf frame, distinct from the glass pane. "
-                                "GLASS is a visible pane inside a sash. "
-                                "HARDWARE is only reported when a visible hardware shape/icon is supported by the image. "
-                                "For a multi-cell window, distinguish left/right/top/bottom elements when the geometry supports that distinction. "
-                                "Never collapse a visibly divided multi-cell construction into one giant GLASS just because most of the interior is bright. "
-                                "Prefer fewer elements only when the image truly does not support the distinction. "
-                                "Use bbox coordinates relative to the supplied crop. Confidence is 0..1. "
-                                f"Prompt version: {self.PROMPT_VERSION}."
-                            ),
-                        }
-                    ],
-                },
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "input_text",
-                            "text": (
-                                "Identify the current visible window construction and its element relationships. "
-                                "Here are local geometry hints from a non-AI observer; use them only to help locate candidate structure:\n"
-                                + context
-                            ),
-                        },
-                        {"type": "input_image", "image_url": data_url, "detail": "low"},
-                    ],
-                },
+                {"role": "developer", "content": [{"type": "input_text", "text": (
+                    "You are WindowHub AI Vision. Analyze only the supplied screenshot crop plus local geometry hints. "
+                    "The image is authoritative. Describe only what is visibly present now. "
+                    "Identify visible FRAME, MULLION, SASH, GLASS and HARDWARE. A MULLION is a visible separator between cells. "
+                    "A SASH is a visible leaf/opening region distinct from its GLASS. HARDWARE is reported only when visibly supported. "
+                    "For multi-cell windows distinguish left/right/top/bottom. Never collapse a visibly divided construction into one GLASS. "
+                    "Use bbox coordinates relative to the crop. Keep properties short and factual. Confidence is 0..1. "
+                    f"Prompt version: {self.PROMPT_VERSION}."
+                )}]},
+                {"role": "user", "content": [
+                    {"type": "input_text", "text": "Current local geometry hints (weak, image is authoritative):\n" + context},
+                    {"type": "input_image", "image_url": data_url, "detail": "low"},
+                ]},
             ],
-            "text": {
-                "format": {
-                    "type": "json_schema",
-                    "name": "window_visual_observation",
-                    "strict": True,
-                    "schema": self._schema(),
-                }
-            },
-            "max_output_tokens": 700,
+            "text": {"format": {"type": "json_schema", "name": "window_visual_observation", "strict": True, "schema": self._schema()}},
+            "max_output_tokens": 1400,
         }
-        request = urllib.request.Request(
-            "https://api.openai.com/v1/responses",
-            data=json.dumps(body).encode("utf-8"),
-            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-            method="POST",
-        )
+        request = urllib.request.Request("https://api.openai.com/v1/responses", data=json.dumps(body).encode("utf-8"), headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}, method="POST")
         try:
             with urllib.request.urlopen(request, timeout=60) as response:
                 raw = response.read().decode("utf-8")
@@ -177,17 +125,28 @@ class AIVisualStructureObserver:
         text = self._extract_output_text(payload)
         if not text:
             raise RuntimeError("OpenAI response did not contain structured output text")
-        return json.loads(text)
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError as exc:
+            status = payload.get("status")
+            incomplete = payload.get("incomplete_details")
+            raise RuntimeError(f"Structured output JSON invalid ({exc.msg} at char {exc.pos}); response_status={status}; incomplete_details={incomplete}") from exc
 
     @staticmethod
     def _extract_output_text(payload: dict[str, Any]) -> str | None:
         if isinstance(payload.get("output_text"), str):
             return payload["output_text"]
+        chunks: list[str] = []
         for item in payload.get("output", []):
             for content in item.get("content", []) if isinstance(item, dict) else []:
-                if isinstance(content, dict) and isinstance(content.get("text"), str):
-                    return content["text"]
-        return None
+                if not isinstance(content, dict):
+                    continue
+                text = content.get("text")
+                if isinstance(text, str):
+                    chunks.append(text)
+                elif isinstance(text, dict) and isinstance(text.get("value"), str):
+                    chunks.append(text["value"])
+        return "".join(chunks) or None
 
     @classmethod
     def _from_payload(cls, payload: dict[str, Any], rect: tuple[int, int, int, int], *, cache_hit: bool, api_calls: int) -> AIVisualObservation:
@@ -195,26 +154,8 @@ class AIVisualStructureObserver:
         for item in payload.get("elements", []):
             bbox = item.get("bbox")
             normalized_bbox = tuple(int(v) for v in bbox) if isinstance(bbox, list) and len(bbox) == 4 else None
-            elements.append(
-                AIVisualElement(
-                    id=str(item.get("id", "unknown")),
-                    kind=str(item.get("kind", "UNKNOWN")),
-                    side=item.get("side"),
-                    parent_id=item.get("parent_id"),
-                    bbox=normalized_bbox,
-                    confidence=float(item.get("confidence", 0.0)),
-                    properties=dict(item.get("properties", {})),
-                )
-            )
-        return AIVisualObservation(
-            status="AI_OK",
-            confidence=float(payload.get("confidence", 0.0)),
-            analysis_rect=rect,
-            elements=tuple(elements),
-            raw_json=payload,
-            cache_hit=cache_hit,
-            api_calls=api_calls,
-        )
+            elements.append(AIVisualElement(id=str(item.get("id", "unknown")), kind=str(item.get("kind", "UNKNOWN")), side=item.get("side"), parent_id=item.get("parent_id"), bbox=normalized_bbox, confidence=float(item.get("confidence", 0.0)), properties=dict(item.get("properties", {}))))
+        return AIVisualObservation(status="AI_OK", confidence=float(payload.get("confidence", 0.0)), analysis_rect=rect, elements=tuple(elements), raw_json=payload, cache_hit=cache_hit, api_calls=api_calls)
 
     @classmethod
     def _build_payload_preview(cls, rect: tuple[int, int, int, int], digest: str) -> dict[str, Any]:
@@ -222,59 +163,14 @@ class AIVisualStructureObserver:
 
     @classmethod
     def _schema(cls) -> dict[str, Any]:
-        property_schema = {
-            "type": "object",
-            "additionalProperties": False,
-            "properties": {
-                "role": {"type": ["string", "null"]},
-                "opening": {"type": ["string", "null"]},
-                "system": {"type": ["string", "null"]},
-                "panes": {"type": ["integer", "null"]},
-            },
-            "required": ["role", "opening", "system", "panes"],
-        }
-        return {
-            "type": "object",
-            "additionalProperties": False,
-            "properties": {
-                "confidence": {"type": "number"},
-                "construction_visible": {"type": "boolean"},
-                "elements": {
-                    "type": "array",
-                    "items": {
-                        "type": "object",
-                        "additionalProperties": False,
-                        "properties": {
-                            "id": {"type": "string"},
-                            "kind": {"type": "string", "enum": ["FRAME", "MULLION", "SASH", "GLASS", "HARDWARE"]},
-                            "side": {"type": ["string", "null"], "enum": ["left", "right", "top", "bottom", "center", None]},
-                            "parent_id": {"type": ["string", "null"]},
-                            "bbox": {"type": ["array", "null"], "items": {"type": "integer"}, "minItems": 4, "maxItems": 4},
-                            "confidence": {"type": "number"},
-                            "properties": property_schema,
-                        },
-                        "required": ["id", "kind", "side", "parent_id", "bbox", "confidence", "properties"],
-                    },
-                },
-            },
-            "required": ["confidence", "construction_visible", "elements"],
-        }
+        property_schema = {"type": "object", "additionalProperties": False, "properties": {"role": {"type": ["string", "null"]}, "opening": {"type": ["string", "null"]}, "system": {"type": ["string", "null"]}, "panes": {"type": ["integer", "null"]}}, "required": ["role", "opening", "system", "panes"]}
+        return {"type": "object", "additionalProperties": False, "properties": {"confidence": {"type": "number"}, "construction_visible": {"type": "boolean"}, "elements": {"type": "array", "items": {"type": "object", "additionalProperties": False, "properties": {"id": {"type": "string"}, "kind": {"type": "string", "enum": ["FRAME", "MULLION", "SASH", "GLASS", "HARDWARE"]}, "side": {"type": ["string", "null"], "enum": ["left", "right", "top", "bottom", "center", None]}, "parent_id": {"type": ["string", "null"]}, "bbox": {"type": ["array", "null"], "items": {"type": "integer"}, "minItems": 4, "maxItems": 4}, "confidence": {"type": "number"}, "properties": property_schema}, "required": ["id", "kind", "side", "parent_id", "bbox", "confidence", "properties"]}}}, "required": ["confidence", "construction_visible", "elements"]}
 
     @classmethod
     def _cache_digest(cls, image_bytes: bytes, rect: tuple[int, int, int, int], visual_context: str | None) -> str:
         version = os.getenv(cls.CACHE_VERSION_ENV, cls.DEFAULT_CACHE_VERSION)
         model = os.getenv(cls.MODEL_ENV, cls.DEFAULT_MODEL)
-        seed = json.dumps(
-            {
-                "cache_version": version,
-                "model": model,
-                "prompt_version": cls.PROMPT_VERSION,
-                "rect": rect,
-                "visual_context": visual_context or "",
-            },
-            sort_keys=True,
-            separators=(",", ":"),
-        ).encode("utf-8")
+        seed = json.dumps({"cache_version": version, "model": model, "prompt_version": cls.PROMPT_VERSION, "rect": rect, "visual_context": visual_context or ""}, sort_keys=True, separators=(",", ":")).encode("utf-8")
         return hashlib.sha256(seed + b"|" + image_bytes).hexdigest()
 
     @staticmethod
