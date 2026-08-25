@@ -34,7 +34,7 @@ class ColorRegionObserver:
         if crop.size == 0:
             return ColorRegionObservation(rect, ())
 
-        bgr = cv2.cvtColor(crop, cv2.COLOR_GRAY2BGR) if crop.ndim == 2 else crop
+        bgr = self._to_bgr(crop)
         hsv = cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV)
 
         # Quantize colors to suppress anti-aliasing and thin text.
@@ -42,6 +42,7 @@ class ColorRegionObserver:
         small = cv2.GaussianBlur(quantized, (5, 5), 0)
         compact = np.rint(small / 32.0).astype(np.uint8) * 32
 
+        # compact is guaranteed to be HxWx3 here, regardless of screenshot input format.
         pixels = compact.reshape(-1, 3)
         colors, counts = np.unique(pixels, axis=0, return_counts=True)
         order = np.argsort(counts)[::-1]
@@ -54,7 +55,7 @@ class ColorRegionObserver:
             support = cv2.morphologyEx(support, cv2.MORPH_OPEN, kernel)
             support = cv2.morphologyEx(support, cv2.MORPH_CLOSE, kernel)
 
-            num, labels, stats, centroids = cv2.connectedComponentsWithStats(support, 8)
+            num, labels, stats, _centroids = cv2.connectedComponentsWithStats(support, 8)
             for label in range(1, num):
                 area = int(stats[label, cv2.CC_STAT_AREA])
                 if area < max(200, int(w * h * 0.01)):
@@ -95,6 +96,17 @@ class ColorRegionObserver:
                 break
 
         return ColorRegionObservation(rect, tuple(deduped))
+
+    @staticmethod
+    def _to_bgr(image: np.ndarray) -> np.ndarray:
+        if image.ndim == 2:
+            return cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
+        channels = image.shape[2]
+        if channels == 3:
+            return image
+        if channels == 4:
+            return cv2.cvtColor(image, cv2.COLOR_BGRA2BGR)
+        raise ValueError(f"Unsupported screenshot channel count: {channels}")
 
     @staticmethod
     def _overlap(a: ColorRegion, b: ColorRegion) -> float:
