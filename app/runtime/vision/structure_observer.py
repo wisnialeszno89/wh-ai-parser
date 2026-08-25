@@ -34,11 +34,9 @@ class VisualConstructionStructure:
 class VisualStructureObserver:
     """Infer coarse construction geometry directly from the screenshot.
 
-    The observer deliberately does not depend on the older construction
-    detector. A valid workspace is sufficient to start visual analysis.
-    Evidence is extracted from both luminance and color transitions so that
-    saturated WindowHub elements remain visible even when grayscale edges are
-    weak.
+    The observer deliberately does not depend on runtime creation history or
+    panel_side. A workspace is enough to start visual analysis. Internal
+    separators are scored independently from the strong outer frame border.
     """
 
     def observe(self, vision) -> VisualConstructionStructure:
@@ -46,7 +44,7 @@ class VisualStructureObserver:
         if screenshot is None:
             return VisualConstructionStructure(None, (), (), ())
 
-        rect = self._resolve_analysis_rect(vision, screenshot)
+        rect = self._resolve_analysis_rect(vision)
         if rect is None:
             return VisualConstructionStructure(None, (), (), ())
 
@@ -55,34 +53,58 @@ class VisualStructureObserver:
         if crop.size == 0:
             return VisualConstructionStructure(rect, (), (), ())
 
-        if crop.ndim == 2:
-            bgr = cv2.cvtColor(crop, cv2.COLOR_GRAY2BGR)
-        else:
-            bgr = crop
-
+        bgr = cv2.cvtColor(crop, cv2.COLOR_GRAY2BGR) if crop.ndim == 2 else crop
         gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
         hsv = cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV)
 
-        gray_edges = cv2.Canny(gray, 30, 100)
+        gray_edges = cv2.Canny(gray, 25, 100)
         channel_edges = np.maximum.reduce(
-            [cv2.Canny(bgr[:, :, i], 20, 80) for i in range(3)]
+            [cv2.Canny(bgr[:, :, i], 18, 75) for i in range(3)]
         )
-        sat_edges = cv2.Canny(hsv[:, :, 1], 20, 80)
+        sat_edges = cv2.Canny(hsv[:, :, 1], 18, 75)
         edges = np.maximum.reduce([gray_edges, channel_edges, sat_edges])
 
-        vertical_scores = self._line_scores(edges, axis=0)
-        horizontal_scores = self._line_scores(edges, axis=1)
+        vertical_scores = self._axis_scores(edges, axis=0)
+        horizontal_scores = self._axis_scores(edges, axis=1)
 
-        color_gradient = self._color_gradient(hsv)
-        vertical_scores = np.maximum(vertical_scores, self._line_scores(color_gradient, axis=0))
-        horizontal_scores = np.maximum(horizontal_scores, self._line_scores(color_gradient, axis=1))
+        gx, gy = self._color_gradient_axes(hsv)
+        vertical_scores = np.maximum(vertical_scores, self._axis_scores(gx, axis=0))
+        horizontal_scores = np.maximum(horizontal_scores, self._axis_scores(gy, axis=1))
 
-        vertical_lines = self._peaks(vertical_scores, "vertical", min_strength=0.035)
-        horizontal_lines = self._peaks(horizontal_scores, "horizontal", min_strength=0.035)
+        vertical_lines = self._peaks(
+            vertical_scores,
+            "vertical",
+            min_strength=0.035,
+            interior_min_strength=0.11,
+            border_fraction=0.08,
+        )
+        horizontal_lines = self._peaks(
+            horizontal_scores,
+            "horizontal",
+            min_strength=0.035,
+            interior_min_strength=0.11,
+            border_fraction=0.08,
+        )
 
-        vertical_positions = [line.coordinate for line in vertical_lines]
-        horizontal_positions = [line.coordinate for line in horizontal_lines]
-        cells = self._cells(w, h, vertical_positions, horizontal_positions)
+        # If edge-based scoring still misses an internal separator, use a
+        # colour-discontinuity profile from the high-saturation construction
+        # interior. WindowHub uses strong semantic colours for frame/sash/glass.
+        vertical_lines = self._augment_color_separators(
+            crop=bgr,
+            existing=vertical_lines,
+            orientation="vertical",
+            border=vertical_lines[:2],
+        )
+        horizontal_lines = self._augment_color_separators(
+            crop=bgr,
+            existing=horizontal_lines,
+            orientation="horizontal",
+            border=horizontal_lines[:2],
+        )
+
+        v_positions = [line.coordinate for line in vertical_lines]
+        h_positions = [line.coordinate for line in horizontal_lines]
+        cells = self._cells(w, h, v_positions, h_positions)
         cells = tuple(
             StructureCell(c.x + x, c.y + y, c.width, c.height, c.center_x + x, c.center_y + y)
             for c in cells
@@ -96,26 +118,22 @@ class VisualStructureObserver:
         )
 
     @staticmethod
-    def _resolve_analysis_rect(vision, screenshot) -> tuple[int, int, int, int] | None:
+    def _resolve_analysis_rect(vision) -> tuple[int, int, int, int] | None:
         construction = getattr(vision, "construction", None)
         if construction is not None:
             return int(construction.left), int(construction.top), int(construction.width), int(construction.height)
-
         canvas = getattr(vision, "canvas", None)
         bounds = getattr(canvas, "bounds", None)
         if bounds is not None:
             return int(bounds.left), int(bounds.top), int(bounds.width), int(bounds.height)
-
         return None
 
     @staticmethod
-    def _line_scores(edges: np.ndarray, axis: int) -> np.ndarray:
-        if axis == 0:
-            return edges.mean(axis=0) / 255.0
-        return edges.mean(axis=1) / 255.0
+    def _axis_scores(image: np.ndarray, axis: int) -> np.ndarray:
+        return image.mean(axis=0 if axis == 0 else 1) / 255.0
 
     @staticmethod
-    def _color_gradient(hsv: np.ndarray) -> np.ndarray:
+    def _color_gradient_axes(hsv: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         sat = hsv[:, :, 1].astype(np.float32)
         val = hsv[:, :, 2].astype(np.float32)
         gx_sat = cv2.Sobel(sat, cv2.CV_32F, 1, 0, ksize=3)
@@ -124,12 +142,17 @@ class VisualStructureObserver:
         gy_val = cv2.Sobel(val, cv2.CV_32F, 0, 1, ksize=3)
         gx = cv2.normalize(np.abs(gx_sat) + 0.5 * np.abs(gx_val), None, 0, 255, cv2.NORM_MINMAX)
         gy = cv2.normalize(np.abs(gy_sat) + 0.5 * np.abs(gy_val), None, 0, 255, cv2.NORM_MINMAX)
-        combined = np.maximum(gx.astype(np.uint8), gy.astype(np.uint8))
-        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
-        return cv2.morphologyEx(combined, cv2.MORPH_CLOSE, kernel)
+        return gx.astype(np.uint8), gy.astype(np.uint8)
 
     @staticmethod
-    def _peaks(scores: np.ndarray, orientation: str, min_strength: float) -> list[StructureLine]:
+    def _peaks(
+        scores: np.ndarray,
+        orientation: str,
+        *,
+        min_strength: float,
+        interior_min_strength: float,
+        border_fraction: float,
+    ) -> list[StructureLine]:
         candidates: list[StructureLine] = []
         for index, value in enumerate(scores):
             value = float(value)
@@ -150,7 +173,7 @@ class VisualStructureObserver:
             return []
 
         size = len(scores)
-        border_limit = max(8, int(size * 0.08))
+        border_limit = max(8, int(size * border_fraction))
         border = [
             item for item in merged
             if item.coordinate <= border_limit or item.coordinate >= size - 1 - border_limit
@@ -158,19 +181,58 @@ class VisualStructureObserver:
         interior = [
             item for item in merged
             if border_limit < item.coordinate < size - 1 - border_limit
+            and item.strength >= interior_min_strength
         ]
-
-        # The outer frame produces many repeated strong edges. Interior
-        # separators should win independently of those border peaks. Requiring
-        # a stronger interior signal suppresses frame bevel/detail noise while
-        # retaining persistent mullion/sash boundaries.
-        interior_min = max(min_strength, 0.15)
-        interior = [item for item in interior if item.strength >= interior_min]
-        interior.sort(key=lambda item: item.strength, reverse=True)
         border.sort(key=lambda item: item.strength, reverse=True)
+        interior.sort(key=lambda item: item.strength, reverse=True)
+        return sorted(border[:2] + interior[:10], key=lambda item: item.coordinate)
 
-        selected = border[:2] + interior[:10]
-        return sorted(selected, key=lambda item: item.coordinate)
+    @staticmethod
+    def _augment_color_separators(
+        crop: np.ndarray,
+        existing: list[StructureLine],
+        orientation: str,
+        border: list[StructureLine],
+    ) -> list[StructureLine]:
+        hsv = cv2.cvtColor(crop, cv2.COLOR_BGR2HSV)
+        # Work on the saturated construction region, excluding the outer 12%.
+        sat = hsv[:, :, 1].astype(np.float32) / 255.0
+        value = hsv[:, :, 2].astype(np.float32) / 255.0
+        sat_mask = (sat > 0.40) & (value > 0.35)
+
+        if orientation == "vertical":
+            profile = sat_mask.mean(axis=0)
+            diff = np.abs(np.diff(profile, prepend=profile[0]))
+        else:
+            profile = sat_mask.mean(axis=1)
+            diff = np.abs(np.diff(profile, prepend=profile[0]))
+
+        size = len(diff)
+        lo = max(10, int(size * 0.12))
+        hi = min(size - 10, int(size * 0.88))
+        if hi <= lo:
+            return existing
+
+        peak = float(np.max(diff[lo:hi]))
+        if peak < 0.06:
+            return existing
+
+        candidates = [
+            (index, float(diff[index]))
+            for index in range(lo + 1, hi - 1)
+            if float(diff[index]) >= max(0.06, peak * 0.45)
+            and diff[index] >= diff[index - 1]
+            and diff[index] >= diff[index + 1]
+        ]
+        candidates.sort(key=lambda item: item[1], reverse=True)
+
+        lines = list(existing)
+        for coordinate, strength in candidates[:4]:
+            if any(abs(line.coordinate - coordinate) <= 7 for line in lines):
+                continue
+            lines.append(StructureLine(orientation, coordinate, strength))
+
+        return sorted(lines, key=lambda item: item.coordinate)
 
     @staticmethod
     def _cells(width: int, height: int, vertical: list[int], horizontal: list[int]) -> list[StructureCell]:
@@ -182,14 +244,5 @@ class VisualStructureObserver:
                 cw, ch = right - left, bottom - top
                 if cw < max(30, width // 12) or ch < max(30, height // 12):
                     continue
-                result.append(
-                    StructureCell(
-                        left,
-                        top,
-                        cw,
-                        ch,
-                        left + cw // 2,
-                        top + ch // 2,
-                    )
-                )
+                result.append(StructureCell(left, top, cw, ch, left + cw // 2, top + ch // 2))
         return result
