@@ -39,12 +39,7 @@ class AIVisualObservation:
 
 
 class AIVisualStructureObserver:
-    """AI-assisted visual observer with local-first cost controls.
-
-    Default mode is dry/off: no network call is made unless
-    WH_AI_VISION_ENABLED=1. The caller supplies a local analysis rectangle so
-    we can send only the relevant construction crop instead of the whole screen.
-    """
+    """AI-assisted visual observer with local-first cost controls."""
 
     MODEL_ENV = "WH_AI_VISION_MODEL"
     ENABLE_ENV = "WH_AI_VISION_ENABLED"
@@ -84,8 +79,7 @@ class AIVisualStructureObserver:
             return self._from_payload(cached, rect, cache_hit=True, api_calls=0)
 
         if not enabled:
-            payload = self._build_payload_preview(rect, digest)
-            return AIVisualObservation("AI_DISABLED", local_confidence, rect, (), payload, cache_hit=False, api_calls=0)
+            return AIVisualObservation("AI_DISABLED", local_confidence, rect, (), self._build_payload_preview(rect, digest), api_calls=0)
 
         api_key = os.getenv(self.API_KEY_ENV, "").strip()
         if not api_key:
@@ -94,7 +88,7 @@ class AIVisualStructureObserver:
         self._throttle()
         try:
             payload = self._call_openai(image_bytes, api_key)
-        except Exception as exc:  # noqa: BLE001 - surface provider failure without crashing the agent
+        except Exception as exc:  # noqa: BLE001
             return AIVisualObservation("AI_ERROR", local_confidence, rect, (), {}, error=str(exc))
 
         self._save_cache(digest, payload)
@@ -103,7 +97,6 @@ class AIVisualStructureObserver:
     def _call_openai(self, image_bytes: bytes, api_key: str) -> dict[str, Any]:
         model = os.getenv(self.MODEL_ENV, self.DEFAULT_MODEL)
         data_url = "data:image/png;base64," + base64.b64encode(image_bytes).decode("ascii")
-        schema = self._schema()
         body = {
             "model": model,
             "input": [
@@ -116,7 +109,6 @@ class AIVisualStructureObserver:
                                 "You are WindowHub AI Vision. Analyze only the supplied construction screenshot. "
                                 "Do not invent hidden elements. Return the visible window structure with geometry. "
                                 "Use normalized element kinds FRAME, MULLION, SASH, GLASS, HARDWARE. "
-                                "A cell is represented by a MULLION boundary plus its owning sash when visually supported. "
                                 "Prefer null over guessing. Confidence is 0..1."
                             ),
                         }
@@ -125,10 +117,7 @@ class AIVisualStructureObserver:
                 {
                     "role": "user",
                     "content": [
-                        {
-                            "type": "input_text",
-                            "text": "Identify the current visible window construction and its element relationships.",
-                        },
+                        {"type": "input_text", "text": "Identify the current visible window construction and its element relationships."},
                         {"type": "input_image", "image_url": data_url, "detail": "low"},
                     ],
                 },
@@ -138,7 +127,7 @@ class AIVisualStructureObserver:
                     "type": "json_schema",
                     "name": "window_visual_observation",
                     "strict": True,
-                    "schema": schema,
+                    "schema": self._schema(),
                 }
             },
             "max_output_tokens": 700,
@@ -146,10 +135,7 @@ class AIVisualStructureObserver:
         request = urllib.request.Request(
             "https://api.openai.com/v1/responses",
             data=json.dumps(body).encode("utf-8"),
-            headers={
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json",
-            },
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
             method="POST",
         )
         try:
@@ -175,20 +161,11 @@ class AIVisualStructureObserver:
         return None
 
     @classmethod
-    def _from_payload(
-        cls,
-        payload: dict[str, Any],
-        rect: tuple[int, int, int, int],
-        *,
-        cache_hit: bool,
-        api_calls: int,
-    ) -> AIVisualObservation:
+    def _from_payload(cls, payload: dict[str, Any], rect: tuple[int, int, int, int], *, cache_hit: bool, api_calls: int) -> AIVisualObservation:
         elements: list[AIVisualElement] = []
         for item in payload.get("elements", []):
             bbox = item.get("bbox")
-            normalized_bbox = None
-            if isinstance(bbox, list) and len(bbox) == 4:
-                normalized_bbox = tuple(int(v) for v in bbox)
+            normalized_bbox = tuple(int(v) for v in bbox) if isinstance(bbox, list) and len(bbox) == 4 else None
             elements.append(
                 AIVisualElement(
                     id=str(item.get("id", "unknown")),
@@ -212,15 +189,21 @@ class AIVisualStructureObserver:
 
     @staticmethod
     def _build_payload_preview(rect: tuple[int, int, int, int], digest: str) -> dict[str, Any]:
-        return {
-            "mode": "dry-run",
-            "analysis_rect": rect,
-            "image_sha256": digest,
-            "would_call": "POST /v1/responses with input_image + strict json_schema",
-        }
+        return {"mode": "dry-run", "analysis_rect": rect, "image_sha256": digest, "would_call": "POST /v1/responses with input_image + strict json_schema"}
 
     @classmethod
     def _schema(cls) -> dict[str, Any]:
+        property_schema = {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "role": {"type": ["string", "null"]},
+                "opening": {"type": ["string", "null"]},
+                "system": {"type": ["string", "null"]},
+                "panes": {"type": ["integer", "null"]},
+            },
+            "required": ["role", "opening", "system", "panes"],
+        }
         return {
             "type": "object",
             "additionalProperties": False,
@@ -239,7 +222,7 @@ class AIVisualStructureObserver:
                             "parent_id": {"type": ["string", "null"]},
                             "bbox": {"type": ["array", "null"], "items": {"type": "integer"}, "minItems": 4, "maxItems": 4},
                             "confidence": {"type": "number"},
-                            "properties": {"type": "object", "additionalProperties": True},
+                            "properties": property_schema,
                         },
                         "required": ["id", "kind", "side", "parent_id", "bbox", "confidence", "properties"],
                     },
