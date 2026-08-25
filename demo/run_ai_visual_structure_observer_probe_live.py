@@ -17,8 +17,6 @@ def _probe_rect(vision) -> tuple[int, int, int, int]:
         return (0, 0, width, height)
 
     x, y, w, h = int(canvas.left), int(canvas.top), int(canvas.width), int(canvas.height)
-    # The native workspace detector can return a too-small white interior.
-    # Give the AI a local window around its center, capped below the full screen.
     target = max(420, min(720, max(w, h) * 2))
     cx, cy = x + w // 2, y + h // 2
     px = max(0, min(width - target, cx - target // 2))
@@ -51,12 +49,14 @@ def main() -> None:
     elif local.construction_rect is not None:
         signal = 0.58
 
+    force = os.getenv("WH_AI_VISION_FORCE", "0") == "1"
     observer = AIVisualStructureObserver()
-    observation = observer.observe(image, rect, local_confidence=signal)
+    observation = observer.observe(image, rect, local_confidence=signal, force_ai=force)
 
     print(f"[AI ENABLED] {os.getenv('WH_AI_VISION_ENABLED', '0')}")
     print(f"[MODEL] {os.getenv('WH_AI_VISION_MODEL', AIVisualStructureObserver.DEFAULT_MODEL)}")
     print(f"[LOCAL SIGNAL] {signal:.2f}")
+    print(f"[FORCE AI] {force}")
     print(f"[ANALYSIS RECT] {observation.analysis_rect}")
     print(f"[STATUS] {observation.status}")
     print(f"[CONFIDENCE] {observation.confidence:.3f}")
