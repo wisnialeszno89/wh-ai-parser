@@ -63,9 +63,6 @@ class VisualStructureObserver:
         gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
         hsv = cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV)
 
-        # Combine luminance edges with per-channel colour transitions. This
-        # catches e.g. cyan glass -> magenta mullion where grayscale contrast
-        # alone can be surprisingly small.
         gray_edges = cv2.Canny(gray, 30, 100)
         channel_edges = np.maximum.reduce(
             [cv2.Canny(bgr[:, :, i], 20, 80) for i in range(3)]
@@ -76,8 +73,6 @@ class VisualStructureObserver:
         vertical_scores = self._line_scores(edges, axis=0)
         horizontal_scores = self._line_scores(edges, axis=1)
 
-        # Colour boundaries inside the construction can be broad rather than
-        # one-pixel black strokes. Add a low-frequency colour-gradient signal.
         color_gradient = self._color_gradient(hsv)
         vertical_scores = np.maximum(vertical_scores, self._line_scores(color_gradient, axis=0))
         horizontal_scores = np.maximum(horizontal_scores, self._line_scores(color_gradient, axis=1))
@@ -121,8 +116,6 @@ class VisualStructureObserver:
 
     @staticmethod
     def _color_gradient(hsv: np.ndarray) -> np.ndarray:
-        # Compute gradient in HSV saturation/value and merge them. Morphological
-        # closing makes broad coloured borders act like coherent separators.
         sat = hsv[:, :, 1].astype(np.float32)
         val = hsv[:, :, 2].astype(np.float32)
         gx_sat = cv2.Sobel(sat, cv2.CV_32F, 1, 0, ksize=3)
@@ -131,9 +124,7 @@ class VisualStructureObserver:
         gy_val = cv2.Sobel(val, cv2.CV_32F, 0, 1, ksize=3)
         gx = cv2.normalize(np.abs(gx_sat) + 0.5 * np.abs(gx_val), None, 0, 255, cv2.NORM_MINMAX)
         gy = cv2.normalize(np.abs(gy_sat) + 0.5 * np.abs(gy_val), None, 0, 255, cv2.NORM_MINMAX)
-        vertical = gx.astype(np.uint8)
-        horizontal = gy.astype(np.uint8)
-        combined = np.maximum(vertical, horizontal)
+        combined = np.maximum(gx.astype(np.uint8), gy.astype(np.uint8))
         kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
         return cv2.morphologyEx(combined, cv2.MORPH_CLOSE, kernel)
 
@@ -154,9 +145,32 @@ class VisualStructureObserver:
             if any(abs(existing.coordinate - candidate.coordinate) <= 6 for existing in merged):
                 continue
             merged.append(candidate)
-            if len(merged) >= 20:
-                break
-        return sorted(merged, key=lambda item: item.coordinate)
+
+        if not merged:
+            return []
+
+        size = len(scores)
+        border_limit = max(8, int(size * 0.08))
+        border = [
+            item for item in merged
+            if item.coordinate <= border_limit or item.coordinate >= size - 1 - border_limit
+        ]
+        interior = [
+            item for item in merged
+            if border_limit < item.coordinate < size - 1 - border_limit
+        ]
+
+        # The outer frame produces many repeated strong edges. Interior
+        # separators should win independently of those border peaks. Requiring
+        # a stronger interior signal suppresses frame bevel/detail noise while
+        # retaining persistent mullion/sash boundaries.
+        interior_min = max(min_strength, 0.15)
+        interior = [item for item in interior if item.strength >= interior_min]
+        interior.sort(key=lambda item: item.strength, reverse=True)
+        border.sort(key=lambda item: item.strength, reverse=True)
+
+        selected = border[:2] + interior[:10]
+        return sorted(selected, key=lambda item: item.coordinate)
 
     @staticmethod
     def _cells(width: int, height: int, vertical: list[int], horizontal: list[int]) -> list[StructureCell]:
