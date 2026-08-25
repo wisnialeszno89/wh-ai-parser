@@ -46,10 +46,14 @@ class AIVisualStructureObserver:
     MIN_CONF_ENV = "WH_AI_VISION_MIN_CONFIDENCE"
     CACHE_ENV = "WH_AI_VISION_CACHE_DIR"
     MIN_INTERVAL_ENV = "WH_AI_VISION_MIN_INTERVAL_SEC"
+    FORCE_ENV = "WH_AI_VISION_FORCE"
+    CACHE_VERSION_ENV = "WH_AI_VISION_CACHE_VERSION"
     API_KEY_ENV = "OPENAI_API_KEY"
     DEFAULT_MODEL = "gpt-5.6-luna"
     DEFAULT_MIN_CONFIDENCE = 0.78
     DEFAULT_MIN_INTERVAL = 1.5
+    DEFAULT_CACHE_VERSION = "v3"
+    PROMPT_VERSION = "window-structure-v2"
 
     def observe(
         self,
@@ -68,15 +72,17 @@ class AIVisualStructureObserver:
             return AIVisualObservation("EMPTY", 0.0, rect, (), {}, error="empty analysis crop")
 
         enabled = os.getenv(self.ENABLE_ENV, "0") == "1"
+        force = force_ai or os.getenv(self.FORCE_ENV, "0") == "1"
         min_conf = float(os.getenv(self.MIN_CONF_ENV, str(self.DEFAULT_MIN_CONFIDENCE)))
-        if not force_ai and local_confidence >= min_conf:
+        if not force and not self._is_ai_needed(local_confidence, min_conf):
             return AIVisualObservation("LOCAL_CONFIDENT", local_confidence, rect, (), {}, cache_hit=False, api_calls=0)
 
         image_bytes = self._encode_png(crop, max_side=768)
-        digest = hashlib.sha256(image_bytes).hexdigest()
-        cached = self._load_cache(digest)
-        if cached is not None:
-            return self._from_payload(cached, rect, cache_hit=True, api_calls=0)
+        digest = self._cache_digest(image_bytes, rect)
+        if not force:
+            cached = self._load_cache(digest)
+            if cached is not None:
+                return self._from_payload(cached, rect, cache_hit=True, api_calls=0)
 
         if not enabled:
             return AIVisualObservation("AI_DISABLED", local_confidence, rect, (), self._build_payload_preview(rect, digest), api_calls=0)
@@ -94,6 +100,10 @@ class AIVisualStructureObserver:
         self._save_cache(digest, payload)
         return self._from_payload(payload, rect, cache_hit=False, api_calls=1)
 
+    @staticmethod
+    def _is_ai_needed(local_confidence: float, min_confidence: float) -> bool:
+        return local_confidence < min_confidence
+
     def _call_openai(self, image_bytes: bytes, api_key: str) -> dict[str, Any]:
         model = os.getenv(self.MODEL_ENV, self.DEFAULT_MODEL)
         data_url = "data:image/png;base64," + base64.b64encode(image_bytes).decode("ascii")
@@ -106,10 +116,16 @@ class AIVisualStructureObserver:
                         {
                             "type": "input_text",
                             "text": (
-                                "You are WindowHub AI Vision. Analyze only the supplied construction screenshot. "
-                                "Do not invent hidden elements. Return the visible window structure with geometry. "
-                                "Use normalized element kinds FRAME, MULLION, SASH, GLASS, HARDWARE. "
-                                "Prefer null over guessing. Confidence is 0..1."
+                                "You are WindowHub AI Vision. Analyze only the supplied screenshot crop. "
+                                "Your job is to describe what is visibly present now, not what may have been created earlier. "
+                                "Do not infer hidden elements from runtime history. "
+                                "Identify the visible construction geometry and relationships using FRAME, MULLION, SASH, GLASS, HARDWARE. "
+                                "A MULLION is a visible structural separator. A SASH is a visible opening/leaf region distinct from a pane. "
+                                "GLASS should be reported only when a visible pane is supported by the image. "
+                                "HARDWARE should be reported only when visibly supported. "
+                                "For ambiguous or occluded details return fewer elements rather than guessing. "
+                                "Use bbox coordinates relative to the supplied crop. Confidence is 0..1. "
+                                f"Prompt version: {self.PROMPT_VERSION}."
                             ),
                         }
                     ],
@@ -187,8 +203,8 @@ class AIVisualStructureObserver:
             api_calls=api_calls,
         )
 
-    @staticmethod
-    def _build_payload_preview(rect: tuple[int, int, int, int], digest: str) -> dict[str, Any]:
+    @classmethod
+    def _build_payload_preview(cls, rect: tuple[int, int, int, int], digest: str) -> dict[str, Any]:
         return {"mode": "dry-run", "analysis_rect": rect, "image_sha256": digest, "would_call": "POST /v1/responses with input_image + strict json_schema"}
 
     @classmethod
@@ -230,6 +246,17 @@ class AIVisualStructureObserver:
             },
             "required": ["confidence", "construction_visible", "elements"],
         }
+
+    @classmethod
+    def _cache_digest(cls, image_bytes: bytes, rect: tuple[int, int, int, int]) -> str:
+        version = os.getenv(cls.CACHE_VERSION_ENV, cls.DEFAULT_CACHE_VERSION)
+        model = os.getenv(cls.MODEL_ENV, cls.DEFAULT_MODEL)
+        seed = json.dumps(
+            {"cache_version": version, "model": model, "prompt_version": cls.PROMPT_VERSION, "rect": rect},
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        return hashlib.sha256(seed + b"|" + image_bytes).hexdigest()
 
     @staticmethod
     def _encode_png(image: np.ndarray, max_side: int) -> bytes:
