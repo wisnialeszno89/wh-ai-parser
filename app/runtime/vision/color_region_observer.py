@@ -47,17 +47,17 @@ class ColorRegionObserver:
         order = np.argsort(counts)[::-1]
 
         regions: list[ColorRegion] = []
+        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (5, 5))
         for color_index in order[:12]:
             color = colors[color_index]
             support = np.all(compact == color.reshape(1, 1, 3), axis=2).astype(np.uint8)
-            kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (5, 5))
             support = cv2.morphologyEx(support, cv2.MORPH_OPEN, kernel)
             support = cv2.morphologyEx(support, cv2.MORPH_CLOSE, kernel)
 
             num, labels, stats, _centroids = cv2.connectedComponentsWithStats(support, 8)
             for label in range(1, num):
                 area = int(stats[label, cv2.CC_STAT_AREA])
-                if area < max(200, int(w * h * 0.01)):
+                if area < max(200, int(w * h * 0.008)):
                     continue
                 rx = int(stats[label, cv2.CC_STAT_LEFT])
                 ry = int(stats[label, cv2.CC_STAT_TOP])
@@ -100,20 +100,20 @@ class ColorRegionObserver:
     def _resolve_analysis_rect(cls, image: np.ndarray, rect: tuple[int, int, int, int]) -> tuple[int, int, int, int]:
         x, y, w, h = map(int, rect)
         height, width = image.shape[:2]
-
         base = cls._clamp_rect(x, y, w, h, width, height)
         base_score = cls._content_score(image, base)
 
-        # A small bright workspace can be the inner white drawing area while
-        # the real construction extends well beyond it. Expand around the same
-        # center and choose the candidate with the strongest visual evidence.
+        # The native workspace detector can occasionally lock onto the white
+        # inner drawing area. In that case inspect larger rectangles centred on
+        # the same point and choose the one containing the strongest construction
+        # evidence. This remains local and avoids scanning unrelated windows.
         if w >= 420 and h >= 420 and base_score >= 0.035:
             return base
 
-        candidates = [base]
         center_x = x + w / 2.0
         center_y = y + h / 2.0
-        for scale in (1.35, 1.60, 1.85, 2.10):
+        candidates = [base]
+        for scale in (1.35, 1.60, 1.85, 2.10, 2.40):
             cw = max(w, int(round(w * scale)))
             ch = max(h, int(round(h * scale)))
             candidates.append(
@@ -129,7 +129,7 @@ class ColorRegionObserver:
 
         scored = [(cls._content_score(image, candidate), candidate) for candidate in candidates]
         best_score, best_rect = max(scored, key=lambda item: item[0])
-        if base_score < 0.035 and best_score > base_score + 0.01:
+        if best_score > base_score + 0.01:
             return best_rect
         return base
 
@@ -145,7 +145,8 @@ class ColorRegionObserver:
         value = hsv[:, :, 2].astype(np.float32) / 255.0
         saturated = float(np.mean((saturation > 0.30) & (value > 0.25)))
         dark = float(np.mean(value < 0.55))
-        edge = cv2.Canny(cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY), 30, 100)
+        gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
+        edge = cv2.Canny(gray, 30, 100)
         edge_density = float(np.mean(edge > 0))
         return saturated + 0.35 * dark + 0.25 * min(1.0, edge_density * 8.0)
 
