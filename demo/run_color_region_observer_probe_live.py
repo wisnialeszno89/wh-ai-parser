@@ -24,6 +24,7 @@ def main() -> None:
     print(f"[WORKSPACE] {rect}")
 
     observation = ColorRegionObserver().observe(vision.screenshot.image, rect)
+    print(f"[ANALYSIS RECT] {observation.rect}")
     print(f"[REGIONS] {len(observation.regions)}")
     for index, region in enumerate(observation.regions):
         print(
