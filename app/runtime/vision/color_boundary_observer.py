@@ -65,7 +65,7 @@ class ColorBoundaryObserver:
             ) / 441.67
             dark = (strip < 90.0).astype(np.float32)
             sat_jump = np.abs(np.diff(sat, axis=1))
-            axis_score = self._aggregate_rows(diff, dark[:, 1:], sat_jump)
+            axis_score = ColorBoundaryObserver._aggregate_rows(diff, dark[:, 1:], sat_jump)
             lo, hi = x0, x1
             coordinate_offset = 1
         else:
@@ -77,7 +77,7 @@ class ColorBoundaryObserver:
             ) / 441.67
             dark = (strip < 90.0).astype(np.float32)
             sat_jump = np.abs(np.diff(sat, axis=0))
-            axis_score = self._aggregate_columns(diff, dark[1:, :], sat_jump)
+            axis_score = ColorBoundaryObserver._aggregate_columns(diff, dark[1:, :], sat_jump)
             lo, hi = y0, y1
             coordinate_offset = 1
 
