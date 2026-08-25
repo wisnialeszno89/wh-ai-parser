@@ -24,6 +24,16 @@ def _probe_rect(vision) -> tuple[int, int, int, int]:
     return int(px), int(py), int(min(target, width - px)), int(min(target, height - py))
 
 
+def _visual_context(local) -> str:
+    parts = [
+        f"construction_rect={local.construction_rect}",
+        f"vertical_lines={[int(v.x) for v in local.vertical_lines]}",
+        f"horizontal_lines={[int(v.y) for v in local.horizontal_lines]}",
+        f"cells={[tuple(int(v) for v in c.rect) for c in local.cells]}",
+    ]
+    return "\n".join(parts)
+
+
 def main() -> None:
     print("=" * 80)
     print("WINDOWHUB AI VISUAL STRUCTURE OBSERVER LIVE")
@@ -51,12 +61,19 @@ def main() -> None:
 
     force = os.getenv("WH_AI_VISION_FORCE", "0") == "1"
     observer = AIVisualStructureObserver()
-    observation = observer.observe(image, rect, local_confidence=signal, force_ai=force)
+    observation = observer.observe(
+        image,
+        rect,
+        local_confidence=signal,
+        force_ai=force,
+        visual_context=_visual_context(local),
+    )
 
     print(f"[AI ENABLED] {os.getenv('WH_AI_VISION_ENABLED', '0')}")
     print(f"[MODEL] {os.getenv('WH_AI_VISION_MODEL', AIVisualStructureObserver.DEFAULT_MODEL)}")
     print(f"[LOCAL SIGNAL] {signal:.2f}")
     print(f"[FORCE AI] {force}")
+    print(f"[LOCAL CONTEXT]\n{_visual_context(local)}")
     print(f"[ANALYSIS RECT] {observation.analysis_rect}")
     print(f"[STATUS] {observation.status}")
     print(f"[CONFIDENCE] {observation.confidence:.3f}")
