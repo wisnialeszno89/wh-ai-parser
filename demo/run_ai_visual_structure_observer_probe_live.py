@@ -27,9 +27,9 @@ def _probe_rect(vision) -> tuple[int, int, int, int]:
 def _visual_context(local) -> str:
     parts = [
         f"construction_rect={local.construction_rect}",
-        f"vertical_lines={[int(v.x) for v in local.vertical_lines]}",
-        f"horizontal_lines={[int(v.y) for v in local.horizontal_lines]}",
-        f"cells={[tuple(int(v) for v in c.rect) for c in local.cells]}",
+        f"vertical_lines={[int(v.coordinate) for v in local.vertical_lines]}",
+        f"horizontal_lines={[int(v.coordinate) for v in local.horizontal_lines]}",
+        f"cells={[(int(c.x), int(c.y), int(c.width), int(c.height)) for c in local.cells]}",
     ]
     return "\n".join(parts)
 
