@@ -26,7 +26,7 @@ class SemanticWindowSimulator:
         steps = self.planner.plan(desired, topology)
         actions: list[Action] = []
         mullion_added = False
-        hardware_selected = False
+        hardware_added = False
 
         for step in steps:
             if step.element_type is WindowElementType.FRAME:
@@ -64,16 +64,16 @@ class SemanticWindowSimulator:
                 continue
 
             if step.element_type is WindowElementType.HARDWARE:
-                if not hardware_selected:
+                if not hardware_added:
                     system = desired.elements[step.element_id].properties.get("system") or "UR Activpilot"
                     actions.extend(
                         (
                             Action("select_tool", tool_name="hardware_tool"),
                             Action("select_hardware", value=str(system)),
+                            Action("add_hardware"),
                         )
                     )
-                    hardware_selected = True
-                actions.append(Action("add_hardware"))
+                    hardware_added = True
                 continue
 
             raise ValueError(f"Unsupported simulator projection: {step.element_type.value}")
