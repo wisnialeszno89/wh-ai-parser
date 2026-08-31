@@ -2,14 +2,17 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from types import SimpleNamespace
+from typing import TYPE_CHECKING
 
 from app.gui.enums.gui_intent import GuiIntent
 from app.gui.enums.gui_tool import GuiTool
-from app.runtime.execution.action_executor import ActionExecutor
 from app.window_model.dependency_planner import DependencyPlanner
 from app.window_model.diff import WindowChangeType, diff_models
 from app.window_model.model import WindowElementType, WindowModel
 from app.window_model.topology import WindowSide, WindowTopology
+
+if TYPE_CHECKING:
+    from app.runtime.execution.action_executor import ActionExecutor
 
 
 @dataclass(frozen=True)
