@@ -38,8 +38,6 @@ class SemanticWindowSimulator:
                 WindowElementType.HORIZONTAL_MULLION,
                 WindowElementType.MOVABLE_MULLION,
             }:
-                # The semantic two-cell model represents cells as MULLION nodes;
-                # the simulator needs one physical divider to create those cells.
                 if not mullion_added:
                     actions.extend((Action("select_tool", tool_name="mullion_tool"), Action("insert_mullion")))
                     mullion_added = True
@@ -65,11 +63,12 @@ class SemanticWindowSimulator:
 
             if step.element_type is WindowElementType.HARDWARE:
                 if not hardware_added:
-                    system = desired.elements[step.element_id].properties.get("system") or "UR Activpilot"
+                    system = desired.elements[step.element_id].properties.get("system")
+                    system = "UR Activpilot" if not system or str(system).strip().lower() == "unknown" else str(system)
                     actions.extend(
                         (
                             Action("select_tool", tool_name="hardware_tool"),
-                            Action("select_hardware", value=str(system)),
+                            Action("select_hardware", value=system),
                             Action("add_hardware"),
                         )
                     )
