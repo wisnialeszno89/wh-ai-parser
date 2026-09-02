@@ -34,9 +34,21 @@ class SemanticSimulatorTests(unittest.TestCase):
         )
         self.assertEqual(
             tuple(item["kind"] for item in result.final_snapshot["elements"]),
-            ("FRAME", "MULLION", "SASH", "SASH", "GLASS", "GLASS", "HARDWARE", "HARDWARE"),
+            (
+                "FRAME",
+                "MULLION",
+                "SASH",
+                "SASH",
+                "GLASS",
+                "GLASS",
+                "HARDWARE",
+                "HARDWARE",
+            ),
         )
-        self.assertEqual(runner.simulator.hardware.selected.product, "UR Activpilot")
+        self.assertEqual(
+            runner.simulator.hardware.selected.product,
+            "UR Activpilot",
+        )
         self.assertTrue(runner.simulator.hardware_readiness().ready)
 
     def test_hardware_is_not_selected_before_structure_is_built(self) -> None:
@@ -44,7 +56,11 @@ class SemanticSimulatorTests(unittest.TestCase):
         runner = SemanticWindowSimulator()
         actions = runner.build_actions(desired, topology)
 
-        hardware_index = next(i for i, action in enumerate(actions) if action.action_type == "select_hardware")
+        hardware_index = next(
+            i
+            for i, action in enumerate(actions)
+            if action.action_type == "select_hardware"
+        )
         structure = actions[:hardware_index]
 
         runner.simulator.apply(structure)
@@ -55,6 +71,20 @@ class SemanticSimulatorTests(unittest.TestCase):
             tuple(item.kind for item in runner.simulator.scene.elements),
             ("FRAME", "MULLION", "SASH", "SASH", "GLASS", "GLASS"),
         )
+
+    def test_explicit_hardware_system_is_preserved(self) -> None:
+        desired, topology = two_cell_target()
+        desired.elements["hardware_left"].properties["system"] = "activPilot Concept"
+
+        runner = SemanticWindowSimulator()
+        result = runner.run(desired, topology)
+
+        self.assertEqual(result.simulation.rejected, ())
+        self.assertEqual(
+            runner.simulator.hardware.selected.product,
+            "activPilot Concept",
+        )
+        self.assertTrue(runner.simulator.hardware_readiness().ready)
 
 
 if __name__ == "__main__":
