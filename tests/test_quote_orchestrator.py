@@ -73,3 +73,61 @@ def test_skipped_preflight_item_does_not_execute():
     assert called == []
     assert report.skipped == ("10",)
     assert report.completed == ()
+
+
+def test_run_skips_known_wh_rejection_and_continues():
+    items = [QuoteItem("1", {}), QuoteItem("2", {}), QuoteItem("3", {})]
+
+    def execute(item):
+        if item.item_id == "2":
+            raise RuntimeError("too large")
+        return True
+
+    report = QuoteOrchestrator().run(
+        items,
+        execute,
+        error_code=lambda _: "DIMENSION_TOO_LARGE",
+    )
+
+    assert report.completed == ("1", "3")
+    assert report.skipped == ("2",)
+    assert report.failed == ()
+    assert report.issues[-1].severity == IssueSeverity.DECISION_REQUIRED
+
+
+def test_run_retries_missing_dependency_and_then_succeeds():
+    calls = 0
+
+    def execute(item):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise RuntimeError("dependency missing")
+        return True
+
+    report = QuoteOrchestrator().run(
+        [QuoteItem("1", {})],
+        execute,
+        error_code=lambda _: "MISSING_DEPENDENCY",
+    )
+
+    assert report.completed == ("1",)
+    assert report.failed == ()
+    assert calls == 2
+
+
+def test_unknown_wh_error_is_reported_as_failed_but_does_not_break_batch():
+    items = [QuoteItem("1", {}), QuoteItem("2", {}), QuoteItem("3", {})]
+
+    def execute(item):
+        if item.item_id == "2":
+            raise RuntimeError("brand new WH message")
+        return True
+
+    report = QuoteOrchestrator().run(items, execute)
+
+    assert report.completed == ("1", "3")
+    assert report.failed == ("2",)
+    assert report.total == 3
+    assert report.issues[-1].code == "UNKNOWN_ERROR"
+
