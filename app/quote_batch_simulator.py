@@ -26,6 +26,8 @@ class QuoteBatchSimulator:
                 return False
             model, topology = self.mapper.map_project(project)
             result = SemanticWindowSimulator().run(model, topology)
-            return result.simulation.success
+            # The deterministic simulator exposes rejected actions as its
+            # execution failure signal. A fully applied plan is successful.
+            return not result.simulation.rejected
 
         return self.orchestrator.run(prepared, execute)
