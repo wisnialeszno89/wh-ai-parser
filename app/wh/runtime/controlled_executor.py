@@ -53,3 +53,29 @@ class ControlledExecutor:
                 error=failure,
                 attempts=attempts,
             )
+
+    def run_batch(
+        self,
+        operations: list[tuple[str, Callable[[], bool]]],
+        error_code: Callable[[Exception], str] | None = None,
+        max_retries: int = 1,
+    ) -> tuple[dict[str, ExecutionOutcome], bool]:
+        """Execute all independent operations and report whether the batch may continue.
+
+        A SKIP/ACKNOWLEDGE result never stops the batch. RETRY is handled inside
+        ``run``. STOP is the only result that requests a global stop.
+        """
+        outcomes: dict[str, ExecutionOutcome] = {}
+        should_stop = False
+
+        for operation_id, operation in operations:
+            outcome = self.run(
+                operation,
+                error_code=error_code,
+                max_retries=max_retries,
+            )
+            outcomes[operation_id] = outcome
+            if outcome.action == ErrorAction.STOP:
+                should_stop = True
+
+        return outcomes, should_stop
