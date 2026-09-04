@@ -71,6 +71,47 @@ class ControlledExecutorTests(unittest.TestCase):
         self.assertEqual(result.attempts, 1)
         self.assertEqual(calls, 1)
 
+    def test_batch_continues_after_skipped_operation(self) -> None:
+        calls: list[str] = []
+
+        def skipped() -> bool:
+            calls.append("skipped")
+            raise RuntimeError("too large")
+
+        def success() -> bool:
+            calls.append("success")
+            return True
+
+        outcomes, should_stop = ControlledExecutor().run_batch(
+            [("first", skipped), ("second", success)],
+            error_code=lambda _: "DIMENSION_TOO_LARGE",
+        )
+
+        self.assertFalse(should_stop)
+        self.assertEqual(outcomes["first"].action, ErrorAction.SKIP)
+        self.assertTrue(outcomes["second"].success)
+        self.assertEqual(calls, ["skipped", "success"])
+
+    def test_batch_reports_unknown_error_without_silently_continuing(self) -> None:
+        calls: list[str] = []
+
+        def unknown() -> bool:
+            calls.append("unknown")
+            raise RuntimeError("new WH error")
+
+        def later() -> bool:
+            calls.append("later")
+            return True
+
+        outcomes, should_stop = ControlledExecutor().run_batch(
+            [("first", unknown), ("second", later)]
+        )
+
+        self.assertTrue(should_stop)
+        self.assertEqual(outcomes["first"].action, ErrorAction.STOP)
+        self.assertTrue(outcomes["second"].success)
+        self.assertEqual(calls, ["unknown", "later"])
+
 
 if __name__ == "__main__":
     unittest.main()
