@@ -2,6 +2,9 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Callable, Iterable
 
+from app.wh.runtime.controlled_executor import ControlledExecutor
+from app.wh.runtime.error_policy import ErrorAction
+
 
 class IssueSeverity(str, Enum):
     INFO = "info"
@@ -67,7 +70,12 @@ class QuoteOrchestrator:
         self,
         items: Iterable[QuoteItem],
         execute: Callable[[QuoteItem], bool],
+        controlled_executor: ControlledExecutor | None = None,
+        error_code: Callable[[Exception], str] | None = None,
+        max_retries: int = 1,
     ) -> QuoteReport:
+        """Execute quote items resiliently and preserve actionable WH failures."""
+        executor = controlled_executor or ControlledExecutor()
         completed: list[str] = []
         skipped: list[str] = []
         failed: list[str] = []
@@ -80,25 +88,38 @@ class QuoteOrchestrator:
                 continue
 
             item.status = ItemStatus.EXECUTING
-            try:
-                success = execute(item)
-            except Exception as exc:  # isolate a single construction from the batch
-                item.status = ItemStatus.FAILED
-                item.issues.append(
-                    PreflightIssue(
-                        item_id=item.item_id,
-                        severity=IssueSeverity.BLOCKING,
-                        code="EXECUTION_EXCEPTION",
-                        message=str(exc),
-                    )
-                )
-                failed.append(item.item_id)
-                issues.append(item.issues[-1])
-                continue
+            outcome = executor.run(
+                lambda item=item: execute(item),
+                error_code=error_code,
+                max_retries=max_retries,
+            )
 
-            if success:
+            if outcome.success:
                 item.status = ItemStatus.SUCCESS
                 completed.append(item.item_id)
+                continue
+
+            failure = outcome.error
+            code = failure.code if failure else "UNKNOWN_ERROR"
+            message = failure.message if failure else "Execution failed"
+            severity = (
+                IssueSeverity.DECISION_REQUIRED
+                if outcome.action in {ErrorAction.SKIP, ErrorAction.ACKNOWLEDGE}
+                else IssueSeverity.BLOCKING
+            )
+            item.issues.append(
+                PreflightIssue(
+                    item_id=item.item_id,
+                    severity=severity,
+                    code=code,
+                    message=message,
+                )
+            )
+            issues.append(item.issues[-1])
+
+            if outcome.action in {ErrorAction.SKIP, ErrorAction.ACKNOWLEDGE}:
+                item.status = ItemStatus.SKIPPED
+                skipped.append(item.item_id)
             else:
                 item.status = ItemStatus.FAILED
                 failed.append(item.item_id)
