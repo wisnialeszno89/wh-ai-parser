@@ -113,15 +113,14 @@ class ConstructionMapper:
                 position_index=index,
             )
 
-            hardware_system = "unknown"
-            if offer is not None and offer.profile.system:
-                hardware_system = offer.profile.system
-
+            # Hardware is a separate domain from the profile.  The current
+            # ConstructionOffer carries hardware features, but no hardware
+            # system identifier, so never infer it from offer.profile.system.
             hardware = model.add_element(
                 f"hardware_{side_name}",
                 WindowElementType.HARDWARE,
                 parent_id=sash.id,
-                system=hardware_system,
+                system="unknown",
             )
             topology.add(
                 hardware,
