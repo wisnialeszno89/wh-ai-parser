@@ -124,10 +124,13 @@ def test_unknown_wh_error_is_reported_as_failed_but_does_not_break_batch():
             raise RuntimeError("brand new WH message")
         return True
 
-    report = QuoteOrchestrator().run(items, execute)
+    report = QuoteOrchestrator().run(
+        items,
+        execute,
+        error_code=lambda _: "UNKNOWN_ERROR",
+    )
 
     assert report.completed == ("1", "3")
     assert report.failed == ("2",)
     assert report.total == 3
     assert report.issues[-1].code == "UNKNOWN_ERROR"
-
