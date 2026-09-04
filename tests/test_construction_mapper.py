@@ -1,7 +1,9 @@
 import unittest
 
+from app.wh.runtime.construction_offer import ConstructionOffer
 from app.wh.runtime.construction_parser import ConstructionParser
 from app.wh.runtime.construction_normalizer import ConstructionNormalizer
+from app.wh.runtime.features.profile_package import ProfilePackage
 from app.window_model.construction_mapper import ConstructionMapper
 from app.window_model.model import WindowElementType
 
@@ -47,6 +49,23 @@ class ConstructionMapperTests(unittest.TestCase):
             model.elements["sash_right"].properties["opening"],
             "tilt_turn",
         )
+
+    def test_profile_system_never_becomes_hardware_system(self) -> None:
+        schema = ConstructionParser().parse(
+            ConstructionNormalizer().normalize("RU")
+        )
+        offer = ConstructionOffer(
+            profile=ProfilePackage(
+                manufacturer="VEKA",
+                system="Softline 82 MD",
+            )
+        )
+
+        model, _ = ConstructionMapper().map(schema, offer)
+
+        hardware = model.elements["hardware_left"]
+        self.assertEqual(hardware.properties["system"], "unknown")
+        self.assertEqual(model.properties["profile_system"], "Softline 82 MD")
 
 
 if __name__ == "__main__":
