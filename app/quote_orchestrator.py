@@ -88,9 +88,10 @@ class QuoteOrchestrator:
                 continue
 
             item.status = ItemStatus.EXECUTING
+            effective_error_code = error_code or (lambda _: "EXECUTION_EXCEPTION")
             outcome = executor.run(
                 lambda item=item: execute(item),
-                error_code=error_code,
+                error_code=effective_error_code,
                 max_retries=max_retries,
             )
 
