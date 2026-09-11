@@ -1,8 +1,17 @@
+import os
+
+import pytest
+
 from app.ai.vision_parser import parse_image
 
 
-result = parse_image(
-    "tests/assets/images/sample_01.jpg"
-)
+@pytest.mark.integration
+def test_parse_image():
+    if not os.getenv("OPENAI_API_KEY"):
+        pytest.skip("OPENAI_API_KEY is required for vision integration test")
 
-print(result)
+    result = parse_image(
+        "tests/assets/images/sample_01.jpg"
+    )
+
+    assert result is not None

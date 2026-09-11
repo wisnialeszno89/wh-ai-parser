@@ -1,5 +1,7 @@
 from dataclasses import dataclass
 
+from app.decision.decision_trace import DecisionTrace
+
 
 @dataclass
 class DecisionResult:
@@ -11,3 +13,5 @@ class DecisionResult:
     manual_review: bool
 
     reason: str
+
+    trace: tuple[DecisionTrace, ...] = ()

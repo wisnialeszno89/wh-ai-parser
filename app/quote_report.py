@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from app.decision.decision_result import DecisionResult
+from app.decision.decision_trace import DecisionKind
 from app.quote_orchestrator import ItemStatus, QuoteItem, QuoteReport
 
 
@@ -25,9 +27,14 @@ class SalesmanQuoteReport:
 
             lines.append(f"{label} — Pozycja {item.item_id}")
             for issue in item.issues:
-                lines.append(f"  [{issue.severity.value.upper()}] {issue.code}: {issue.message}")
+                lines.append(
+                    f"  [{issue.severity.value.upper()}] "
+                    f"{issue.code}: {issue.message}"
+                )
             if not item.issues:
-                lines.append("  Brak problemów wykrytych przed wykonaniem.")
+                lines.append(
+                    "  Brak problemów wykrytych przed wykonaniem."
+                )
             lines.append("")
 
         lines.extend(
@@ -38,6 +45,35 @@ class SalesmanQuoteReport:
                 f"Pominięte: {skipped}",
             ]
         )
+        return "\n".join(lines)
+
+    def decisions(self, result: DecisionResult) -> str:
+        lines = [
+            "ŹRÓDŁA INFORMACJI",
+            "",
+        ]
+
+        for trace in result.trace:
+            if trace.kind == DecisionKind.FACT:
+                label = "fakt"
+            elif trace.kind == DecisionKind.DEFAULT:
+                label = "wartość domyślna"
+            elif trace.kind == DecisionKind.SALESMAN_DECISION:
+                label = "decyzja handlowca"
+            elif trace.kind == DecisionKind.COMPATIBILITY:
+                label = "kompatybilność"
+            elif trace.kind == DecisionKind.RULE:
+                label = "reguła"
+            else:
+                label = "brak danych"
+
+            lines.append(
+                f"{trace.field}: {trace.value} — {label}"
+            )
+
+        if not result.trace:
+            lines.append("Brak zarejestrowanych decyzji.")
+
         return "\n".join(lines)
 
     def final(self, report: QuoteReport) -> str:

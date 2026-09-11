@@ -53,3 +53,41 @@ class SalesmanQuoteReportTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_decision_report_shows_information_sources():
+    from app.context.context_source import ContextSource
+    from app.context.offer_context import OfferContext
+    from app.decision.decision_engine import DecisionEngine
+
+    context = OfferContext()
+    context.construction_type = "single_window"
+    context.profile = "VEKA_82"
+    context.profile_source = ContextSource.PDF
+    context.color = "white"
+    context.color_source = ContextSource.SALESMAN
+
+    result = DecisionEngine().choose_workflow(context)
+
+    text = SalesmanQuoteReport().decisions(result)
+
+    assert "ŹRÓDŁA INFORMACJI" in text
+    assert "profile: VEKA_82 — fakt" in text
+    assert "color: white — decyzja handlowca" in text
+
+
+def test_decision_report_shows_default_source():
+    from app.context.context_source import ContextSource
+    from app.context.offer_context import OfferContext
+    from app.decision.decision_engine import DecisionEngine
+
+    context = OfferContext()
+    context.construction_type = "single_window"
+    context.profile = "VEKA_82"
+    context.profile_source = ContextSource.DEFAULT
+
+    result = DecisionEngine().choose_workflow(context)
+
+    text = SalesmanQuoteReport().decisions(result)
+
+    assert "profile: VEKA_82 — wartość domyślna" in text

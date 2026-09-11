@@ -1,20 +1,22 @@
-from app.ai.vision_parser import (
-    parse_image_url
-)
+import os
 
-from app.services.normalize_ai_output import (
-    normalize_ai_output
-)
+import pytest
+
+from app.ai.vision_parser import parse_image_url
+from app.services.normalize_ai_output import normalize_ai_output
 
 
-result = parse_image_url(
-    "https://i.imgur.com/0s7Ff7d.jpeg"
-)
+@pytest.mark.integration
+def test_pipeline_from_image_url():
+    if not os.getenv("OPENAI_API_KEY"):
+        pytest.skip("OPENAI_API_KEY is required for pipeline integration test")
 
-normalized = normalize_ai_output(
-    result
-)
+    result = parse_image_url(
+        "https://i.imgur.com/0s7Ff7d.jpeg"
+    )
 
-print("\n========== RESULT ==========\n")
+    normalized = normalize_ai_output(
+        result
+    )
 
-print(normalized)
+    assert normalized is not None
