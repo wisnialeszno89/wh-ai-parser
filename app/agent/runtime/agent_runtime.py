@@ -1,0 +1,121 @@
+from app.agent.agent_request import AgentRequest
+
+from app.agent.execution.default_executors import (
+    create_default_executor_registry,
+)
+
+from app.agent.execution.execution_engine import (
+    ExecutionEngine,
+)
+
+from app.agent.execution.plan_executor import (
+    PlanExecutor,
+)
+
+from app.agent.runtime.agent_orchestrator import (
+    AgentOrchestrator,
+)
+
+from app.agent.runtime.agent_runtime_result import (
+    AgentRuntimeResult,
+)
+
+
+class AgentRuntime:
+    """
+    Main runtime entry point for the agent.
+
+    The runtime connects:
+
+    AgentRequest
+        ->
+    AgentOrchestrator
+        ->
+    AgentExecutionContext
+        ->
+    PlanExecutor
+        ->
+    ExecutionEngine
+        ->
+    ExecutorRegistry
+        ->
+    AgentRuntimeResult
+
+    UI, API and automation systems should eventually
+    communicate with the agent through this runtime.
+    """
+
+    def __init__(
+        self,
+        orchestrator: (
+            AgentOrchestrator | None
+        ) = None,
+        plan_executor: (
+            PlanExecutor | None
+        ) = None,
+    ) -> None:
+
+        self.orchestrator = (
+            orchestrator
+            if orchestrator is not None
+            else AgentOrchestrator()
+        )
+
+        if plan_executor is not None:
+            self.plan_executor = plan_executor
+        else:
+            registry = (
+                create_default_executor_registry()
+            )
+
+            engine = ExecutionEngine(
+                registry=registry
+            )
+
+            self.plan_executor = PlanExecutor(
+                engine=engine
+            )
+
+    def run(
+        self,
+        request: AgentRequest,
+    ) -> AgentRuntimeResult:
+        """
+        Execute one complete agent cycle.
+        """
+
+        context = (
+            self.orchestrator.prepare(
+                request
+            )
+        )
+
+        if (
+            context.requires_manual_review
+            or context.plan is None
+        ):
+            return AgentRuntimeResult(
+                intent=context.intent,
+                context=context,
+                execution_report=None,
+                requires_manual_review=True,
+                executed=False,
+            )
+
+        execution_report = (
+            self.plan_executor.execute(
+                plan=context.plan,
+                context=context,
+            )
+        )
+
+        return AgentRuntimeResult(
+            intent=context.intent,
+            context=context,
+            execution_report=execution_report,
+            requires_manual_review=(
+                context.requires_manual_review
+                or execution_report.requires_manual_review
+            ),
+            executed=True,
+        )
