@@ -145,7 +145,7 @@ class OfferContextParser:
     ) -> int:
 
         patterns = (
-            r"\b(\d+)\s*(?:x|szt\.?|sztuk)\b",
+            r"\b(\d+)\s*(?:x|szt\.?|sztuk|sztuki)\b",
             r"\bpotrzebuję\s+(\d+)\b",
             r"\bchcę\s+(\d+)\b",
         )

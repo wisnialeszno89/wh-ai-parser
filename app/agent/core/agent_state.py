@@ -1,5 +1,9 @@
 from dataclasses import dataclass, field
 
+from app.agent.offers.offer_agent_session import (
+    OfferAgentSession,
+)
+
 
 @dataclass
 class AgentState:
@@ -22,6 +26,10 @@ class AgentState:
     current_offer_id: str | None = None
 
     current_project_id: str | None = None
+
+    offer_session: OfferAgentSession = field(
+        default_factory=OfferAgentSession
+    )
 
     notes: list[str] = field(
         default_factory=list

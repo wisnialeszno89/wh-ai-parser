@@ -34,3 +34,15 @@ antracyt / biały
         session.logs
 
     ) > 0
+
+def test_agent_session_has_offer_session():
+
+    session = AgentSession(
+        session_id="session-1"
+    )
+
+    assert session.state.offer_session is not None
+    assert (
+        session.state.offer_session.current_context
+        is None
+    )

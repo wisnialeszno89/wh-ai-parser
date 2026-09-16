@@ -1,3 +1,5 @@
+import re
+
 from app.agent.agent_action import AgentAction
 from app.agent.agent_intent import AgentIntent
 from app.agent.agent_request import AgentRequest
@@ -88,6 +90,43 @@ class AgentPlanner:
         "jak mozesz pomoc",
     )
 
+    def _looks_like_quote_request(
+        self,
+        message: str,
+    ) -> bool:
+        """
+        Detect a quotation request from explicit
+        product and dimensional information.
+
+        This deliberately does not treat a generic
+        product word such as "okno" as a quotation
+        request by itself.
+        """
+
+        has_window_product = any(
+            term in message
+            for term in (
+                "okno",
+                "okna",
+                "fenster",
+                "window",
+                "windows",
+            )
+        )
+
+        has_dimensions = (
+            re.search(
+                r"\b\d{2,5}\s*[x×]\s*\d{2,5}\b",
+                message,
+            )
+            is not None
+        )
+
+        return (
+            has_window_product
+            and has_dimensions
+        )
+
     def detect_intent(
         self,
         request: AgentRequest,
@@ -95,9 +134,19 @@ class AgentPlanner:
 
         message = request.message.lower()
 
+        if request.metadata.get(
+            "continuation_of_offer"
+        ) is True:
+            return AgentIntent.CREATE_QUOTE
+
         if any(
             keyword in message
             for keyword in self.QUOTE_KEYWORDS
+        ):
+            return AgentIntent.CREATE_QUOTE
+
+        if self._looks_like_quote_request(
+            message
         ):
             return AgentIntent.CREATE_QUOTE
 

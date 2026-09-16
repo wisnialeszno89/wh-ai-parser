@@ -394,3 +394,25 @@ def test_parser_does_not_create_opening_conflict_when_opening_is_absent():
 
     assert context.opening is None
     assert context.conflicts == ()
+
+
+def test_parser_extracts_quantity_from_sztuki(
+    parser: OfferContextParser,
+):
+
+    result = parser.parse(
+        "2 sztuki okien"
+    )
+
+    assert result.quantity == 2
+
+
+def test_parser_extracts_quantity_from_sztuk(
+    parser: OfferContextParser,
+):
+
+    result = parser.parse(
+        "2 sztuk okien"
+    )
+
+    assert result.quantity == 2
