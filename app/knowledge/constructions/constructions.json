@@ -11,5 +11,18 @@
             "FIX",
             "RIGHT_TILT_TURN"
         ]
+    },
+    {
+        "code": "SINGLE_LEFT_TILT_TURN",
+        "fields": [
+            "LEFT_TILT_TURN"
+        ]
+    },
+    {
+        "code": "FIX_LEFT_TILT_TURN",
+        "fields": [
+            "FIX",
+            "LEFT_TILT_TURN"
+        ]
     }
 ]

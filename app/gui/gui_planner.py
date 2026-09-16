@@ -142,7 +142,7 @@ class GuiPlanner:
 
                         GuiAction(
                             tool=GuiTool.HARDWARE,
-                            intent=GuiIntent.EDIT,
+                            intent=GuiIntent.CREATE,
                             payload=step.payload,
                             construction_field=step.field,
                         )

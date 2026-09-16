@@ -15,6 +15,7 @@ from app.runtime.execution.handlers.handler_registry import HandlerRegistry
 from app.runtime.execution.handlers.handler_context import HandlerContext
 from app.runtime.execution.interactions.interaction_runtime import InteractionRuntime
 from app.runtime.execution.hardware_precondition_controller import HardwarePreconditionController
+from app.runtime.execution.hardware_native_dialog_selector_v2 import HardwareNativeDialogSelectorV2
 from app.runtime.execution.native_construction_point_resolver import resolve_construction_interior_point
 from app.runtime.execution.construction_state_observer import ConstructionStateObserver, ConstructionStage
 
@@ -35,6 +36,7 @@ class ActionExecutor:
             click_executor=self.click,
             refresh=self._refresh_runtime_observation,
         )
+        self.hardware_selector = HardwareNativeDialogSelectorV2()
 
     def execute(self, action) -> ActionResult:
         start_time = time.perf_counter()
@@ -258,10 +260,27 @@ class ActionExecutor:
         if action.tool == GuiTool.GLASS:
             self._advance_panel_after_glass()
         if action.tool == GuiTool.HARDWARE:
-            self._save_hardware_dialog_probe(vision)
+            print("[HARDWARE] native dialog opened; selecting requested hardware")
+
+            # The native WindowHub dialog is authoritative for the
+            # hardware product selection. Do not infer success from
+            # the toolbar click or from a screenshot probe.
+            self.hardware_selector.select_and_confirm(
+                timeout_s=5.0,
+            )
+
+            self.context.cache.clear()
+
             duration_ms = int((time.perf_counter() - start_time) * 1000)
-            print("[HARDWARE] Dialog probe captured; selection not automated yet")
-            return ActionResult(True, element.confidence, "HARDWARE_DIALOG_PROBE", duration_ms)
+
+            print("[HARDWARE] native hardware selection confirmed")
+
+            return ActionResult(
+                True,
+                element.confidence,
+                "HARDWARE_SELECTED",
+                duration_ms,
+            )
         verification = self.verifier.verify_change(before)
         self.context.cache.clear()
         duration_ms = int((time.perf_counter() - start_time) * 1000)

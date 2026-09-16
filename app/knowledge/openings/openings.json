@@ -4,16 +4,44 @@
         "aliases": [
             "RUP",
             "DKR",
-            "RU prawe"
+            "RU prawe",
+            "prawe uchylno-rozwierne",
+            "Dreh-Kipp Rechts",
+            "Dreh Kipp rechts",
+            "right tilt and turn",
+            "right-hand tilt and turn"
         ],
         "opening_type": "TILT_TURN",
         "direction": "RIGHT"
     },
     {
+        "code": "LEFT_TILT_TURN",
+        "aliases": [
+            "LUP",
+            "DKL",
+            "LU lewe",
+            "lewe uchylno-rozwierne",
+            "Dreh-Kipp Links",
+            "Dreh Kipp links",
+            "left tilt and turn",
+            "left-hand tilt and turn"
+        ],
+        "opening_type": "TILT_TURN",
+        "direction": "LEFT"
+    },
+    {
         "code": "FIX",
         "aliases": [
             "FIX",
-            "F"
+            "F",
+            "fix",
+            "fixed",
+            "fixed window",
+            "nieotwierane",
+            "stałe",
+            "element stały",
+            "Fest",
+            "Festverglasung"
         ],
         "opening_type": "FIX",
         "direction": "NONE"

@@ -50,3 +50,18 @@ class ConstructionRepository:
                 return definition
 
         return None
+
+    def get_by_fields(
+        self,
+        fields: list[str]
+    ):
+
+        self.load()
+
+        for definition in self._definitions:
+
+            if definition.fields == fields:
+
+                return definition
+
+        return None

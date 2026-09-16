@@ -118,9 +118,11 @@ class QuoteOrchestrator:
             )
             issues.append(item.issues[-1])
 
-            if outcome.action in {ErrorAction.SKIP, ErrorAction.ACKNOWLEDGE}:
+            if outcome.action == ErrorAction.SKIP:
                 item.status = ItemStatus.SKIPPED
                 skipped.append(item.item_id)
+            elif outcome.action == ErrorAction.ACKNOWLEDGE:
+                item.status = ItemStatus.ACKNOWLEDGED
             else:
                 item.status = ItemStatus.FAILED
                 failed.append(item.item_id)

@@ -134,3 +134,57 @@ def test_unknown_wh_error_is_reported_as_failed_but_does_not_break_batch():
     assert report.failed == ("2",)
     assert report.total == 3
     assert report.issues[-1].code == "UNKNOWN_ERROR"
+
+
+def test_acknowledged_wh_error_requires_decision_without_being_skipped():
+    from app.wh.runtime.error_policy import (
+        ErrorAction,
+        ErrorPolicyDecision,
+        ErrorSeverity,
+    )
+
+    class AcknowledgePolicy:
+        def classify(self, code, message=""):
+            return ErrorPolicyDecision(
+                code=code,
+                severity=ErrorSeverity.RECOVERABLE,
+                action=ErrorAction.ACKNOWLEDGE,
+                message=message,
+            )
+
+    from app.wh.runtime.controlled_executor import ControlledExecutor
+
+    items = [
+        QuoteItem("1", {}),
+        QuoteItem("2", {}),
+        QuoteItem("3", {}),
+    ]
+
+    def execute(item):
+        if item.item_id == "2":
+            raise RuntimeError(
+                "Brak odpowiednika w bazie danych"
+            )
+        return True
+
+    report = QuoteOrchestrator().run(
+        items,
+        execute,
+        controlled_executor=ControlledExecutor(
+            policy=AcknowledgePolicy()
+        ),
+        error_code=lambda _: "NO_DATABASE_EQUIVALENT",
+    )
+
+    assert report.completed == ("1", "3")
+    assert report.failed == ()
+    assert items[1].status == ItemStatus.ACKNOWLEDGED
+
+    issue = items[1].issues[-1]
+
+    assert issue.severity == IssueSeverity.DECISION_REQUIRED
+    assert issue.code == "NO_DATABASE_EQUIVALENT"
+    assert (
+        issue.message
+        == "Brak odpowiednika w bazie danych"
+    )

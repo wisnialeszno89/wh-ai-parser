@@ -1,5 +1,11 @@
 from app.agent.agent_action import AgentAction
 
+from app.agent.offers.offer_context import OfferContext
+from app.agent.offers.offer_context_validator import OfferContextValidator
+from app.agent.offers.offer_construction_resolver import (
+    OfferConstructionResolver,
+)
+
 from app.agent.execution.action_executor import (
     ActionExecutor,
 )
@@ -114,6 +120,26 @@ class WHActionExecutor(ActionExecutor):
         context: ExecutionContext,
     ) -> ExecutionResult:
 
+        offer_context = context.get_value(
+            "offer_context"
+        )
+
+        if offer_context is None:
+            return ExecutionResult(
+                action_name=action.name,
+                success=False,
+                message=(
+                    "Offer context is missing."
+                ),
+                requires_manual_review=True,
+                metadata={
+                    "workflow_stage":
+                        "offer_context",
+                    "reason":
+                        "missing_offer_context",
+                },
+            )
+
         context.set_value(
             "offer_context_collected",
             True,
@@ -159,6 +185,108 @@ class WHActionExecutor(ActionExecutor):
         action: AgentAction,
         context: ExecutionContext,
     ) -> ExecutionResult:
+
+        offer_context = context.get_value(
+            "offer_context"
+        )
+
+        if offer_context is None:
+            return ExecutionResult(
+                action_name=action.name,
+                success=False,
+                message=(
+                    "Offer context is missing."
+                ),
+                requires_manual_review=True,
+                metadata={
+                    "workflow_stage":
+                        "construction",
+                    "reason":
+                        "missing_offer_context",
+                },
+            )
+
+        if not isinstance(
+            offer_context,
+            OfferContext,
+        ):
+            return ExecutionResult(
+                action_name=action.name,
+                success=False,
+                message=(
+                    "Invalid offer context."
+                ),
+                requires_manual_review=True,
+                metadata={
+                    "workflow_stage":
+                        "construction",
+                    "reason":
+                        "invalid_offer_context",
+                },
+            )
+
+        validation = OfferContextValidator().validate(
+            offer_context
+        )
+
+        if not validation.is_valid:
+            return ExecutionResult(
+                action_name=action.name,
+                success=False,
+                message=(
+                    "Offer context validation failed."
+                ),
+                requires_manual_review=True,
+                metadata={
+                    "workflow_stage":
+                        "construction",
+                    "reason":
+                        "invalid_offer_context",
+                    "missing_fields":
+                        validation.missing_fields,
+                    "conflicts":
+                        validation.conflicts,
+                },
+            )
+
+        construction_definition = (
+            OfferConstructionResolver().resolve(
+                offer_context
+            )
+        )
+
+        if (
+            offer_context.opening is not None
+            and construction_definition is None
+        ):
+            return ExecutionResult(
+                action_name=action.name,
+                success=False,
+                message=(
+                    "Construction could not be resolved "
+                    "from the offer context."
+                ),
+                requires_manual_review=True,
+                metadata={
+                    "workflow_stage":
+                        "construction",
+                    "reason":
+                        "construction_not_resolved",
+                    "opening":
+                        offer_context.opening,
+                },
+            )
+
+        context.set_value(
+            "offer_validated",
+            True,
+        )
+
+        if construction_definition is not None:
+            context.set_value(
+                "construction_definition",
+                construction_definition,
+            )
 
         context.set_value(
             "construction_build_started",
