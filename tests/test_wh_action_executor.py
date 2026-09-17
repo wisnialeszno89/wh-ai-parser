@@ -1,5 +1,6 @@
 import pytest
 
+from app.wh.model.opening import Opening
 from app.agent.agent_action import AgentAction
 from app.agent.agent_request import AgentRequest
 
@@ -96,7 +97,7 @@ def test_prepare_quote_requires_review():
     )
 
 
-def test_build_construction_updates_context():
+def test_build_construction_requires_opening():
 
     executor = WHActionExecutor()
 
@@ -110,19 +111,9 @@ def test_build_construction_updates_context():
         context,
     )
 
-    assert result.success is True
-
-    assert (
-        context.get_value(
-            "construction_build_started"
-        )
-        is True
-    )
-
-    assert (
-        result.metadata["workflow_stage"]
-        == "construction"
-    )
+    assert result.success is False
+    assert result.requires_manual_review is True
+    assert result.metadata["reason"] == "construction_compile_failed"
 
 
 def test_collect_offer_context_preserves_real_offer_context():
@@ -252,12 +243,13 @@ def test_build_construction_resolves_known_opening():
 
     assert result.success is True
 
-    construction_definition = context.get_value(
-        "construction_definition"
+    construction_project = context.get_value(
+        "construction_project"
     )
 
-    assert construction_definition is not None
-    assert (
-        construction_definition.code
-        == "SINGLE_RIGHT_TILT_TURN"
-    )
+    assert construction_project is not None
+    assert construction_project.schema.width == 1200
+    assert construction_project.schema.height == 1500
+    assert construction_project.schema.segments
+    assert construction_project.schema.segments[0].opening == Opening.TILT_TURN
+    assert construction_project.schema.segments[0].opening == Opening.TILT_TURN

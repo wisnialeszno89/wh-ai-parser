@@ -2,6 +2,11 @@ from app.context.offer_context import (
     OfferContext
 )
 
+from app.catalog.profiles import (
+    DEFAULT_PROFILE,
+    PROFILE_CATALOG,
+)
+
 from app.construction.models.construction import (
     Construction
 )
@@ -68,6 +73,24 @@ class ConstructionBuilder:
 
             return construction
 
+        if context.manual_review:
+
+            return construction
+
+        profile_code = (
+            context.profile
+            if context.profile is not None
+            else DEFAULT_PROFILE
+        )
+
+        profile = PROFILE_CATALOG.get(
+            profile_code
+        )
+
+        if profile is None:
+
+            return construction
+
         for field_code in definition.fields:
 
             opening_definition = (
@@ -104,13 +127,11 @@ class ConstructionBuilder:
 
                     color=context.color,
 
-                    # Tymczasowo na sztywno.
-                    # Za chwilę będą pobierane z Knowledge.
-                    frame="VEKA82_MD",
+                    frame=profile.default_frame,
 
-                    glass="PERFECT_48",
+                    glass=profile.default_glass,
 
-                    hardware="WINKHAUS_PRO",
+                    hardware=profile.default_hardware,
 
                     extension=None
                 )

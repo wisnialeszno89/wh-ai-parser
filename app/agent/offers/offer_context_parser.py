@@ -3,6 +3,9 @@ import re
 from app.agent.offers.offer_context import (
     OfferContext,
 )
+from app.agent.offers.profile_selection import (
+    ProfileSelectionResolver,
+)
 from app.knowledge.openings.offer_opening_resolver import (
     OfferOpeningResolver,
 )
@@ -22,9 +25,13 @@ class OfferContextParser:
     def __init__(
         self,
         opening_resolver: OfferOpeningResolver | None = None,
+        profile_selection_resolver: ProfileSelectionResolver | None = None,
     ):
         self.opening_resolver = (
             opening_resolver or OfferOpeningResolver()
+        )
+        self.profile_selection_resolver = (
+            profile_selection_resolver or ProfileSelectionResolver()
         )
 
     def parse(
@@ -55,6 +62,10 @@ class OfferContextParser:
             self._parse_product_type(
                 normalized_request
             )
+        )
+
+        profile_selection = self.profile_selection_resolver.resolve(
+            request
         )
 
         configuration = (
@@ -108,6 +119,9 @@ class OfferContextParser:
             )
         )
 
+        if profile_selection.source.value == "UNKNOWN":
+            conflicts.append(profile_selection.reason)
+
         if opening_resolution.is_ambiguous:
             if opening_resolution.matches:
                 conflicts.append(
@@ -122,6 +136,29 @@ class OfferContextParser:
                     "opening direction is missing."
                 )
 
+        unspecified_ral_color = (
+            self._parse_unspecified_ral_color(
+                normalized_request
+            )
+        )
+
+        if (
+            unspecified_ral_color is not None
+            and color_inside is None
+            and color_outside is None
+            and "od środka" not in normalized_request
+            and "wewnątrz" not in normalized_request
+            and "z zewnątrz" not in normalized_request
+            and "na zewnątrz" not in normalized_request
+            and "obustronnie" not in normalized_request
+        ):
+            conflicts.append(
+                "Color code "
+                + unspecified_ral_color
+                + " was provided without "
+                "specifying the side."
+            )
+
         conflicts = tuple(conflicts)
 
         return OfferContext(
@@ -130,6 +167,8 @@ class OfferContextParser:
             height=height,
             quantity=quantity,
             product_type=product_type,
+            profile=profile_selection.profile,
+            profile_source=profile_selection.source,
             configuration=configuration,
             opening=opening,
             color_inside=color_inside,
@@ -290,13 +329,21 @@ class OfferContextParser:
             request,
         )
 
-        if not match:
+        if match:
+            return color_patterns.get(
+                match.group(1)
+            )
 
-            return None
-
-        return color_patterns.get(
-            match.group(1)
+        ral_match = re.search(
+            r"\b(?:kolor\s+)?(\d{4})\s+"
+            r"(?:od środka|wewnątrz|obustronnie)\b",
+            request,
         )
+
+        if ral_match:
+            return ral_match.group(1)
+
+        return None
 
     def _parse_outside_color(
         self,
@@ -323,13 +370,36 @@ class OfferContextParser:
             request,
         )
 
-        if not match:
+        if match:
+            return color_patterns.get(
+                match.group(1)
+            )
 
+        ral_match = re.search(
+            r"\b(?:kolor\s+)?(\d{4})\s+"
+            r"(?:z zewnątrz|na zewnątrz|obustronnie)\b",
+            request,
+        )
+
+        if ral_match:
+            return ral_match.group(1)
+
+        return None
+
+    def _parse_unspecified_ral_color(
+        self,
+        request: str,
+    ) -> str | None:
+
+        match = re.search(
+            r"\b(?:kolor\s+)?(\d{4})\b",
+            request,
+        )
+
+        if not match:
             return None
 
-        return color_patterns.get(
-            match.group(1)
-        )
+        return match.group(1)
 
     def _parse_glazing(
         self,

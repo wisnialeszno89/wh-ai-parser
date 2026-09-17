@@ -1,3 +1,5 @@
+from uuid import uuid4
+
 from app.agent.agent_request import AgentRequest
 from app.agent.session.agent_session_store import AgentSessionStore
 
@@ -31,35 +33,12 @@ from app.agent.runtime.agent_runtime_result import (
 class AgentRuntime:
     """
     Main runtime entry point for the agent.
-
-    The runtime connects:
-
-    AgentRequest
-        ->
-    AgentOrchestrator
-        ->
-    AgentExecutionContext
-        ->
-    PlanExecutor
-        ->
-    ExecutionEngine
-        ->
-    ExecutorRegistry
-        ->
-    AgentRuntimeResult
-
-    UI, API and automation systems should eventually
-    communicate with the agent through this runtime.
     """
 
     def __init__(
         self,
-        orchestrator: (
-            AgentOrchestrator | None
-        ) = None,
-        plan_executor: (
-            PlanExecutor | None
-        ) = None,
+        orchestrator: AgentOrchestrator | None = None,
+        plan_executor: PlanExecutor | None = None,
         session_store: AgentSessionStore | None = None,
     ) -> None:
 
@@ -78,9 +57,7 @@ class AgentRuntime:
         if plan_executor is not None:
             self.plan_executor = plan_executor
         else:
-            registry = (
-                create_default_executor_registry()
-            )
+            registry = create_default_executor_registry()
 
             engine = ExecutionEngine(
                 registry=registry
@@ -101,38 +78,65 @@ class AgentRuntime:
         session = None
         offer_workflow_result = None
 
+        # ---------------------------------------------------------
+        # Existing session: restore offer continuation BEFORE
+        # orchestration so modifiers such as "DKR, 2 sztuki"
+        # remain part of the active quote workflow.
+        # ---------------------------------------------------------
+
         if request.session_id is not None:
+
             session = self.session_store.get_or_create(
                 session_id=request.session_id,
                 salesman_id=request.salesman_id,
             )
+
             session.remember(request.message)
 
-        if (
-            session is not None
-            and session.state.offer_session.current_context
-            is not None
-        ):
-            request = AgentRequest(
-                message=request.message,
-                session_id=request.session_id,
-                salesman_id=request.salesman_id,
-                metadata={
-                    **request.metadata,
-                    "continuation_of_offer": True,
-                },
-            )
+            if (
+                session.state.offer_session.current_context
+                is not None
+            ):
+                request = AgentRequest(
+                    message=request.message,
+                    session_id=request.session_id,
+                    salesman_id=request.salesman_id,
+                    metadata={
+                        **request.metadata,
+                        "continuation_of_offer": True,
+                    },
+                )
 
-        context = (
-            self.orchestrator.prepare(
-                request
-            )
-        )
+        # ---------------------------------------------------------
+        # Orchestrate the request.
+        # ---------------------------------------------------------
 
-        if (
-            context.intent == AgentIntent.CREATE_QUOTE
-            and session is not None
-        ):
+        context = self.orchestrator.prepare(request)
+
+        # ---------------------------------------------------------
+        # Quote workflow.
+        #
+        # A new CREATE_QUOTE request without a session receives
+        # an internal working session so that OfferContext can be
+        # created before semantic execution begins.
+        # ---------------------------------------------------------
+
+        if context.intent == AgentIntent.CREATE_QUOTE:
+
+            if session is None:
+
+                session_id = (
+                    request.session_id
+                    or f"runtime-offer-{uuid4().hex}"
+                )
+
+                session = self.session_store.get_or_create(
+                    session_id=session_id,
+                    salesman_id=request.salesman_id,
+                )
+
+                session.remember(request.message)
+
             offer_workflow_result = (
                 OfferWorkflowService().process(
                     session.state.offer_session,
@@ -161,6 +165,10 @@ class AgentRuntime:
                 offer_workflow_result.workflow_state,
             )
 
+        # ---------------------------------------------------------
+        # Manual review / missing plan.
+        # ---------------------------------------------------------
+
         if (
             context.requires_manual_review
             or context.plan is None
@@ -173,11 +181,13 @@ class AgentRuntime:
                 executed=False,
             )
 
-        execution_report = (
-            self.plan_executor.execute(
-                plan=context.plan,
-                context=context,
-            )
+        # ---------------------------------------------------------
+        # Execute semantic plan.
+        # ---------------------------------------------------------
+
+        execution_report = self.plan_executor.execute(
+            plan=context.plan,
+            context=context,
         )
 
         return AgentRuntimeResult(

@@ -2,6 +2,10 @@ from app.agent.offers.offer_context import (
     OfferContext,
 )
 
+from app.agent.offers.profile_selection import (
+    ProfileSelectionSource,
+)
+
 
 class OfferContextMerger:
     """
@@ -23,6 +27,41 @@ class OfferContextMerger:
         Merge an update context into an existing
         quotation context.
         """
+
+        profile = existing.profile
+        profile_source = existing.profile_source
+        conflicts = list(existing.conflicts)
+
+        if (
+            update.profile_source
+            == ProfileSelectionSource.EXPLICIT
+            and update.profile is not None
+        ):
+            profile = update.profile
+            profile_source = update.profile_source
+
+        elif (
+            update.profile_source
+            == ProfileSelectionSource.UNKNOWN
+        ):
+            profile = None
+            profile_source = ProfileSelectionSource.UNKNOWN
+
+            conflict = (
+                "Profile was mentioned but could not be resolved."
+            )
+
+            if conflict not in conflicts:
+                conflicts.append(conflict)
+
+        elif (
+            existing.profile is None
+            and update.profile_source
+            == ProfileSelectionSource.DEFAULT
+            and update.profile is not None
+        ):
+            profile = update.profile
+            profile_source = update.profile_source
 
         return OfferContext(
             raw_request=existing.raw_request,
@@ -46,6 +85,8 @@ class OfferContextMerger:
                 if update.product_type is not None
                 else existing.product_type
             ),
+            profile=profile,
+            profile_source=profile_source,
             configuration=(
                 update.configuration
                 if update.configuration is not None
@@ -71,4 +112,6 @@ class OfferContextMerger:
                 if update.glazing is not None
                 else existing.glazing
             ),
+            missing_fields=update.missing_fields,
+            conflicts=tuple(conflicts),
         )

@@ -119,3 +119,57 @@ def test_build_fix_right_tilt_turn():
         construction.fields[1].opening.direction
         == OpeningDirection.RIGHT
     )
+
+def test_build_uses_profile_catalog_components():
+
+    context = OfferContext(
+        width=1300,
+        height=1500,
+        construction_type="SINGLE_RIGHT_TILT_TURN",
+        profile="VEKA_82",
+        color="7016",
+    )
+
+    construction = ConstructionBuilder().build(context)
+
+    assert len(construction.fields) == 1
+
+    field = construction.fields[0]
+
+    assert field.frame == "VEKA82_MD"
+    assert field.glass == "PERFECT_48"
+    assert field.hardware == "WINKHAUS_PRO"
+
+
+def test_build_without_profile_uses_catalog_default_profile():
+
+    context = OfferContext(
+        width=1300,
+        height=1500,
+        construction_type="SINGLE_RIGHT_TILT_TURN",
+        color="7016",
+    )
+
+    construction = ConstructionBuilder().build(context)
+
+    assert len(construction.fields) == 1
+
+    field = construction.fields[0]
+
+    assert field.frame == "VEKA82_MD"
+    assert field.glass == "PERFECT_48"
+    assert field.hardware == "WINKHAUS_PRO"
+
+
+def test_build_with_manual_review_does_not_apply_default_profile():
+    context = OfferContext(
+        width=1300,
+        height=1500,
+        construction_type="SINGLE_RIGHT_TILT_TURN",
+        color="7016",
+        manual_review=True,
+    )
+
+    construction = ConstructionBuilder().build(context)
+
+    assert len(construction.fields) == 0

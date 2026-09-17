@@ -2,8 +2,8 @@ from app.agent.agent_action import AgentAction
 
 from app.agent.offers.offer_context import OfferContext
 from app.agent.offers.offer_context_validator import OfferContextValidator
-from app.agent.offers.offer_construction_resolver import (
-    OfferConstructionResolver,
+from app.agent.offers.agent_construction_compiler import (
+    AgentConstructionCompiler,
 )
 
 from app.agent.execution.action_executor import (
@@ -163,6 +163,69 @@ class WHActionExecutor(ActionExecutor):
         context: ExecutionContext,
     ) -> ExecutionResult:
 
+        offer_context = context.get_value(
+            "offer_context"
+        )
+
+        if offer_context is None:
+            return ExecutionResult(
+                action_name=action.name,
+                success=False,
+                message=(
+                    "Offer context is missing."
+                ),
+                requires_manual_review=True,
+                metadata={
+                    "workflow_stage":
+                        "validation",
+                    "reason":
+                        "missing_offer_context",
+                },
+            )
+
+        if not isinstance(
+            offer_context,
+            OfferContext,
+        ):
+            return ExecutionResult(
+                action_name=action.name,
+                success=False,
+                message=(
+                    "Invalid offer context."
+                ),
+                requires_manual_review=True,
+                metadata={
+                    "workflow_stage":
+                        "validation",
+                    "reason":
+                        "invalid_offer_context",
+                },
+            )
+
+        validation = OfferContextValidator().validate(
+            offer_context
+        )
+
+        if not validation.is_valid:
+            return ExecutionResult(
+                action_name=action.name,
+                success=False,
+                message=(
+                    "Offer validation failed."
+                ),
+                requires_manual_review=True,
+                metadata={
+                    "workflow_stage":
+                        "validation",
+                    "reason":
+                        "invalid_offer_context",
+                    "missing_fields":
+                        validation.missing_fields,
+                    "conflicts":
+                        validation.conflicts,
+                },
+            )
+
         context.set_value(
             "offer_validated",
             True,
@@ -177,6 +240,10 @@ class WHActionExecutor(ActionExecutor):
             metadata={
                 "workflow_stage":
                     "validation",
+                "missing_fields":
+                    (),
+                "conflicts":
+                    (),
             },
         )
 
@@ -249,31 +316,30 @@ class WHActionExecutor(ActionExecutor):
                 },
             )
 
-        construction_definition = (
-            OfferConstructionResolver().resolve(
-                offer_context
-            )
+        compiler = AgentConstructionCompiler()
+
+        construction_project = compiler.compile(
+            offer_context
         )
 
-        if (
-            offer_context.opening is not None
-            and construction_definition is None
-        ):
+        if construction_project is None:
             return ExecutionResult(
                 action_name=action.name,
                 success=False,
                 message=(
-                    "Construction could not be resolved "
-                    "from the offer context."
+                    "Construction project could not "
+                    "be compiled from the offer context."
                 ),
                 requires_manual_review=True,
                 metadata={
                     "workflow_stage":
                         "construction",
                     "reason":
-                        "construction_not_resolved",
+                        "construction_compile_failed",
                     "opening":
                         offer_context.opening,
+                    "conflicts":
+                        offer_context.conflicts,
                 },
             )
 
@@ -282,11 +348,10 @@ class WHActionExecutor(ActionExecutor):
             True,
         )
 
-        if construction_definition is not None:
-            context.set_value(
-                "construction_definition",
-                construction_definition,
-            )
+        context.set_value(
+            "construction_project",
+            construction_project,
+        )
 
         context.set_value(
             "construction_build_started",
@@ -297,11 +362,18 @@ class WHActionExecutor(ActionExecutor):
             action_name=action.name,
             success=True,
             message=(
-                "Construction build workflow completed."
+                "Construction project compilation "
+                "completed."
             ),
             metadata={
                 "workflow_stage":
                     "construction",
+                "construction_segments":
+                    len(
+                        construction_project.schema.segments
+                    ),
+                "opening":
+                    offer_context.opening,
             },
         )
 

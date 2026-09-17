@@ -1,5 +1,7 @@
 from dataclasses import dataclass
 
+from app.agent.offers.profile_selection import ProfileSelectionSource
+
 
 @dataclass(frozen=True)
 class OfferContext:
@@ -24,6 +26,10 @@ class OfferContext:
     quantity: int = 1
 
     product_type: str | None = None
+
+    profile: str | None = None
+
+    profile_source: ProfileSelectionSource = ProfileSelectionSource.DEFAULT
 
     configuration: str | None = None
 

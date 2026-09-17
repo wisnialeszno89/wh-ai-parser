@@ -10,6 +10,9 @@ class ProfileProduct:
     default_hardware: str
 
 
+DEFAULT_PROFILE = "VEKA_82"
+
+
 PROFILE_CATALOG = {
     "VEKA_82": ProfileProduct(
         code="VEKA_82",

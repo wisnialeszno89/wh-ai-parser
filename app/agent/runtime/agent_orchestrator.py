@@ -160,13 +160,17 @@ class AgentOrchestrator:
                 requires_manual_review=True,
             )
 
+        skill_plan = skill.plan(
+            request
+        )
+
         return AgentExecutionContext(
             request=request,
             intent=intent,
-            plan=plan,
+            plan=skill_plan,
             capability=capability,
             skill=skill,
             requires_manual_review=(
-                plan.requires_manual_review
+                skill_plan.requires_manual_review
             ),
         )

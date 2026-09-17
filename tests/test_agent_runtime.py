@@ -86,13 +86,31 @@ def test_runtime_executes_wh_plan():
 
     assert (
         "build_construction"
-        in names
+        not in names
     )
 
     assert (
         "prepare_quote"
-        in names
+        not in names
     )
+
+    assert result.requires_manual_review is True
+
+    validation_result = next(
+        item
+        for item in result.execution_report.results
+        if item.action_name == "validate_offer"
+    )
+
+    assert validation_result.success is False
+
+    assert validation_result.requires_manual_review is True
+
+    assert validation_result.metadata is not None
+
+    assert "width" in validation_result.metadata["missing_fields"]
+
+    assert "height" in validation_result.metadata["missing_fields"]
 
 
 def test_runtime_requires_manual_review_for_unknown():

@@ -3,6 +3,7 @@ import pytest
 from app.agent.offers.offer_context_parser import (
     OfferContextParser,
 )
+from app.agent.offers.profile_selection import ProfileSelectionSource
 
 
 @pytest.fixture
@@ -416,3 +417,88 @@ def test_parser_extracts_quantity_from_sztuk(
     )
 
     assert result.quantity == 2
+
+
+def test_parser_uses_default_profile_when_profile_is_missing():
+    parser = OfferContextParser()
+
+    context = parser.parse(
+        "Potrzebuję okno 1200x1500 DKR"
+    )
+
+    assert context.profile == "VEKA_82"
+    assert context.profile_source == ProfileSelectionSource.DEFAULT
+
+
+def test_parser_resolves_explicit_profile():
+    parser = OfferContextParser()
+
+    context = parser.parse(
+        "Potrzebuję okno VEKA Softline 82 1200x1500 DKR"
+    )
+
+    assert context.profile == "VEKA_82"
+    assert context.profile_source == ProfileSelectionSource.EXPLICIT
+
+
+def test_parser_marks_unknown_profile_as_conflict():
+    parser = OfferContextParser()
+
+    context = parser.parse(
+        "Potrzebuję okno VEKA Softline 76 1200x1500 DKR"
+    )
+
+    assert context.profile is None
+    assert context.profile_source == ProfileSelectionSource.UNKNOWN
+    assert (
+        "Profile was mentioned but could not be resolved."
+        in context.conflicts
+    )
+
+
+def test_parser_extracts_ral_color_inside():
+    parser = OfferContextParser()
+
+    result = parser.parse(
+        "Okno 1300x1500 kolor 7016 od środka"
+    )
+
+    assert result.color_inside == "7016"
+    assert result.color_outside is None
+
+
+def test_parser_extracts_ral_color_outside():
+    parser = OfferContextParser()
+
+    result = parser.parse(
+        "Okno 1300x1500 kolor 7016 z zewnątrz"
+    )
+
+    assert result.color_inside is None
+    assert result.color_outside == "7016"
+
+
+def test_parser_extracts_ral_color_both_sides():
+    parser = OfferContextParser()
+
+    result = parser.parse(
+        "Okno 1300x1500 kolor 7016 obustronnie"
+    )
+
+    assert result.color_inside == "7016"
+    assert result.color_outside == "7016"
+
+
+def test_parser_does_not_guess_side_for_unspecified_ral_color():
+    parser = OfferContextParser()
+
+    result = parser.parse(
+        "Okno 1300x1500 kolor 7016"
+    )
+
+    assert result.color_inside is None
+    assert result.color_outside is None
+    assert any(
+        "color" in conflict.lower()
+        for conflict in result.conflicts
+    )
