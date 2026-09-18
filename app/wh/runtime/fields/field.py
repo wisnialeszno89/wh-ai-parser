@@ -15,6 +15,8 @@ class Field:
 
     opening: str = ""
 
+    direction: str = "NONE"
+
     actions: list = field(
 
         default_factory=list

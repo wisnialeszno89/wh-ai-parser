@@ -32,4 +32,9 @@ class FieldClassifier:
 
                 )
 
+                field.direction = (
+                    schema.segments[
+                        index
+                    ].direction
+                )
         return fields

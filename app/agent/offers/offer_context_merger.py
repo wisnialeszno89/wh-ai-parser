@@ -112,6 +112,6 @@ class OfferContextMerger:
                 if update.glazing is not None
                 else existing.glazing
             ),
-            missing_fields=update.missing_fields,
+            missing_fields=(),
             conflicts=tuple(conflicts),
         )

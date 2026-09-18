@@ -78,6 +78,57 @@ class OpeningRepository:
 
         return list(dict.fromkeys(matches))
 
+    def find_occurrences_in_text(
+        self,
+        text: str,
+    ) -> list[tuple[int, str]]:
+        self.load()
+
+        normalized = text.casefold()
+        matches = []
+
+        for definition in self._definitions:
+            for alias in definition.aliases:
+                alias_normalized = alias.strip().casefold()
+
+                if not alias_normalized:
+                    continue
+
+                pattern = (
+                    rf"(?<!\\w)"
+                    rf"{re.escape(alias_normalized)}"
+                    rf"(?!\\w)"
+                )
+
+                for match in re.finditer(
+                    pattern,
+                    normalized,
+                ):
+                    matches.append(
+                        (match.start(), definition.code)
+                    )
+
+        matches.sort(
+            key=lambda item: (
+                item[0],
+                item[1],
+            )
+        )
+
+        unique_matches = []
+        seen_positions = set()
+
+        for position, code in matches:
+            if position in seen_positions:
+                continue
+
+            seen_positions.add(position)
+            unique_matches.append(
+                (position, code)
+            )
+
+        return unique_matches
+
     def get_by_code_or_alias(
         self,
         value: str

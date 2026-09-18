@@ -79,6 +79,20 @@ class OfferOpeningResolver:
             status=OpeningResolutionStatus.NOT_FOUND,
         )
 
+    def resolve_all(
+        self,
+        request: str,
+    ) -> tuple[str, ...]:
+        matches = (
+            self.resolver.repository
+            .find_occurrences_in_text(request)
+        )
+
+        return tuple(
+            code
+            for _, code in matches
+        )
+
     def resolve(
         self,
         request: str,

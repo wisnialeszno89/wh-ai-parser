@@ -20,6 +20,7 @@ def test_compiles_right_tilt_turn():
     assert project.schema.width == 1200
     assert project.schema.height == 1500
     assert project.schema.segments[0].opening == Opening.TILT_TURN
+    assert project.schema.segments[0].direction == "RIGHT"
     assert len(project.schema.segments) == 1
 
 
@@ -36,6 +37,7 @@ def test_compiles_left_tilt_turn():
 
     assert project is not None
     assert project.schema.segments[0].opening == Opening.TILT_TURN
+    assert project.schema.segments[0].direction == "LEFT"
 
 
 def test_compiles_fix():
@@ -92,3 +94,27 @@ def test_invalid_dimensions_return_none():
     project = AgentConstructionCompiler().compile(context)
 
     assert project is None
+
+
+def test_compiles_known_multi_opening_construction():
+    context = OfferContext(
+        raw_request="Potrzebuję okno 2000x1500 DKR + FIX",
+        width=2000,
+        height=1500,
+        product_type="window",
+        openings=(
+            "RIGHT_TILT_TURN",
+            "FIX",
+        ),
+    )
+
+    project = AgentConstructionCompiler().compile(context)
+
+    assert project is not None
+    assert len(project.schema.segments) == 2
+
+    assert project.schema.segments[0].opening == Opening.TILT_TURN
+    assert project.schema.segments[0].direction == "RIGHT"
+
+    assert project.schema.segments[1].opening == Opening.FIX
+    assert project.schema.segments[1].direction == "NONE"

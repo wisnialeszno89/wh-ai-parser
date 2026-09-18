@@ -9,6 +9,9 @@ from app.agent.offers.profile_selection import (
 from app.knowledge.openings.offer_opening_resolver import (
     OfferOpeningResolver,
 )
+from app.knowledge.constructions.construction_resolver import (
+    ConstructionResolver,
+)
 
 
 class OfferContextParser:
@@ -26,12 +29,16 @@ class OfferContextParser:
         self,
         opening_resolver: OfferOpeningResolver | None = None,
         profile_selection_resolver: ProfileSelectionResolver | None = None,
+        construction_resolver: ConstructionResolver | None = None,
     ):
         self.opening_resolver = (
             opening_resolver or OfferOpeningResolver()
         )
         self.profile_selection_resolver = (
             profile_selection_resolver or ProfileSelectionResolver()
+        )
+        self.construction_resolver = (
+            construction_resolver or ConstructionResolver()
         )
 
     def parse(
@@ -74,10 +81,24 @@ class OfferContextParser:
             )
         )
 
+        openings = (
+            self.opening_resolver.resolve_all(
+                request
+            )
+        )
+
         opening_resolution = (
             self.opening_resolver.resolve_result(
                 request
             )
+        )
+
+        known_construction = (
+            self.construction_resolver.resolve(
+                list(openings)
+            )
+            if len(openings) > 1
+            else None
         )
 
         opening = (
@@ -124,12 +145,13 @@ class OfferContextParser:
 
         if opening_resolution.is_ambiguous:
             if opening_resolution.matches:
-                conflicts.append(
-                    "Ambiguous opening: "
-                    + ", ".join(
-                        opening_resolution.matches
+                if known_construction is None:
+                    conflicts.append(
+                        "Ambiguous opening: "
+                        + ", ".join(
+                            opening_resolution.matches
+                        )
                     )
-                )
             else:
                 conflicts.append(
                     "Ambiguous opening: "
@@ -171,6 +193,7 @@ class OfferContextParser:
             profile_source=profile_selection.source,
             configuration=configuration,
             opening=opening,
+            openings=openings,
             color_inside=color_inside,
             color_outside=color_outside,
             glazing=glazing,

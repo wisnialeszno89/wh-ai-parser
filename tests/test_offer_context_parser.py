@@ -502,3 +502,26 @@ def test_parser_does_not_guess_side_for_unspecified_ral_color():
         "color" in conflict.lower()
         for conflict in result.conflicts
     )
+
+
+def test_recognizes_known_multi_opening_construction_without_ambiguity():
+    context = OfferContextParser().parse(
+        "Okno 2000x1500 DKR + FIX"
+    )
+
+    assert context.openings == (
+        "RIGHT_TILT_TURN",
+        "FIX",
+    )
+
+    assert context.conflicts == ()
+
+def test_recognizes_known_reverse_multi_opening_construction_without_ambiguity():
+    context = OfferContextParser().parse(
+        "Okno 2000x1500 FIX + DKR"
+    )
+    assert context.openings == (
+        "FIX",
+        "RIGHT_TILT_TURN",
+    )
+    assert context.conflicts == ()

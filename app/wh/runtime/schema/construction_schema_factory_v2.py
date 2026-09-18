@@ -27,7 +27,9 @@ class ConstructionSchemaFactoryV2:
 
         width,
 
-        height
+        height,
+
+        openings=None
 
     ):
 
@@ -59,6 +61,8 @@ class ConstructionSchemaFactoryV2:
 
             width,
 
-            height
+            height,
+
+            openings=openings
 
         )

@@ -35,6 +35,8 @@ class OfferContext:
 
     opening: str | None = None
 
+    openings: tuple[str, ...] = ()
+
     color_inside: str | None = None
 
     color_outside: str | None = None

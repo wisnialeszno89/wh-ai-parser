@@ -22,7 +22,9 @@ class PatternSchemaBuilder:
 
         width,
 
-        height
+        height,
+
+        openings=None
 
     ):
 
@@ -35,6 +37,9 @@ class PatternSchemaBuilder:
         }
 
         segments = []
+
+        if openings is None:
+            openings = []
 
         cols = len(
 
@@ -106,9 +111,25 @@ class PatternSchemaBuilder:
 
             ]
 
+        opening_index = 0
+
         for row in rows:
 
             for token in row:
+
+                direction = "NONE"
+
+                if opening_index < len(openings):
+
+                    opening_code = openings[opening_index]
+
+                    if opening_code == "RIGHT_TILT_TURN":
+
+                        direction = "RIGHT"
+
+                    elif opening_code == "LEFT_TILT_TURN":
+
+                        direction = "LEFT"
 
                 segments.append(
 
@@ -118,11 +139,15 @@ class PatternSchemaBuilder:
 
                             token
 
-                        ]
+                        ],
+
+                        direction=direction
 
                     )
 
                 )
+
+                opening_index += 1
 
         return ConstructionSchema(
 
