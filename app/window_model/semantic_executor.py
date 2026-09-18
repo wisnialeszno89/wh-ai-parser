@@ -64,6 +64,7 @@ class SemanticExecutionBridge:
                 tool=step.gui_tool,
                 semantic_id=step.element_id,
                 semantic_side=step.side.value,
+                properties=dict(step.properties or {}),
             )
             result = self.executor.execute(action)
             if not result.success:
@@ -91,7 +92,13 @@ class SemanticExecutionBridge:
                 blocked.append(step.element_id)
                 break
             self._prepare_step(step)
-            action = SimpleNamespace(intent=GuiIntent.CREATE, tool=step.gui_tool, semantic_id=step.element_id, semantic_side=step.side.value)
+            action = SimpleNamespace(
+                intent=GuiIntent.CREATE,
+                tool=step.gui_tool,
+                semantic_id=step.element_id,
+                semantic_side=step.side.value,
+                properties=dict(step.properties or {}),
+            )
             result = self.executor.execute(action)
             if not result.success:
                 blocked.append(step.element_id)

@@ -91,9 +91,10 @@ class ConstructionMapper:
                 WindowElementType.SASH,
                 parent_id=cell.id,
                 opening=opening,
+                direction=segment.direction,
                 width_ratio=segment.width_ratio,
                 height_ratio=segment.height_ratio,
-            )
+        )
             topology.add(
                 sash,
                 side=side,

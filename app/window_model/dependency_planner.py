@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 from app.gui.enums.gui_tool import GuiTool
 from app.window_model.model import WindowElementType, WindowModel
@@ -15,6 +16,7 @@ class ExecutableStep:
     side: WindowSide
     parent_id: str | None
     blocked_by: tuple[str, ...] = ()
+    properties: dict[str, Any] = None
 
 
 class DependencyPlanner:
@@ -41,6 +43,7 @@ class DependencyPlanner:
                         side=node.side if node else WindowSide.UNKNOWN,
                         parent_id=element.parent_id,
                         blocked_by=tuple(sorted(dependencies - completed)),
+                        properties=dict(element.properties),
                     )
                 )
                 completed.add(element.id)
