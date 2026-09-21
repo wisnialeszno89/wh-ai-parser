@@ -199,3 +199,50 @@ def test_preserves_contour_hierarchy():
     assert child.parent_contour_index == 0
     assert child.depth == 1
     assert child.is_root is False
+
+def test_relinks_child_to_surviving_ancestor_after_duplicate_parent_is_removed():
+    candidate_filter = CandidateFilter()
+
+    contours = [
+        contour(100, 100, 100, 40),
+        contour(100, 100, 100, 40),
+        contour(120, 110, 40, 20),
+    ]
+
+    hierarchy = np.array(
+        [[
+            [-1, -1, -1, -1],
+            [-1, -1, 2, -1],
+            [-1, -1, -1, 1],
+        ]],
+        dtype=np.int32,
+    )
+
+    result = candidate_filter.filter(
+        contours,
+        hierarchy=hierarchy,
+        roi_width=1000,
+        roi_height=1000,
+    )
+
+    assert len(result) == 2
+
+    root = next(
+        candidate
+        for candidate in result
+        if candidate.contour_index == 0
+    )
+
+    child = next(
+        candidate
+        for candidate in result
+        if candidate.contour_index == 2
+    )
+
+    assert root.parent_contour_index is None
+    assert root.depth == 0
+    assert root.is_root is True
+
+    assert child.parent_contour_index == 0
+    assert child.depth == 1
+    assert child.is_root is False

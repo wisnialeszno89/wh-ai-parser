@@ -16,6 +16,10 @@ from app.runtime.execution.vision.analyzers.structural_classifier_v2 import (
     StructuralClassifierV2,
     StructuralClassificationV2,
 )
+from app.runtime.execution.vision.analyzers.interactive_classifier_v1 import (
+    InteractiveClassifierV1,
+    InteractiveClassification,
+)
 from app.runtime.execution.vision.analyzers.visual_feature_extractor import (
     VisualFeatureExtractor,
 )
@@ -69,6 +73,7 @@ class ControlDetector:
         structural_classifier: StructuralClassifierV2 | None = None,
         candidate_hierarchy: CandidateHierarchy | None = None,
         visual_feature_extractor: VisualFeatureExtractor | None = None,
+        interactive_classifier: InteractiveClassifierV1 | None = None,
     ) -> None:
         self.candidate_filter = (
             candidate_filter
@@ -93,6 +98,11 @@ class ControlDetector:
         self.visual_feature_extractor = (
             visual_feature_extractor
             or VisualFeatureExtractor()
+        )
+
+        self.interactive_classifier = (
+            interactive_classifier
+            or InteractiveClassifierV1()
         )
 
     def analyze(
@@ -175,6 +185,13 @@ class ControlDetector:
             )
         }
 
+        interactive_classifications_by_contour = {
+            candidate.contour_index: self.interactive_classifier.classify(
+                evidence_by_contour[candidate.contour_index]
+            )
+            for candidate in candidates
+        }
+
         hierarchy_tree = self.candidate_hierarchy.build(
             candidates,
         )
@@ -184,6 +201,7 @@ class ControlDetector:
                 self._build_gui_object(
                     root,
                     classifications_by_contour,
+                    interactive_classifications_by_contour,
                     evidence_by_contour,
                     section,
                     r.left,
@@ -198,6 +216,10 @@ class ControlDetector:
             int,
             StructuralClassificationV2,
         ],
+        interactive_classifications_by_contour: dict[
+            int,
+            InteractiveClassification,
+        ],
         evidence_by_contour: dict[int, CandidateEvidence],
         section: GUIObject,
         offset_x: int,
@@ -206,6 +228,10 @@ class ControlDetector:
         candidate = node.candidate
 
         classification = classifications_by_contour[
+            candidate.contour_index
+        ]
+
+        interactive_classification = interactive_classifications_by_contour[
             candidate.contour_index
         ]
 
@@ -218,14 +244,22 @@ class ControlDetector:
                 f"{section.id}"
                 f"_candidate_{candidate.contour_index}"
             ),
-            type=classification.control_type,
+            type=(
+                interactive_classification.control_type
+                if interactive_classification.is_interactive
+                else classification.control_type
+            ),
             role=ControlRole.UNKNOWN,
             state=ControlState.VISIBLE,
             bounds=candidate.rect.translate(
                 offset_x,
                 offset_y,
             ),
-            confidence=classification.confidence,
+            confidence=(
+                interactive_classification.confidence
+                if interactive_classification.is_interactive
+                else classification.confidence
+            ),
             evidence=evidence,
         )
 
@@ -234,6 +268,7 @@ class ControlDetector:
                 self._build_gui_object(
                     child_node,
                     classifications_by_contour,
+                    interactive_classifications_by_contour,
                     evidence_by_contour,
                     section,
                     offset_x,

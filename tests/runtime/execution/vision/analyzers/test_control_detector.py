@@ -163,3 +163,60 @@ def test_control_detector_preserves_candidate_evidence():
         assert candidate.width == child.bounds.width
         assert candidate.height == child.bounds.height
         assert candidate.area == child.bounds.width * child.bounds.height
+
+
+class _AlwaysButtonClassifier:
+    def classify(self, evidence):
+        from app.runtime.execution.vision.analyzers.interactive_classifier_v1 import (
+            InteractiveClassification,
+        )
+
+        return InteractiveClassification(
+            control_type=ControlType.BUTTON,
+            confidence=0.75,
+        )
+
+
+def test_control_detector_promotes_interactive_classification_to_gui_object():
+    image = cv2.imread(
+        "tests/data/screenshot.png"
+    )
+
+    assert image is not None
+
+    height, width = image.shape[:2]
+
+    screenshot = Screenshot(
+        width=width,
+        height=height,
+        image=image,
+    )
+
+    section = GUIObject(
+        id="interactive_section",
+        type=ControlType.SECTION,
+        role=ControlRole.UNKNOWN,
+        bounds=Rect(
+            x=0,
+            y=0,
+            width=width,
+            height=height,
+        ),
+    )
+
+    detector = ControlDetector(
+        interactive_classifier=_AlwaysButtonClassifier(),
+    )
+
+    detector.analyze(
+        screenshot,
+        section,
+    )
+
+    assert section.children
+
+    for child in section.children:
+        assert child.type == ControlType.BUTTON
+        assert child.confidence == 0.75
+        assert child.role == ControlRole.UNKNOWN
+        assert child.evidence is not None

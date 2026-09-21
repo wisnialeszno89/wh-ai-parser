@@ -121,7 +121,68 @@ class CandidateFilter:
             reverse=True,
         )
 
-        return self._deduplicate(candidates)
+        deduplicated = self._deduplicate(candidates)
+
+        kept_indices = {candidate.contour_index for candidate in deduplicated}
+        by_index = {candidate.contour_index: candidate for candidate in candidates}
+
+        replacement = {}
+        for removed in candidates:
+            if removed.contour_index in kept_indices:
+                continue
+            best = None
+            best_iou = 0.0
+            for kept in deduplicated:
+                iou = self._iou(removed.rect, kept.rect)
+                if iou >= self.config.max_iou and iou > best_iou:
+                    best = kept
+                    best_iou = iou
+            if best is not None:
+                replacement[removed.contour_index] = best.contour_index
+
+        relinked = []
+        for candidate in deduplicated:
+            parent = candidate.parent_contour_index
+            visited = set()
+
+            while parent is not None and parent not in kept_indices:
+                if parent in visited:
+                    parent = None
+                    break
+                visited.add(parent)
+
+                if parent in replacement:
+                    parent = replacement[parent]
+                    break
+
+                ancestor = by_index.get(parent)
+                parent = None if ancestor is None else ancestor.parent_contour_index
+
+            depth = 0
+            current = parent
+            visited = set()
+
+            while current is not None and current not in visited:
+                visited.add(current)
+                depth += 1
+
+                if current in replacement:
+                    current = replacement[current]
+                    continue
+
+                ancestor = by_index.get(current)
+                current = None if ancestor is None else ancestor.parent_contour_index
+
+            relinked.append(
+                VisionCandidate(
+                    rect=candidate.rect,
+                    contour_index=candidate.contour_index,
+                    parent_contour_index=parent,
+                    depth=depth,
+                )
+            )
+
+        return relinked
 
     def _valid_dimensions(
         self,
