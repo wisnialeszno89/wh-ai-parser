@@ -10,8 +10,18 @@ from app.runtime.execution.interactions.interaction_step import (
     InteractionStep,
 )
 
+from app.runtime.execution.mouse_controller import (
+    MouseController,
+)
+
 
 class ClickExecutor(InteractionExecutor):
+
+    def __init__(
+        self,
+        mouse: MouseController | None = None,
+    ):
+        self.mouse = mouse or MouseController()
 
     def execute(
         self,
@@ -22,11 +32,60 @@ class ClickExecutor(InteractionExecutor):
         print()
         print(f"[CLICK] {step.target}")
 
-        #
-        # TODO:
-        # GuiWorld
-        # Vision
-        # Mouse
-        #
+        visual_target = step.visual_target
 
-        return ExecutionResult.ok()
+        if visual_target is None:
+            return ExecutionResult.fail(
+                "CLICK requires a visual_target."
+            )
+
+        bounds = getattr(
+            visual_target,
+            "bounds",
+            None,
+        )
+
+        if bounds is None:
+            return ExecutionResult.fail(
+                "CLICK visual_target has no bounds."
+            )
+
+        window = getattr(
+            context,
+            "window",
+            None,
+        )
+
+        if window is None:
+            return ExecutionResult.fail(
+                "CLICK requires window origin."
+            )
+
+        local_x, local_y = bounds.center
+
+        screen_x = int(
+            window.left + local_x
+        )
+
+        screen_y = int(
+            window.top + local_y
+        )
+
+        print(
+            f"[CLICK] local=({local_x}, {local_y}) "
+            f"origin=({window.left}, {window.top}) "
+            f"screen=({screen_x}, {screen_y})"
+        )
+
+        self.mouse.click(
+            screen_x,
+            screen_y,
+        )
+
+        return ExecutionResult.ok(
+            message=(
+                f"Clicked visual target "
+                f"local=({local_x}, {local_y}) "
+                f"screen=({screen_x}, {screen_y})."
+            )
+        )
