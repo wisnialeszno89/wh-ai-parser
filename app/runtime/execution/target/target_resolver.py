@@ -1,26 +1,21 @@
 from app.runtime.execution.target.target import Target
-
-from app.runtime.execution.vision.models.gui_object import (
-    GUIObject,
-)
+from app.runtime.execution.vision.models.gui_object import GUIObject
 
 
 class TargetResolver:
     """
-    Resolves the best click point for a GUI object.
+    Resolves a safe interaction point from a perceived GUI object.
     """
 
-    def resolve(
-        self,
-        obj: GUIObject,
-    ) -> Target:
+    def resolve(self, obj: GUIObject) -> Target:
+        if obj.bounds is None:
+            raise ValueError(
+                f"Cannot resolve target for GUI object without bounds: {obj.id}"
+            )
 
-        rect = obj.bounds
+        x, y = obj.bounds.center
 
         return Target(
-
-            x=rect.center[0],
-
-            y=rect.center[1],
-
+            x=x,
+            y=y,
         )

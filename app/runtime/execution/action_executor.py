@@ -326,15 +326,24 @@ class ActionExecutor:
 
     def _execute_handler(self, action) -> None:
         handler = self.handlers.get(action.tool)
-        if handler is None or action.construction_field is None:
+
+        if handler is None:
             raise RuntimeError(f"No handler for {action.tool}")
+
         context = HandlerContext(
-            construction_field=action.construction_field,
-            value=action.value,
             keyboard=self.keyboard,
-            interactions=self.interactions,
+            action=action,
         )
-        handler.handle(context)
+
+        plan = handler.execute(
+            context,
+            action,
+        )
+
+        self.interactions.execute(
+            context,
+            plan,
+        )
 
     def _finish(self, action, confidence, before, start_time):
         verification = self.verifier.verify_change(before)

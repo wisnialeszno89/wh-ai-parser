@@ -22,8 +22,8 @@ from app.runtime.execution.vision.analyzers.section_analyzer import (
     SectionAnalyzer,
 )
 
-from app.runtime.execution.vision.analyzers.candidate_generator import (
-    CandidateGenerator,
+from app.runtime.execution.vision.analyzers.control_detector import (
+    ControlDetector,
 )
 
 from app.runtime.execution.vision.analyzers.canvas_analyzer import (
@@ -40,6 +40,10 @@ from app.runtime.execution.vision.roi.roi_extractor import (
 
 from app.runtime.execution.vision.models.vision_context import (
     VisionContext,
+)
+
+from app.runtime.execution.vision.models.scene_graph_builder import (
+    SceneGraphBuilder,
 )
 
 
@@ -59,13 +63,15 @@ class VisionPipeline:
 
         self.section_analyzer = SectionAnalyzer()
 
-        self.candidate_generator = CandidateGenerator()
+        self.control_detector = ControlDetector()
 
         self.roi_extractor = ROIExtractor()
 
         self.debug_overlay = DebugOverlay()
 
         self.roi_debug = ROIDebug()
+
+        self.scene_graph_builder = SceneGraphBuilder()
 
     def observe(self):
 
@@ -135,7 +141,7 @@ class VisionPipeline:
 
         for section in toolbar.children:
 
-            self.candidate_generator.analyze(
+            self.control_detector.analyze(
                 screenshot,
                 section,
             )
@@ -154,6 +160,15 @@ class VisionPipeline:
                 self.roi_debug.save(
                     roi,
                 )
+
+        #
+        # Scene graph.
+        #
+
+        context.scene_graph = self.scene_graph_builder.build(
+            screenshot,
+            toolbar=toolbar,
+        )
 
         #
         # Debug overlay.

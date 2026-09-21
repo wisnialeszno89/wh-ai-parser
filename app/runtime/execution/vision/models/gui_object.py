@@ -6,6 +6,7 @@ from app.runtime.execution.vision.models.control_role import ControlRole
 from app.runtime.execution.vision.models.control_state import ControlState
 from app.runtime.execution.vision.models.control_type import ControlType
 from app.runtime.execution.vision.models.rect import Rect
+from app.runtime.execution.vision.models.candidate_evidence import CandidateEvidence
 
 
 @dataclass(slots=True)
@@ -30,6 +31,8 @@ class GUIObject:
     text: str | None = None
 
     confidence: float = 1.0
+
+    evidence: CandidateEvidence | None = None
 
     children: list["GUIObject"] = field(default_factory=list)
 

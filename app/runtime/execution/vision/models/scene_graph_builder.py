@@ -32,30 +32,24 @@ class SceneGraphBuilder:
     def build(
         self,
         screenshot: Screenshot,
+        toolbar: GUIObject | None = None,
     ) -> SceneGraph:
 
         root = GUIObject(
-
             id="window",
-
             type=ControlType.WINDOW,
-
             role=ControlRole.UNKNOWN,
-
             state=ControlState.VISIBLE,
-
             bounds=Rect(
-
                 x=0,
-
                 y=0,
-
                 width=screenshot.width,
-
                 height=screenshot.height,
-
             ),
         )
+
+        if toolbar is not None:
+            root.add_child(toolbar)
 
         return SceneGraph(
             root=root,
