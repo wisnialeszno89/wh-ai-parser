@@ -3,6 +3,9 @@ from app.runtime.execution.vision.models.tracked_object import (
     TrackedObject,
     TrackedObjectStatus,
 )
+from app.runtime.execution.vision.models.vision_object_observation import (
+    VisionObjectObservation,
+)
 
 
 class TemporalObjectTracker:
@@ -20,7 +23,9 @@ class TemporalObjectTracker:
 
     def update(
         self,
-        observations: list[LogicalObject],
+        observations: list[
+            LogicalObject | VisionObjectObservation
+        ],
     ) -> list[TrackedObject]:
         self._frame_index += 1
 
@@ -36,6 +41,8 @@ class TemporalObjectTracker:
         updated_tracks: list[TrackedObject] = []
 
         for observation in observations:
+            logical_object = self._logical_object(observation)
+
             best_track_index: int | None = None
             best_iou = 0.0
 
@@ -48,7 +55,7 @@ class TemporalObjectTracker:
 
                 iou = self._calculate_iou(
                     track.object,
-                    observation,
+                    logical_object,
                 )
 
                 if (
@@ -71,12 +78,14 @@ class TemporalObjectTracker:
 
             moved = (
                 previous_object.bounds.x
-                != observation.bounds.x
+                != logical_object.bounds.x
                 or previous_object.bounds.y
-                != observation.bounds.y
+                != logical_object.bounds.y
             )
 
-            track.object = observation
+            track.object = logical_object
+            self._apply_semantics(track, observation)
+
             track.last_seen = self._frame_index
             track.observation_count += 1
             track.consecutive_observations += 1
@@ -113,11 +122,13 @@ class TemporalObjectTracker:
 
     def _create_track(
         self,
-        observation: LogicalObject,
+        observation: LogicalObject | VisionObjectObservation,
     ) -> TrackedObject:
+        logical_object = self._logical_object(observation)
+
         track = TrackedObject(
             id=f"TO-{self._next_track_number:04d}",
-            object=observation,
+            object=logical_object,
             first_seen=self._frame_index,
             last_seen=self._frame_index,
             observation_count=1,
@@ -127,9 +138,31 @@ class TemporalObjectTracker:
             stability=1.0,
         )
 
+        self._apply_semantics(track, observation)
+
         self._next_track_number += 1
 
         return track
+
+    @staticmethod
+    def _logical_object(
+        observation: LogicalObject | VisionObjectObservation,
+    ) -> LogicalObject:
+        if isinstance(observation, VisionObjectObservation):
+            return observation.logical_object
+
+        return observation
+
+    @staticmethod
+    def _apply_semantics(
+        track: TrackedObject,
+        observation: LogicalObject | VisionObjectObservation,
+    ) -> None:
+        if not isinstance(observation, VisionObjectObservation):
+            return
+
+        track.control_type = observation.control_type
+        track.confidence = observation.confidence
 
     @staticmethod
     def _calculate_iou(

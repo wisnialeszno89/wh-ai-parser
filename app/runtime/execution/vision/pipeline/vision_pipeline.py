@@ -1,4 +1,4 @@
-from app.runtime.execution.window.window_locator import (
+﻿from app.runtime.execution.window.window_locator import (
     WindowLocator,
 )
 
@@ -34,6 +34,14 @@ from app.runtime.execution.vision.analyzers.construction_analyzer import (
     ConstructionAnalyzer,
 )
 
+from app.runtime.execution.vision.analyzers.logical_object_evidence_extractor import (
+    LogicalObjectEvidenceExtractor,
+)
+
+from app.runtime.execution.vision.analyzers.interactive_classifier_v2 import (
+    InteractiveClassifierV2,
+)
+
 from app.runtime.execution.vision.roi.roi_extractor import (
     ROIExtractor,
 )
@@ -45,18 +53,22 @@ from app.runtime.execution.vision.models.vision_context import (
 from app.runtime.execution.vision.models.scene_graph_builder import (
     SceneGraphBuilder,
 )
+
+from app.runtime.execution.vision.models.vision_object_observation import (
+    VisionObjectObservation,
+)
+
 from app.runtime.execution.vision.analyzers.logical_object_graph_builder import (
     LogicalObjectGraphBuilder,
 )
+
 from app.runtime.execution.vision.tracking.temporal_object_tracker import (
     TemporalObjectTracker,
 )
 
 
 class VisionPipeline:
-
     def __init__(self):
-
         self.window_locator = WindowLocator()
 
         self.screenshot_engine = MSSScreenshotEngine()
@@ -78,11 +90,24 @@ class VisionPipeline:
         self.roi_debug = ROIDebug()
 
         self.scene_graph_builder = SceneGraphBuilder()
-        self.logical_object_graph_builder = LogicalObjectGraphBuilder()
-        self.temporal_object_tracker = TemporalObjectTracker()
+
+        self.logical_object_graph_builder = (
+            LogicalObjectGraphBuilder()
+        )
+
+        self.logical_object_evidence_extractor = (
+            LogicalObjectEvidenceExtractor()
+        )
+
+        self.interactive_classifier_v2 = (
+            InteractiveClassifierV2()
+        )
+
+        self.temporal_object_tracker = (
+            TemporalObjectTracker()
+        )
 
     def observe(self):
-
         #
         # Locate window.
         #
@@ -115,9 +140,7 @@ class VisionPipeline:
         )
 
         if toolbar is None:
-
             print("[VISION] Toolbar not found")
-
             return context
 
         context.toolbar = toolbar
@@ -130,8 +153,10 @@ class VisionPipeline:
             context,
         )
 
-        context.construction = self.construction_analyzer.analyze(
-            context,
+        context.construction = (
+            self.construction_analyzer.analyze(
+                context,
+            )
         )
 
         #
@@ -150,7 +175,6 @@ class VisionPipeline:
         logical_objects = []
 
         for section in toolbar.children:
-
             self.control_detector.analyze(
                 screenshot,
                 section,
@@ -165,7 +189,6 @@ class VisionPipeline:
             #
 
             for control in section.children:
-
                 roi = self.roi_extractor.extract(
                     screenshot,
                     control,
@@ -176,16 +199,50 @@ class VisionPipeline:
                 )
 
         #
+        # Semantic classification.
+        #
+
+        observations = []
+
+        for logical_object in logical_objects:
+            evidence = (
+                self.logical_object_evidence_extractor.extract(
+                    image=screenshot.image,
+                    logical_object=logical_object,
+                    roi_width=screenshot.width,
+                    roi_height=screenshot.height,
+                )
+            )
+
+            classification = (
+                self.interactive_classifier_v2.classify(
+                    evidence,
+                )
+            )
+
+            observations.append(
+                VisionObjectObservation(
+                    logical_object=logical_object,
+                    control_type=classification.control_type,
+                    confidence=classification.confidence,
+                )
+            )
+
+        #
         # Logical object graph.
         #
 
         context.logical_objects = logical_objects
-        context.tracked_objects = self.temporal_object_tracker.update(
-            logical_objects
+
+        context.tracked_objects = (
+            self.temporal_object_tracker.update(
+                observations,
+            )
         )
+
         context.logical_object_graph = (
             self.logical_object_graph_builder.build(
-                logical_objects
+                logical_objects,
             )
         )
 
@@ -193,9 +250,11 @@ class VisionPipeline:
         # Scene graph.
         #
 
-        context.scene_graph = self.scene_graph_builder.build(
-            screenshot,
-            toolbar=toolbar,
+        context.scene_graph = (
+            self.scene_graph_builder.build(
+                screenshot,
+                toolbar=toolbar,
+            )
         )
 
         #
