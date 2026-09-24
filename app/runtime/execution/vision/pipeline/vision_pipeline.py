@@ -48,6 +48,9 @@ from app.runtime.execution.vision.models.scene_graph_builder import (
 from app.runtime.execution.vision.analyzers.logical_object_graph_builder import (
     LogicalObjectGraphBuilder,
 )
+from app.runtime.execution.vision.tracking.temporal_object_tracker import (
+    TemporalObjectTracker,
+)
 
 
 class VisionPipeline:
@@ -76,6 +79,7 @@ class VisionPipeline:
 
         self.scene_graph_builder = SceneGraphBuilder()
         self.logical_object_graph_builder = LogicalObjectGraphBuilder()
+        self.temporal_object_tracker = TemporalObjectTracker()
 
     def observe(self):
 
@@ -176,6 +180,9 @@ class VisionPipeline:
         #
 
         context.logical_objects = logical_objects
+        context.tracked_objects = self.temporal_object_tracker.update(
+            logical_objects
+        )
         context.logical_object_graph = (
             self.logical_object_graph_builder.build(
                 logical_objects

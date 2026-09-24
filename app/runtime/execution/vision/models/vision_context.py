@@ -7,6 +7,7 @@ from app.runtime.execution.vision.models.canvas import Canvas
 from app.runtime.execution.vision.models.rect import Rect
 from app.runtime.execution.vision.models.logical_object import LogicalObject
 from app.runtime.execution.vision.models.logical_object_graph import LogicalObjectGraph
+from app.runtime.execution.vision.models.tracked_object import TrackedObject
 
 
 @dataclass(slots=True)
@@ -21,6 +22,7 @@ class VisionContext:
     controls: list = None
 
     logical_objects: list[LogicalObject] = field(default_factory=list)
+    tracked_objects: list[TrackedObject] = field(default_factory=list)
     logical_object_graph: LogicalObjectGraph | None = None
 
     scene_graph: object | None = None
