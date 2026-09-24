@@ -45,6 +45,9 @@ from app.runtime.execution.vision.models.vision_context import (
 from app.runtime.execution.vision.models.scene_graph_builder import (
     SceneGraphBuilder,
 )
+from app.runtime.execution.vision.analyzers.logical_object_graph_builder import (
+    LogicalObjectGraphBuilder,
+)
 
 
 class VisionPipeline:
@@ -72,6 +75,7 @@ class VisionPipeline:
         self.roi_debug = ROIDebug()
 
         self.scene_graph_builder = SceneGraphBuilder()
+        self.logical_object_graph_builder = LogicalObjectGraphBuilder()
 
     def observe(self):
 
@@ -139,11 +143,17 @@ class VisionPipeline:
         # Controls.
         #
 
+        logical_objects = []
+
         for section in toolbar.children:
 
             self.control_detector.analyze(
                 screenshot,
                 section,
+            )
+
+            logical_objects.extend(
+                self.control_detector.last_logical_objects
             )
 
             #
@@ -160,6 +170,17 @@ class VisionPipeline:
                 self.roi_debug.save(
                     roi,
                 )
+
+        #
+        # Logical object graph.
+        #
+
+        context.logical_objects = logical_objects
+        context.logical_object_graph = (
+            self.logical_object_graph_builder.build(
+                logical_objects
+            )
+        )
 
         #
         # Scene graph.
