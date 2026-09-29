@@ -88,3 +88,46 @@ def test_conflicting_explicit_capabilities_are_rejected():
     assert result.capability is InteractionCapability.UNKNOWN
     assert result.confidence == 0.0
     assert result.candidate is None
+
+
+
+def test_unknown_explicit_capability_does_not_block_button_inference():
+    result = InteractionCapabilityResolver().resolve(
+        (
+            evidence(
+                kind=EvidenceKind.INTERACTION_CAPABILITY,
+                value="unknown",
+                confidence=1.0,
+            ),
+            evidence(
+                kind=EvidenceKind.CONTROL_TYPE,
+                value="button",
+                confidence=0.8,
+            ),
+        ),
+    )
+
+    assert result.capability is InteractionCapability.CLICKABLE
+    assert result.confidence == 0.8
+
+
+def test_observed_not_interactive_capability_overrides_visual_button_inference():
+    result = InteractionCapabilityResolver().resolve(
+        (
+            evidence(
+                source=EvidenceSource.ACCESSIBILITY,
+                kind=EvidenceKind.INTERACTION_CAPABILITY,
+                value="not_interactive",
+                confidence=0.99,
+            ),
+            evidence(
+                source=EvidenceSource.VISUAL,
+                kind=EvidenceKind.CONTROL_TYPE,
+                value="button",
+                confidence=0.95,
+            ),
+        ),
+    )
+
+    assert result.capability is InteractionCapability.NOT_INTERACTIVE
+    assert result.confidence == 0.99
