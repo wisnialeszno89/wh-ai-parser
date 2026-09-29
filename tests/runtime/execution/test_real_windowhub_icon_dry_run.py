@@ -23,7 +23,12 @@ class ProbeSafetyGate:
     production ICON execution policy.
     """
 
-    def can_execute(self, tracked_object, action):
+    def can_execute(
+        self,
+        tracked_object,
+        action,
+        **_,
+    ):
         return (
             action is InteractionAction.CLICK
             and tracked_object.control_type is not None
