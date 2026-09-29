@@ -200,6 +200,8 @@ class AgentControlLoop:
 
         failure_records = []
 
+        replan_records = []
+
         step_results = []
 
         step_transitions = []
@@ -335,6 +337,9 @@ class AgentControlLoop:
                 failure_records=tuple(
                     failure_records
                 ),
+                replan_records=tuple(
+                    replan_records
+                ),
                 success=success,
                 requires_manual_review=(
                     requires_manual_review
@@ -342,7 +347,28 @@ class AgentControlLoop:
                 stopped=stopped,
             )
 
-        for step in plan.steps:
+        active_steps = list(plan.steps)
+        active_plan = plan
+        step_position = 0
+        replan_count = 0
+        next_replanned_step_index = (
+            max(
+                (
+                    step.index
+                    for step in active_steps
+                ),
+                default=0,
+            )
+            + 1
+        )
+
+        while step_position < len(
+            active_steps
+        ):
+
+            step = active_steps[
+                step_position
+            ]
 
             action = step.action
 
