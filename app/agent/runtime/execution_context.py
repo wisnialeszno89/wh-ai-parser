@@ -84,6 +84,14 @@ class ExecutionContext:
             scene.observation
         )
 
+        execution_runtime = scene.metadata.get(
+            "execution_runtime"
+        )
+
+        if isinstance(execution_runtime, dict):
+            for key, value in execution_runtime.items():
+                self.set_value(key, value)
+
     def set_value(
         self,
         key: str,
