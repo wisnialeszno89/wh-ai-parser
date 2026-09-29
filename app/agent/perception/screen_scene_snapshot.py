@@ -1,6 +1,7 @@
 ﻿from dataclasses import dataclass
 from typing import Mapping
 
+
 @dataclass(frozen=True)
 class ScreenElementSnapshot:
     element_id: str | None
@@ -11,6 +12,7 @@ class ScreenElementSnapshot:
     width: int | None
     height: int | None
     confidence: float | None
+    interaction_capability: str
     metadata: Mapping[str, object]
 
 
@@ -35,6 +37,9 @@ class ScreenSceneSnapshot:
                 width=element.width,
                 height=element.height,
                 confidence=element.confidence,
+                interaction_capability=cls._normalize_kind(
+                    element.interaction_capability,
+                ),
                 metadata=dict(element.metadata or {}),
             )
             for element in scene.elements
