@@ -158,22 +158,9 @@ class ScreenElementFusion:
 
             if (
                 element_source == representative_source
-                and self._safe_same_source_match(
-                    identity.shared_id,
-                    representative_identity.shared_id,
-                    element_source,
-                    shared_id_counts,
-                )
-            ):
-                return group_index
-
-            if (
-                element_source == representative_source
-                and self._safe_same_source_match(
+                and self._same_source_tracked_object_match(
                     identity.tracked_object_id,
                     representative_identity.tracked_object_id,
-                    element_source,
-                    tracked_object_id_counts,
                 )
             ):
                 return group_index
@@ -217,6 +204,18 @@ class ScreenElementFusion:
                 return group_index
 
         return None
+
+    @staticmethod
+    def _same_source_tracked_object_match(
+        left_value: str | None,
+        right_value: str | None,
+    ) -> bool:
+        return (
+            bool(left_value)
+            and bool(right_value)
+            and left_value.casefold()
+            == right_value.casefold()
+        )
 
     @staticmethod
     def _safe_same_source_match(
