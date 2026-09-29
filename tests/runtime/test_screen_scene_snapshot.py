@@ -1,3 +1,5 @@
+from enum import Enum
+
 from app.agent.perception.interaction_capability import (
     InteractionCapability,
 )
@@ -11,7 +13,7 @@ from app.agent.perception.semantic_evidence import (
 )
 
 
-class FakeControlType(str, __import__("enum").Enum):
+class FakeControlType(str, Enum):
     ICON = "icon"
 
 
