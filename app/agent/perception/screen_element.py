@@ -1,6 +1,10 @@
 from dataclasses import dataclass
 from typing import Mapping
 
+from app.agent.perception.interaction_capability import (
+    InteractionCapability,
+)
+
 
 @dataclass(frozen=True)
 class ScreenElement:
@@ -8,6 +12,7 @@ class ScreenElement:
     Semantic representation of a single element visible
     in the observed screen environment.
 
+    Visual type and interaction capability are separate contracts.
     The element remains independent from the technology
     used to detect it.
 
@@ -30,6 +35,10 @@ class ScreenElement:
     height: int | None = None
 
     confidence: float | None = None
+
+    interaction_capability: InteractionCapability = (
+        InteractionCapability.UNKNOWN
+    )
 
     metadata: Mapping[str, object] | None = None
 
