@@ -1,16 +1,29 @@
-﻿from enum import Enum
-
-from app.agent.perception.interaction_capability import InteractionCapability
+from app.agent.perception.interaction_capability import (
+    InteractionCapability,
+)
 from app.agent.perception.screen_element import ScreenElement
 from app.agent.perception.screen_scene import ScreenScene
 from app.agent.perception.screen_scene_snapshot import ScreenSceneSnapshot
+from app.agent.perception.semantic_evidence import (
+    EvidenceKind,
+    EvidenceSource,
+    SemanticEvidence,
+)
 
 
-class FakeControlType(str, Enum):
+class FakeControlType(str, __import__("enum").Enum):
     ICON = "icon"
 
 
 def test_snapshot_preserves_scene_evidence():
+    evidence = SemanticEvidence(
+        source=EvidenceSource.VISUAL,
+        kind=EvidenceKind.CONTROL_TYPE,
+        value="icon",
+        confidence=0.772,
+        element_id="TO-0001",
+    )
+
     element = ScreenElement(
         kind=FakeControlType.ICON,
         label="TO-0001",
@@ -20,6 +33,7 @@ def test_snapshot_preserves_scene_evidence():
         height=16,
         confidence=0.772,
         interaction_capability=InteractionCapability.UNKNOWN,
+        evidence=(evidence,),
         metadata={
             "tracked_object_id": "TO-0001",
             "control_type": "icon",
@@ -53,6 +67,17 @@ def test_snapshot_preserves_scene_evidence():
     assert item.height == 16
     assert item.confidence == 0.772
     assert item.interaction_capability == "unknown"
+    assert item.evidence == (
+        {
+            "source": "visual",
+            "kind": "control_type",
+            "value": "icon",
+            "confidence": 0.772,
+            "element_id": "TO-0001",
+            "observed": True,
+            "metadata": {},
+        },
+    )
 
     assert item.metadata["tracked_object_id"] == "TO-0001"
     assert item.metadata["status"] == "stable"
@@ -76,3 +101,4 @@ def test_snapshot_normalizes_control_type_enum():
     snapshot = ScreenSceneSnapshot.from_scene(scene)
 
     assert snapshot.elements[0].kind == "icon"
+    assert snapshot.elements[0].evidence == ()
