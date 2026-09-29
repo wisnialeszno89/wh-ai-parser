@@ -384,6 +384,8 @@ def test_retry_uses_fresh_runtime_state_from_reperception():
     )
 
     assert result.success is True
+    assert result.attempts[-1].verification_result is not None
+    assert result.attempts[-1].verification_result.verified is True
     assert len(result.attempts) == 2
     assert executor.seen_generations == (
         ["stale", "fresh-1"]
