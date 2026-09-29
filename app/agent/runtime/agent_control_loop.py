@@ -22,6 +22,14 @@ from app.agent.planning.action_plan import (
     ActionPlan,
 )
 
+from app.agent.planning.action_step import (
+    ActionStep,
+)
+
+from app.agent.planning.plan_replanner import (
+    PlanReplanner,
+)
+
 from app.agent.runtime.action_failure_decision import (
     ActionFailureDecision,
 )
@@ -81,6 +89,10 @@ from app.agent.runtime.verification_loop import (
     VerificationLoop,
 )
 
+from app.agent.runtime.plan_replan_record import (
+    PlanReplanRecord,
+)
+
 
 class AgentControlLoop:
     """
@@ -126,6 +138,8 @@ class AgentControlLoop:
         action_failure_policy: (
             ActionFailurePolicy | None
         ) = None,
+        replanner: PlanReplanner | None = None,
+        max_replans: int = 1,
     ) -> None:
 
         self.environment_runtime = (
@@ -153,6 +167,14 @@ class AgentControlLoop:
             if action_failure_policy is not None
             else DefaultActionFailurePolicy()
         )
+
+        if max_replans < 0:
+            raise ValueError(
+                "max_replans must be non-negative."
+            )
+
+        self.replanner = replanner
+        self.max_replans = max_replans
 
     def run(
         self,
