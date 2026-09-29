@@ -131,7 +131,7 @@ class VerificationLoop:
                     self.environment.observe()
                 )
 
-                context.last_observation = (
+                context.update_observation(
                     observation
                 )
 
@@ -141,7 +141,7 @@ class VerificationLoop:
                     )
                 )
 
-                context.current_scene = scene
+                context.update_scene(scene)
 
                 if expected_outcome is not None:
 
