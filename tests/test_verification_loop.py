@@ -249,3 +249,134 @@ def test_loop_respects_max_attempts():
     assert len(
         result.attempts
     ) <= 2
+
+
+class RuntimeAwareExecutor:
+
+    def __init__(self):
+        self.seen_generations = []
+
+    def supports(
+        self,
+        action: AgentAction,
+    ) -> bool:
+        return True
+
+    def execute(
+        self,
+        action: AgentAction,
+        context: ExecutionContext,
+    ) -> ExecutionResult:
+        self.seen_generations.append(
+            context.get_value("generation")
+        )
+
+        return ExecutionResult(
+            action_name=action.name,
+            success=True,
+            message="Action executed.",
+        )
+
+
+class SequencedPerceptionEngine:
+
+    def __init__(self):
+        self.calls = 0
+
+    def perceive(
+        self,
+        observation: EnvironmentObservation,
+    ) -> ScreenScene:
+        self.calls += 1
+
+        return ScreenScene(
+            observation=observation,
+            metadata={
+                "execution_runtime": {
+                    "generation": f"fresh-{self.calls}",
+                },
+            },
+        )
+
+
+class StaticExpectationResolver:
+
+    def resolve(
+        self,
+        action: AgentAction,
+        context: ExecutionContext,
+    ) -> ExpectedOutcome:
+        return ExpectedOutcome(
+            description="verification required"
+        )
+
+
+class SequencedOutcomeVerifier:
+
+    def __init__(self):
+        self.calls = 0
+
+    def verify(
+        self,
+        expected: ExpectedOutcome,
+        scene: ScreenScene,
+    ) -> VerificationResult:
+        self.calls += 1
+
+        if self.calls == 1:
+            return VerificationResult(
+                verified=False,
+                reason="First verification intentionally fails.",
+            )
+
+        return VerificationResult(
+            verified=True,
+            reason="Second verification succeeds.",
+        )
+
+
+def test_retry_uses_fresh_runtime_state_from_reperception():
+
+    executor = RuntimeAwareExecutor()
+
+    registry = ExecutorRegistry(
+        executors=(executor,)
+    )
+
+    environment = FakeEnvironment(
+        state=create_observation().state
+    )
+
+    perception_engine = SequencedPerceptionEngine()
+
+    loop = VerificationLoop(
+        execution_engine=ExecutionEngine(
+            registry
+        ),
+        environment=environment,
+        perception_engine=perception_engine,
+        expectation_resolver=StaticExpectationResolver(),
+        outcome_verifier=SequencedOutcomeVerifier(),
+        max_attempts=2,
+    )
+
+    context = create_context()
+    context.set_value(
+        "generation",
+        "stale",
+    )
+
+    result = loop.run(
+        create_action(),
+        context,
+    )
+
+    assert result.success is True
+    assert len(result.attempts) == 2
+    assert executor.seen_generations == (
+        ["stale", "fresh-1"]
+    )
+    assert (
+        context.get_value("generation")
+        == "fresh-2"
+    )
