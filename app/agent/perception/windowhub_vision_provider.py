@@ -79,15 +79,6 @@ class WindowHubVisionProvider(PerceptionProvider):
             if tracked_object.status is not TrackedObjectStatus.LOST
         )
 
-    @staticmethod
-    def _interaction_capability(
-        control_type,
-    ) -> InteractionCapability:
-        if control_type == ControlType.BUTTON:
-            return InteractionCapability.CLICKABLE
-
-        return InteractionCapability.UNKNOWN
-
     @classmethod
     def _to_screen_element(
         cls,
@@ -140,6 +131,7 @@ class WindowHubVisionProvider(PerceptionProvider):
             height=bounds.height,
             confidence=tracked_object.confidence,
             interaction_capability=interaction_capability,
+            evidence=evidence,
             metadata={
                 "source": "windowhub_vision_pipeline",
                 "tracked_object_id": tracked_object.id,
