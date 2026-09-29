@@ -89,13 +89,23 @@ class RobotActionExecutor:
                 reason="Action policy rejected action",
             )
 
+        safety_gate_kwargs = {}
+
+        if (
+            interaction_capability is not None
+            or interaction_capability_confidence is not None
+        ):
+            safety_gate_kwargs = {
+                "interaction_capability": interaction_capability,
+                "interaction_capability_confidence": (
+                    interaction_capability_confidence
+                ),
+            }
+
         if not self.safety_gate.can_execute(
             tracked_object,
             action,
-            interaction_capability=interaction_capability,
-            interaction_capability_confidence=(
-                interaction_capability_confidence
-            ),
+            **safety_gate_kwargs,
         ):
             return RobotActionResult(
                 False,
