@@ -1,38 +1,36 @@
-﻿from app.agent.environment.environment_observation import (
+from app.agent.environment.environment_observation import (
     EnvironmentObservation,
 )
-
 from app.agent.perception.perception_engine import (
     PerceptionEngine,
 )
-
 from app.agent.perception.screen_element import (
     ScreenElement,
 )
-
+from app.agent.perception.screen_element_fusion import (
+    ScreenElementFusion,
+)
 from app.runtime.execution.vision.models.tracked_object import (
     TrackedObject,
     TrackedObjectStatus,
 )
-
 from app.runtime.execution.vision.pipeline.vision_pipeline import (
     VisionPipeline,
 )
 
 
-class RobotVisionPerceptionEngine(PerceptionEngine):
+class LegacyRobotVisionProvider:
     """
-    Agent perception adapter backed by the robot VisionPipeline.
+    Compatibility adapter for the legacy RobotVisionPerceptionEngine path.
 
-    The agent sees only generic ScreenScene / ScreenElement objects.
-    Robot-specific tracked-object data is preserved in metadata.
+    New Universal Agent Core code should use WindowHubVisionProvider through
+    the provider-driven PerceptionEngine.
     """
 
     def __init__(
         self,
         vision_pipeline: VisionPipeline | None = None,
     ) -> None:
-        super().__init__()
         self.vision_pipeline = (
             vision_pipeline
             if vision_pipeline is not None
@@ -42,29 +40,18 @@ class RobotVisionPerceptionEngine(PerceptionEngine):
     def perceive(
         self,
         observation: EnvironmentObservation,
-    ):
+    ) -> tuple[ScreenElement, ...]:
         context = self.vision_pipeline.observe()
 
-        elements = tuple(
-            self._to_screen_element(
-                tracked_object,
-            )
-            for tracked_object in context.tracked_objects
-            if tracked_object.status
-            is not TrackedObjectStatus.LOST
+        tracked_objects = tuple(
+            context.tracked_objects or ()
         )
 
-        scene = super().perceive(observation)
-
-        return type(scene)(
-            observation=observation,
-            elements=elements,
-            metadata={
-                "vision_source": "VisionPipeline",
-                "tracked_object_count": len(
-                    context.tracked_objects
-                ),
-            },
+        return tuple(
+            self._to_screen_element(tracked_object)
+            for tracked_object in tracked_objects
+            if tracked_object.status
+            is not TrackedObjectStatus.LOST
         )
 
     @staticmethod
@@ -85,6 +72,7 @@ class RobotVisionPerceptionEngine(PerceptionEngine):
             height=bounds.height,
             confidence=tracked_object.confidence,
             metadata={
+                "source": "legacy_robot_vision",
                 "tracked_object_id": tracked_object.id,
                 "control_type": tracked_object.control_type,
                 "status": tracked_object.status.value,
@@ -94,3 +82,31 @@ class RobotVisionPerceptionEngine(PerceptionEngine):
                 ),
             },
         )
+
+
+class RobotVisionPerceptionEngine(PerceptionEngine):
+    """
+    Legacy compatibility facade.
+
+    Prefer the provider-driven PerceptionEngine with
+    WindowHubVisionProvider for all new Universal Agent Core code.
+    """
+
+    def __init__(
+        self,
+        vision_pipeline: VisionPipeline | None = None,
+    ) -> None:
+        super().__init__(
+            providers=(
+                LegacyRobotVisionProvider(
+                    vision_pipeline=vision_pipeline,
+                ),
+            ),
+            element_fusion=ScreenElementFusion(),
+        )
+
+    def perceive(
+        self,
+        observation: EnvironmentObservation,
+    ):
+        return super().perceive(observation)
