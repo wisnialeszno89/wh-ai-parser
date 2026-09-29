@@ -67,3 +67,21 @@ def test_empty_metadata_is_normalized():
     identity = ScreenElementIdentityResolver().resolve(element)
 
     assert identity.has_strong_identity is False
+
+
+
+def test_shared_id_is_explicit_cross_provider_identity():
+    element = ScreenElement(
+        kind="button",
+        metadata={
+            "source": "accessibility",
+            "shared_id": "shared-42",
+            "provider_element_id": "uia-42",
+        },
+    )
+
+    identity = ScreenElementIdentityResolver().resolve(element)
+
+    assert identity.shared_id == "shared-42"
+    assert identity.source == "accessibility"
+    assert identity.has_strong_identity is True
