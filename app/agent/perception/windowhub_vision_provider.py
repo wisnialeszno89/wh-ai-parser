@@ -48,11 +48,13 @@ class WindowHubVisionProvider(PerceptionProvider):
             screenshot=observation.metadata.get("screenshot"),
         )
 
+        tracked_objects = tuple(
+            context.tracked_objects or ()
+        )
+
         scene_graph = context.scene_graph
         observation.metadata["execution_runtime"] = {
-            "robot_tracked_objects": tuple(
-                context.tracked_objects or ()
-            ),
+            "robot_tracked_objects": tracked_objects,
             "gui_object_root": (
                 scene_graph.root
                 if scene_graph is not None
@@ -62,7 +64,7 @@ class WindowHubVisionProvider(PerceptionProvider):
 
         return tuple(
             self._to_screen_element(tracked_object)
-            for tracked_object in context.tracked_objects
+            for tracked_object in tracked_objects
             if tracked_object.status is not TrackedObjectStatus.LOST
         )
 
