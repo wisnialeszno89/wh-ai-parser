@@ -236,3 +236,65 @@ def test_conflicting_explicit_capabilities_remain_unknown_after_fusion():
         result.elements[0].interaction_capability
         is InteractionCapability.UNKNOWN
     )
+
+
+
+def test_shared_id_fuses_across_providers_without_geometry_inference():
+    items = (
+        element(
+            source="vision",
+            kind="icon",
+            metadata={"shared_id": "shared-42"},
+            evidence_items=(
+                evidence(
+                    source=EvidenceSource.VISUAL,
+                    value="icon",
+                    confidence=0.676,
+                ),
+            ),
+        ),
+        element(
+            source="accessibility",
+            kind="button",
+            metadata={"shared_id": "shared-42"},
+            evidence_items=(
+                evidence(
+                    source=EvidenceSource.ACCESSIBILITY,
+                    kind=EvidenceKind.INTERACTION_CAPABILITY,
+                    value="clickable",
+                    confidence=0.99,
+                ),
+            ),
+        ),
+    )
+
+    result = ScreenElementFusion().fuse(items)
+
+    assert len(result.elements) == 1
+    assert result.merged_group_count == 1
+    assert result.elements[0].interaction_capability is InteractionCapability.CLICKABLE
+
+
+def test_same_shared_id_duplicate_within_one_provider_is_not_fused_cross_provider():
+    items = (
+        element(
+            source="vision",
+            kind="icon",
+            metadata={"shared_id": "shared-42"},
+        ),
+        element(
+            source="vision",
+            kind="icon",
+            metadata={"shared_id": "shared-42"},
+        ),
+        element(
+            source="accessibility",
+            kind="button",
+            metadata={"shared_id": "shared-42"},
+        ),
+    )
+
+    result = ScreenElementFusion().fuse(items)
+
+    assert len(result.elements) == 3
+    assert result.merged_group_count == 0
