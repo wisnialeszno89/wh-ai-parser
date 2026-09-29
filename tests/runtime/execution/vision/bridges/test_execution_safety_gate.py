@@ -52,6 +52,58 @@ def test_icon_is_rejected():
     ) is False
 
 
+def test_icon_can_be_allowed_by_explicit_clickable_capability():
+    gate = ExecutionSafetyGate()
+
+    track = make_track(ControlType.ICON)
+
+    assert gate.can_execute(
+        track,
+        InteractionAction.CLICK,
+        interaction_capability="clickable",
+        interaction_capability_confidence=0.99,
+    ) is True
+
+
+def test_unknown_capability_is_rejected_even_for_button():
+    gate = ExecutionSafetyGate()
+
+    track = make_track(ControlType.BUTTON)
+
+    assert gate.can_execute(
+        track,
+        InteractionAction.CLICK,
+        interaction_capability="unknown",
+        interaction_capability_confidence=0.99,
+    ) is False
+
+
+def test_not_interactive_capability_is_rejected_even_for_button():
+    gate = ExecutionSafetyGate()
+
+    track = make_track(ControlType.BUTTON)
+
+    assert gate.can_execute(
+        track,
+        InteractionAction.CLICK,
+        interaction_capability="not_interactive",
+        interaction_capability_confidence=0.99,
+    ) is False
+
+
+def test_clickable_capability_requires_positive_capability_confidence():
+    gate = ExecutionSafetyGate()
+
+    track = make_track(ControlType.ICON)
+
+    assert gate.can_execute(
+        track,
+        InteractionAction.CLICK,
+        interaction_capability="clickable",
+        interaction_capability_confidence=0.0,
+    ) is False
+
+
 def test_unknown_is_rejected():
     gate = ExecutionSafetyGate()
 
