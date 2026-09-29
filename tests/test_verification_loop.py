@@ -29,6 +29,18 @@ from app.agent.perception.perception_engine import (
     PerceptionEngine,
 )
 
+from app.agent.perception.screen_scene import (
+    ScreenScene,
+)
+
+from app.agent.verification.expected_outcome import (
+    ExpectedOutcome,
+)
+
+from app.agent.verification.verification_result import (
+    VerificationResult,
+)
+
 from app.agent.runtime.execution_context import (
     ExecutionContext,
 )
