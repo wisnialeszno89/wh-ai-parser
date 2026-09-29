@@ -1,5 +1,8 @@
-﻿from app.agent.environment.environment_observation import (
+from app.agent.environment.environment_observation import (
     EnvironmentObservation,
+)
+from app.agent.perception.interaction_capability import (
+    InteractionCapability,
 )
 from app.agent.perception.perception_provider import (
     PerceptionProvider,
@@ -69,12 +72,25 @@ class WindowHubVisionProvider(PerceptionProvider):
         )
 
     @staticmethod
+    def _interaction_capability(
+        control_type,
+    ) -> InteractionCapability:
+        if control_type == ControlType.BUTTON:
+            return InteractionCapability.CLICKABLE
+
+        return InteractionCapability.UNKNOWN
+
+    @classmethod
     def _to_screen_element(
+        cls,
         tracked_object: TrackedObject,
     ) -> ScreenElement:
 
         bounds = tracked_object.object.bounds
         control_type = tracked_object.control_type
+        interaction_capability = cls._interaction_capability(
+            control_type,
+        )
 
         return ScreenElement(
             kind=(
@@ -88,6 +104,7 @@ class WindowHubVisionProvider(PerceptionProvider):
             width=bounds.width,
             height=bounds.height,
             confidence=tracked_object.confidence,
+            interaction_capability=interaction_capability,
             metadata={
                 "source": "windowhub_vision_pipeline",
                 "tracked_object_id": tracked_object.id,
@@ -96,8 +113,12 @@ class WindowHubVisionProvider(PerceptionProvider):
                     if control_type is not None
                     else None
                 ),
+                "interaction_capability": (
+                    interaction_capability.value
+                ),
                 "interactive": (
-                    control_type == ControlType.BUTTON
+                    interaction_capability
+                    is InteractionCapability.CLICKABLE
                 ),
                 "status": tracked_object.status.value,
                 "stability": tracked_object.stability,
