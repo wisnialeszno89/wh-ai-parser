@@ -106,6 +106,7 @@ def test_robot_vision_perception_maps_tracked_object():
 
     assert element.kind == ControlType.ICON
     assert element.label == "TO-0004"
+    assert element.metadata["source"] == "legacy_robot_vision"
     assert element.x == 100
     assert element.y == 200
     assert element.width == 30
@@ -157,5 +158,7 @@ def test_robot_vision_perception_preserves_scene_metadata():
         make_observation()
     )
 
-    assert scene.metadata["vision_source"] == "VisionPipeline"
-    assert scene.metadata["tracked_object_count"] == 1
+    assert scene.metadata["provider_count"] == 1
+    assert scene.metadata["raw_element_count"] == 1
+    assert scene.metadata["element_count"] == 1
+    assert scene.metadata["merged_group_count"] == 0
