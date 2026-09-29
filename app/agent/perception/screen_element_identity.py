@@ -6,13 +6,15 @@ from app.agent.perception.screen_element import ScreenElement
 @dataclass(frozen=True)
 class ScreenElementIdentity:
     """
-    Stable semantic identity hints for a ScreenElement.
+    Stable identity hints for a ScreenElement.
 
-    Identity is intentionally separate from geometry and interaction
-    capability so provider fusion can remain conservative.
+    Identity is separate from geometry and interaction capability.
+    A shared_id is an explicit cross-provider correlation key; it must
+    never be inferred from geometry.
     """
 
     source: str | None = None
+    shared_id: str | None = None
     provider_id: str | None = None
     semantic_name: str | None = None
     tracked_object_id: str | None = None
@@ -23,6 +25,7 @@ class ScreenElementIdentity:
         return any(
             value
             for value in (
+                self.shared_id,
                 self.tracked_object_id,
                 self.provider_id,
                 self.semantic_name,
@@ -33,16 +36,19 @@ class ScreenElementIdentity:
 
 class ScreenElementIdentityResolver:
     """
-    Extract identity hints from a ScreenElement.
+    Extract explicit identity hints from a ScreenElement.
 
-    v1 uses explicit provider/semantic identifiers only.
-    It deliberately does not infer identity from geometry alone.
+    Identity may originate from provider-defined correlation keys,
+    automation IDs, semantic names, tracked-object IDs or labels.
+
+    Geometry is intentionally excluded.
     """
 
     def resolve(self, element: ScreenElement) -> ScreenElementIdentity:
         metadata = element.metadata or {}
 
         source = self._string(metadata.get("source"))
+        shared_id = self._string(metadata.get("shared_id"))
         tracked_object_id = self._string(
             metadata.get("tracked_object_id")
         )
@@ -63,6 +69,7 @@ class ScreenElementIdentityResolver:
 
         return ScreenElementIdentity(
             source=source,
+            shared_id=shared_id,
             provider_id=provider_id,
             semantic_name=semantic_name,
             tracked_object_id=tracked_object_id,
