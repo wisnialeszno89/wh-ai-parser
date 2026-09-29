@@ -30,10 +30,11 @@ class InteractionCapabilityResolver:
     Resolve interaction capability from the existing SemanticEvidence model.
 
     The resolver intentionally starts conservative:
-    - explicit observed capability evidence wins when unambiguous
+    - observed capability evidence overrides inferred visual evidence
+    - UNKNOWN capability evidence means absence of knowledge and is ignored
     - BUTTON control-type evidence can infer CLICKABLE
     - ICON and all other currently known visual types remain UNKNOWN
-    - conflicting explicit evidence remains UNKNOWN
+    - conflicting explicit capability evidence remains UNKNOWN
 
     This class contains semantic inference only. It does not authorize
     actions and does not bypass SafetyGate.
@@ -52,25 +53,26 @@ class InteractionCapabilityResolver:
             if (
                 item.observed
                 and item.kind is EvidenceKind.INTERACTION_CAPABILITY
+                and self._parse_capability(item.value)
+                is not InteractionCapability.UNKNOWN
+                and self._parse_capability(item.value) is not None
             )
         )
 
-        explicit_values = {
+        explicit_capabilities = {
             self._parse_capability(item.value)
             for item in explicit
         }
 
-        explicit_values.discard(None)
-
-        if len(explicit_values) > 1:
+        if len(explicit_capabilities) > 1:
             return InteractionCapabilityResolution(
                 capability=InteractionCapability.UNKNOWN,
                 confidence=0.0,
                 reason="Conflicting observed interaction capability evidence.",
             )
 
-        if len(explicit_values) == 1:
-            capability = next(iter(explicit_values))
+        if len(explicit_capabilities) == 1:
+            capability = next(iter(explicit_capabilities))
             strongest = max(
                 explicit,
                 key=lambda item: item.confidence,
