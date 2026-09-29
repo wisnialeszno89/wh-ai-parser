@@ -1,4 +1,4 @@
-﻿from dataclasses import dataclass
+from dataclasses import dataclass
 from typing import Mapping
 
 
@@ -13,6 +13,7 @@ class ScreenElementSnapshot:
     height: int | None
     confidence: float | None
     interaction_capability: str
+    evidence: tuple[Mapping[str, object], ...]
     metadata: Mapping[str, object]
 
 
@@ -40,6 +41,10 @@ class ScreenSceneSnapshot:
                 interaction_capability=cls._normalize_kind(
                     element.interaction_capability,
                 ),
+                evidence=tuple(
+                    cls._evidence_to_mapping(item)
+                    for item in element.evidence
+                ),
                 metadata=dict(element.metadata or {}),
             )
             for element in scene.elements
@@ -49,6 +54,18 @@ class ScreenSceneSnapshot:
             elements=elements,
             metadata=dict(scene.metadata),
         )
+
+    @staticmethod
+    def _evidence_to_mapping(evidence):
+        return {
+            "source": ScreenSceneSnapshot._normalize_kind(evidence.source),
+            "kind": ScreenSceneSnapshot._normalize_kind(evidence.kind),
+            "value": evidence.value,
+            "confidence": evidence.confidence,
+            "element_id": evidence.element_id,
+            "observed": evidence.observed,
+            "metadata": dict(evidence.metadata),
+        }
 
     @staticmethod
     def _normalize_kind(value):
