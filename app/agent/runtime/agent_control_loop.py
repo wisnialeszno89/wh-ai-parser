@@ -638,6 +638,173 @@ class AgentControlLoop:
                     ActionStepStatus.FAILED
                 )
 
+                attempts = len(
+                    execution_result.attempts
+                )
+
+                last_attempt = (
+                    execution_result.last_attempt
+                )
+
+                reason = ""
+
+                if (
+                    last_attempt is not None
+                    and last_attempt
+                    .verification_result is not None
+                    and not last_attempt
+                    .verification_result
+                    .verified
+                ):
+                    reason = (
+                        last_attempt
+                        .verification_result
+                        .reason
+                    )
+                elif last_attempt is not None:
+                    reason = (
+                        last_attempt
+                        .execution_result
+                        .message
+                    )
+
+                verification_failed = (
+                    last_attempt is not None
+                    and last_attempt
+                    .execution_result
+                    .success
+                    and last_attempt
+                    .verification_result is not None
+                    and not last_attempt
+                    .verification_result
+                    .verified
+                )
+
+                if (
+                    verification_failed
+                    and self.replanner is not None
+                    and replan_count
+                    < self.max_replans
+                ):
+                    replanned_plan = (
+                        self.replanner.replan(
+                            plan=active_plan,
+                            failed_step=step,
+                            execution_result=(
+                                execution_result
+                            ),
+                            context=context,
+                        )
+                    )
+
+                    if (
+                        replanned_plan is not None
+                        and replanned_plan.steps
+                        and not (
+                            replanned_plan
+                            .requires_manual_review
+                        )
+                    ):
+                        replacement_steps = []
+
+                        for (
+                            replanned_step
+                        ) in replanned_plan.steps:
+                            replacement_steps.append(
+                                ActionStep(
+                                    index=(
+                                        next_replanned_step_index
+                                    ),
+                                    action=(
+                                        replanned_step
+                                        .action
+                                    ),
+                                )
+                            )
+
+                            next_replanned_step_index += 1
+
+                        replacement_names = tuple(
+                            replacement.action.name
+                            for replacement
+                            in replacement_steps
+                        )
+
+                        replan_count += 1
+
+                        failure_records.append(
+                            ActionFailureRecord(
+                                action_name=action.name,
+                                reason=reason,
+                                attempts=attempts,
+                                decision=(
+                                    ActionFailureDecision
+                                    .REPLAN
+                                ),
+                            )
+                        )
+
+                        replan_records.append(
+                            PlanReplanRecord(
+                                failed_action_name=(
+                                    action.name
+                                ),
+                                reason=reason,
+                                attempts=attempts,
+                                replacement_actions=(
+                                    replacement_names
+                                ),
+                            )
+                        )
+
+                        update_runtime_state(
+                            step.index,
+                            action.name,
+                            current_step_status,
+                            attempts=attempts,
+                            last_error=reason,
+                        )
+
+                        step_results.append(
+                            ActionStepResult(
+                                action_name=action.name,
+                                status=(
+                                    ActionStepStatus.FAILED
+                                ),
+                                reason=(
+                                    "Verification failed; "
+                                    "plan was replanned."
+                                ),
+                                attempts=attempts,
+                            )
+                        )
+
+                        active_steps[
+                            step_position:
+                        ] = replacement_steps
+
+                        active_plan = (
+                            ActionPlan(
+                                intent=(
+                                    replanned_plan
+                                    .intent
+                                ),
+                                steps=tuple(
+                                    replacement_steps
+                                ),
+                                confidence=(
+                                    replanned_plan
+                                    .confidence
+                                ),
+                                requires_manual_review=(
+                                    replanned_plan
+                                    .requires_manual_review
+                                ),
+                            )
+                        )
+
+                        continue
+
                 failure_decision = (
                     self.action_failure_policy.decide(
                         action,
@@ -645,24 +812,6 @@ class AgentControlLoop:
                         context,
                     )
                 )
-
-                attempts = len(
-                    execution_result.attempts
-                )
-
-                reason = ""
-
-                if execution_result.attempts:
-
-                    last_attempt = (
-                        execution_result.attempts[-1]
-                    )
-
-                    reason = (
-                        last_attempt
-                        .execution_result
-                        .message
-                    )
 
                 failure_record = (
                     ActionFailureRecord(
@@ -701,6 +850,7 @@ class AgentControlLoop:
                         )
                     )
 
+                    step_position += 1
                     continue
 
                 if (
@@ -723,6 +873,7 @@ class AgentControlLoop:
                         )
                     )
 
+                    step_position += 1
                     continue
 
                 if (
@@ -814,6 +965,8 @@ class AgentControlLoop:
                     requires_manual_review=True,
                     stopped=True,
                 )
+
+            step_position += 1
 
         return build_result(
             success=True,
