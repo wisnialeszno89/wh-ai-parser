@@ -1,5 +1,6 @@
 ﻿from enum import Enum
 
+from app.agent.perception.interaction_capability import InteractionCapability
 from app.agent.perception.screen_element import ScreenElement
 from app.agent.perception.screen_scene import ScreenScene
 from app.agent.perception.screen_scene_snapshot import ScreenSceneSnapshot
@@ -18,6 +19,7 @@ def test_snapshot_preserves_scene_evidence():
         width=16,
         height=16,
         confidence=0.772,
+        interaction_capability=InteractionCapability.UNKNOWN,
         metadata={
             "tracked_object_id": "TO-0001",
             "control_type": "icon",
@@ -50,6 +52,7 @@ def test_snapshot_preserves_scene_evidence():
     assert item.width == 16
     assert item.height == 16
     assert item.confidence == 0.772
+    assert item.interaction_capability == "unknown"
 
     assert item.metadata["tracked_object_id"] == "TO-0001"
     assert item.metadata["status"] == "stable"
