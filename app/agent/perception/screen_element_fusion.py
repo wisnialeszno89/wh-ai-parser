@@ -71,6 +71,10 @@ class ScreenElementFusion:
             for element in elements
         )
 
+        shared_id_counts = self._counts_by_source(
+            identities,
+            lambda identity: identity.shared_id,
+        )
         semantic_counts = self._counts_by_source(
             identities,
             lambda identity: identity.semantic_name,
@@ -87,6 +91,7 @@ class ScreenElementFusion:
                 index=index,
                 identity=identity,
                 identities=identities,
+                shared_id_counts=shared_id_counts,
                 semantic_counts=semantic_counts,
                 label_counts=label_counts,
                 groups=groups,
@@ -121,6 +126,7 @@ class ScreenElementFusion:
         index: int,
         identity: ScreenElementIdentity,
         identities: tuple[ScreenElementIdentity, ...],
+        shared_id_counts,
         semantic_counts,
         label_counts,
         groups: list[list[int]],
@@ -142,6 +148,12 @@ class ScreenElementFusion:
                 element_source == representative_source
                 and (
                     (
+                        identity.shared_id
+                        and representative_identity.shared_id
+                        and identity.shared_id
+                        == representative_identity.shared_id
+                    )
+                    or (
                         identity.tracked_object_id
                         and representative_identity.tracked_object_id
                         and identity.tracked_object_id
@@ -154,6 +166,15 @@ class ScreenElementFusion:
                         == representative_identity.provider_id
                     )
                 )
+            ):
+                return group_index
+
+            if self._safe_cross_provider_match(
+                identity.shared_id,
+                representative_identity.shared_id,
+                element_source,
+                representative_source,
+                shared_id_counts,
             ):
                 return group_index
 
