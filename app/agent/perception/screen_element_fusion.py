@@ -139,12 +139,21 @@ class ScreenElementFusion:
             )
 
             if (
-                identity.tracked_object_id
-                and representative_identity.tracked_object_id
-                and identity.tracked_object_id
-                == representative_identity.tracked_object_id
-                and element_source
-                == representative_source
+                element_source == representative_source
+                and (
+                    (
+                        identity.tracked_object_id
+                        and representative_identity.tracked_object_id
+                        and identity.tracked_object_id
+                        == representative_identity.tracked_object_id
+                    )
+                    or (
+                        identity.provider_id
+                        and representative_identity.provider_id
+                        and identity.provider_id
+                        == representative_identity.provider_id
+                    )
+                )
             ):
                 return group_index
 
@@ -224,11 +233,11 @@ class ScreenElementFusion:
         identity: ScreenElementIdentity,
         index: int,
     ) -> str:
+        if identity.source:
+            return identity.source
+
         if identity.provider_id:
             return f"provider:{identity.provider_id}"
-
-        if identity.tracked_object_id:
-            return f"tracked:{identity.tracked_object_id}"
 
         return f"anonymous:{index}"
 
