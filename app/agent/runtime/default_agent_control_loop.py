@@ -22,6 +22,10 @@ from app.agent.perception.perception_engine import (
     PerceptionEngine,
 )
 
+from app.agent.perception.perception_provider import (
+    PerceptionProvider,
+)
+
 from app.agent.runtime.agent_control_loop import (
     AgentControlLoop,
 )
@@ -43,45 +47,33 @@ def create_default_agent_control_loop(
     *,
     environment: EnvironmentAdapter,
     execution_engine: ExecutionEngine,
+    perception_providers: tuple[PerceptionProvider, ...] = (),
 ) -> AgentControlLoop:
     """
     Create a complete default agent control loop.
 
-    The factory wires together the standard safe agent runtime.
+    The factory wires the standard safe runtime while allowing
+    each environment to provide its own perception adapters.
 
-    Platform-specific factories may later provide specialised
-    implementations for:
-
-    - Windows
-    - browser automation
-    - simulator environments
-    - remote environments
+    Platform-specific factories may provide specialised
+    implementations for Windows, browser automation,
+    simulators, or remote environments.
     """
 
-    environment_runtime = (
-        EnvironmentRuntime(
-            adapter=environment
-        )
+    environment_runtime = EnvironmentRuntime(
+        adapter=environment
     )
 
-    perception_engine = (
-        PerceptionEngine()
+    perception_engine = PerceptionEngine(
+        providers=perception_providers
     )
 
-    verification_loop = (
-        VerificationLoop(
-            execution_engine=execution_engine,
-            environment=environment,
-            perception_engine=(
-                perception_engine
-            ),
-            expectation_resolver=(
-                ExpectationResolver()
-            ),
-            outcome_verifier=(
-                OutcomeVerifier()
-            ),
-        )
+    verification_loop = VerificationLoop(
+        execution_engine=execution_engine,
+        environment=environment,
+        perception_engine=perception_engine,
+        expectation_resolver=ExpectationResolver(),
+        outcome_verifier=OutcomeVerifier(),
     )
 
     environment_preparation_loop = (
@@ -91,19 +83,9 @@ def create_default_agent_control_loop(
     )
 
     return AgentControlLoop(
-        environment_runtime=(
-            environment_runtime
-        ),
-        perception_engine=(
-            perception_engine
-        ),
-        decision_engine=(
-            DecisionEngine()
-        ),
-        verification_loop=(
-            verification_loop
-        ),
-        environment_preparation_loop=(
-            environment_preparation_loop
-        ),
+        environment_runtime=environment_runtime,
+        perception_engine=perception_engine,
+        decision_engine=DecisionEngine(),
+        verification_loop=verification_loop,
+        environment_preparation_loop=environment_preparation_loop,
     )
