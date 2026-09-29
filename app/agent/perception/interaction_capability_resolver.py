@@ -1,10 +1,12 @@
 from dataclasses import dataclass
+from math import prod
 
 from app.agent.perception.interaction_capability import (
     InteractionCapability,
 )
 from app.agent.perception.semantic_evidence import (
     EvidenceKind,
+    EvidenceSource,
     SemanticCandidate,
     SemanticEvidence,
 )
@@ -23,22 +25,41 @@ class InteractionCapabilityResolution:
     confidence: float
     candidate: SemanticCandidate | None = None
     reason: str = ""
+    supporting_sources: tuple[EvidenceSource, ...] = ()
+    conflicting_capabilities: tuple[InteractionCapability, ...] = ()
+
+
+@dataclass(frozen=True)
+class _CapabilityClaim:
+    capability: InteractionCapability
+    evidence: SemanticEvidence
+    observed_capability: bool
 
 
 class InteractionCapabilityResolver:
     """
     Resolve interaction capability from the existing SemanticEvidence model.
 
-    The resolver intentionally starts conservative:
-    - observed capability evidence overrides inferred visual evidence
-    - UNKNOWN capability evidence means absence of knowledge and is ignored
-    - BUTTON control-type evidence can infer CLICKABLE
-    - ICON and all other currently known visual types remain UNKNOWN
-    - conflicting explicit capability evidence remains UNKNOWN
+    The resolver is deliberately conservative and source-aware:
 
-    This class contains semantic inference only. It does not authorize
-    actions and does not bypass SafetyGate.
+    - observed INTERACTION_CAPABILITY evidence takes precedence over
+      inferred control-type evidence
+    - UNKNOWN capability values represent lack of knowledge and are ignored
+    - BUTTON control-type evidence can infer CLICKABLE
+    - multiple sources supporting the same capability are aggregated
+    - repeated evidence from one source is reduced to its strongest claim
+    - conflicting observed capabilities remain UNKNOWN
+    - semantic inference never authorizes execution or bypasses SafetyGate
+
+    Aggregation is a confidence combination over independent evidence
+    sources. For a capability supported by source confidences c1..cn:
+
+        combined = 1 - product(1 - ci)
+
+    Evidence from the same source is not combined more than once.
     """
+
+    MAX_AGGREGATED_CONFIDENCE = 0.999
 
     def resolve(
         self,
@@ -47,90 +68,228 @@ class InteractionCapabilityResolver:
         element_id: str | None = None,
     ) -> InteractionCapabilityResolution:
 
-        explicit = tuple(
-            item
-            for item in evidence
-            if (
-                item.observed
-                and item.kind is EvidenceKind.INTERACTION_CAPABILITY
-                and self._parse_capability(item.value)
-                is not InteractionCapability.UNKNOWN
-                and self._parse_capability(item.value) is not None
-            )
+        claims = self._claims_from_evidence(evidence)
+
+        observed_claims = tuple(
+            claim
+            for claim in claims
+            if claim.observed_capability
         )
 
-        explicit_capabilities = {
-            self._parse_capability(item.value)
-            for item in explicit
+        observed_capabilities = {
+            claim.capability
+            for claim in observed_claims
         }
 
-        if len(explicit_capabilities) > 1:
+        if len(observed_capabilities) > 1:
+            conflicting = tuple(sorted(
+                observed_capabilities,
+                key=lambda capability: capability.value,
+            ))
             return InteractionCapabilityResolution(
                 capability=InteractionCapability.UNKNOWN,
                 confidence=0.0,
-                reason="Conflicting observed interaction capability evidence.",
+                reason=(
+                    "Conflicting observed interaction capability evidence."
+                ),
+                conflicting_capabilities=conflicting,
             )
 
-        if len(explicit_capabilities) == 1:
-            capability = next(iter(explicit_capabilities))
-            strongest = max(
-                explicit,
-                key=lambda item: item.confidence,
+        if len(observed_capabilities) == 1:
+            capability = next(iter(observed_capabilities))
+            supporting = tuple(
+                claim
+                for claim in claims
+                if claim.capability is capability
             )
-            return InteractionCapabilityResolution(
+            return self._build_resolution(
                 capability=capability,
-                confidence=strongest.confidence,
-                candidate=SemanticCandidate(
-                    semantic_name=capability.value,
-                    confidence=strongest.confidence,
-                    evidence=explicit,
-                    element_id=(
-                        strongest.element_id or element_id
-                    ),
-                    reason="Observed interaction capability evidence.",
+                claims=supporting,
+                element_id=element_id,
+                reason=(
+                    "Observed interaction capability evidence aggregated "
+                    "across available sources."
                 ),
-                reason="Observed interaction capability evidence.",
             )
 
-        control_type_evidence = tuple(
-            item
-            for item in evidence
-            if (
-                item.observed
-                and item.kind is EvidenceKind.CONTROL_TYPE
-            )
-        )
+        inferred_claims = tuple(claim for claim in claims)
+        inferred_capabilities = {
+            claim.capability
+            for claim in inferred_claims
+        }
 
-        button_evidence = tuple(
-            item
-            for item in control_type_evidence
-            if self._normalize(item.value) == "button"
-        )
-
-        if button_evidence:
-            strongest = max(
-                button_evidence,
-                key=lambda item: item.confidence,
-            )
+        if len(inferred_capabilities) > 1:
+            conflicting = tuple(sorted(
+                inferred_capabilities,
+                key=lambda capability: capability.value,
+            ))
             return InteractionCapabilityResolution(
-                capability=InteractionCapability.CLICKABLE,
-                confidence=strongest.confidence,
-                candidate=SemanticCandidate(
-                    semantic_name=InteractionCapability.CLICKABLE.value,
-                    confidence=strongest.confidence,
-                    evidence=button_evidence,
-                    element_id=(
-                        strongest.element_id or element_id
-                    ),
-                    reason="Button control type implies click capability.",
+                capability=InteractionCapability.UNKNOWN,
+                confidence=0.0,
+                reason=(
+                    "Conflicting inferred interaction capabilities."
                 ),
-                reason="Button control type implies click capability.",
+                conflicting_capabilities=conflicting,
+            )
+
+        if len(inferred_capabilities) == 1:
+            capability = next(iter(inferred_capabilities))
+            return self._build_resolution(
+                capability=capability,
+                claims=inferred_claims,
+                element_id=element_id,
+                reason=(
+                    "Interaction capability inferred from available "
+                    "semantic evidence."
+                ),
             )
 
         return InteractionCapabilityResolution(
             capability=InteractionCapability.UNKNOWN,
             confidence=0.0,
-            reason="Evidence does not establish a supported interaction capability.",
+            reason=(
+                "Evidence does not establish a supported interaction "
+                "capability."
+            ),
+        )
+
+    def _claims_from_evidence(
+        self,
+        evidence: tuple[SemanticEvidence, ...],
+    ) -> tuple[_CapabilityClaim, ...]:
+        claims: list[_CapabilityClaim] = []
+
+        for item in evidence:
+            if not item.observed:
+                continue
+
+            if item.kind is EvidenceKind.INTERACTION_CAPABILITY:
+                capability = self._parse_capability(item.value)
+
+                if (
+                    capability is None
+                    or capability is InteractionCapability.UNKNOWN
+                ):
+                    continue
+
+                claims.append(
+                    _CapabilityClaim(
+                        capability=capability,
+                        evidence=item,
+                        observed_capability=True,
+                    )
+                )
+                continue
+
+            if item.kind is EvidenceKind.CONTROL_TYPE:
+                if self._normalize(item.value) == "button":
+                    claims.append(
+                        _CapabilityClaim(
+                            capability=InteractionCapability.CLICKABLE,
+                            evidence=item,
+                            observed_capability=False,
+                        )
+                    )
+
+        return tuple(claims)
+
+    def _build_resolution(
+        self,
+        *,
+        capability: InteractionCapability,
+        claims: tuple[_CapabilityClaim, ...],
+        element_id: str | None,
+        reason: str,
+    ) -> InteractionCapabilityResolution:
+
+        strongest_by_source: dict[
+            EvidenceSource,
+            _CapabilityClaim,
+        ] = {}
+
+        for claim in claims:
+            source = claim.evidence.source
+            previous = strongest_by_source.get(source)
+
+            if (
+                previous is None
+                or claim.evidence.confidence
+                > previous.evidence.confidence
+            ):
+                strongest_by_source[source] = claim
+
+        strongest_claims = tuple(
+            strongest_by_source.values()
+        )
+
+        confidence = self._aggregate_confidence(
+            claim.evidence.confidence
+            for claim in strongest_claims
+        )
+
+        supporting_evidence = tuple(
+            claim.evidence
+            for claim in strongest_claims
+        )
+
+        supporting_sources = tuple(
+            sorted(
+                strongest_by_source,
+                key=lambda source: source.value,
+            )
+        )
+
+        return InteractionCapabilityResolution(
+            capability=capability,
+            confidence=confidence,
+            candidate=SemanticCandidate(
+                semantic_name=capability.value,
+                confidence=confidence,
+                evidence=supporting_evidence,
+                element_id=(
+                    next(
+                        (
+                            item.element_id
+                            for item in supporting_evidence
+                            if item.element_id
+                        ),
+                        element_id,
+                    )
+                ),
+                reason=reason,
+                metadata={
+                    "supporting_sources": tuple(
+                        source.value
+                        for source in supporting_sources
+                    ),
+                    "evidence_count": len(supporting_evidence),
+                },
+            ),
+            reason=reason,
+            supporting_sources=supporting_sources,
+        )
+
+    @classmethod
+    def _aggregate_confidence(
+        cls,
+        confidences,
+    ) -> float:
+        values = tuple(
+            max(0.0, min(1.0, value))
+            for value in confidences
+        )
+
+        if not values:
+            return 0.0
+
+        combined = 1.0 - prod(
+            1.0 - value
+            for value in values
+        )
+
+        return round(
+            min(combined, cls.MAX_AGGREGATED_CONFIDENCE),
+            6,
         )
 
     @staticmethod
