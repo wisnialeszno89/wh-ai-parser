@@ -74,6 +74,8 @@ class RobotActionExecutor:
         root,
         expected_control_type: ControlType | None = None,
         expected_bounds: Rect | None = None,
+        interaction_capability=None,
+        interaction_capability_confidence: float | None = None,
     ) -> RobotActionResult:
 
         if not self.action_policy.can_execute(action):
@@ -87,7 +89,14 @@ class RobotActionExecutor:
                 reason="Action policy rejected action",
             )
 
-        if not self.safety_gate.can_execute(tracked_object, action):
+        if not self.safety_gate.can_execute(
+            tracked_object,
+            action,
+            interaction_capability=interaction_capability,
+            interaction_capability_confidence=(
+                interaction_capability_confidence
+            ),
+        ):
             return RobotActionResult(
                 False,
                 action,
