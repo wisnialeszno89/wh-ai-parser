@@ -12,6 +12,7 @@ class ScreenElementIdentity:
     capability so provider fusion can remain conservative.
     """
 
+    source: str | None = None
     provider_id: str | None = None
     semantic_name: str | None = None
     tracked_object_id: str | None = None
@@ -41,6 +42,7 @@ class ScreenElementIdentityResolver:
     def resolve(self, element: ScreenElement) -> ScreenElementIdentity:
         metadata = element.metadata or {}
 
+        source = self._string(metadata.get("source"))
         tracked_object_id = self._string(
             metadata.get("tracked_object_id")
         )
@@ -60,6 +62,7 @@ class ScreenElementIdentityResolver:
         label = self._string(element.label)
 
         return ScreenElementIdentity(
+            source=source,
             provider_id=provider_id,
             semantic_name=semantic_name,
             tracked_object_id=tracked_object_id,
