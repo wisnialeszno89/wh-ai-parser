@@ -30,6 +30,10 @@ from app.agent.runtime.agent_control_loop import (
     AgentControlLoop,
 )
 
+from app.agent.planning.plan_replanner import (
+    PlanReplanner,
+)
+
 from app.agent.runtime.verification_loop import (
     VerificationLoop,
 )
@@ -48,6 +52,8 @@ def create_default_agent_control_loop(
     environment: EnvironmentAdapter,
     execution_engine: ExecutionEngine,
     perception_providers: tuple[PerceptionProvider, ...] = (),
+    replanner: PlanReplanner | None = None,
+    max_replans: int = 1,
 ) -> AgentControlLoop:
     """
     Create a complete default agent control loop.
@@ -97,4 +103,6 @@ def create_default_agent_control_loop(
         decision_engine=DecisionEngine(),
         verification_loop=verification_loop,
         environment_preparation_loop=environment_preparation_loop,
+        replanner=replanner,
+        max_replans=max_replans,
     )
