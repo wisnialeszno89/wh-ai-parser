@@ -66,7 +66,10 @@ def test_explicit_observed_capability_is_preserved():
     assert result.capability is InteractionCapability.CLICKABLE
     assert result.confidence == 0.99
     assert result.candidate is not None
-    assert result.candidate.reason == "Observed interaction capability evidence."
+    assert result.candidate.reason == (
+        "Observed interaction capability evidence aggregated "
+        "across available sources."
+    )
 
 
 def test_conflicting_explicit_capabilities_are_rejected():
