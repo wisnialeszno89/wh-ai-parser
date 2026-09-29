@@ -36,11 +36,11 @@ class ScreenElement:
 
     confidence: float | None = None
 
+    metadata: Mapping[str, object] | None = None
+
     interaction_capability: InteractionCapability = (
         InteractionCapability.UNKNOWN
     )
-
-    metadata: Mapping[str, object] | None = None
 
     @property
     def has_bounds(self) -> bool:
