@@ -4,6 +4,14 @@ from app.agent.environment.environment_observation import (
 from app.agent.perception.interaction_capability import (
     InteractionCapability,
 )
+from app.agent.perception.interaction_capability_resolver import (
+    InteractionCapabilityResolver,
+)
+from app.agent.perception.semantic_evidence import (
+    EvidenceKind,
+    EvidenceSource,
+    SemanticEvidence,
+)
 from app.agent.perception.perception_provider import (
     PerceptionProvider,
 )
@@ -88,9 +96,36 @@ class WindowHubVisionProvider(PerceptionProvider):
 
         bounds = tracked_object.object.bounds
         control_type = tracked_object.control_type
-        interaction_capability = cls._interaction_capability(
-            control_type,
+
+        evidence = (
+            SemanticEvidence(
+                source=EvidenceSource.VISUAL,
+                kind=EvidenceKind.CONTROL_TYPE,
+                value=(
+                    control_type.value
+                    if isinstance(control_type, ControlType)
+                    else control_type
+                ),
+                confidence=tracked_object.confidence,
+                element_id=tracked_object.id,
+            ),
+            SemanticEvidence(
+                source=EvidenceSource.TEMPORAL,
+                kind=EvidenceKind.STABILITY,
+                value=tracked_object.consecutive_observations,
+                confidence=min(
+                    tracked_object.consecutive_observations / 2.0,
+                    1.0,
+                ),
+                element_id=tracked_object.id,
+            ),
         )
+
+        capability_resolution = InteractionCapabilityResolver().resolve(
+            evidence,
+            element_id=tracked_object.id,
+        )
+        interaction_capability = capability_resolution.capability
 
         return ScreenElement(
             kind=(
@@ -116,6 +151,10 @@ class WindowHubVisionProvider(PerceptionProvider):
                 "interaction_capability": (
                     interaction_capability.value
                 ),
+                "interaction_capability_confidence": (
+                    capability_resolution.confidence
+                ),
+                "semantic_evidence": evidence,
                 "interactive": (
                     interaction_capability
                     is InteractionCapability.CLICKABLE
