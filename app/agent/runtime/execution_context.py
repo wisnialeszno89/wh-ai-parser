@@ -84,7 +84,16 @@ class ExecutionContext:
             scene.observation
         )
 
-        execution_runtime = scene.metadata.get(
+        metadata = getattr(
+            scene,
+            "metadata",
+            None,
+        )
+
+        if not isinstance(metadata, dict):
+            return
+
+        execution_runtime = metadata.get(
             "execution_runtime"
         )
 
