@@ -139,7 +139,10 @@ def test_real_windowhub_multi_provider_fusion_dry_run():
     )
 
     scene = engine.perceive(
-        EnvironmentState.__new__(EnvironmentObservation)
+        EnvironmentObservation(
+            state=EnvironmentState(),
+            metadata={},
+        )
     )
 
     assert len(scene.elements) == 1
