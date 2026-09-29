@@ -15,6 +15,7 @@ class EvidenceSource(str, Enum):
 
 class EvidenceKind(str, Enum):
     CONTROL_TYPE = "control_type"
+    INTERACTION_CAPABILITY = "interaction_capability"
     TEXT = "text"
     LABEL = "label"
     ROLE = "role"
