@@ -125,6 +125,9 @@ class RobotGUIExecutor(ActionExecutor):
             )
 
         expected_control_type = self._control_type(element.kind)
+        interaction_capability_confidence = (
+            self._interaction_capability_confidence(element)
+        )
 
         result = self.robot_action_executor.execute(
             tracked_object=tracked_object,
@@ -132,6 +135,10 @@ class RobotGUIExecutor(ActionExecutor):
             root=root,
             expected_control_type=expected_control_type,
             expected_bounds=tracked_object.object.bounds,
+            interaction_capability=element.interaction_capability,
+            interaction_capability_confidence=(
+                interaction_capability_confidence
+            ),
         )
 
         return ExecutionResult(
@@ -146,6 +153,12 @@ class RobotGUIExecutor(ActionExecutor):
                 "point": result.point,
                 "executed": result.executed,
                 "control_type": element.kind,
+                "interaction_capability": (
+                    element.interaction_capability.value
+                ),
+                "interaction_capability_confidence": (
+                    interaction_capability_confidence
+                ),
             },
         )
 
@@ -185,6 +198,24 @@ class RobotGUIExecutor(ActionExecutor):
             return value
 
         return None
+
+    @staticmethod
+    def _interaction_capability_confidence(element) -> float | None:
+        metadata = element.metadata or {}
+
+        value = metadata.get(
+            "interaction_capability_confidence"
+        )
+
+        if value is None:
+            value = element.confidence
+
+        try:
+            confidence = float(value)
+        except (TypeError, ValueError):
+            return None
+
+        return confidence
 
     @staticmethod
     def _resolve_tracked_object(
