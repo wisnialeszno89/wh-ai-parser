@@ -86,10 +86,14 @@ def make_tracked_object(
 
 
 def test_windowhub_provider_separates_visual_type_from_interaction_capability():
-    button = WindowHubVisionProvider._to_screen_element(
+    provider = WindowHubVisionProvider(
+        vision_pipeline=EmptyVisionPipeline(),
+    )
+
+    button = provider._to_screen_element(
         make_tracked_object("TO-BUTTON", ControlType.BUTTON),
     )
-    icon = WindowHubVisionProvider._to_screen_element(
+    icon = provider._to_screen_element(
         make_tracked_object("TO-ICON", ControlType.ICON),
     )
 
@@ -97,9 +101,15 @@ def test_windowhub_provider_separates_visual_type_from_interaction_capability():
     assert button.interaction_capability is InteractionCapability.CLICKABLE
     assert button.metadata["interaction_capability"] == "clickable"
     assert button.metadata["interactive"] is True
+    assert len(button.evidence) == 2
+    assert button.evidence[0].kind.value == "control_type"
+    assert button.evidence[0].value == "button"
 
     assert icon.kind == "icon"
     assert icon.interaction_capability is InteractionCapability.UNKNOWN
     assert icon.metadata["interaction_capability"] == "unknown"
     assert icon.metadata["interactive"] is False
+    assert len(icon.evidence) == 2
+    assert icon.evidence[0].kind.value == "control_type"
+    assert icon.evidence[0].value == "icon"
 
