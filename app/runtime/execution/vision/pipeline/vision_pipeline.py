@@ -107,20 +107,22 @@ class VisionPipeline:
             TemporalObjectTracker()
         )
 
-    def observe(self):
+    def observe(self, *, window=None, screenshot=None):
         #
         # Locate window.
         #
 
-        window = self.window_locator.locate()
+        if window is None:
+            window = self.window_locator.locate()
 
         #
         # Capture screenshot.
         #
 
-        screenshot = self.screenshot_engine.capture(
-            window,
-        )
+        if screenshot is None:
+            screenshot = self.screenshot_engine.capture(
+                window,
+            )
 
         #
         # Vision context.

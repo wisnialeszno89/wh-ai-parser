@@ -469,7 +469,15 @@ class AgentControlLoop:
                 )
             )
 
-            context.current_scene = scene
+            context.update_scene(scene)
+
+            execution_runtime = scene.metadata.get(
+                "execution_runtime"
+            )
+
+            if isinstance(execution_runtime, dict):
+                for key, value in execution_runtime.items():
+                    context.set_value(key, value)
 
             # ---------------------------------
             # 4. DECIDE
