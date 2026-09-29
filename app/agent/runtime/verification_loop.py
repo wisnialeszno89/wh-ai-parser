@@ -185,7 +185,7 @@ class VerificationLoop:
                     success=True,
                 )
 
-            if verification_result.success:
+            if verification_result.verified:
 
                 return ExecutionLoopResult(
                     attempts=tuple(attempts),
