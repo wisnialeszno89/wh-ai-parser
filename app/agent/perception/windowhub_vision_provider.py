@@ -42,11 +42,17 @@ class WindowHubVisionProvider(PerceptionProvider):
     def __init__(
         self,
         vision_pipeline: VisionPipeline | None = None,
+        interaction_capability_resolver: InteractionCapabilityResolver | None = None,
     ) -> None:
         self.vision_pipeline = (
             vision_pipeline
             if vision_pipeline is not None
             else VisionPipeline()
+        )
+        self.interaction_capability_resolver = (
+            interaction_capability_resolver
+            if interaction_capability_resolver is not None
+            else InteractionCapabilityResolver()
         )
 
     def perceive(
@@ -79,9 +85,8 @@ class WindowHubVisionProvider(PerceptionProvider):
             if tracked_object.status is not TrackedObjectStatus.LOST
         )
 
-    @classmethod
     def _to_screen_element(
-        cls,
+        self,
         tracked_object: TrackedObject,
     ) -> ScreenElement:
 
@@ -112,7 +117,7 @@ class WindowHubVisionProvider(PerceptionProvider):
             ),
         )
 
-        capability_resolution = InteractionCapabilityResolver().resolve(
+        capability_resolution = self.interaction_capability_resolver.resolve(
             evidence,
             element_id=tracked_object.id,
         )
