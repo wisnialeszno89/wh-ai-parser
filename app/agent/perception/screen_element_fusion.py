@@ -75,6 +75,14 @@ class ScreenElementFusion:
             identities,
             lambda identity: identity.shared_id,
         )
+        tracked_object_id_counts = self._counts_by_source(
+            identities,
+            lambda identity: identity.tracked_object_id,
+        )
+        provider_id_counts = self._counts_by_source(
+            identities,
+            lambda identity: identity.provider_id,
+        )
         semantic_counts = self._counts_by_source(
             identities,
             lambda identity: identity.semantic_name,
@@ -92,6 +100,8 @@ class ScreenElementFusion:
                 identity=identity,
                 identities=identities,
                 shared_id_counts=shared_id_counts,
+                tracked_object_id_counts=tracked_object_id_counts,
+                provider_id_counts=provider_id_counts,
                 semantic_counts=semantic_counts,
                 label_counts=label_counts,
                 groups=groups,
@@ -127,6 +137,8 @@ class ScreenElementFusion:
         identity: ScreenElementIdentity,
         identities: tuple[ScreenElementIdentity, ...],
         shared_id_counts,
+        tracked_object_id_counts,
+        provider_id_counts,
         semantic_counts,
         label_counts,
         groups: list[list[int]],
@@ -146,25 +158,33 @@ class ScreenElementFusion:
 
             if (
                 element_source == representative_source
-                and (
-                    (
-                        identity.shared_id
-                        and representative_identity.shared_id
-                        and identity.shared_id
-                        == representative_identity.shared_id
-                    )
-                    or (
-                        identity.tracked_object_id
-                        and representative_identity.tracked_object_id
-                        and identity.tracked_object_id
-                        == representative_identity.tracked_object_id
-                    )
-                    or (
-                        identity.provider_id
-                        and representative_identity.provider_id
-                        and identity.provider_id
-                        == representative_identity.provider_id
-                    )
+                and self._safe_same_source_match(
+                    identity.shared_id,
+                    representative_identity.shared_id,
+                    element_source,
+                    shared_id_counts,
+                )
+            ):
+                return group_index
+
+            if (
+                element_source == representative_source
+                and self._safe_same_source_match(
+                    identity.tracked_object_id,
+                    representative_identity.tracked_object_id,
+                    element_source,
+                    tracked_object_id_counts,
+                )
+            ):
+                return group_index
+
+            if (
+                element_source == representative_source
+                and self._safe_same_source_match(
+                    identity.provider_id,
+                    representative_identity.provider_id,
+                    element_source,
+                    provider_id_counts,
                 )
             ):
                 return group_index
@@ -197,6 +217,29 @@ class ScreenElementFusion:
                 return group_index
 
         return None
+
+    @staticmethod
+    def _safe_same_source_match(
+        left_value: str | None,
+        right_value: str | None,
+        source: str,
+        counts,
+    ) -> bool:
+        if (
+            not left_value
+            or not right_value
+            or left_value.casefold()
+            != right_value.casefold()
+        ):
+            return False
+
+        return (
+            counts.get(
+                (source, left_value.casefold()),
+                0,
+            )
+            == 1
+        )
 
     @staticmethod
     def _safe_cross_provider_match(
