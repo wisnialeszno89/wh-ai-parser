@@ -175,6 +175,10 @@ class RobotGUIExecutor(ActionExecutor):
         action: AgentAction,
         context: ExecutionContext,
     ) -> str | None:
+        action_target = getattr(action, "target", None)
+        if isinstance(action_target, str) and action_target.strip():
+            return action_target.strip()
+
         explicit = context.get_value("robot_target")
         if isinstance(explicit, str) and explicit.strip():
             return explicit.strip()
