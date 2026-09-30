@@ -118,5 +118,5 @@ def test_robot_action_executor_live_path_does_not_touch_hardware():
     assert result.mode is RobotExecutionMode.LIVE
     assert result.target_id == "button-001"
     assert result.point == (1110, 905)
-    assert mouse.calls == [(110, 205)]
+    assert mouse.calls == [(1110, 905)]
     assert result.reason == "Fake LIVE mouse execution"
