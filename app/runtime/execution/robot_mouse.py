@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from ctypes import POINTER, Structure, byref, c_int, c_uint, c_ulong, windll
+from ctypes import Structure, Union, byref, c_long, c_ulong, c_void_p, sizeof, windll
 from dataclasses import dataclass
 from enum import Enum
 
@@ -19,10 +19,27 @@ class RobotMouseResult:
     reason: str
 
 
+class _MOUSEINPUT(Structure):
+    _fields_ = [
+        ("dx", c_long),
+        ("dy", c_long),
+        ("mouse_data", c_ulong),
+        ("flags", c_ulong),
+        ("time", c_ulong),
+        ("extra_info", c_void_p),
+    ]
+
+
+class _INPUT_UNION(Union):
+    _fields_ = [
+        ("mouse", _MOUSEINPUT),
+    ]
+
+
 class _INPUT(Structure):
     _fields_ = [
         ("type", c_ulong),
-        ("_padding", c_ulong * 7),
+        ("union", _INPUT_UNION),
     ]
 
 
@@ -65,17 +82,13 @@ class RobotMouse:
         inputs = (_INPUT * 2)()
         inputs[0].type = self._INPUT_MOUSE
         inputs[1].type = self._INPUT_MOUSE
-
-        # SendInput accepts MOUSEINPUT through the same native INPUT layout.
-        # The union is padded above so dwFlags lands at the expected offset
-        # for the 64-bit Windows ABI used by the supported runtime.
-        inputs[0]._padding[2] = self._MOUSEEVENTF_LEFTDOWN
-        inputs[1]._padding[2] = self._MOUSEEVENTF_LEFTUP
+        inputs[0].union.mouse.flags = self._MOUSEEVENTF_LEFTDOWN
+        inputs[1].union.mouse.flags = self._MOUSEEVENTF_LEFTUP
 
         sent = windll.user32.SendInput(
             2,
             byref(inputs),
-            0x28,
+            sizeof(_INPUT),
         )
 
         if sent != 2:
