@@ -137,6 +137,8 @@ class RobotGUIExecutor(ActionExecutor):
             self._interaction_capability_confidence(element)
         )
 
+        screen_origin = self._screen_origin(context)
+
         result = self.robot_action_executor.execute(
             tracked_object=tracked_object,
             action=InteractionAction.CLICK,
@@ -147,6 +149,7 @@ class RobotGUIExecutor(ActionExecutor):
             interaction_capability_confidence=(
                 interaction_capability_confidence
             ),
+            screen_origin=screen_origin,
         )
 
         return ExecutionResult(
@@ -159,6 +162,7 @@ class RobotGUIExecutor(ActionExecutor):
                 "target_id": target_id,
                 "resolution_score": resolution.score,
                 "point": result.point,
+                "screen_origin": screen_origin,
                 "executed": result.executed,
                 "control_type": element.kind,
                 "interaction_capability": (
@@ -169,6 +173,25 @@ class RobotGUIExecutor(ActionExecutor):
                 ),
             },
         )
+
+    @staticmethod
+    def _screen_origin(context: ExecutionContext) -> tuple[int, int] | None:
+        observation = context.last_observation
+        if observation is None:
+            return None
+
+        metadata = observation.metadata
+        window_rect = metadata.get("window_rect")
+        if window_rect is None:
+            return None
+
+        try:
+            return (
+                int(getattr(window_rect, "left")),
+                int(getattr(window_rect, "top")),
+            )
+        except (TypeError, ValueError):
+            return None
 
     @staticmethod
     def _resolve_target(
