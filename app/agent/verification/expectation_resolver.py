@@ -64,23 +64,7 @@ class ExpectationResolver:
             expectations,
             dict,
         ):
-            if action.name != "click_screen_element":
             return None
-
-        scene = context.current_scene
-        if scene is None:
-            return None
-
-        return ExpectedOutcome(
-            description=(
-                "The semantic screen scene should change "
-                "after the GUI click."
-            ),
-            require_scene_change=True,
-            baseline_scene_signature=(
-                self._scene_signature(scene)
-            ),
-        )
 
         expectation = expectations.get(
             action.name
@@ -102,18 +86,36 @@ class ExpectationResolver:
         """
         Resolve built-in expectations for generic actions.
 
-        Abstract agent actions currently do not require a GUI
-        verification outcome, therefore they return None.
+        GUI clicks receive a conservative default expectation:
+        the semantic screen scene must change after the click.
+        This intentionally avoids assuming that the clicked control
+        must disappear.
 
-        Specific environments may provide richer expectations
-        through the execution context.
+        Abstract and other actions remain unverified by default.
         """
 
-        return None
+        if action.name != "click_screen_element":
+            return None
 
+        scene = context.current_scene
+        if scene is None:
+            return None
+
+        return ExpectedOutcome(
+            description=(
+                "The semantic screen scene should change "
+                "after the GUI click."
+            ),
+            require_scene_change=True,
+            baseline_scene_signature=(
+                self._scene_signature(scene)
+            ),
+        )
 
     @staticmethod
-    def _scene_signature(scene) -> tuple[tuple[object, ...], ...]:
+    def _scene_signature(
+        scene,
+    ) -> tuple[tuple[object, ...], ...]:
         signature = []
 
         for element in scene.elements:
