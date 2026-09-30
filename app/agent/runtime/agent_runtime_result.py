@@ -7,6 +7,9 @@ from app.agent.execution.plan_execution_report import (
 from app.agent.runtime.execution_context import (
     AgentExecutionContext,
 )
+from app.agent.runtime.control_loop_result import (
+    ControlLoopResult,
+)
 
 
 @dataclass(frozen=True)
@@ -36,6 +39,8 @@ class AgentRuntimeResult:
     execution_report: (
         PlanExecutionReport | None
     )
+
+    control_loop_result: ControlLoopResult | None = None
 
     requires_manual_review: bool
 
