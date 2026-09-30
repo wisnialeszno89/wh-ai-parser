@@ -17,22 +17,30 @@ def _windowhub_hwnd():
     user32 = ctypes.WinDLL("user32", use_last_error=True)
     kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
 
-    hwnd = None
+    candidates = []
+
+    class RECT(ctypes.Structure):
+        _fields_ = [
+            ("left", ctypes.c_long),
+            ("top", ctypes.c_long),
+            ("right", ctypes.c_long),
+            ("bottom", ctypes.c_long),
+        ]
 
     def callback(candidate_hwnd, _):
-        nonlocal hwnd
         process_id = ctypes.c_ulong()
         user32.GetWindowThreadProcessId(
             ctypes.c_void_p(candidate_hwnd),
             ctypes.byref(process_id),
         )
-        if int(process_id.value) <= 0:
+        pid = int(process_id.value)
+        if pid <= 0:
             return True
 
         handle = kernel32.OpenProcess(
             0x1000,  # PROCESS_QUERY_LIMITED_INFORMATION
             False,
-            process_id.value,
+            pid,
         )
         if not handle:
             return True
@@ -46,12 +54,45 @@ def _windowhub_hwnd():
                 buffer,
                 ctypes.byref(size),
             )
-            if ok and Path(buffer.value).stem.casefold() == "okna":
-                hwnd = int(candidate_hwnd)
-                return False
+            if not ok or Path(buffer.value).stem.casefold() != "okna":
+                return True
         finally:
             kernel32.CloseHandle(handle)
 
+        if not user32.IsWindowVisible(
+            ctypes.c_void_p(candidate_hwnd)
+        ):
+            return True
+
+        rect = RECT()
+        if not user32.GetWindowRect(
+            ctypes.c_void_p(candidate_hwnd),
+            ctypes.byref(rect),
+        ):
+            return True
+
+        width = int(rect.right - rect.left)
+        height = int(rect.bottom - rect.top)
+        if width <= 0 or height <= 0:
+            return True
+
+        title_buffer = ctypes.create_unicode_buffer(512)
+        user32.GetWindowTextW(
+            ctypes.c_void_p(candidate_hwnd),
+            title_buffer,
+            len(title_buffer),
+        )
+
+        area = width * height
+        candidates.append((
+            area,
+            int(candidate_hwnd),
+            title_buffer.value,
+            int(rect.left),
+            int(rect.top),
+            width,
+            height,
+        ))
         return True
 
     enum_windows_proc = ctypes.WINFUNCTYPE(
@@ -60,7 +101,12 @@ def _windowhub_hwnd():
         ctypes.c_void_p,
     )
     user32.EnumWindows(enum_windows_proc(callback), 0)
-    return hwnd
+
+    if not candidates:
+        return None
+
+    candidates.sort(key=lambda item: item[0], reverse=True)
+    return candidates[0][1]
 
 
 def _window_title(hwnd):
