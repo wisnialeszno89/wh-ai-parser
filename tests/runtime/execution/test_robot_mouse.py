@@ -13,13 +13,13 @@ def test_robot_mouse_dry_run_never_touches_hardware():
     assert "hardware not touched" in result.reason
 
 
-def test_robot_mouse_live_is_locked():
+def test_robot_mouse_live_executes_via_windows():
     mouse = RobotMouse(mode=RobotMouseMode.LIVE)
 
     result = mouse.click(123, 456)
 
-    assert result.success is False
-    assert result.executed is False
+    assert result.success is True
+    assert result.executed is True
     assert result.mode is RobotMouseMode.LIVE
     assert result.point == (123, 456)
-    assert "locked" in result.reason
+    assert "Windows SendInput" in result.reason
