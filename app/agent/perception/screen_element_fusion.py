@@ -156,12 +156,9 @@ class ScreenElementFusion:
                 representative_index,
             )
 
-            if (
-                element_source == representative_source
-                and self._same_source_tracked_object_match(
-                    identity.tracked_object_id,
-                    representative_identity.tracked_object_id,
-                )
+            if self._tracked_object_match(
+                identity.tracked_object_id,
+                representative_identity.tracked_object_id,
             ):
                 return group_index
 
@@ -206,10 +203,16 @@ class ScreenElementFusion:
         return None
 
     @staticmethod
-    def _same_source_tracked_object_match(
+    def _tracked_object_match(
         left_value: str | None,
         right_value: str | None,
     ) -> bool:
+        """Match an explicit WindowHub tracked-object identity.
+
+        A tracked object id is a provider/runtime identity, not geometry.
+        When two providers independently attach the same explicit id, it is
+        safe to use it as the strongest cross-provider fusion key.
+        """
         return (
             bool(left_value)
             and bool(right_value)
