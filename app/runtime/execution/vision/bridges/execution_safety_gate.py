@@ -72,6 +72,8 @@ class ExecutionSafetyGate:
         if action is InteractionAction.CLICK:
             return True
 
+        return False
+
 
     def can_execute_uia_element(
         self,
@@ -171,5 +173,3 @@ class ExecutionSafetyGate:
             return False
 
         return foreground == handle
-
-        return False
