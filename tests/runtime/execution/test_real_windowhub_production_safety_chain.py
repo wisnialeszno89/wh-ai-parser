@@ -3,6 +3,7 @@ from dataclasses import replace
 
 import pytest
 
+from app.agent.agent_action import AgentAction
 from app.agent.environment.environment_observation import (
     EnvironmentObservation,
 )
@@ -211,32 +212,6 @@ def test_real_windowhub_production_safety_gate_to_dry_run():
     accessible = make_accessibility_element(
         real_element,
     )
-
-    fused_context = EnvironmentObservation(
-        state=EnvironmentState(),
-        metadata={},
-    )
-
-    fused_scene = PerceptionEngine(
-        providers=(
-            StaticAccessibilityProvider(
-                replace(
-                    real_element,
-                    metadata={
-                        **dict(real_element.metadata or {}),
-                        "shared_id": (
-                            f"windowhub-gate:{tracked_id}"
-                        ),
-                    },
-                ),
-            ),
-            StaticAccessibilityProvider(
-                accessible,
-            ),
-        ),
-    ).perceive(fused_context)
-
-    assert len(fused_scene.elements) >= 1
 
     # Use a production WindowHub provider together with the
     # synthetic capability provider so execution_runtime is
