@@ -76,6 +76,7 @@ class RobotActionExecutor:
         expected_bounds: Rect | None = None,
         interaction_capability=None,
         interaction_capability_confidence: float | None = None,
+        screen_origin: tuple[int, int] | None = None,
     ) -> RobotActionResult:
 
         if not self.action_policy.can_execute(action):
@@ -129,9 +130,27 @@ class RobotActionExecutor:
                 reason="Tracked object could not be resolved to GUIObject",
             )
 
-        point = self._center(target)
+        local_point = self._center(target)
         target_id = getattr(target, "id", None)
         confidence = self._confidence(tracked_object)
+
+        if self.mode is RobotExecutionMode.LIVE and screen_origin is None:
+            return RobotActionResult(
+                success=False,
+                action=action,
+                mode=self.mode,
+                executed=False,
+                target_id=target_id,
+                point=local_point,
+                confidence=confidence,
+                reason="LIVE execution requires a known screen origin",
+            )
+
+        origin = screen_origin or (0, 0)
+        point = (
+            local_point[0] + origin[0],
+            local_point[1] + origin[1],
+        )
 
         if (
             expected_control_type is not None
