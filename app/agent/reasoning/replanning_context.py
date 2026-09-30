@@ -76,40 +76,53 @@ class ReplanningContext:
         self,
     ) -> dict[str, object]:
         """
-        Convert the reasoning context into a JSON-safe payload
-        for an external model/provider.
+        Convert the reasoning context into a model-safe JSON payload.
+
+        Low-level execution identifiers, provider internals and raw
+        coordinates are intentionally excluded from the model-facing
+        representation.
         """
 
         scene_payload = None
 
         if self.scene is not None:
+            scene_metadata = {}
+
+            for key in (
+                "active_application",
+                "active_window_title",
+                "screen_width",
+                "screen_height",
+            ):
+                if key in self.scene.metadata:
+                    scene_metadata[key] = _json_safe(
+                        self.scene.metadata[key]
+                    )
+
             scene_payload = {
-                "metadata": _json_safe(
-                    self.scene.metadata
-                ),
+                "metadata": scene_metadata,
                 "elements": [
                     {
-                        "element_id": (
-                            element.element_id
-                        ),
                         "kind": element.kind,
                         "label": element.label,
-                        "bounds": {
-                            "x": element.x,
-                            "y": element.y,
-                            "width": element.width,
-                            "height": element.height,
-                        },
                         "confidence": element.confidence,
                         "interaction_capability": (
                             element.interaction_capability
                         ),
-                        "evidence": _json_safe(
-                            element.evidence
-                        ),
-                        "metadata": _json_safe(
-                            element.metadata
-                        ),
+                        "evidence": [
+                            {
+                                "source": item.get("source"),
+                                "kind": item.get("kind"),
+                                "value": item.get("value"),
+                                "confidence": item.get(
+                                    "confidence"
+                                ),
+                                "observed": item.get(
+                                    "observed"
+                                ),
+                            }
+                            for item in element.evidence
+                        ],
                     }
                     for element in self.scene.elements
                 ],
@@ -147,6 +160,7 @@ class ReplanningContext:
             },
             "scene": scene_payload,
         }
+
 
 
 def _json_safe(
