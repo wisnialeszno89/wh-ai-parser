@@ -234,6 +234,34 @@ def main() -> int:
         )
     except Exception as exc:
         print(f"ABORTED: {exc}")
+
+        try:
+            print()
+            print("=== CURRENT UIA TARGETS ===")
+            for item in scene.elements:
+                metadata = dict(item.metadata or {})
+                if (
+                    metadata.get("source") != "windowhub_ui_automation"
+                    and "uia_control_type" not in metadata
+                ):
+                    continue
+
+                print(
+                    repr(item.label),
+                    "| AutomationId=",
+                    repr(metadata.get("automation_id")),
+                    "| control=",
+                    repr(metadata.get("uia_control_type")),
+                    "| enabled=",
+                    metadata.get("uia_enabled"),
+                    "| visible=",
+                    metadata.get("uia_visible"),
+                    "| tracked=",
+                    repr(metadata.get("tracked_object_id")),
+                )
+        except Exception as dump_exc:
+            print(f"Could not dump current UIA targets: {dump_exc}")
+
         return 5
 
     metadata = dict(element.metadata or {})
