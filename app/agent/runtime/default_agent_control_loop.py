@@ -34,6 +34,14 @@ from app.agent.planning.plan_replanner import (
     PlanReplanner,
 )
 
+from app.agent.reasoning.plan_reasoner import (
+    PlanReasoner,
+)
+
+from app.agent.reasoning.reasoning_plan_replanner import (
+    ReasoningPlanReplanner,
+)
+
 from app.agent.runtime.verification_loop import (
     VerificationLoop,
 )
@@ -53,6 +61,7 @@ def create_default_agent_control_loop(
     execution_engine: ExecutionEngine,
     perception_providers: tuple[PerceptionProvider, ...] = (),
     replanner: PlanReplanner | None = None,
+    plan_reasoner: PlanReasoner | None = None,
     max_replans: int = 1,
 ) -> AgentControlLoop:
     """
@@ -96,6 +105,13 @@ def create_default_agent_control_loop(
             environment=environment
         )
     )
+
+    if replanner is None and plan_reasoner is not None:
+        replanner = (
+            ReasoningPlanReplanner(
+                plan_reasoner
+            )
+        )
 
     return AgentControlLoop(
         environment_runtime=environment_runtime,
