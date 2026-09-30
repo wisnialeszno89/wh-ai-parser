@@ -89,10 +89,6 @@ def test_robot_gui_executor_semantic_target_full_dry_run():
 
     context.update_scene(scene)
     context.set_value(
-        "robot_target",
-        "settings",
-    )
-    context.set_value(
         "robot_tracked_objects",
         (tracked_object,),
     )
@@ -118,6 +114,7 @@ def test_robot_gui_executor_semantic_target_full_dry_run():
     action = AgentAction(
         name="click_screen_element",
         description="Kliknij ustawienia",
+        target="settings",
     )
 
     result = engine.execute(
