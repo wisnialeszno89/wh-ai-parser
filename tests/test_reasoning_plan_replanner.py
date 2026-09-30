@@ -198,9 +198,20 @@ def test_reasoning_replanner_builds_semantic_action_plan():
         is False
     )
     assert (
-        payload["scene"]["metadata"]["execution_runtime"]
-        ["generation"]
-        == "fresh-7"
+        "execution_runtime"
+        not in payload["scene"]["metadata"]
+    )
+
+    assert (
+        payload["scene"]["metadata"]
+        ["active_application"]
+        == "WindowHelper"
+    )
+
+    assert (
+        payload["scene"]["metadata"]
+        ["active_window_title"]
+        == "WindowHelper - Quote"
     )
 
 
