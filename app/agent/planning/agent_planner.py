@@ -117,7 +117,7 @@ class AgentPlanner:
         has_dimensions = (
             re.search(
                 r"\b\d{2,5}\s*[x×]\s*\d{2,5}\b",
-                message,
+                message
             )
             is not None
         )
@@ -250,7 +250,6 @@ class AgentPlanner:
                                 "Prepare quotation workflow "
                                 "for controlled execution."
                             ),
-                            requires_confirmation=True,
                         ),
                     ),
                 ),
@@ -384,7 +383,7 @@ class AgentPlanner:
                                 "Research current market information."
                             ),
                         ),
-                        ),
+                    ),
                     ActionStep(
                         index=3,
                         action=AgentAction(
