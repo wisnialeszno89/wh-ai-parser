@@ -50,11 +50,26 @@ class WindowHubEnvironmentAdapter(EnvironmentAdapter):
             screen_height=screenshot.height,
         )
 
+        window_handle = None
+        if __import__("os").name == "nt":
+            import ctypes
+
+            try:
+                handle = int(
+                    ctypes.windll.user32.GetForegroundWindow()
+                )
+            except Exception:
+                handle = 0
+
+            if handle > 0:
+                window_handle = handle
+
         return EnvironmentObservation(
             state=state,
             metadata={
                 "source": "windowhub",
                 "screenshot": screenshot,
                 "window_rect": window_rect,
+                "window_handle": window_handle,
             },
         )
