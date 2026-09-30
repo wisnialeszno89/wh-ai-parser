@@ -23,6 +23,13 @@ from app.runtime.execution.vision.models.tracked_object import (
 @dataclass
 class FakeObservation:
     source: str = "robot_gui_executor_test"
+    metadata = {
+        "window_rect": type(
+            "WindowRect",
+            (),
+            {"left": 1000, "top": 700},
+        )(),
+    }
 
 
 class TestRobotGUIExecutor:
@@ -136,5 +143,6 @@ class TestRobotGUIExecutor:
         assert result.metadata is not None
         assert result.metadata["target_id"] == "TO-TEST-0001"
         assert result.metadata["executed"] is False
-        assert result.metadata["point"] == (160, 120)
+        assert result.metadata["point"] == (1160, 820)
+        assert result.metadata["screen_origin"] == (1000, 700)
         assert result.metadata["control_type"] == ControlType.BUTTON.value
