@@ -72,4 +72,104 @@ class ExecutionSafetyGate:
         if action is InteractionAction.CLICK:
             return True
 
+
+    def can_execute_uia_element(
+        self,
+        *,
+        metadata,
+        interaction_capability=None,
+        interaction_capability_confidence: float | None = None,
+        window_handle=None,
+        require_foreground: bool = False,
+    ) -> bool:
+        """
+        Validate a UI Automation target that does not have a visual
+        tracked-object identity.
+
+        UIA-only execution is intentionally narrower than the normal
+        tracked-object path: it requires WindowHub UIA provenance,
+        an enabled/visible interactive control, positive clickable
+        capability confidence, and (for LIVE execution) a matching
+        foreground window handle.
+        """
+
+        if not isinstance(metadata, dict):
+            return False
+
+        if metadata.get("source") != "windowhub_ui_automation":
+            return False
+
+        if metadata.get("uia_enabled") is not True:
+            return False
+
+        if metadata.get("uia_visible") is not True:
+            return False
+
+        control_type = metadata.get("uia_control_type")
+        if not isinstance(control_type, str):
+            return False
+
+        allowed_control_types = {
+            "button",
+            "checkbox",
+            "combobox",
+            "hyperlink",
+            "listitem",
+            "menuitem",
+            "radiobutton",
+            "splitbutton",
+            "tabitem",
+            "treeitem",
+        }
+
+        if control_type.strip().casefold() not in allowed_control_types:
+            return False
+
+        capability = getattr(
+            interaction_capability,
+            "value",
+            interaction_capability,
+        )
+
+        if not isinstance(capability, str):
+            return False
+
+        if capability.strip().casefold() != "clickable":
+            return False
+
+        try:
+            capability_confidence = float(
+                interaction_capability_confidence
+            )
+        except (TypeError, ValueError):
+            return False
+
+        if capability_confidence <= 0.0:
+            return False
+
+        if not require_foreground:
+            return True
+
+        try:
+            handle = int(window_handle)
+        except (TypeError, ValueError):
+            return False
+
+        if handle <= 0:
+            return False
+
+        if __import__("os").name != "nt":
+            return False
+
+        import ctypes
+
+        try:
+            foreground = int(
+                ctypes.windll.user32.GetForegroundWindow()
+            )
+        except Exception:
+            return False
+
+        return foreground == handle
+
         return False
