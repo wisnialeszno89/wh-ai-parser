@@ -206,6 +206,64 @@ def _foreground_hwnd() -> int:
     return int(user32.GetForegroundWindow())
 
 
+def _focus_window(hwnd: int) -> bool:
+    import ctypes
+
+    user32 = ctypes.WinDLL("user32", use_last_error=True)
+
+    SW_RESTORE = 9
+
+    if not user32.IsWindow(ctypes.c_void_p(hwnd)):
+        return False
+
+    user32.ShowWindow(ctypes.c_void_p(hwnd), SW_RESTORE)
+    user32.BringWindowToTop(ctypes.c_void_p(hwnd))
+    user32.SetForegroundWindow(ctypes.c_void_p(hwnd))
+
+    for _ in range(20):
+        if _foreground_hwnd() == hwnd:
+            return True
+        time.sleep(0.05)
+
+    # Windows may block direct activation when another process owns the
+    # foreground thread. Bridge the two input queues for this short
+    # activation attempt, then detach immediately.
+    current_foreground = _foreground_hwnd()
+    if current_foreground <= 0:
+        return False
+
+    foreground_thread = user32.GetWindowThreadProcessId(
+        ctypes.c_void_p(current_foreground),
+        None,
+    )
+    target_thread = user32.GetWindowThreadProcessId(
+        ctypes.c_void_p(hwnd),
+        None,
+    )
+
+    if foreground_thread and target_thread and foreground_thread != target_thread:
+        attached = bool(
+            user32.AttachThreadInput(
+                foreground_thread,
+                target_thread,
+                True,
+            )
+        )
+        try:
+            user32.SetForegroundWindow(ctypes.c_void_p(hwnd))
+            user32.BringWindowToTop(ctypes.c_void_p(hwnd))
+            time.sleep(0.1)
+        finally:
+            if attached:
+                user32.AttachThreadInput(
+                    foreground_thread,
+                    target_thread,
+                    False,
+                )
+
+    return _foreground_hwnd() == hwnd
+
+
 def main() -> int:
     args = _parse_args()
 
@@ -234,14 +292,22 @@ def main() -> int:
 
     if args.execute:
         print(
-            f"Bring WindowHub to the foreground now. "
-            f"Execution begins in {args.wait:.1f}s."
+            f"Focusing WindowHub and waiting {args.wait:.1f}s "
+            "before the execution boundary."
         )
+
+        if not _focus_window(hwnd):
+            print(
+                "ABORTED: Windows did not grant foreground status "
+                "to the WindowHub window."
+            )
+            return 4
+
         time.sleep(max(0.0, args.wait))
 
-        if _foreground_hwnd() != hwnd:
+        if not _focus_window(hwnd):
             print(
-                "ABORTED: WindowHub is not the foreground window at "
+                "ABORTED: WindowHub lost foreground status before "
                 "the execution boundary."
             )
             return 4
