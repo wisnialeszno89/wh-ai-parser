@@ -299,7 +299,8 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
         candidates = []
 
         for tracked in tracked_objects:
-            if getattr(tracked, "status", None).value == "lost":
+            status = getattr(tracked, "status", None)
+            if getattr(status, "value", status) == "lost":
                 continue
 
             bounds = getattr(
