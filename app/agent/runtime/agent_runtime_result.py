@@ -40,8 +40,8 @@ class AgentRuntimeResult:
         PlanExecutionReport | None
     )
 
-    control_loop_result: ControlLoopResult | None = None
-
     requires_manual_review: bool
 
     executed: bool
+
+    control_loop_result: ControlLoopResult | None = None
