@@ -5,3 +5,4 @@ pytest
 openai
 pydantic>=2
 python-dotenv
+pywinauto
