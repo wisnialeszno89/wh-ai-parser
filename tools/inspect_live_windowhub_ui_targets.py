@@ -56,8 +56,18 @@ def main() -> int:
 
     print(f"active_window_title={title!r}")
 
-    if title is None or "windowhub" not in title.casefold():
-        print("WindowHub is not the active window; refusing inspection.")
+    normalized_title = title.casefold() if title is not None else ""
+    recognized_windowhub_title = (
+        "windowhub" in normalized_title
+        or normalized_title.startswith("okna -")
+    )
+
+    if not recognized_windowhub_title:
+        print(
+            "WindowHub is not the active window; refusing inspection. "
+            "Expected a WindowHub title or the production app title prefix "
+            "'Okna -'."
+        )
         return 3
 
     if window_rect is None:
