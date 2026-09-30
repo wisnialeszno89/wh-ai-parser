@@ -13,7 +13,6 @@ from app.runtime.execution.interactions.interaction_action import InteractionAct
 from app.runtime.execution.robot_action_executor import (
     RobotActionExecutor,
     RobotExecutionMode,
-    RobotActionResult,
 )
 
 
@@ -32,12 +31,12 @@ class RecordingMouse:
         )
 
 
-class RejectingSafetyGate:
+class AllowingUIASafetyGate:
     def can_execute(self, *args, **kwargs):
         return False
 
     def can_execute_uia_element(self, *args, **kwargs):
-        return False
+        return True
 
 
 def make_context(
@@ -223,6 +222,7 @@ def test_robot_action_executor_live_uia_path_requires_known_origin():
     mouse = RecordingMouse()
     robot = RobotActionExecutor(
         mode=RobotExecutionMode.LIVE,
+        safety_gate=AllowingUIASafetyGate(),
         mouse=mouse,
     )
 
@@ -233,9 +233,7 @@ def test_robot_action_executor_live_uia_path_requires_known_origin():
         window_handle=1234,
     )
 
-    # The safety gate runs before geometry/origin validation, so this
-    # test uses an invalid handle to avoid touching the real foreground
-    # window in the test environment.
     assert result.success is False
     assert result.executed is False
+    assert "requires a known screen origin" in result.reason
     assert mouse.points == []
