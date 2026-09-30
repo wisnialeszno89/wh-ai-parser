@@ -6,6 +6,7 @@ from app.agent.execution.robot_gui_executor import RobotGUIExecutor
 from app.agent.runtime.execution_context import ExecutionContext
 from app.agent.perception.screen_scene import ScreenScene
 from app.agent.perception.screen_element import ScreenElement
+from app.agent.perception.interaction_capability import InteractionCapability
 
 from app.runtime.execution.robot_action_executor import RobotActionExecutor
 from app.runtime.execution.robot_mouse import RobotMouse, RobotMouseMode
@@ -67,12 +68,14 @@ class TestRobotGUIExecutor:
             width=bounds.width,
             height=bounds.height,
             confidence=1.0,
+            interaction_capability=InteractionCapability.CLICKABLE,
             metadata={
                 "tracked_object_id": tracked_object.id,
                 "control_type": ControlType.BUTTON.value,
                 "status": TrackedObjectStatus.STABLE.value,
                 "stability": 1.0,
                 "consecutive_observations": 2,
+                "interaction_capability_confidence": 1.0,
             },
         )
 
