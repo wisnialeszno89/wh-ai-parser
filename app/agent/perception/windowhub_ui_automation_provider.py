@@ -99,6 +99,7 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
             )
             window = self._active_window(
                 desktop,
+                observation,
                 allow_test_factory_fallback=(
                     self._desktop_factory is not None
                 ),
@@ -148,9 +149,20 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
     @staticmethod
     def _active_window(
         desktop,
+        observation: EnvironmentObservation,
         *,
         allow_test_factory_fallback: bool,
     ):
+        window_handle = observation.metadata.get("window_handle")
+        if window_handle is not None:
+            handle = int(window_handle)
+            if handle <= 0:
+                raise RuntimeError(
+                    "Invalid observed WindowHub window handle."
+                )
+            window_spec = desktop.window(handle=handle)
+            return window_spec.wrapper_object()
+
         if allow_test_factory_fallback:
             get_active = getattr(desktop, "get_active", None)
             if callable(get_active):
