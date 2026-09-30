@@ -214,6 +214,174 @@ class RobotActionExecutor:
             reason=mouse_result.reason,
         )
 
+
+    def execute_uia_screen_element(
+        self,
+        *,
+        screen_element,
+        action,
+        screen_origin: tuple[int, int] | None = None,
+        window_handle=None,
+    ) -> RobotActionResult:
+        """
+        Execute a click against a semantic UI Automation element.
+
+        This is the explicit UIA-only path used when accessibility evidence
+        is strong enough to identify an interactive WindowHub control but
+        visual tracking cannot provide a stable tracked-object id.
+        """
+
+        if not self.action_policy.can_execute(action):
+            return RobotActionResult(
+                False,
+                action,
+                self.mode,
+                False,
+                reason="Action policy rejected action",
+            )
+
+        if action is not InteractionAction.CLICK:
+            return RobotActionResult(
+                False,
+                action,
+                self.mode,
+                False,
+                reason=(
+                    f"Action {action.value} is not supported by "
+                    "RobotActionExecutor UIA path"
+                ),
+            )
+
+        metadata = getattr(screen_element, "metadata", None) or {}
+        confidence = self._screen_element_confidence(screen_element)
+        capability = getattr(
+            screen_element,
+            "interaction_capability",
+            None,
+        )
+
+        if not self.safety_gate.can_execute_uia_element(
+            metadata=metadata,
+            interaction_capability=capability,
+            interaction_capability_confidence=(
+                metadata.get(
+                    "interaction_capability_confidence",
+                    confidence,
+                )
+            ),
+            window_handle=window_handle,
+            require_foreground=(
+                self.mode is RobotExecutionMode.LIVE
+            ),
+        ):
+            return RobotActionResult(
+                False,
+                action,
+                self.mode,
+                False,
+                target_id=self._uia_target_id(metadata),
+                confidence=confidence,
+                reason="UIA safety gate rejected action",
+            )
+
+        x = getattr(screen_element, "x", None)
+        y = getattr(screen_element, "y", None)
+        width = getattr(screen_element, "width", None)
+        height = getattr(screen_element, "height", None)
+
+        if not all(
+            isinstance(value, int)
+            for value in (x, y, width, height)
+        ):
+            return RobotActionResult(
+                False,
+                action,
+                self.mode,
+                False,
+                target_id=self._uia_target_id(metadata),
+                confidence=confidence,
+                reason="UIA target has no valid bounds",
+            )
+
+        if width <= 0 or height <= 0:
+            return RobotActionResult(
+                False,
+                action,
+                self.mode,
+                False,
+                target_id=self._uia_target_id(metadata),
+                confidence=confidence,
+                reason="UIA target bounds are non-positive",
+            )
+
+        if self.mode is RobotExecutionMode.LIVE and screen_origin is None:
+            return RobotActionResult(
+                False,
+                action,
+                self.mode,
+                False,
+                target_id=self._uia_target_id(metadata),
+                confidence=confidence,
+                reason="LIVE UIA execution requires a known screen origin",
+            )
+
+        origin = screen_origin or (0, 0)
+        point = (
+            int(x + width // 2 + origin[0]),
+            int(y + height // 2 + origin[1]),
+        )
+
+        mouse_result = self.mouse.click(*point)
+
+        if self.mode is RobotExecutionMode.LIVE and not mouse_result.executed:
+            return RobotActionResult(
+                False,
+                action,
+                self.mode,
+                False,
+                target_id=self._uia_target_id(metadata),
+                point=mouse_result.point,
+                confidence=confidence,
+                reason="LIVE UIA execution was not performed",
+            )
+
+        return RobotActionResult(
+            success=mouse_result.success,
+            action=action,
+            mode=self.mode,
+            executed=mouse_result.executed,
+            target_id=self._uia_target_id(metadata),
+            point=mouse_result.point,
+            confidence=confidence,
+            reason=mouse_result.reason,
+        )
+
+    @staticmethod
+    def _screen_element_confidence(screen_element) -> float:
+        try:
+            return float(
+                getattr(screen_element, "confidence", 0.0)
+                or 0.0
+            )
+        except (TypeError, ValueError):
+            return 0.0
+
+    @staticmethod
+    def _uia_target_id(metadata) -> str | None:
+        value = metadata.get("provider_element_id")
+        if isinstance(value, str) and value:
+            return value
+
+        value = metadata.get("uia_runtime_id")
+        if isinstance(value, str) and value:
+            return value
+
+        value = metadata.get("automation_id")
+        if isinstance(value, str) and value:
+            return f"uia:auto:{value}"
+
+        return None
+
     @staticmethod
     def _center(target) -> tuple[int, int]:
         bounds = getattr(target, "bounds", None)
