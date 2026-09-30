@@ -177,6 +177,15 @@ class RobotGUIExecutor(ActionExecutor):
     @staticmethod
     def _screen_origin(context: ExecutionContext) -> tuple[int, int] | None:
         observation = context.last_observation
+
+        if observation is None:
+            scene = context.current_scene
+            observation = getattr(
+                scene,
+                "observation",
+                None,
+            )
+
         if observation is None:
             return None
 
