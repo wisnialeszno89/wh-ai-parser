@@ -97,7 +97,12 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
                 if self._desktop_factory is not None
                 else self._default_desktop()
             )
-            window = desktop.get_active()
+            window = self._active_window(
+                desktop,
+                allow_test_factory_fallback=(
+                    self._desktop_factory is not None
+                ),
+            )
         except Exception:
             return ()
 
@@ -139,6 +144,30 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
         from pywinauto import Desktop
 
         return Desktop(backend="uia")
+
+    @staticmethod
+    def _active_window(
+        desktop,
+        *,
+        allow_test_factory_fallback: bool,
+    ):
+        if allow_test_factory_fallback:
+            get_active = getattr(desktop, "get_active", None)
+            if callable(get_active):
+                return get_active()
+
+        import ctypes
+
+        user32 = ctypes.WinDLL("user32", use_last_error=True)
+        hwnd = int(user32.GetForegroundWindow())
+
+        if hwnd <= 0:
+            raise RuntimeError(
+                "No foreground window is available."
+            )
+
+        window_spec = desktop.window(handle=hwnd)
+        return window_spec.wrapper_object()
 
     @staticmethod
     def _tracked_objects(observation):
