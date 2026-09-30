@@ -147,7 +147,7 @@ def test_unresolved_target_is_rejected():
     assert result.point is None
 
 
-def test_live_mode_is_explicitly_blocked_for_now():
+def test_live_mode_executes_after_safety_chain():
     from app.runtime.execution.robot_action_executor import (
         RobotActionExecutor,
         RobotExecutionMode,
@@ -165,10 +165,10 @@ def test_live_mode_is_explicitly_blocked_for_now():
         root=root,
     )
 
-    assert result.success is False
-    assert result.executed is False
+    assert result.success is True
+    assert result.executed is True
     assert result.mode is RobotExecutionMode.LIVE
     assert result.target_id == child.id
     assert result.point == (140, 65)
-    assert "LIVE execution is not enabled" in result.reason
+    assert "Windows SendInput" in result.reason
 
