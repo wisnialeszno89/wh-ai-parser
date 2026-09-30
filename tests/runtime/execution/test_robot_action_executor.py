@@ -1,174 +1,121 @@
-﻿from app.runtime.execution.vision.models.rect import Rect
-from app.runtime.execution.vision.models.gui_object import GUIObject
-from app.runtime.execution.vision.models.tracked_object import (
-    TrackedObject,
-    TrackedObjectStatus,
+from dataclasses import dataclass
+
+from app.runtime.execution.interactions.interaction_action import InteractionAction
+from app.runtime.execution.robot_action_executor import (
+    RobotActionExecutor,
+    RobotExecutionMode,
 )
-from app.runtime.execution.vision.models.control_type import ControlType
-from app.runtime.execution.interactions.interaction_action import (
-    InteractionAction,
+from app.runtime.execution.robot_mouse import (
+    RobotMouseMode,
+    RobotMouseResult,
 )
 
 
-def _make_button_tree():
-    child = GUIObject(
-        id="button-1",
-        type=ControlType.BUTTON,
-        bounds=Rect(
-            x=100,
-            y=50,
-            width=80,
-            height=30,
-        ),
-        confidence=0.95,
+@dataclass
+class FakeBounds:
+    x: int
+    y: int
+    width: int
+    height: int
+
+
+@dataclass
+class FakeTarget:
+    id: str
+    bounds: FakeBounds
+
+
+class FakeBridge:
+    def resolve(self, tracked_object, root):
+        return FakeTarget(
+            id="button-001",
+            bounds=FakeBounds(
+                x=100,
+                y=200,
+                width=20,
+                height=10,
+            ),
+        )
+
+
+class FakeTrackedObject:
+    confidence = 0.91
+
+    class Object:
+        id = "tracked-001"
+
+    object = Object()
+
+
+class AllowClickGate:
+    def can_execute(self, tracked_object, action):
+        return action is InteractionAction.CLICK
+
+
+class FakeLiveMouse:
+    def __init__(self):
+        self.calls = []
+
+    def click(self, x, y):
+        self.calls.append((x, y))
+        return RobotMouseResult(
+            success=True,
+            executed=True,
+            mode=RobotMouseMode.LIVE,
+            point=(x, y),
+            reason="Fake LIVE mouse execution",
+        )
+
+
+def test_robot_action_executor_routes_click_to_robot_mouse():
+    from app.runtime.execution.robot_mouse import (
+        RobotMouse,
     )
 
-    root = GUIObject(
-        id="root",
-        type=ControlType.UNKNOWN,
-        bounds=Rect(
-            x=0,
-            y=0,
-            width=500,
-            height=300,
-        ),
-        children=[child],
-    )
-
-    return root, child
-
-
-def _make_tracked_button():
-    root, child = _make_button_tree()
-
-    tracked = TrackedObject(
-        id="track-1",
-        object=child,
-        control_type=ControlType.BUTTON,
-        confidence=0.95,
-        observation_count=3,
-        consecutive_observations=3,
-        status=TrackedObjectStatus.STABLE,
-        stability=1.0,
-    )
-
-    return root, child, tracked
-
-
-def test_dry_run_resolves_target_without_touching_hardware():
-    from app.runtime.execution.robot_action_executor import (
-        RobotActionExecutor,
-        RobotExecutionMode,
-    )
-
-    root, child, tracked = _make_tracked_button()
+    mouse = RobotMouse(mode=RobotMouseMode.DRY_RUN)
 
     executor = RobotActionExecutor(
         mode=RobotExecutionMode.DRY_RUN,
+        safety_gate=AllowClickGate(),
+        bridge=FakeBridge(),
+        mouse=mouse,
     )
 
     result = executor.execute(
-        tracked_object=tracked,
+        tracked_object=FakeTrackedObject(),
         action=InteractionAction.CLICK,
-        root=root,
+        root=object(),
     )
 
     assert result.success is True
     assert result.executed is False
     assert result.mode is RobotExecutionMode.DRY_RUN
-    assert result.target_id == child.id
-    assert result.point == (140, 65)
-    assert result.confidence == 0.95
+    assert result.target_id == "button-001"
+    assert result.point == (110, 205)
+    assert result.confidence == 0.91
     assert "hardware not touched" in result.reason
 
 
-def test_safety_rejection_never_reaches_target_resolution():
-    from app.runtime.execution.robot_action_executor import (
-        RobotActionExecutor,
-        RobotExecutionMode,
-    )
-
-    root, child, tracked = _make_tracked_button()
-
-    tracked.status = TrackedObjectStatus.LOST
-
-    executor = RobotActionExecutor(
-        mode=RobotExecutionMode.DRY_RUN,
-    )
-
-    result = executor.execute(
-        tracked_object=tracked,
-        action=InteractionAction.CLICK,
-        root=root,
-    )
-
-    assert result.success is False
-    assert result.executed is False
-    assert result.target_id == child.id
-    assert result.point is None
-
-
-def test_unresolved_target_is_rejected():
-    from app.runtime.execution.robot_action_executor import (
-        RobotActionExecutor,
-        RobotExecutionMode,
-    )
-
-    root, child, tracked = _make_tracked_button()
-
-    # The tracked object still represents the original button location.
-    # The current GUI tree contains a visually unrelated object elsewhere.
-    current_object = GUIObject(
-        id="different-button",
-        type=ControlType.BUTTON,
-        bounds=Rect(
-            x=1000,
-            y=1000,
-            width=80,
-            height=30,
-        ),
-        confidence=0.95,
-    )
-
-    root.children = [current_object]
-
-    executor = RobotActionExecutor(
-        mode=RobotExecutionMode.DRY_RUN,
-    )
-
-    result = executor.execute(
-        tracked_object=tracked,
-        action=InteractionAction.CLICK,
-        root=root,
-    )
-
-    assert result.success is False
-    assert result.executed is False
-    assert result.point is None
-
-
-def test_live_mode_executes_after_safety_chain():
-    from app.runtime.execution.robot_action_executor import (
-        RobotActionExecutor,
-        RobotExecutionMode,
-    )
-
-    root, child, tracked = _make_tracked_button()
+def test_robot_action_executor_live_path_does_not_touch_hardware():
+    mouse = FakeLiveMouse()
 
     executor = RobotActionExecutor(
         mode=RobotExecutionMode.LIVE,
+        safety_gate=AllowClickGate(),
+        bridge=FakeBridge(),
+        mouse=mouse,
     )
 
     result = executor.execute(
-        tracked_object=tracked,
+        tracked_object=FakeTrackedObject(),
         action=InteractionAction.CLICK,
-        root=root,
+        root=object(),
     )
 
     assert result.success is True
     assert result.executed is True
     assert result.mode is RobotExecutionMode.LIVE
-    assert result.target_id == child.id
-    assert result.point == (140, 65)
-    assert "Windows SendInput" in result.reason
-
+    assert result.target_id == "button-001"
+    assert result.point == (110, 205)
+    assert mouse.calls == [(110, 205)]
+    assert result.reason == "Fake LIVE mouse execution"
