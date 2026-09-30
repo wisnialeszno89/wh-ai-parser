@@ -192,6 +192,18 @@ class VerificationLoop:
                     success=True,
                 )
 
+            # A failed verification after a physical GUI click must
+            # never trigger a blind second click. The post-action state
+            # may be delayed, or the click may already have taken effect
+            # in a way not captured by the current perception snapshot.
+            if action.name == "click_screen_element":
+                return ExecutionLoopResult(
+                    attempts=tuple(attempts),
+                    success=False,
+                    requires_manual_review=True,
+                    stopped=True,
+                )
+
         return ExecutionLoopResult(
             attempts=tuple(attempts),
             success=False,
