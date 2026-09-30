@@ -31,6 +31,10 @@ from app.agent.perception.windowhub_vision_provider import (
     WindowHubVisionProvider,
 )
 
+from app.agent.perception.windowhub_ui_automation_provider import (
+    WindowHubUIAutomationProvider,
+)
+
 
 def create_windowhub_agent_control_loop() -> AgentControlLoop:
     """
@@ -61,5 +65,6 @@ def create_windowhub_agent_control_loop() -> AgentControlLoop:
         execution_engine=execution_engine,
         perception_providers=(
             perception_provider,
+            WindowHubUIAutomationProvider(),
         ),
     )
