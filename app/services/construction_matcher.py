@@ -100,11 +100,92 @@ def calculate_score(
     return score
 
 
+def _match_text(
+    description,
+    constructions
+):
+
+    normalized = " ".join(
+        str(description)
+        .strip()
+        .lower()
+        .split()
+    )
+
+    if not normalized:
+
+        return {
+
+            "score": 0,
+
+            "construction": None
+        }
+
+    for item in constructions:
+
+        candidates = [
+
+            item.get("id"),
+
+            item.get("label"),
+
+            item.get("category"),
+
+            item.get("schema"),
+
+            *item.get(
+                "aliases",
+                []
+            )
+        ]
+
+        for candidate in candidates:
+
+            if (
+
+                candidate
+                and
+                " ".join(
+                    str(candidate)
+                    .strip()
+                    .lower()
+                    .split()
+                )
+                == normalized
+
+            ):
+
+                return {
+
+                    "score": 100,
+
+                    "construction":
+                        item
+                }
+
+    return {
+
+        "score": 0,
+
+        "construction": None
+    }
+
+
 def match_construction(
     schema
 ):
 
     constructions = load_constructions()
+
+    if isinstance(
+        schema,
+        str
+    ):
+
+        return _match_text(
+            schema,
+            constructions
+        )
 
     best_match = None
 
