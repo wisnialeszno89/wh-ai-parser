@@ -15,13 +15,6 @@ class AgentPlanner:
     It only decides WHAT should happen.
     """
 
-    CLICK_KEYWORDS = (
-        "kliknij",
-        "click",
-        "naciśnij",
-        "nacisnij",
-    )
-
     QUOTE_KEYWORDS = (
         "wycena",
         "wycenę",
