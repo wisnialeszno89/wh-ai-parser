@@ -28,6 +28,7 @@ from app.runtime.execution.robot_action_executor import (
     RobotActionExecutor,
     RobotExecutionMode,
 )
+from app.runtime.execution.robot_mouse import RobotMouse, RobotMouseMode
 from app.runtime.execution.vision.models.control_type import ControlType
 from app.runtime.execution.window.window_rect import WindowRect
 from app.wh.vision.mss_screenshot_engine import MSSScreenshotEngine
@@ -58,6 +59,16 @@ def _parse_args() -> argparse.Namespace:
         type=float,
         default=5.0,
         help="Seconds allowed to bring WindowHub to the foreground before LIVE execution.",
+    )
+    parser.add_argument(
+        "--uia-only",
+        action="store_true",
+        help=(
+            "Allow an explicitly requested exact UIA target to execute "
+            "without a correlated visual tracked object. This mode still "
+            "requires an enabled, visible, clickable UIA element and a "
+            "foreground WindowHub boundary check."
+        ),
     )
     return parser.parse_args()
 
@@ -111,7 +122,7 @@ def _build_scene(hwnd: int):
     return observation, scene, window_rect
 
 
-def _find_target(scene, target: str):
+def _find_target(scene, target: str, *, allow_uia_only: bool):
     resolution = TargetResolver().resolve(scene, target)
 
     if not resolution.resolved or resolution.element is None:
@@ -148,9 +159,13 @@ def _find_target(scene, target: str):
 
     tracked_id = metadata.get("tracked_object_id")
     if not isinstance(tracked_id, str) or not tracked_id:
-        raise RuntimeError(
-            "Resolved target has no unique tracked object id."
-        )
+        if not allow_uia_only:
+            raise RuntimeError(
+                "Resolved target has no unique tracked object id. "
+                "Use --uia-only only for an explicitly requested exact UIA target."
+            )
+
+        return resolution, element, None, None
 
     tracked_objects = (
         scene.metadata.get("execution_runtime", {})
@@ -208,7 +223,12 @@ def main() -> int:
     print(f"windowhub_hwnd={hwnd}")
     print(f"windowhub_title={_window_title(hwnd)!r}")
     print(f"target={args.target!r}")
-    print(f"mode={'LIVE' if args.execute else 'DRY_RUN'}")
+    mode = "LIVE_UIA_ONLY" if args.execute and args.uia_only else (
+        "LIVE" if args.execute else (
+            "DRY_RUN_UIA_ONLY" if args.uia_only else "DRY_RUN"
+        )
+    )
+    print(f"mode={mode}")
     print("No click is executed unless --execute is supplied.")
     print()
 
@@ -231,6 +251,7 @@ def main() -> int:
         resolution, element, tracked_object, root = _find_target(
             scene,
             args.target,
+            allow_uia_only=args.uia_only,
         )
     except Exception as exc:
         print(f"ABORTED: {exc}")
@@ -286,8 +307,32 @@ def main() -> int:
 
     if not args.execute:
         print()
-        print("DRY-RUN OK: no hardware action was executed.")
+        if args.uia_only and not metadata.get("tracked_object_id"):
+            print(
+                "DRY-RUN UIA-ONLY OK: semantic target is valid; "
+                "no hardware action was executed."
+            )
+        else:
+            print("DRY-RUN OK: no hardware action was executed.")
         return 0
+
+    if args.uia_only and not metadata.get("tracked_object_id"):
+        if _foreground_hwnd() != hwnd:
+            print(
+                "ABORTED: WindowHub lost foreground status after perception "
+                "and before the UIA-only click."
+            )
+            return 7
+
+        mouse = RobotMouse(mode=RobotMouseMode.LIVE)
+        mouse_result = mouse.click(*screen_point)
+
+        print(f"executed={mouse_result.executed}")
+        print(f"success={mouse_result.success}")
+        print(f"point={mouse_result.point}")
+        print(f"reason={mouse_result.reason}")
+
+        return 0 if mouse_result.success and mouse_result.executed else 6
 
     confidence = metadata.get(
         "interaction_capability_confidence"
