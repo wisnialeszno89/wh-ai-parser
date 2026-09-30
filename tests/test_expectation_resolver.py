@@ -117,3 +117,36 @@ def test_resolver_ignores_invalid_expectation_container():
     )
 
     assert outcome is None
+
+
+def test_resolver_adds_safe_default_for_gui_click():
+
+    resolver = ExpectationResolver()
+    context = create_context()
+
+    context.update_scene(
+        __import__(
+            "app.agent.perception.screen_scene",
+            fromlist=["ScreenScene"],
+        ).ScreenScene(
+            observation=create_context().last_observation
+            or __import__(
+                "app.agent.environment.environment_observation",
+                fromlist=["EnvironmentObservation"],
+            ).EnvironmentObservation(
+                state=__import__(
+                    "app.agent.environment.environment_state",
+                    fromlist=["EnvironmentState"],
+                ).EnvironmentState(),
+            ),
+        )
+    )
+
+    outcome = resolver.resolve(
+        create_action("click_screen_element"),
+        context,
+    )
+
+    assert outcome is not None
+    assert outcome.require_scene_change is True
+    assert outcome.baseline_scene_signature == ()
