@@ -1,6 +1,8 @@
 import json
 import os
 from dataclasses import dataclass
+
+from dotenv import load_dotenv
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -56,6 +58,8 @@ class OpenAIPlanReasonerConfig:
         *,
         model: str | None = None,
     ) -> "OpenAIPlanReasonerConfig":
+        load_dotenv()
+
         api_key = os.getenv(
             "OPENAI_API_KEY"
         )
