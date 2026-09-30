@@ -124,7 +124,15 @@ class RobotGUIExecutor(ActionExecutor):
                 },
             )
 
-        expected_control_type = self._control_type(element.kind)
+        # The fused semantic element may have a provider-specific kind
+        # (for example BUTTON from accessibility evidence) while the
+        # underlying WindowHub tracked object remains an ICON. Verification
+        # must validate the real tracked object, not a provider's display kind.
+        expected_control_type = getattr(
+            tracked_object,
+            "control_type",
+            self._control_type(element.kind),
+        )
         interaction_capability_confidence = (
             self._interaction_capability_confidence(element)
         )
