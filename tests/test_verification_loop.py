@@ -394,3 +394,43 @@ def test_retry_uses_fresh_runtime_state_from_reperception():
         context.get_value("generation")
         == "fresh-2"
     )
+
+
+def test_click_verification_failure_never_retries_physical_action():
+
+    executor = RuntimeAwareExecutor()
+
+    registry = ExecutorRegistry(
+        executors=(executor,)
+    )
+
+    environment = FakeEnvironment(
+        state=create_observation().state
+    )
+
+    loop = VerificationLoop(
+        execution_engine=ExecutionEngine(
+            registry
+        ),
+        environment=environment,
+        perception_engine=SequencedPerceptionEngine(),
+        expectation_resolver=StaticExpectationResolver(),
+        outcome_verifier=SequencedOutcomeVerifier(),
+        max_attempts=2,
+    )
+
+    context = create_context()
+
+    result = loop.run(
+        AgentAction(
+            name="click_screen_element",
+            description="Click Open",
+            target="Open",
+        ),
+        context,
+    )
+
+    assert result.success is False
+    assert result.requires_manual_review is True
+    assert len(result.attempts) == 1
+    assert executor.seen_generations == ["fresh-1"]
