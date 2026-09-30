@@ -212,6 +212,7 @@ def main() -> int:
         metadata={
             "source": "windowhub",
             "window_rect": window_rect,
+            "window_handle": hwnd,
         },
     )
 
