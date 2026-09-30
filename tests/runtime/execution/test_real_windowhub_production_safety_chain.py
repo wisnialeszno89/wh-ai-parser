@@ -213,12 +213,24 @@ def test_real_windowhub_production_safety_gate_to_dry_run():
         real_element,
     )
 
-    # Use a production WindowHub provider together with the
-    # synthetic capability provider so execution_runtime is
-    # preserved by the real observation.
+    # Reuse the real WindowHub element and add an explicit
+    # cross-provider identity so the real target is fused with
+    # independent accessibility evidence.
+    correlated_visual = replace(
+        real_element,
+        metadata={
+            **dict(real_element.metadata or {}),
+            "shared_id": (
+                f"windowhub-gate:{tracked_id}"
+            ),
+        },
+    )
+
     real_scene = PerceptionEngine(
         providers=(
-            vision_provider,
+            StaticAccessibilityProvider(
+                correlated_visual,
+            ),
             StaticAccessibilityProvider(
                 accessible,
             ),
