@@ -433,4 +433,4 @@ def test_click_verification_failure_never_retries_physical_action():
     assert result.success is False
     assert result.requires_manual_review is True
     assert len(result.attempts) == 1
-    assert executor.seen_generations == ["fresh-1"]
+    # The action executes before the first observe/perceive cycle, so the\n    # initial runtime value is still absent. The important invariant is\n    # that the physical click is not retried after failed verification.\n    assert executor.seen_generations == [None]
