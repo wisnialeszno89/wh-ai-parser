@@ -11,6 +11,13 @@ Run from the repository root:
     python tools/probe_universal_agent_runtime.py
 """
 
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
 from app.agent.agent_request import AgentRequest
 from app.agent.runtime.windowhub_agent_runtime import (
     create_windowhub_agent_runtime,
@@ -26,7 +33,7 @@ def _print_section(title: str) -> None:
 
 def main() -> None:
     request = AgentRequest(
-        message="Zrób wycenę okna",
+        message="Zrób wycenę okna 1230x1480 FIX",
     )
 
     _print_section("REQUEST")
@@ -61,6 +68,20 @@ def main() -> None:
         print(f"executed={result.executed}")
         print(f"requires_manual_review={result.requires_manual_review}")
         return
+
+    _print_section("OFFER CONTEXT")
+    offer_context = context.get_value("offer_context")
+    if offer_context is None:
+        print("offer_context=None")
+    else:
+        print(f"product_type={offer_context.product_type}")
+        print(f"width={offer_context.width}")
+        print(f"height={offer_context.height}")
+        print(f"quantity={offer_context.quantity}")
+        print(f"opening={offer_context.opening}")
+        print(f"openings={offer_context.openings}")
+        print(f"missing_fields={offer_context.missing_fields}")
+        print(f"conflicts={offer_context.conflicts}")
 
     _print_section("OBSERVATION / PERCEPTION")
     observation = getattr(context, "last_observation", None)
