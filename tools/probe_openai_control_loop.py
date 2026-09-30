@@ -1,3 +1,11 @@
+from pathlib import Path
+import sys
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
 from app.agent.agent_action import AgentAction
 from app.agent.agent_intent import AgentIntent
 from app.agent.agent_request import AgentRequest
@@ -12,7 +20,6 @@ from app.agent.reasoning.openai_plan_reasoner import (
     OpenAIPlanReasoner,
 )
 from app.agent.reasoning.plan_reasoner import PlanReasoner
-from app.agent.reasoning.reasoning_proposal import ReasoningProposal
 from app.agent.runtime.default_agent_control_loop import (
     create_default_agent_control_loop,
 )
