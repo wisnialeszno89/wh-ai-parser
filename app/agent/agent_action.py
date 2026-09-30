@@ -19,6 +19,10 @@ class AgentAction:
 
     description: str
 
+    # Optional semantic target carried by the plan. This is a label or
+    # other semantic identifier, never a coordinate or low-level command.
+    target: str | None = None
+
     requires_confirmation: bool = False
 
     environment_requirement: (
