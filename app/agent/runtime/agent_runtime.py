@@ -25,6 +25,10 @@ from app.agent.runtime.agent_orchestrator import (
     AgentOrchestrator,
 )
 
+from app.agent.runtime.agent_control_loop import (
+    AgentControlLoop,
+)
+
 from app.agent.runtime.agent_runtime_result import (
     AgentRuntimeResult,
 )
@@ -40,6 +44,7 @@ class AgentRuntime:
         orchestrator: AgentOrchestrator | None = None,
         plan_executor: PlanExecutor | None = None,
         session_store: AgentSessionStore | None = None,
+        control_loop: AgentControlLoop | None = None,
     ) -> None:
 
         self.orchestrator = (
@@ -47,6 +52,8 @@ class AgentRuntime:
             if orchestrator is not None
             else AgentOrchestrator()
         )
+
+        self.control_loop = control_loop
 
         self.session_store = (
             session_store
@@ -182,9 +189,30 @@ class AgentRuntime:
             )
 
         # ---------------------------------------------------------
-        # Execute semantic plan.
+        # Execute semantic plan through the universal control loop
+        # when an environment runtime is configured.
         # ---------------------------------------------------------
 
+        if self.control_loop is not None:
+            control_loop_result = self.control_loop.run(
+                plan=context.plan,
+                context=context,
+            )
+
+            return AgentRuntimeResult(
+                intent=context.intent,
+                context=context,
+                execution_report=None,
+                control_loop_result=control_loop_result,
+                requires_manual_review=(
+                    context.requires_manual_review
+                    or control_loop_result.requires_manual_review
+                ),
+                executed=True,
+            )
+
+        # Backward-compatible semantic execution path used when
+        # no environment-specific control loop is configured.
         execution_report = self.plan_executor.execute(
             plan=context.plan,
             context=context,
