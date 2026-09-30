@@ -23,3 +23,10 @@ class ExpectedOutcome:
     expected_active_application: str | None = None
 
     expected_window_title: str | None = None
+
+    # When enabled, verification requires the post-action semantic
+    # scene to differ from the scene observed immediately before
+    # execution. The baseline is captured by ExpectationResolver.
+    require_scene_change: bool = False
+
+    baseline_scene_signature: tuple[tuple[object, ...], ...] | None = None
