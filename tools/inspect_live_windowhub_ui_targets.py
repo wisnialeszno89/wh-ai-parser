@@ -3,8 +3,54 @@ from __future__ import annotations
 import os
 import sys
 from pathlib import Path
+import ctypes
+
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def _foreground_process_info():
+    if os.name != "nt":
+        return None, None
+
+    user32 = ctypes.WinDLL("user32", use_last_error=True)
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+
+    hwnd = user32.GetForegroundWindow()
+    if not hwnd:
+        return None, None
+
+    process_id = ctypes.c_ulong()
+    user32.GetWindowThreadProcessId(
+        ctypes.c_void_p(hwnd),
+        ctypes.byref(process_id),
+    )
+
+    pid = int(process_id.value)
+    if pid <= 0:
+        return None, None
+
+    process_name = None
+    handle = kernel32.OpenProcess(
+        0x1000,  # PROCESS_QUERY_LIMITED_INFORMATION
+        False,
+        pid,
+    )
+    if handle:
+        try:
+            buffer = ctypes.create_unicode_buffer(32768)
+            size = ctypes.c_ulong(len(buffer))
+            if kernel32.QueryFullProcessImageNameW(
+                handle,
+                0,
+                buffer,
+                ctypes.byref(size),
+            ):
+                process_name = Path(buffer.value).name
+        finally:
+            kernel32.CloseHandle(handle)
+
+    return pid, process_name
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
@@ -53,20 +99,29 @@ def main() -> int:
     observation = environment.observe()
     title = observation.state.active_window_title
     window_rect = observation.metadata.get("window_rect")
+    foreground_pid, foreground_process = _foreground_process_info()
 
     print(f"active_window_title={title!r}")
+    print(f"foreground_pid={foreground_pid!r}")
+    print(f"foreground_process={foreground_process!r}")
 
     normalized_title = title.casefold() if title is not None else ""
+    normalized_process = (
+        foreground_process.casefold()
+        if foreground_process is not None
+        else ""
+    )
     recognized_windowhub_title = (
         "windowhub" in normalized_title
         or normalized_title.startswith("okna -")
+        or Path(normalized_process).stem == "okna"
     )
 
     if not recognized_windowhub_title:
         print(
             "WindowHub is not the active window; refusing inspection. "
-            "Expected a WindowHub title or the production app title prefix "
-            "'Okna -'."
+            "Expected a WindowHub title, the production app title prefix "
+            "'Okna -', or the foreground process 'Okna'."
         )
         return 3
 
