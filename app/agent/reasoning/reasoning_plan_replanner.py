@@ -159,6 +159,11 @@ class ReasoningPlanReplanner(
         if not proposal.actions:
             return None
 
+        if not (
+            proposal.actions
+        ):
+            return None
+
         actions = []
 
         for action in proposal.actions:
