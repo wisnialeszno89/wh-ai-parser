@@ -18,6 +18,10 @@ from app.agent.perception.perception_engine import (
     PerceptionEngine,
 )
 
+from app.agent.perception.screen_scene import (
+    ScreenScene,
+)
+
 from app.agent.planning.action_plan import (
     ActionPlan,
 )
@@ -175,6 +179,21 @@ class AgentControlLoop:
 
         self.replanner = replanner
         self.max_replans = max_replans
+
+    def observe_scene(self) -> ScreenScene:
+        """
+        Observe and perceive the current environment without executing
+        an action.
+
+        This is the initial world-state snapshot used by the planner
+        before it decides what should happen next.
+        """
+
+        observation = self.environment_runtime.observe()
+
+        return self.perception_engine.perceive(
+            observation
+        )
 
     def run(
         self,
