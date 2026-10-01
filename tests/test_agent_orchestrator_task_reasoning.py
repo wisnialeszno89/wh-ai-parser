@@ -12,6 +12,18 @@ from app.agent.reasoning.task_reasoner import (
     TaskReasoner,
 )
 
+from app.agent.environment.environment_observation import (
+    EnvironmentObservation,
+)
+from app.agent.environment.environment_state import (
+    EnvironmentState,
+)
+from app.agent.perception.interaction_capability import (
+    InteractionCapability,
+)
+from app.agent.perception.screen_element import ScreenElement
+from app.agent.perception.screen_scene import ScreenScene
+
 
 class RecordingTaskReasoner(TaskReasoner):
 
@@ -85,5 +97,60 @@ def test_orchestrator_falls_back_to_existing_skill_planner():
         "click_screen_element"
     )
     assert context.plan.steps[0].action.target == (
+        "NOWA OFERTA"
+    )
+
+
+def test_orchestrator_passes_initial_scene_to_task_reasoner():
+    reasoner = RecordingTaskReasoner(
+        proposal=ReasoningProposal(
+            actions=(
+                ReasoningAction(
+                    name="click_screen_element",
+                    description="Open the visible new offer control.",
+                    target="NOWA OFERTA",
+                ),
+            ),
+            rationale="Use the currently observed WindowHub control.",
+            confidence=0.97,
+        )
+    )
+
+    scene = ScreenScene(
+        observation=EnvironmentObservation(
+            state=EnvironmentState(
+                active_application="WindowHub",
+                active_window_title="WindowHub - Oferta",
+            ),
+        ),
+        elements=(
+            ScreenElement(
+                kind="button",
+                label="NOWA OFERTA",
+                confidence=0.99,
+                interaction_capability=(
+                    InteractionCapability.CLICKABLE
+                ),
+            ),
+        ),
+    )
+
+    orchestrator = AgentOrchestrator(
+        task_reasoner=reasoner
+    )
+
+    context = orchestrator.prepare(
+        AgentRequest(
+            message="Otwórz nową ofertę"
+        ),
+        initial_scene=scene,
+    )
+
+    assert context.plan is not None
+    assert len(reasoner.contexts) == 1
+    assert reasoner.contexts[0].scene is scene
+
+    payload = reasoner.contexts[0].to_payload()
+    assert payload["scene"]["visible_elements"][0]["label"] == (
         "NOWA OFERTA"
     )
