@@ -164,3 +164,41 @@ def test_openai_task_reasoner_guides_ready_workflow_to_gui_action():
     assert "READY_FOR_PRICING" in instructions
     assert "Do NOT return analyze_request" in instructions
     assert "next safe user-visible GUI action" in instructions
+
+
+def test_openai_task_reasoner_maps_semantic_text_value():
+    context = TaskPlanningContext(
+        request_message="Wpisz 1230 do pola szerokość",
+        intent="create_quote",
+        capability_name="WH_WINDOW",
+        capability_description="Controlled WindowHub execution.",
+        skill_name="WHWindowSkill",
+        scene=None,
+    )
+
+    parsed = _OpenAITaskReasoningProposal(
+        actions=(
+            _OpenAITaskReasoningAction(
+                name="write_text",
+                description="Enter the requested width.",
+                target="Szerokość",
+                value="1230",
+            ),
+        ),
+        rationale="Populate the width field.",
+        confidence=0.95,
+        requires_manual_review=False,
+    )
+
+    client = FakeClient(parsed)
+    reasoner = OpenAITaskReasoner(
+        config=create_config(),
+        client=client,
+    )
+
+    proposal = reasoner.reason(context)
+
+    assert proposal is not None
+    assert proposal.actions[0].name == "write_text"
+    assert proposal.actions[0].target == "Szerokość"
+    assert proposal.actions[0].value == "1230"
