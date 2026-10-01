@@ -104,8 +104,10 @@ Rules:
   GUI instructions.
 - The input may include a current semantic scene captured immediately
   before planning. Treat it as observed evidence of the visible UI state.
-- Use visible element labels, kinds and interaction capabilities to decide
-  whether an action is appropriate.
+- Use visible element labels, kinds, interaction capabilities and any
+  supplied current_value to decide whether an action is appropriate.
+  If the requested value is already present in a field, do not write it
+  again unless the task explicitly requires replacing it.
 - When a scene is provided, an action target must be a visible element
   label from that scene (case-insensitive) unless no target is needed.
 - Never use or invent technical identifiers such as AutomationId values,
