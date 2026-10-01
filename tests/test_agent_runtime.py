@@ -329,3 +329,47 @@ def test_runtime_blocks_gui_when_offer_workflow_requires_salesperson_input():
     assert result.context.get_value(
         "salesperson_questions"
     )
+
+
+def test_runtime_continues_offer_session_with_follow_up_data():
+    reasoner = RecordingTaskReasoner()
+
+    from app.agent.runtime.agent_orchestrator import AgentOrchestrator
+
+    runtime = AgentRuntime(
+        orchestrator=AgentOrchestrator(
+            task_reasoner=reasoner,
+        ),
+    )
+
+    first = runtime.run(
+        AgentRequest(
+            message="Przygotuj tę ofertę",
+            session_id="offer-session-test",
+        )
+    )
+
+    assert first.executed is False
+    assert first.requires_manual_review is True
+
+    second = runtime.run(
+        AgentRequest(
+            message="Okno 1230x1480 FIX",
+            session_id="offer-session-test",
+        )
+    )
+
+    assert second.intent == AgentIntent.CREATE_QUOTE
+    assert second.executed is True
+    assert second.execution_report is not None
+
+    assert len(reasoner.contexts) == 2
+
+    workflow = reasoner.contexts[-1].offer_workflow
+
+    assert workflow is not None
+    assert workflow["requires_salesperson_input"] is False
+    assert workflow["is_ready_for_pricing"] is True
+    assert workflow["offer_context"]["width"] == 1230
+    assert workflow["offer_context"]["height"] == 1480
+    assert workflow["offer_context"]["product_type"] == "window"
