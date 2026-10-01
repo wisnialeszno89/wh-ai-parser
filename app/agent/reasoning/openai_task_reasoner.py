@@ -116,6 +116,16 @@ Rules:
 - If the workflow says that salesperson input is required, do not
   invent UI actions or reopen an already-open offer; set
   requires_manual_review=true.
+- If workflow_state is READY_FOR_PRICING, the business workflow steps
+  are already complete. Do NOT return analyze_request,
+  collect_offer_context, validate_offer, build_construction or
+  prepare_quote. Instead, choose only the next safe user-visible GUI
+  action required to continue the current WindowHub workflow.
+- For a READY_FOR_PRICING task, prefer one small semantic GUI action,
+  normally click_screen_element with a visible target from the current
+  scene. Never guess the target.
+- If no clear visible control safely represents the next step,
+  set requires_manual_review=true.
 - If the requested goal is already represented by the current workflow
   state and observed scene, do not repeat the navigation step.
 - If the requested UI state is not supported by the observed scene and
