@@ -44,6 +44,10 @@ class ReasoningPlanReplanner(
         "key_press",
         "coordinate_click",
         "screen_coordinate",
+        "window_handle",
+        "runtime_id",
+        "automation_id",
+        "tracked_object_id",
     )
 
     def __init__(
@@ -174,10 +178,17 @@ class ReasoningPlanReplanner(
             ):
                 return None
 
+            if (
+                action.target is not None
+                and self._is_low_level(action.target)
+            ):
+                return None
+
             actions.append(
                 AgentAction(
                     name=action.name,
                     description=action.description,
+                    target=action.target,
                     requires_confirmation=(
                         action.requires_confirmation
                     ),
