@@ -124,7 +124,30 @@ class AgentRuntime:
         initial_scene = None
 
         if self.control_loop is not None:
-            initial_scene = self.control_loop.observe_scene()
+            try:
+                initial_scene = (
+                    self.control_loop.observe_scene()
+                )
+            except Exception as exc:
+                context = self.orchestrator.prepare(
+                    request,
+                    initial_scene=None,
+                )
+
+                context.set_value(
+                    "initial_observation_error",
+                    str(exc),
+                )
+
+                context.requires_manual_review = True
+
+                return AgentRuntimeResult(
+                    intent=context.intent,
+                    context=context,
+                    execution_report=None,
+                    requires_manual_review=True,
+                    executed=False,
+                )
 
         # ---------------------------------------------------------
         # Orchestrate the request with the observed world state.
