@@ -113,6 +113,7 @@ class ExecutionSafetyGate:
 
         allowed_control_types = {
             "button",
+            "edit",
             "checkbox",
             "combobox",
             "hyperlink",
