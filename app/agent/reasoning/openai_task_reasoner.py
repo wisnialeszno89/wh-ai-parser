@@ -111,6 +111,13 @@ Rules:
 - If the requested target cannot be expressed using a visible semantic
   label from the scene, set requires_manual_review=true rather than
   guessing an internal identifier.
+- If offer workflow state is provided, treat it as authoritative
+  semantic workflow context for quotation tasks.
+- If the workflow says that salesperson input is required, do not
+  invent UI actions or reopen an already-open offer; set
+  requires_manual_review=true.
+- If the requested goal is already represented by the current workflow
+  state and observed scene, do not repeat the navigation step.
 - If the requested UI state is not supported by the observed scene and
   the task cannot be planned safely without guessing, set
   requires_manual_review=true.
