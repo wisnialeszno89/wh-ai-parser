@@ -5,6 +5,7 @@ import os
 import sys
 import time
 from pathlib import Path
+from uuid import uuid4
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
@@ -25,14 +26,26 @@ from tools.live_click_windowhub_target import _focus_window
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Run one natural-language request through the complete "
-            "WindowHub AgentRuntime."
+            "Run one or more natural-language requests through the "
+            "same WindowHub AgentRuntime session."
         )
     )
     parser.add_argument(
         "--message",
-        default="Otwórz nową ofertę",
-        help="Natural-language task for the agent.",
+        action="append",
+        dest="messages",
+        help=(
+            "Natural-language task for the agent. Repeat --message to "
+            "continue the same conversation/session."
+        ),
+    )
+    parser.add_argument(
+        "--session-id",
+        default=None,
+        help=(
+            "Optional explicit session id. When omitted, one id is "
+            "generated for the whole command."
+        ),
     )
     parser.add_argument(
         "--wait",
@@ -43,54 +56,15 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def main() -> int:
-    args = parse_args()
-
-    if os.environ.get("WH_REAL_WINDOWHUB") != "1":
-        print(
-            "ABORTED: Set WH_REAL_WINDOWHUB=1 for explicit LIVE "
-            "WindowHub execution."
-        )
-        return 2
-
-    hwnd = _windowhub_hwnd()
-    if hwnd is None:
-        print("ABORTED: No visible WindowHub main window was found.")
-        return 3
-
-    print("Full AgentRuntime → WindowHub LIVE smoke-test")
-    print("===============================================")
-    print(f"windowhub_hwnd={hwnd}")
-    print(f"windowhub_title={_window_title(hwnd)!r}")
-    print(f"message={args.message!r}")
-
-    if not _focus_window(hwnd):
-        print(
-            "ABORTED: WindowHub could not be made the foreground window."
-        )
-        return 4
-
-    time.sleep(max(0.0, args.wait))
-
-    runtime = create_windowhub_agent_runtime()
-
-    request = AgentRequest(
-        message=args.message,
-    )
-
-    result = runtime.run(request)
-
+def _print_plan(result) -> None:
     context = result.context
     plan = context.plan
-    control = result.control_loop_result
-    salesperson_questions = context.get_value(
-        "salesperson_questions",
-        (),
-    )
 
     print()
     print("=== AGENT ===")
-    print(f"intent={getattr(result.intent, 'value', result.intent)}")
+    print(
+        f"intent={getattr(result.intent, 'value', result.intent)}"
+    )
     print(f"executed={result.executed}")
     print(
         f"requires_manual_review={result.requires_manual_review}"
@@ -115,30 +89,29 @@ def main() -> int:
                 f"description={action.description!r}"
             )
 
+    salesperson_questions = context.get_value(
+        "salesperson_questions",
+        (),
+    )
+
     if salesperson_questions:
         print()
         print("=== SALESPERSON QUESTIONS ===")
         for question in salesperson_questions:
             print(f"- {question}")
 
+
+def _print_execution(result) -> None:
+    control = result.control_loop_result
+
     if control is None:
         print()
-        print(
-            "=== CONTROL LOOP ==="
-        )
+        print("=== CONTROL LOOP ===")
         print(
             "not executed: runtime stopped before GUI control "
             "because salesperson input is required."
         )
-        print()
-        print("=== FINAL ===")
-        print("success=False")
-        print(
-            "manual_review="
-            f"{result.requires_manual_review}"
-        )
-        print("stopped=True")
-        return 6
+        return
 
     print()
     print("=== CONTROL LOOP ===")
@@ -156,7 +129,10 @@ def main() -> int:
         start=1,
     ):
         print()
-        print(f"execution[{index}] success={execution.success}")
+        print(
+            f"execution[{index}] "
+            f"success={execution.success}"
+        )
 
         attempt = execution.last_attempt
         if attempt is None:
@@ -187,8 +163,89 @@ def main() -> int:
             f"{getattr(verification, 'reason', None)!r}"
         )
 
+
+def main() -> int:
+    args = parse_args()
+
+    if os.environ.get("WH_REAL_WINDOWHUB") != "1":
+        print(
+            "ABORTED: Set WH_REAL_WINDOWHUB=1 for explicit LIVE "
+            "WindowHub execution."
+        )
+        return 2
+
+    messages = args.messages or ["Otwórz nową ofertę"]
+    session_id = args.session_id or f"live-{uuid4().hex}"
+
+    hwnd = _windowhub_hwnd()
+    if hwnd is None:
+        print("ABORTED: No visible WindowHub main window was found.")
+        return 3
+
+    print(
+        "Full AgentRuntime → WindowHub LIVE conversational smoke-test"
+    )
+    print(
+        "============================================================="
+    )
+    print(f"windowhub_hwnd={hwnd}")
+    print(f"windowhub_title={_window_title(hwnd)!r}")
+    print(f"session_id={session_id!r}")
+    print(f"turn_count={len(messages)}")
+
+    if not _focus_window(hwnd):
+        print(
+            "ABORTED: WindowHub could not be made the foreground window."
+        )
+        return 4
+
+    time.sleep(max(0.0, args.wait))
+
+    runtime = create_windowhub_agent_runtime()
+
+    final_result = None
+
+    for turn_index, message in enumerate(
+        messages,
+        start=1,
+    ):
+        print()
+        print("=" * 68)
+        print(f"TURN {turn_index}/{len(messages)}")
+        print("=" * 68)
+        print(f"message={message!r}")
+
+        request = AgentRequest(
+            message=message,
+            session_id=session_id,
+        )
+
+        result = runtime.run(request)
+        final_result = result
+
+        _print_plan(result)
+        _print_execution(result)
+
     print()
     print("=== FINAL ===")
+
+    if final_result is None:
+        print("success=False")
+        print("manual_review=True")
+        print("stopped=True")
+        return 6
+
+    control = final_result.control_loop_result
+
+    if control is None:
+        print("success=False")
+        print(
+            "manual_review="
+            f"{final_result.requires_manual_review}"
+        )
+        print("stopped=True")
+        return 6
+
     print(f"success={control.success}")
     print(
         "manual_review="
