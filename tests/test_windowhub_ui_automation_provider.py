@@ -50,6 +50,7 @@ class FakeUIAItem:
         width=100,
         height=80,
         runtime_id=(1, 2, 3),
+        value=None,
     ):
         self.element_info = SimpleNamespace(
             name=name,
@@ -58,6 +59,7 @@ class FakeUIAItem:
             enabled=enabled,
             visible=visible,
             runtime_id=runtime_id,
+            rich_text=value,
         )
         self._rectangle = SimpleNamespace(
             left=left,
@@ -386,3 +388,27 @@ def test_ui_automation_provider_rejects_ambiguous_neighbor_labels():
     )
 
     assert elements == ()
+
+
+def test_ui_automation_provider_exposes_current_editor_value():
+    item = FakeUIAItem(
+        name="Szerokość",
+        control_type="Edit",
+        value="1230",
+    )
+
+    desktop = FakeDesktop(
+        FakeUIAWindow(
+            (item,),
+            title="Okna - WindowHub",
+        )
+    )
+
+    elements = WindowHubUIAutomationProvider(
+        desktop_factory=lambda: desktop,
+    ).perceive(
+        make_observation()
+    )
+
+    assert len(elements) == 1
+    assert elements[0].metadata["current_value"] == "1230"
