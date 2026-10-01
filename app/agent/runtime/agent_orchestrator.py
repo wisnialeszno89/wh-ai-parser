@@ -17,6 +17,10 @@ from app.agent.runtime.execution_context import (
     AgentExecutionContext,
 )
 
+from app.agent.perception.screen_scene import (
+    ScreenScene,
+)
+
 from app.agent.reasoning.reasoning_task_planner import (
     ReasoningTaskPlanner,
 )
@@ -118,6 +122,7 @@ class AgentOrchestrator:
     def prepare(
         self,
         request: AgentRequest,
+        initial_scene: ScreenScene | None = None,
     ) -> AgentExecutionContext:
         """
         Prepare one agent request for execution.
@@ -131,6 +136,10 @@ class AgentOrchestrator:
         5. returns a complete execution context
 
         No external actions are executed here.
+
+        When an initial semantic scene is available, it is supplied to
+        the task reasoner so planning can account for the current UI
+        state before proposing an action.
         """
 
         deterministic_plan = self.planner.plan(
@@ -188,6 +197,7 @@ class AgentOrchestrator:
                     capability.description
                 ),
                 skill_name=skill.__class__.__name__,
+                scene=initial_scene,
             )
 
             reasoned_plan = self.task_planner.plan(
