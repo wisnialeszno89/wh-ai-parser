@@ -154,3 +154,26 @@ def test_orchestrator_passes_initial_scene_to_task_reasoner():
     assert payload["scene"]["visible_elements"][0]["label"] == (
         "NOWA OFERTA"
     )
+
+
+
+def test_orchestrator_can_fail_closed_when_task_reasoning_is_required():
+    reasoner = RecordingTaskReasoner(
+        proposal=None
+    )
+
+    orchestrator = AgentOrchestrator(
+        task_reasoner=reasoner,
+        require_task_reasoning=True,
+    )
+
+    context = orchestrator.prepare(
+        AgentRequest(
+            message="Otwórz nową ofertę"
+        )
+    )
+
+    assert context.requires_manual_review is True
+    assert context.get_value(
+        "task_reasoning_failure"
+    ) == "reasoner_returned_no_proposal"
