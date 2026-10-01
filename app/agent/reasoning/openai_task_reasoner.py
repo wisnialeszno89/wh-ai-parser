@@ -1,10 +1,13 @@
+import base64
 import json
 import os
 from dataclasses import dataclass
+from io import BytesIO
 from typing import Any
 
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field
+from PIL import Image
 
 from app.agent.reasoning.reasoning_action import (
     ReasoningAction,
@@ -46,6 +49,7 @@ class OpenAITaskReasonerConfig:
 
     api_key: str
     model: str = "gpt-5.6-luna"
+    include_screenshot: bool = True
 
     @classmethod
     def from_environment(
@@ -64,6 +68,14 @@ class OpenAITaskReasonerConfig:
                 "OPENAI_API_KEY is not configured."
             )
 
+        include_screenshot = (
+            os.getenv(
+                "AGENT_TASK_VISION",
+                "1",
+            ).strip()
+            != "0"
+        )
+
         return cls(
             api_key=api_key,
             model=(
@@ -76,6 +88,7 @@ class OpenAITaskReasonerConfig:
                     ),
                 )
             ),
+            include_screenshot=include_screenshot,
         )
 
 
@@ -183,6 +196,106 @@ Rules:
         self.client = client
         self.last_error: str | None = None
 
+
+    def _build_model_input(
+        self,
+        context: TaskPlanningContext,
+    ):
+        payload = json.dumps(
+            context.to_payload(),
+            ensure_ascii=False,
+        )
+
+        screenshot_url = None
+
+        if self.config.include_screenshot:
+            screenshot_url = self._screenshot_data_url(
+                context
+            )
+
+        if screenshot_url is None:
+            return payload
+
+        return [
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "input_text",
+                        "text": payload,
+                    },
+                    {
+                        "type": "input_image",
+                        "image_url": screenshot_url,
+                        "detail": "high",
+                    },
+                ],
+            }
+        ]
+
+    @staticmethod
+    def _screenshot_data_url(
+        context: TaskPlanningContext,
+    ) -> str | None:
+        scene = context.scene
+        if scene is None:
+            return None
+
+        screenshot = scene.observation.metadata.get(
+            "screenshot"
+        )
+        if screenshot is None:
+            return None
+
+        image = getattr(
+            screenshot,
+            "image",
+            None,
+        )
+        if image is None:
+            return None
+
+        try:
+            if getattr(image, "ndim", None) != 3:
+                return None
+
+            channels = int(
+                image.shape[2]
+            )
+
+            if channels >= 4:
+                rgb = image[:, :, :3][:, :, ::-1]
+            elif channels == 3:
+                rgb = image[:, :, ::-1]
+            else:
+                return None
+
+            pil_image = Image.fromarray(
+                rgb.astype("uint8")
+            )
+
+            pil_image.thumbnail(
+                (1600, 1200)
+            )
+
+            buffer = BytesIO()
+            pil_image.save(
+                buffer,
+                format="PNG",
+                optimize=True,
+            )
+
+            encoded = base64.b64encode(
+                buffer.getvalue()
+            ).decode("ascii")
+
+            return (
+                "data:image/png;base64,"
+                + encoded
+            )
+        except Exception:
+            return None
+
     def reason(
         self,
         context: TaskPlanningContext,
@@ -193,9 +306,8 @@ Rules:
             response = self.client.responses.parse(
                 model=self.config.model,
                 instructions=self.SYSTEM_INSTRUCTIONS,
-                input=json.dumps(
-                    context.to_payload(),
-                    ensure_ascii=False,
+                input=self._build_model_input(
+                    context
                 ),
                 text_format=(
                     _OpenAITaskReasoningProposal
