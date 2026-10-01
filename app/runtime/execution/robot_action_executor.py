@@ -261,6 +261,9 @@ class RobotActionExecutor:
                 ),
             )
 
+        metadata = getattr(screen_element, "metadata", None) or {}
+        confidence = self._screen_element_confidence(screen_element)
+
         if action is InteractionAction.WRITE:
             if not isinstance(text_value, str) or not text_value:
                 return RobotActionResult(
@@ -292,9 +295,6 @@ class RobotActionExecutor:
                         "WRITE target is not an editable UIA control"
                     ),
                 )
-
-        metadata = getattr(screen_element, "metadata", None) or {}
-        confidence = self._screen_element_confidence(screen_element)
         capability = getattr(
             screen_element,
             "interaction_capability",
