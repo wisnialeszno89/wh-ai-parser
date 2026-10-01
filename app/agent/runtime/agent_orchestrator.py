@@ -17,6 +17,18 @@ from app.agent.runtime.execution_context import (
     AgentExecutionContext,
 )
 
+from app.agent.reasoning.reasoning_task_planner import (
+    ReasoningTaskPlanner,
+)
+
+from app.agent.reasoning.task_planning_context import (
+    TaskPlanningContext,
+)
+
+from app.agent.reasoning.task_reasoner import (
+    TaskReasoner,
+)
+
 from app.agent.skills.default_skills import (
     create_default_skill_registry,
 )
@@ -67,6 +79,7 @@ class AgentOrchestrator:
         planner: AgentPlanner | None = None,
         capability_router: CapabilityRouter | None = None,
         skill_registry: SkillRegistry | None = None,
+        task_reasoner: TaskReasoner | None = None,
     ) -> None:
 
         self.planner = (
@@ -96,6 +109,12 @@ class AgentOrchestrator:
             else create_default_skill_registry()
         )
 
+        self.task_planner = (
+            ReasoningTaskPlanner(task_reasoner)
+            if task_reasoner is not None
+            else None
+        )
+
     def prepare(
         self,
         request: AgentRequest,
@@ -114,17 +133,17 @@ class AgentOrchestrator:
         No external actions are executed here.
         """
 
-        plan = self.planner.plan(
+        deterministic_plan = self.planner.plan(
             request
         )
 
-        intent = plan.intent
+        intent = deterministic_plan.intent
 
         if intent == AgentIntent.UNKNOWN:
             return AgentExecutionContext(
                 request=request,
                 intent=intent,
-                plan=plan,
+                plan=deterministic_plan,
                 capability=None,
                 skill=None,
                 requires_manual_review=True,
@@ -159,6 +178,33 @@ class AgentOrchestrator:
                 skill=None,
                 requires_manual_review=True,
             )
+
+        if self.task_planner is not None:
+            task_context = TaskPlanningContext(
+                request_message=request.message,
+                intent=intent.value,
+                capability_name=capability.name,
+                capability_description=(
+                    capability.description
+                ),
+                skill_name=skill.__class__.__name__,
+            )
+
+            reasoned_plan = self.task_planner.plan(
+                context=task_context,
+            )
+
+            if reasoned_plan is not None:
+                return AgentExecutionContext(
+                    request=request,
+                    intent=intent,
+                    plan=reasoned_plan,
+                    capability=capability,
+                    skill=skill,
+                    requires_manual_review=(
+                        reasoned_plan.requires_manual_review
+                    ),
+                )
 
         skill_plan = skill.plan(
             request
