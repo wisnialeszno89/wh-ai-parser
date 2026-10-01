@@ -27,6 +27,7 @@ from app.agent.reasoning.reasoning_action import (
 class _OpenAIReasoningAction(BaseModel):
     name: str
     description: str
+    target: str | None = None
     requires_confirmation: bool = False
 
 
@@ -171,6 +172,7 @@ Rules:
                 ReasoningAction(
                     name=action.name,
                     description=action.description,
+                    target=action.target,
                     requires_confirmation=(
                         action.requires_confirmation
                     ),
