@@ -115,10 +115,28 @@ class AgentRuntime:
                 )
 
         # ---------------------------------------------------------
-        # Orchestrate the request.
+        # Initial world-state observation.
+        #
+        # The planner must see the current semantic UI state before
+        # the first action plan is created.
         # ---------------------------------------------------------
 
-        context = self.orchestrator.prepare(request)
+        initial_scene = None
+
+        if self.control_loop is not None:
+            initial_scene = self.control_loop.observe_scene()
+
+        # ---------------------------------------------------------
+        # Orchestrate the request with the observed world state.
+        # ---------------------------------------------------------
+
+        context = self.orchestrator.prepare(
+            request,
+            initial_scene=initial_scene,
+        )
+
+        if initial_scene is not None:
+            context.update_scene(initial_scene)
 
         # ---------------------------------------------------------
         # Quote workflow.
