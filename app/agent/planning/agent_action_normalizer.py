@@ -29,7 +29,10 @@ class AgentActionNormalizer:
         )
 
         if canonical_name is None:
-            return action
+            if action.name != "click_screen_element":
+                return action
+
+            canonical_name = action.name
 
         target = action.target
 
@@ -48,4 +51,5 @@ class AgentActionNormalizer:
                 action.environment_requirement
             ),
             target=target,
+            requires_environment_observation=True,
         )
