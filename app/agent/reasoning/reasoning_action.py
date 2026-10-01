@@ -25,4 +25,7 @@ class ReasoningAction:
     # Never a coordinate, handle, runtime id or automation id.
     target: str | None = None
 
+    # Optional semantic text value for actions such as write_text.
+    value: str | None = None
+
     requires_confirmation: bool = False
