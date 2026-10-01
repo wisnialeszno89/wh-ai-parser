@@ -159,7 +159,7 @@ class AgentOrchestrator:
             return AgentExecutionContext(
                 request=request,
                 intent=intent,
-                plan=plan,
+                plan=deterministic_plan,
                 capability=None,
                 skill=None,
                 requires_manual_review=True,
@@ -173,7 +173,7 @@ class AgentOrchestrator:
             return AgentExecutionContext(
                 request=request,
                 intent=intent,
-                plan=plan,
+                plan=deterministic_plan,
                 capability=capability,
                 skill=None,
                 requires_manual_review=True,
