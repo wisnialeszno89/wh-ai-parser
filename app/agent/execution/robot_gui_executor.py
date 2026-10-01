@@ -95,6 +95,9 @@ class RobotGUIExecutor(ActionExecutor):
 
         target_id = self._tracked_object_id(element)
 
+        if action.name == "write_text":
+            target_id = None
+
         if target_id is None:
             if not self._is_uia_only_target(element):
                 return ExecutionResult(
