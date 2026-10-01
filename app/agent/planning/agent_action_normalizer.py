@@ -51,5 +51,6 @@ class AgentActionNormalizer:
                 action.environment_requirement
             ),
             target=target,
+            value=action.value,
             requires_environment_observation=True,
         )
