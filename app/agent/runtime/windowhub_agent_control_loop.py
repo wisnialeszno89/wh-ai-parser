@@ -1,4 +1,6 @@
-﻿from app.agent.execution.execution_engine import (
+﻿import os
+
+from app.agent.execution.execution_engine import (
     ExecutionEngine,
 )
 
@@ -46,9 +48,15 @@ def create_windowhub_agent_control_loop() -> AgentControlLoop:
 
     perception_provider = WindowHubVisionProvider()
 
+    execution_mode = (
+        RobotExecutionMode.LIVE
+        if os.environ.get("WH_REAL_WINDOWHUB") == "1"
+        else RobotExecutionMode.DRY_RUN
+    )
+
     robot_gui_executor = RobotGUIExecutor(
         robot_action_executor=RobotActionExecutor(
-            mode=RobotExecutionMode.DRY_RUN,
+            mode=execution_mode,
         )
     )
 
