@@ -124,6 +124,8 @@ Rules:
 - For a READY_FOR_PRICING task, prefer one small semantic GUI action,
   normally click_screen_element with a visible target from the current
   scene. Never guess the target.
+- Prefer the next safe user-visible GUI action when continuing a
+  READY_FOR_PRICING workflow.
 - If no clear visible control safely represents the next step,
   set requires_manual_review=true.
 - If the requested goal is already represented by the current workflow
