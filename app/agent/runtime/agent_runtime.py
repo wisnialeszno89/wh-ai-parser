@@ -113,6 +113,20 @@ class AgentRuntime:
                 engine=engine
             )
 
+    @staticmethod
+    def _is_gui_reasoning_plan(plan) -> bool:
+        if plan is None or not plan.steps:
+            return False
+
+        return all(
+            step.action.name
+            in {
+                "click_screen_element",
+                "write_text",
+            }
+            for step in plan.steps
+        )
+
     def _prepare_context(
         self,
         request: AgentRequest,
@@ -309,24 +323,29 @@ class AgentRuntime:
         if (
             offer_workflow_result is not None
             and offer_workflow_result.requires_salesperson_input
-            and (
-                self.control_loop is not None
-                or reasoning_active
-            )
         ):
-            context.requires_manual_review = True
-            context.set_value(
-                "salesperson_questions",
-                offer_workflow_result.questions,
+            reasoning_gui_plan = (
+                self.control_loop is not None
+                and reasoning_active
+                and self._is_gui_reasoning_plan(
+                    context.plan,
+                )
             )
 
-            return AgentRuntimeResult(
-                intent=context.intent,
-                context=context,
-                execution_report=None,
-                requires_manual_review=True,
-                executed=False,
-            )
+            if not reasoning_gui_plan:
+                context.requires_manual_review = True
+                context.set_value(
+                    "salesperson_questions",
+                    offer_workflow_result.questions,
+                )
+
+                return AgentRuntimeResult(
+                    intent=context.intent,
+                    context=context,
+                    execution_report=None,
+                    requires_manual_review=True,
+                    executed=False,
+                )
 
         if (
             context.requires_manual_review
