@@ -303,3 +303,86 @@ def test_ui_automation_provider_does_not_expose_automation_id_as_label():
     )
 
     assert elements == ()
+
+
+
+def test_ui_automation_provider_resolves_generic_layout_item_from_neighbor_text():
+    label = FakeUIAItem(
+        name="Szerokość",
+        control_type="Text",
+        left=110,
+        top=220,
+        width=90,
+        height=24,
+    )
+    editor = FakeUIAItem(
+        name="LayoutItem",
+        control_type="Edit",
+        left=210,
+        top=220,
+        width=120,
+        height=30,
+    )
+
+    desktop = FakeDesktop(
+        FakeUIAWindow(
+            (label, editor),
+            title="Okna - WindowHub",
+        )
+    )
+
+    elements = WindowHubUIAutomationProvider(
+        desktop_factory=lambda: desktop,
+    ).perceive(
+        make_observation()
+    )
+
+    assert len(elements) == 1
+    assert elements[0].kind == "edit"
+    assert elements[0].label == "Szerokość"
+    assert (
+        elements[0].metadata["semantic_label_source"]
+        == "uia_text_neighbor"
+    )
+
+
+def test_ui_automation_provider_rejects_ambiguous_neighbor_labels():
+    label_a = FakeUIAItem(
+        name="Szerokość",
+        control_type="Text",
+        left=110,
+        top=220,
+        width=90,
+        height=24,
+    )
+    label_b = FakeUIAItem(
+        name="Wysokość",
+        control_type="Text",
+        left=110,
+        top=250,
+        width=90,
+        height=24,
+    )
+    editor = FakeUIAItem(
+        name="LayoutItem",
+        control_type="Edit",
+        left=210,
+        top=235,
+        width=120,
+        height=30,
+    )
+
+    desktop = FakeDesktop(
+        FakeUIAWindow(
+            (label_a, label_b, editor),
+            title="Okna - WindowHub",
+        )
+    )
+
+    elements = WindowHubUIAutomationProvider(
+        desktop_factory=lambda: desktop,
+    ).perceive(
+        make_observation()
+    )
+
+    assert elements == ()
