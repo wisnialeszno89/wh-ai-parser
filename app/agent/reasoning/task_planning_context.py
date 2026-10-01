@@ -30,6 +30,8 @@ class TaskPlanningContext:
 
     scene: ScreenScene | None = None
 
+    offer_workflow: dict[str, object] | None = None
+
     def to_payload(
         self,
     ) -> dict[str, object]:
@@ -57,6 +59,7 @@ class TaskPlanningContext:
                 else None
             ),
             "scene": self._scene_payload(),
+            "offer_workflow": self.offer_workflow,
         }
 
     def _scene_payload(self) -> dict[str, object] | None:
