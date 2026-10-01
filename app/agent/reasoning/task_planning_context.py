@@ -32,6 +32,8 @@ class TaskPlanningContext:
 
     offer_workflow: dict[str, object] | None = None
 
+    application_knowledge: dict[str, object] | None = None
+
     def to_payload(
         self,
     ) -> dict[str, object]:
@@ -60,6 +62,7 @@ class TaskPlanningContext:
             ),
             "scene": self._scene_payload(),
             "offer_workflow": self.offer_workflow,
+            "application_knowledge": self.application_knowledge,
         }
 
     def _scene_payload(self) -> dict[str, object] | None:
