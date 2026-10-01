@@ -92,6 +92,11 @@ class TaskPlanningContext:
             if element.confidence is not None:
                 item["confidence"] = element.confidence
 
+            metadata = element.metadata or {}
+            current_value = metadata.get("current_value")
+            if isinstance(current_value, str):
+                item["current_value"] = current_value
+
             elements.append(item)
 
         return {
