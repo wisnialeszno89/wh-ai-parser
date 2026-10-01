@@ -172,11 +172,14 @@ Rules:
             )
 
         self.client = client
+        self.last_error: str | None = None
 
     def reason(
         self,
         context: TaskPlanningContext,
     ) -> ReasoningProposal | None:
+        self.last_error = None
+
         try:
             response = self.client.responses.parse(
                 model=self.config.model,
@@ -189,7 +192,10 @@ Rules:
                     _OpenAITaskReasoningProposal
                 ),
             )
-        except Exception:
+        except Exception as exc:
+            self.last_error = (
+                f"{type(exc).__name__}: {exc}"
+            )
             return None
 
         parsed = getattr(
@@ -202,6 +208,7 @@ Rules:
             parsed,
             _OpenAITaskReasoningProposal,
         ):
+            self.last_error = "provider_returned_no_parsed_proposal"
             return None
 
         return ReasoningProposal(
