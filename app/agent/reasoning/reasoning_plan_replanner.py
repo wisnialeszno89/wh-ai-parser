@@ -194,6 +194,7 @@ class ReasoningPlanReplanner(
                     name=action.name,
                     description=action.description,
                     target=action.target,
+                    value=action.value,
                     requires_confirmation=(
                         action.requires_confirmation
                     ),
