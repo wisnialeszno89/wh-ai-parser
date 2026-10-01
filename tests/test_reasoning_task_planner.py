@@ -9,6 +9,18 @@ from app.agent.reasoning.task_planning_context import (
 )
 from app.agent.reasoning.task_reasoner import TaskReasoner
 
+from app.agent.environment.environment_observation import (
+    EnvironmentObservation,
+)
+from app.agent.environment.environment_state import (
+    EnvironmentState,
+)
+from app.agent.perception.interaction_capability import (
+    InteractionCapability,
+)
+from app.agent.perception.screen_element import ScreenElement
+from app.agent.perception.screen_scene import ScreenScene
+
 
 class RecordingTaskReasoner(TaskReasoner):
 
@@ -150,3 +162,66 @@ def test_reasoning_task_planner_normalizes_semantic_open_new_offer():
     assert action.name == "click_screen_element"
     assert action.target == "Nowa oferta"
 
+
+
+def test_reasoning_task_planner_exposes_semantic_initial_scene_only():
+    scene = ScreenScene(
+        observation=EnvironmentObservation(
+            state=EnvironmentState(
+                active_application="WindowHub",
+                active_window_title="WindowHub - Oferta",
+                screen_width=1920,
+                screen_height=1080,
+            ),
+            metadata={
+                "window_handle": 123,
+                "screenshot": object(),
+            },
+        ),
+        elements=(
+            ScreenElement(
+                kind="button",
+                label="NOWA OFERTA",
+                confidence=0.99,
+                interaction_capability=(
+                    InteractionCapability.CLICKABLE
+                ),
+                metadata={
+                    "automation_id": "Nowa_oferta",
+                    "runtime_id": "secret-runtime-id",
+                },
+            ),
+        ),
+    )
+
+    context = TaskPlanningContext(
+        request_message="Otwórz nową ofertę",
+        intent=AgentIntent.EXECUTE_IN_WH.value,
+        capability_name="WH_WINDOW",
+        capability_description="Controlled WindowHub execution.",
+        skill_name="WHWindowSkill",
+        scene=scene,
+    )
+
+    payload = context.to_payload()
+
+    assert payload["scene"]["active_application"] == "WindowHub"
+    assert payload["scene"]["active_window_title"] == (
+        "WindowHub - Oferta"
+    )
+    assert payload["scene"]["visible_elements"] == (
+        [
+            {
+                "kind": "button",
+                "label": "NOWA OFERTA",
+                "interaction_capability": "clickable",
+                "confidence": 0.99,
+            }
+        ]
+    )
+
+    serialized = str(payload)
+    assert "window_handle" not in serialized
+    assert "automation_id" not in serialized
+    assert "runtime_id" not in serialized
+    assert "screenshot" not in serialized
