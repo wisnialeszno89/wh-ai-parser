@@ -102,6 +102,18 @@ class ReasoningTaskPlanner:
             ):
                 return None
 
+            if (
+                action.name.strip().casefold()
+                in {"write_text", "type_text"}
+                and (
+                    not isinstance(action.target, str)
+                    or not action.target.strip()
+                    or not isinstance(action.value, str)
+                    or not action.value
+                )
+            ):
+                return None
+
             normalized_action = self.action_normalizer.normalize(
                 AgentAction(
                     name=action.name,
