@@ -110,6 +110,7 @@ class ReasoningTaskPlanner:
                         action.requires_confirmation
                     ),
                     target=action.target,
+                    value=action.value,
                 )
             )
 
