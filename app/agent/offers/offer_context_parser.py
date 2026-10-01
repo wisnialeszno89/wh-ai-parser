@@ -428,7 +428,7 @@ class OfferContextParser:
     ) -> str | None:
 
         match = re.search(
-            r"\b(?:kolor\s+)?(\d{4})\b",
+            r"\bkolor\s*[:=]?\s*(\d{4})\b",
             request,
         )
 
