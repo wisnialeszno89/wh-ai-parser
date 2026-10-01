@@ -222,7 +222,7 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
         except Exception:
             return None
 
-        if not visible or not (name or automation_id):
+        if not visible or not name:
             return None
 
         if control_type not in self.INTERACTIVE_CONTROL_TYPES:
@@ -238,7 +238,9 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
         if rect.width <= 0 or rect.height <= 0:
             return None
 
-        label = name or automation_id
+        # AutomationId is a runtime/provider identifier, not a semantic
+        # display label. It remains available only in provider metadata.
+        label = name
         capability = (
             InteractionCapability.CLICKABLE
             if enabled
