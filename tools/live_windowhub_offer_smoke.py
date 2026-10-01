@@ -70,7 +70,7 @@ def _scenario_message() -> str:
     )
 
 
-def _print_result(turn: int, result) -> None:
+def _print_result(turn: int, result, runtime) -> None:
     print()
     print("=" * 72)
     print(f"TURN {turn}")
@@ -282,7 +282,7 @@ def main() -> int:
         )
         final_result = result
 
-        _print_result(turn, result)
+        _print_result(turn, result, runtime)
 
         control = result.control_loop_result
         if (
