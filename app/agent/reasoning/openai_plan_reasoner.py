@@ -28,6 +28,7 @@ class _OpenAIReasoningAction(BaseModel):
     name: str
     description: str
     target: str | None = None
+    value: str | None = None
     requires_confirmation: bool = False
 
 
