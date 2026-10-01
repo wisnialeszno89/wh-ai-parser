@@ -123,6 +123,7 @@ class AgentOrchestrator:
         self,
         request: AgentRequest,
         initial_scene: ScreenScene | None = None,
+        offer_workflow: dict[str, object] | None = None,
     ) -> AgentExecutionContext:
         """
         Prepare one agent request for execution.
@@ -198,6 +199,7 @@ class AgentOrchestrator:
                 ),
                 skill_name=skill.__class__.__name__,
                 scene=initial_scene,
+                offer_workflow=offer_workflow,
             )
 
             reasoned_plan = self.task_planner.plan(
