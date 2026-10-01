@@ -5,6 +5,9 @@ from app.agent.runtime.agent_orchestrator import AgentOrchestrator
 from app.agent.reasoning.openai_task_reasoner import (
     OpenAITaskReasoner,
 )
+from app.agent.reasoning.openai_plan_reasoner import (
+    OpenAIPlanReasoner,
+)
 from app.agent.runtime.windowhub_agent_control_loop import (
     create_windowhub_agent_control_loop,
 )
@@ -20,13 +23,17 @@ def create_windowhub_agent_runtime() -> AgentRuntime:
     """
 
     task_reasoner = None
+    plan_reasoner = None
 
     if os.environ.get("AGENT_TASK_REASONING") == "1":
         task_reasoner = OpenAITaskReasoner()
+        plan_reasoner = OpenAIPlanReasoner()
 
     return AgentRuntime(
         orchestrator=AgentOrchestrator(
             task_reasoner=task_reasoner,
         ),
-        control_loop=create_windowhub_agent_control_loop(),
+        control_loop=create_windowhub_agent_control_loop(
+            plan_reasoner=plan_reasoner,
+        ),
     )
