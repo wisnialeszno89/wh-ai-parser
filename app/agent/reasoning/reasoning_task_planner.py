@@ -79,7 +79,10 @@ class ReasoningTaskPlanner:
 
             if (
                 action.target is not None
-                and self._is_low_level(action.target)
+                and (
+                    self._is_low_level(action.target)
+                    or self._is_technical_target(action.target)
+                )
             ):
                 return None
 
@@ -170,3 +173,24 @@ class ReasoningTaskPlanner:
                     return True
 
         return False
+
+
+    @staticmethod
+    def _is_technical_target(value: str) -> bool:
+        normalized = value.strip().casefold()
+
+        if not normalized:
+            return False
+
+        prefixes = (
+            "idc_",
+            "uia:",
+            "automationid:",
+            "automation_id=",
+            "runtimeid:",
+            "runtime_id=",
+            "tracked_object:",
+            "tracked_object_id=",
+        )
+
+        return normalized.startswith(prefixes)
