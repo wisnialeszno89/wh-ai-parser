@@ -74,7 +74,7 @@ class TaskPlanningContext:
         state = self.scene.observation.state
 
         elements = []
-        for element in self.scene.elements:
+        for element in self.scene.elements[:80]:
             item: dict[str, object] = {
                 "kind": element.kind,
                 "label": element.label,
@@ -92,5 +92,6 @@ class TaskPlanningContext:
             "active_application": state.active_application,
             "active_window_title": state.active_window_title,
             "visible_elements": elements,
-            "element_count": len(elements),
+            "element_count": len(self.scene.elements),
+            "included_element_count": len(elements),
         }
