@@ -113,6 +113,46 @@ def _print_result(turn: int, result) -> None:
         print(
             "not executed: runtime stopped before GUI control."
         )
+
+        planner = getattr(
+            runtime.orchestrator,
+            "task_planner",
+            None,
+        )
+        print(
+            "reasoning_failure="
+            f"{getattr(planner, 'last_failure_reason', None)!r}"
+        )
+
+        offer_planning = result.context.get_value(
+            "offer_workflow_planning"
+        )
+        print(
+            "offer_workflow="
+            f"{offer_planning!r}"
+        )
+
+        scene = result.context.current_scene
+        if scene is None:
+            print("scene=None")
+        else:
+            print(
+                "scene_application="
+                f"{scene.observation.state.active_application!r}"
+            )
+            print(
+                "scene_window="
+                f"{scene.observation.state.active_window_title!r}"
+            )
+            print("scene_visible_elements:")
+            for element in scene.elements[:120]:
+                print(
+                    "  "
+                    f"kind={element.kind!r} "
+                    f"label={element.label!r} "
+                    f"capability={element.interaction_capability.value!r} "
+                    f"confidence={element.confidence!r}"
+                )
         return
 
     print(f"success={control.success}")
@@ -202,6 +242,20 @@ def main() -> int:
     print(f"session_id={session_id!r}")
     print(f"turn_limit={args.turns}")
     print(f"scenario={message}")
+
+    task_planner = getattr(
+        runtime.orchestrator,
+        "task_planner",
+        None,
+    )
+    print(
+        "task_reasoner="
+        f"{type(getattr(task_planner, 'reasoner', None)).__name__}"
+    )
+    print(
+        "plan_reasoner="
+        f"{type(getattr(getattr(runtime.control_loop, 'replanner', None), 'reasoner', None)).__name__}"
+    )
 
     task_planner = getattr(
         runtime.orchestrator,
