@@ -2,6 +2,10 @@ from app.agent.agent_intent import AgentIntent
 from app.agent.planning.action_plan import ActionPlan
 from app.agent.planning.action_step import ActionStep
 from app.agent.agent_action import AgentAction
+
+from app.agent.planning.agent_action_normalizer import (
+    AgentActionNormalizer,
+)
 from app.agent.reasoning.task_planning_context import (
     TaskPlanningContext,
 )
@@ -36,8 +40,14 @@ class ReasoningTaskPlanner:
     def __init__(
         self,
         reasoner: TaskReasoner,
+        action_normalizer: AgentActionNormalizer | None = None,
     ) -> None:
         self.reasoner = reasoner
+        self.action_normalizer = (
+            action_normalizer
+            if action_normalizer is not None
+            else AgentActionNormalizer()
+        )
 
     def plan(
         self,
@@ -73,7 +83,7 @@ class ReasoningTaskPlanner:
             ):
                 return None
 
-            actions.append(
+            normalized_action = self.action_normalizer.normalize(
                 AgentAction(
                     name=action.name,
                     description=action.description,
@@ -82,6 +92,10 @@ class ReasoningTaskPlanner:
                     ),
                     target=action.target,
                 )
+            )
+
+            actions.append(
+                normalized_action
             )
 
         return ActionPlan(
