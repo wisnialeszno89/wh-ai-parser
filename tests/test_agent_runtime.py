@@ -374,3 +374,65 @@ def test_runtime_continues_offer_session_with_follow_up_data():
     assert workflow["offer_context"]["width"] == 1230
     assert workflow["offer_context"]["height"] == 1480
     assert workflow["offer_context"]["product_type"] == "window"
+
+
+class OfferGuiTaskReasoner(TaskReasoner):
+    def reason(self, context):
+        return ReasoningProposal(
+            actions=(
+                ReasoningAction(
+                    name="click_screen_element",
+                    description="Open the new offer dialog.",
+                    target="NOWA OFERTA",
+                ),
+            ),
+            rationale="Start the visible WindowHub offer workflow.",
+            confidence=0.91,
+        )
+
+
+def test_runtime_allows_gui_reasoning_when_offer_data_can_be_filled():
+    scene = ScreenScene(
+        observation=EnvironmentObservation(
+            state=EnvironmentState(
+                active_application="WindowHub",
+                active_window_title="WindowHub",
+            ),
+        ),
+        elements=(
+            ScreenElement(
+                kind="button",
+                label="NOWA OFERTA",
+                confidence=0.99,
+                interaction_capability=(
+                    InteractionCapability.CLICKABLE
+                ),
+            ),
+        ),
+    )
+
+    from app.agent.runtime.agent_orchestrator import AgentOrchestrator
+
+    runtime = AgentRuntime(
+        orchestrator=AgentOrchestrator(
+            task_reasoner=OfferGuiTaskReasoner(),
+        ),
+        control_loop=RecordingControlLoop(scene),
+    )
+
+    result = runtime.run(
+        AgentRequest(
+            message=(
+                "Przygotuj nową ofertę. "
+                "Okno 1230x1480 FIX."
+            ),
+            session_id="gui-offer-fill-test",
+        )
+    )
+
+    assert result.executed is True
+    assert result.requires_manual_review is False
+    assert result.control_loop_result is not None
+    assert result.context.plan.steps[0].action.name == (
+        "click_screen_element"
+    )
