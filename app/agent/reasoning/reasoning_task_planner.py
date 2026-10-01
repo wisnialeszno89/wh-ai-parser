@@ -96,6 +96,12 @@ class ReasoningTaskPlanner:
             ):
                 return None
 
+            if self._is_forbidden_offer_continuation_action(
+                action,
+                context,
+            ):
+                return None
+
             normalized_action = self.action_normalizer.normalize(
                 AgentAction(
                     name=action.name,
@@ -126,6 +132,35 @@ class ReasoningTaskPlanner:
             confidence=proposal.confidence,
             requires_manual_review=False,
         )
+
+
+    @staticmethod
+    def _is_forbidden_offer_continuation_action(
+        action: ReasoningAction,
+        context: TaskPlanningContext,
+    ) -> bool:
+        workflow = context.offer_workflow or {}
+
+        if (
+            workflow.get("workflow_state")
+            != "ready_for_pricing"
+            or not workflow.get("continuation_of_offer")
+        ):
+            return False
+
+        if action.name.strip().casefold() == "open_new_offer":
+            return True
+
+        target = (
+            action.target.strip().casefold()
+            if isinstance(action.target, str)
+            else ""
+        )
+
+        return target in {
+            "nowa oferta",
+            "nowa_oferta",
+        }
 
     @classmethod
     def _is_low_level(
