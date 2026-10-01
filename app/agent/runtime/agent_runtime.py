@@ -42,6 +42,8 @@ class AgentRuntime:
     @staticmethod
     def _offer_workflow_planning_context(
         result,
+        *,
+        continuation_of_offer: bool = False,
     ) -> dict[str, object]:
         context = result.current_context
         validation = result.validation
@@ -73,6 +75,7 @@ class AgentRuntime:
             "missing_fields": tuple(validation.missing_fields),
             "conflicts": tuple(validation.conflicts),
             "offer_context": offer_context,
+            "continuation_of_offer": continuation_of_offer,
         }
 
     def __init__(
@@ -253,7 +256,13 @@ class AgentRuntime:
 
             planning_offer_workflow = (
                 self._offer_workflow_planning_context(
-                    offer_workflow_result
+                    offer_workflow_result,
+                    continuation_of_offer=bool(
+                        request.metadata.get(
+                            "continuation_of_offer",
+                            False,
+                        )
+                    ),
                 )
             )
 
