@@ -304,3 +304,28 @@ def test_runtime_builds_offer_workflow_context_before_task_reasoning():
     assert "questions" in offer_workflow
     assert "missing_fields" in offer_workflow
     assert "offer_context" in offer_workflow
+
+
+def test_runtime_blocks_gui_when_offer_workflow_requires_salesperson_input():
+    reasoner = RecordingTaskReasoner()
+
+    from app.agent.runtime.agent_orchestrator import AgentOrchestrator
+
+    runtime = AgentRuntime(
+        orchestrator=AgentOrchestrator(
+            task_reasoner=reasoner,
+        ),
+    )
+
+    result = runtime.run(
+        AgentRequest(
+            message="Przygotuj tę ofertę",
+        )
+    )
+
+    assert result.executed is False
+    assert result.requires_manual_review is True
+    assert result.control_loop_result is None
+    assert result.context.get_value(
+        "salesperson_questions"
+    )
