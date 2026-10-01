@@ -284,34 +284,22 @@ def test_ui_automation_provider_semantic_target_can_fuse_with_visual_identity():
     assert resolution.score == 1.0
 
 
-def test_uia_provider_does_not_expose_automation_id_as_label():
-    provider = WindowHubUIAutomationProvider(
-        desktop_factory=lambda: _FakeDesktop(
-            _FakeWindow(
-                title="WindowHub",
-                items=[
-                    _FakeItem(
-                        name="",
-                        automation_id="IDC_NEW",
-                        control_type="Button",
-                        enabled=True,
-                        visible=True,
-                    )
-                ],
-            )
+def test_ui_automation_provider_does_not_expose_automation_id_as_label():
+    item = FakeUIAItem(
+        name="",
+        automation_id="IDC_NEW",
+    )
+    desktop = FakeDesktop(
+        FakeUIAWindow(
+            (item,),
+            title="Okna - WindowHub",
         )
     )
 
-    observation = EnvironmentObservation(
-        state=EnvironmentState(
-            active_window_title="WindowHub",
-        ),
-        metadata={
-            "window_rect": _FakeRect(0, 0, 800, 600),
-            "window_handle": 123,
-        },
+    elements = WindowHubUIAutomationProvider(
+        desktop_factory=lambda: desktop,
+    ).perceive(
+        make_observation()
     )
-
-    elements = provider.perceive(observation)
 
     assert elements == ()
