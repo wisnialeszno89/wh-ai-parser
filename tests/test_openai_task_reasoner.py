@@ -7,7 +7,16 @@ from app.agent.reasoning.openai_task_reasoner import (
 from app.agent.reasoning.task_planning_context import (
     TaskPlanningContext,
 )
+from app.agent.environment.environment_observation import (
+    EnvironmentObservation,
+)
+from app.agent.environment.environment_state import (
+    EnvironmentState,
+)
+from app.agent.perception.screen_scene import ScreenScene
+from app.wh.vision.screenshot import Screenshot
 import json
+import numpy as np
 
 
 class ParsedResponse:
@@ -253,3 +262,65 @@ def test_openai_task_reasoner_receives_application_knowledge():
         client.responses.calls[0]["input"]
     )
     assert payload["application_knowledge"]["application"] == "WindowHub"
+
+
+def test_openai_task_reasoner_includes_current_screenshot_when_available():
+    scene = ScreenScene(
+        observation=EnvironmentObservation(
+            state=EnvironmentState(
+                active_application="WindowHub",
+                active_window_title="Okna - WindowHub",
+            ),
+            metadata={
+                "screenshot": Screenshot(
+                    width=2,
+                    height=2,
+                    image=np.zeros(
+                        (2, 2, 4),
+                        dtype=np.uint8,
+                    ),
+                ),
+            },
+        ),
+        elements=(),
+    )
+
+    context = TaskPlanningContext(
+        request_message="Przygotuj ofertę.",
+        intent="create_quote",
+        capability_name="WH_WINDOW",
+        capability_description="Controlled WindowHub execution.",
+        skill_name="WHWindowSkill",
+        scene=scene,
+    )
+
+    parsed = _OpenAITaskReasoningProposal(
+        actions=(
+            _OpenAITaskReasoningAction(
+                name="click_screen_element",
+                description="Continue the visible workflow.",
+                target="OK",
+            ),
+        ),
+        rationale="Use the observed GUI state.",
+        confidence=0.9,
+        requires_manual_review=False,
+    )
+
+    client = FakeClient(parsed)
+    reasoner = OpenAITaskReasoner(
+        config=create_config(),
+        client=client,
+    )
+
+    proposal = reasoner.reason(context)
+
+    assert proposal is not None
+
+    model_input = client.responses.calls[0]["input"]
+    assert isinstance(model_input, list)
+    assert model_input[0]["content"][0]["type"] == "input_text"
+    assert model_input[0]["content"][1]["type"] == "input_image"
+    assert model_input[0]["content"][1]["image_url"].startswith(
+        "data:image/png;base64,"
+    )
