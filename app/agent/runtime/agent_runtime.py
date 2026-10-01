@@ -36,6 +36,10 @@ from app.agent.runtime.agent_runtime_result import (
 
 
 class AgentRuntime:
+    """
+    Main runtime entry point for the agent.
+    """
+
     @staticmethod
     def _offer_workflow_planning_context(
         result,
@@ -71,11 +75,6 @@ class AgentRuntime:
             "conflicts": tuple(validation.conflicts),
             "offer_context": offer_context,
         }
-
-
-    """
-    Main runtime entry point for the agent.
-    """
 
     def __init__(
         self,
