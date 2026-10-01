@@ -1,5 +1,42 @@
 from uuid import uuid4
 
+    @staticmethod
+    def _offer_workflow_planning_context(
+        result,
+    ) -> dict[str, object]:
+        context = result.current_context
+        validation = result.validation
+
+        offer_context = None
+
+        if context is not None:
+            offer_context = {
+                "width": context.width,
+                "height": context.height,
+                "quantity": context.quantity,
+                "product_type": context.product_type,
+                "profile": context.profile,
+                "configuration": context.configuration,
+                "opening": context.opening,
+                "openings": context.openings,
+                "color_inside": context.color_inside,
+                "color_outside": context.color_outside,
+                "glazing": context.glazing,
+            }
+
+        return {
+            "workflow_state": result.workflow_state.value,
+            "is_ready_for_pricing": result.is_ready_for_pricing,
+            "requires_salesperson_input": (
+                result.requires_salesperson_input
+            ),
+            "questions": tuple(result.questions),
+            "missing_fields": tuple(validation.missing_fields),
+            "conflicts": tuple(validation.conflicts),
+            "offer_context": offer_context,
+        }
+
+
 from app.agent.agent_request import AgentRequest
 from app.agent.session.agent_session_store import AgentSessionStore
 
@@ -115,64 +152,23 @@ class AgentRuntime:
                 )
 
         # ---------------------------------------------------------
-        # Initial world-state observation.
+        # Build semantic offer workflow context BEFORE initial planning.
         #
-        # The planner must see the current semantic UI state before
-        # the first action plan is created.
+        # CREATE_QUOTE requests need the normalized business state,
+        # missing fields and workflow state before the task reasoner
+        # chooses the next action.
         # ---------------------------------------------------------
 
-        initial_scene = None
+        planning_offer_workflow = None
 
-        if self.control_loop is not None:
-            try:
-                initial_scene = (
-                    self.control_loop.observe_scene()
-                )
-            except Exception as exc:
-                context = self.orchestrator.prepare(
-                    request,
-                    initial_scene=None,
-                )
-
-                context.set_value(
-                    "initial_observation_error",
-                    str(exc),
-                )
-
-                context.requires_manual_review = True
-
-                return AgentRuntimeResult(
-                    intent=context.intent,
-                    context=context,
-                    execution_report=None,
-                    requires_manual_review=True,
-                    executed=False,
-                )
-
-        # ---------------------------------------------------------
-        # Orchestrate the request with the observed world state.
-        # ---------------------------------------------------------
-
-        context = self.orchestrator.prepare(
-            request,
-            initial_scene=initial_scene,
+        detected_intent = (
+            self.orchestrator.planner.plan(
+                request
+            ).intent
         )
 
-        if initial_scene is not None:
-            context.update_scene(initial_scene)
-
-        # ---------------------------------------------------------
-        # Quote workflow.
-        #
-        # A new CREATE_QUOTE request without a session receives
-        # an internal working session so that OfferContext can be
-        # created before semantic execution begins.
-        # ---------------------------------------------------------
-
-        if context.intent == AgentIntent.CREATE_QUOTE:
-
+        if detected_intent == AgentIntent.CREATE_QUOTE:
             if session is None:
-
                 session_id = (
                     request.session_id
                     or f"runtime-offer-{uuid4().hex}"
@@ -198,6 +194,67 @@ class AgentRuntime:
 
             self.session_store.save(session)
 
+            planning_offer_workflow = (
+                self._offer_workflow_planning_context(
+                    offer_workflow_result
+                )
+            )
+
+        # ---------------------------------------------------------
+        # Initial world-state observation.
+        #
+        # The planner must see the current semantic UI state before
+        # the first action plan is created.
+        # ---------------------------------------------------------
+
+        initial_scene = None
+
+        if self.control_loop is not None:
+            try:
+                initial_scene = (
+                    self.control_loop.observe_scene()
+                )
+            except Exception as exc:
+                context = self.orchestrator.prepare(
+                    request,
+                    initial_scene=None,
+                    offer_workflow=planning_offer_workflow,
+                )
+
+                context.set_value(
+                    "initial_observation_error",
+                    str(exc),
+                )
+
+                context.requires_manual_review = True
+
+                return AgentRuntimeResult(
+                    intent=context.intent,
+                    context=context,
+                    execution_report=None,
+                    requires_manual_review=True,
+                    executed=False,
+                )
+
+        # ---------------------------------------------------------
+        # Orchestrate the request with the observed world state.
+        # ---------------------------------------------------------
+
+        context = self.orchestrator.prepare(
+            request,
+            initial_scene=initial_scene,
+            offer_workflow=planning_offer_workflow,
+        )
+
+        if initial_scene is not None:
+            context.update_scene(initial_scene)
+
+        # ---------------------------------------------------------
+        # Persist semantic offer workflow state into the execution
+        # context after orchestration.
+        # ---------------------------------------------------------
+
+        if offer_workflow_result is not None:
             context.set_value(
                 "offer_context",
                 offer_workflow_result.current_context,
