@@ -48,15 +48,13 @@ class KeyboardController:
     @staticmethod
     def _paste_unicode_windows(value: str) -> None:
         import ctypes
-        from ctypes import wintypes
-
         user32 = ctypes.windll.user32
         kernel32 = ctypes.windll.kernel32
 
         CF_UNICODETEXT = 13
         GMEM_MOVEABLE = 0x0002
 
-        encoded = (value + "\\x00").encode("utf-16-le")
+        encoded = (value + "\x00").encode("utf-16-le")
 
         handle = kernel32.GlobalAlloc(
             GMEM_MOVEABLE,
