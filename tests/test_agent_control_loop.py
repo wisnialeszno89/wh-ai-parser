@@ -501,6 +501,14 @@ def test_control_loop_refreshes_scene_for_gui_click():
     )
 
     context = create_context()
+    context.set_value(
+        "expected_outcomes",
+        {
+            "click_screen_element": ExpectedOutcome(
+                description="The click executor completed the requested semantic interaction.",
+            ),
+        },
+    )
 
     plan = create_plan(
         AgentAction(
