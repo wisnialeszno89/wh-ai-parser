@@ -271,6 +271,32 @@ class AgentRuntime:
             )
 
         # ---------------------------------------------------------
+        # Workflow safety gate.
+        #
+        # When the structured offer workflow explicitly requires
+        # salesperson input, do not allow the task reasoner or any
+        # fallback planner to turn that state into GUI execution.
+        # ---------------------------------------------------------
+
+        if (
+            offer_workflow_result is not None
+            and offer_workflow_result.requires_salesperson_input
+        ):
+            context.requires_manual_review = True
+            context.set_value(
+                "salesperson_questions",
+                offer_workflow_result.questions,
+            )
+
+            return AgentRuntimeResult(
+                intent=context.intent,
+                context=context,
+                execution_report=None,
+                requires_manual_review=True,
+                executed=False,
+            )
+
+        # ---------------------------------------------------------
         # Manual review / missing plan.
         # ---------------------------------------------------------
 
