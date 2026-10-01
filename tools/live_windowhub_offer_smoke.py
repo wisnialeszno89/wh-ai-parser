@@ -203,6 +203,20 @@ def main() -> int:
     print(f"turn_limit={args.turns}")
     print(f"scenario={message}")
 
+    task_planner = getattr(
+        runtime.orchestrator,
+        "task_planner",
+        None,
+    )
+    print(
+        "task_reasoner="
+        f"{type(getattr(task_planner, 'reasoner', None)).__name__}"
+    )
+    print(
+        "plan_reasoner="
+        f"{type(getattr(getattr(runtime.control_loop, 'replanner', None), 'reasoner', None)).__name__}"
+    )
+
     final_result = None
 
     for turn in range(1, max(1, args.turns) + 1):
