@@ -290,6 +290,17 @@ class AgentRuntime:
         if initial_scene is not None:
             context.update_scene(initial_scene)
 
+        application_knowledge = getattr(
+            self.orchestrator,
+            "application_knowledge",
+            None,
+        )
+        if application_knowledge is not None:
+            context.set_value(
+                "application_knowledge",
+                application_knowledge,
+            )
+
         if offer_workflow_result is not None:
             context.set_value(
                 "offer_context",
