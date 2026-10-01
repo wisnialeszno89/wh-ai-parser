@@ -31,7 +31,10 @@ class WindowHubEnvironmentAdapter(EnvironmentAdapter):
             active_window_provider
             or WindowsActiveWindowProvider()
         )
-        self.active_application = active_application
+        self.active_application = (
+            active_application
+            or "WindowHub"
+        )
         self.screenshot_engine = MSSScreenshotEngine()
 
     def observe(self) -> EnvironmentObservation:
