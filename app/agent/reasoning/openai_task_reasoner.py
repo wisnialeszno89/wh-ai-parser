@@ -121,6 +121,9 @@ Rules:
   collect_offer_context, validate_offer, build_construction or
   prepare_quote. Instead, choose only the next safe user-visible GUI
   action required to continue the current WindowHub workflow.
+- If continuation_of_offer is true, the current offer must be continued,
+  not restarted. Never select a reset/navigation action such as
+  "NOWA OFERTA" / "Nowa oferta" or the semantic action open_new_offer.
 - For a READY_FOR_PRICING task, prefer one small semantic GUI action,
   normally click_screen_element with a visible target from the current
   scene. Never guess the target.
