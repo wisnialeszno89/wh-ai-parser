@@ -338,3 +338,54 @@ def test_reasoning_task_planner_blocks_new_offer_reset_during_ready_continuation
     assert ReasoningTaskPlanner(reasoner).plan(
         context=context
     ) is None
+
+
+def test_reasoning_task_planner_preserves_write_text_value():
+    reasoner = RecordingTaskReasoner(
+        proposal=ReasoningProposal(
+            actions=(
+                ReasoningAction(
+                    name="write_text",
+                    description="Enter the requested width.",
+                    target="Szerokość",
+                    value="1230",
+                ),
+            ),
+            rationale="Populate the width field.",
+            confidence=0.95,
+        )
+    )
+
+    context = TaskPlanningContext(
+        request_message="Wpisz szerokość 1230",
+        intent=AgentIntent.CREATE_QUOTE.value,
+        capability_name="WH_WINDOW",
+        capability_description="Controlled WindowHub execution.",
+        skill_name="WHWindowSkill",
+        scene=ScreenScene(
+            observation=EnvironmentObservation(
+                state=EnvironmentState(
+                    active_application="WindowHub",
+                ),
+            ),
+            elements=(
+                ScreenElement(
+                    kind="edit",
+                    label="Szerokość",
+                    confidence=0.99,
+                    interaction_capability=(
+                        InteractionCapability.CLICKABLE
+                    ),
+                ),
+            ),
+        ),
+    )
+
+    plan = ReasoningTaskPlanner(reasoner).plan(
+        context=context
+    )
+
+    assert plan is not None
+    assert plan.steps[0].action.name == "write_text"
+    assert plan.steps[0].action.target == "Szerokość"
+    assert plan.steps[0].action.value == "1230"
