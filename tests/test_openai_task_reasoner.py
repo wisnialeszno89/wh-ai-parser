@@ -164,6 +164,8 @@ def test_openai_task_reasoner_guides_ready_workflow_to_gui_action():
     assert "READY_FOR_PRICING" in instructions
     assert "Do NOT return analyze_request" in instructions
     assert "next safe user-visible GUI action" in instructions
+    assert "missing value" in instructions
+    assert "write_text" in instructions
 
 
 def test_openai_task_reasoner_maps_semantic_text_value():
