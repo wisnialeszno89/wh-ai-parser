@@ -517,26 +517,41 @@ class AgentControlLoop:
             # ---------------------------------
             # 2. OBSERVE ENVIRONMENT
             # ---------------------------------
+            #
+            # Pure semantic/business actions do not mutate or depend on
+            # the GUI. Avoid another expensive screenshot/UIA/vision cycle
+            # for them. GUI actions explicitly opt into fresh perception.
+            #
+            # Keep the current scene untouched for logical actions so the
+            # decision layer can still use the latest GUI evidence captured
+            # before planning or by a previous GUI step.
 
-            observation = (
-                self.environment_runtime.observe()
+            requires_environment_observation = (
+                action.requires_environment_observation
+                or action.name == "click_screen_element"
+                or action.environment_requirement is not None
             )
 
-            context.last_observation = (
-                observation
-            )
+            if requires_environment_observation:
+                observation = (
+                    self.environment_runtime.observe()
+                )
 
-            # ---------------------------------
-            # 3. PERCEIVE ENVIRONMENT
-            # ---------------------------------
-
-            scene = (
-                self.perception_engine.perceive(
+                context.last_observation = (
                     observation
                 )
-            )
 
-            context.update_scene(scene)
+                # ---------------------------------
+                # 3. PERCEIVE ENVIRONMENT
+                # ---------------------------------
+
+                scene = (
+                    self.perception_engine.perceive(
+                        observation
+                    )
+                )
+
+                context.update_scene(scene)
 
             # ---------------------------------
             # 4. DECIDE
