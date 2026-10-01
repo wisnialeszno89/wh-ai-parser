@@ -21,7 +21,10 @@ class ActionPolicy:
         self._allowed_actions = (
             allowed_actions
             if allowed_actions is not None
-            else frozenset({InteractionAction.CLICK})
+            else frozenset({
+                InteractionAction.CLICK,
+                InteractionAction.WRITE,
+            })
         )
 
     def can_execute(self, action: InteractionAction) -> bool:
