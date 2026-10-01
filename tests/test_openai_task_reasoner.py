@@ -7,6 +7,7 @@ from app.agent.reasoning.openai_task_reasoner import (
 from app.agent.reasoning.task_planning_context import (
     TaskPlanningContext,
 )
+import json
 
 
 class ParsedResponse:
@@ -204,3 +205,51 @@ def test_openai_task_reasoner_maps_semantic_text_value():
     assert proposal.actions[0].name == "write_text"
     assert proposal.actions[0].target == "Szerokość"
     assert proposal.actions[0].value == "1230"
+
+
+
+def test_openai_task_reasoner_receives_application_knowledge():
+    context = TaskPlanningContext(
+        request_message="Przygotuj nową ofertę",
+        intent="create_quote",
+        capability_name="WH_WINDOW",
+        capability_description="Controlled WindowHub execution.",
+        skill_name="WHWindowSkill",
+        application_knowledge={
+            "application": "WindowHub",
+            "workflow": (
+                {
+                    "stage": 1,
+                    "name": "start_new_offer",
+                    "expected_visible_controls": ("Nowa oferta",),
+                },
+            ),
+        },
+    )
+
+    parsed = _OpenAITaskReasoningProposal(
+        actions=(
+            _OpenAITaskReasoningAction(
+                name="click_screen_element",
+                description="Start the visible new offer workflow.",
+                target="NOWA OFERTA",
+            ),
+        ),
+        rationale="Use the WindowHub workflow knowledge and visible control.",
+        confidence=0.96,
+        requires_manual_review=False,
+    )
+
+    client = FakeClient(parsed)
+    reasoner = OpenAITaskReasoner(
+        config=create_config(),
+        client=client,
+    )
+
+    proposal = reasoner.reason(context)
+
+    assert proposal is not None
+    payload = json.loads(
+        client.responses.calls[0]["input"]
+    )
+    assert payload["application_knowledge"]["application"] == "WindowHub"
