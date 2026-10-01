@@ -66,6 +66,7 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
 
     INTERACTIVE_CONTROL_TYPES = frozenset({
         "button",
+        "edit",
         "checkbox",
         "combobox",
         "hyperlink",
