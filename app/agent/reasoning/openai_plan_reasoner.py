@@ -103,6 +103,8 @@ Rules:
 - Return only semantic actions.
 - Never return mouse coordinates, keyboard commands, pyautogui calls,
   automation library calls, executor names, or direct GUI instructions.
+- Use application knowledge when provided as domain guidance for the
+  application's workflow and safe recovery sequence.
 - Do not assume that a target exists when the observed scene says it
   does not.
 - Prefer small, reversible recovery steps.
