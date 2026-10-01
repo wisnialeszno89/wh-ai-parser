@@ -20,6 +20,9 @@ from app.agent.execution.default_executors import (
 from app.agent.runtime.agent_control_loop import (
     AgentControlLoop,
 )
+from app.agent.reasoning.plan_reasoner import (
+    PlanReasoner,
+)
 
 from app.agent.runtime.default_agent_control_loop import (
     create_default_agent_control_loop,
@@ -39,7 +42,10 @@ from app.agent.perception.windowhub_ui_automation_provider import (
 
 
 
-def create_windowhub_agent_control_loop() -> AgentControlLoop:
+def create_windowhub_agent_control_loop(
+    *,
+    plan_reasoner: PlanReasoner | None = None,
+) -> AgentControlLoop:
     """
     Create the Universal Agent Core control loop
     configured for the WindowHub environment.
@@ -71,6 +77,7 @@ def create_windowhub_agent_control_loop() -> AgentControlLoop:
 
     return create_default_agent_control_loop(
         environment=environment,
+        plan_reasoner=plan_reasoner,
         execution_engine=execution_engine,
         perception_providers=(
             perception_provider,
