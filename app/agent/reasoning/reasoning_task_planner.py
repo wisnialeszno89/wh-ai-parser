@@ -48,33 +48,59 @@ class ReasoningTaskPlanner:
             if action_normalizer is not None
             else AgentActionNormalizer()
         )
+        self.last_failure_reason: str | None = None
+        self.last_proposal = None
 
     def plan(
         self,
         *,
         context: TaskPlanningContext,
     ) -> ActionPlan | None:
+        self.last_failure_reason = None
+
         proposal = self.reasoner.reason(context)
+        self.last_proposal = proposal
+
+        reasoner_error = getattr(
+            self.reasoner,
+            "last_error",
+            None,
+        )
 
         if proposal is None:
+            self.last_failure_reason = (
+                reasoner_error
+                or "reasoner_returned_no_proposal"
+            )
             return None
 
         if proposal.requires_manual_review:
+            self.last_failure_reason = (
+                "provider_requested_manual_review"
+            )
             return None
 
         if not 0.0 <= proposal.confidence <= 1.0:
+            self.last_failure_reason = (
+                "invalid_confidence"
+            )
             return None
 
         if not proposal.actions:
+            self.last_failure_reason = (
+                "proposal_contains_no_actions"
+            )
             return None
 
         actions = []
 
         for action in proposal.actions:
             if self._is_low_level(action.name):
+                self.last_failure_reason = "low_level_action_name"
                 return None
 
             if self._is_low_level(action.description):
+                self.last_failure_reason = "low_level_action_description"
                 return None
 
             if (
@@ -84,6 +110,7 @@ class ReasoningTaskPlanner:
                     or self._is_technical_target(action.target)
                 )
             ):
+                self.last_failure_reason = "low_level_or_technical_target"
                 return None
 
             if (
@@ -94,12 +121,14 @@ class ReasoningTaskPlanner:
                     context.scene,
                 )
             ):
+                self.last_failure_reason = "target_not_visible_in_scene"
                 return None
 
             if self._is_forbidden_offer_continuation_action(
                 action,
                 context,
             ):
+                self.last_failure_reason = "forbidden_offer_continuation_action"
                 return None
 
             if (
