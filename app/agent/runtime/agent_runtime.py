@@ -1,5 +1,6 @@
 from uuid import uuid4
 
+
     @staticmethod
     def _offer_workflow_planning_context(
         result,
