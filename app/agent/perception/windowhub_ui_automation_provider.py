@@ -125,9 +125,15 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
         elements: list[ScreenElement] = []
 
         try:
-            descendants = window.descendants()
+            descendants = tuple(window.descendants())
         except Exception:
             return ()
+
+        label_candidates = self._collect_label_candidates(
+            descendants,
+            origin_x=origin_x,
+            origin_y=origin_y,
+        )
 
         for item in descendants:
             element = self._to_screen_element(
@@ -135,6 +141,7 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
                 origin_x=origin_x,
                 origin_y=origin_y,
                 tracked_objects=tracked_objects,
+                label_candidates=label_candidates,
             )
             if element is not None:
                 elements.append(element)
@@ -201,6 +208,7 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
         origin_x: int,
         origin_y: int,
         tracked_objects,
+        label_candidates=(),
     ) -> ScreenElement | None:
         try:
             name = self._string(
@@ -223,10 +231,25 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
         except Exception:
             return None
 
-        if not visible or not name:
+        if not visible:
             return None
 
         if control_type not in self.INTERACTIVE_CONTROL_TYPES:
+            return None
+
+        semantic_label, semantic_source = (
+            self._resolve_semantic_label(
+                item=item,
+                name=name,
+                control_type=control_type,
+                rectangle=rectangle,
+                origin_x=origin_x,
+                origin_y=origin_y,
+                label_candidates=label_candidates,
+            )
+        )
+
+        if not semantic_label:
             return None
 
         rect = _UIARect(
@@ -241,7 +264,7 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
 
         # AutomationId is a runtime/provider identifier, not a semantic
         # display label. It remains available only in provider metadata.
-        label = name
+        label = semantic_label
         capability = (
             InteractionCapability.CLICKABLE
             if enabled
@@ -304,6 +327,7 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
             "provider_element_id": element_id,
             "semantic_name": label,
             "name": name,
+            "semantic_label_source": semantic_source,
             "automation_id": automation_id,
             "uia_control_type": control_type,
             "uia_enabled": enabled,
@@ -334,6 +358,267 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
             interaction_capability=capability,
             evidence=tuple(evidence),
         )
+
+
+    @classmethod
+    def _collect_label_candidates(
+        cls,
+        items,
+        origin_x: int,
+        origin_y: int,
+    ):
+        candidates = []
+
+        for item in items:
+            try:
+                element_info = item.element_info
+                control_type = cls._normalize_control_type(
+                    getattr(element_info, "control_type", None)
+                )
+                visible = bool(
+                    getattr(element_info, "visible", True)
+                )
+                if not visible:
+                    continue
+
+                if control_type not in {
+                    "text",
+                    "label",
+                    "header",
+                    "group",
+                    "custom",
+                }:
+                    continue
+
+                label = cls._best_text_value(item)
+                if not label or cls._is_generic_label(label):
+                    continue
+
+                rectangle = item.rectangle()
+                rect = _UIARect(
+                    left=int(rectangle.left) - origin_x,
+                    top=int(rectangle.top) - origin_y,
+                    width=int(rectangle.width()),
+                    height=int(rectangle.height()),
+                )
+
+                if rect.width <= 0 or rect.height <= 0:
+                    continue
+
+                candidates.append(
+                    (
+                        rect,
+                        label,
+                        "uia_text_neighbor",
+                    )
+                )
+            except Exception:
+                continue
+
+        return tuple(candidates)
+
+    @classmethod
+    def _resolve_semantic_label(
+        cls,
+        *,
+        item,
+        name: str | None,
+        control_type: str,
+        rectangle,
+        origin_x: int,
+        origin_y: int,
+        label_candidates,
+    ) -> tuple[str | None, str]:
+        if name and not cls._is_generic_label(name):
+            return name, "uia_name"
+
+        parent_label = cls._parent_semantic_label(item)
+        if parent_label:
+            return parent_label, "uia_parent"
+
+        rect = _UIARect(
+            left=int(rectangle.left) - origin_x,
+            top=int(rectangle.top) - origin_y,
+            width=int(rectangle.width()),
+            height=int(rectangle.height()),
+        )
+
+        nearby = []
+        for label_rect, label, source in label_candidates:
+            score = cls._label_proximity_score(
+                control_rect=rect,
+                label_rect=label_rect,
+            )
+            if score is not None:
+                nearby.append(
+                    (
+                        score,
+                        label,
+                        source,
+                    )
+                )
+
+        if not nearby:
+            return None, "none"
+
+        nearby.sort(
+            key=lambda item: item[0],
+            reverse=True,
+        )
+
+        best = nearby[0]
+
+        if len(nearby) > 1:
+            margin = best[0] - nearby[1][0]
+            if margin < 0.08:
+                return None, "ambiguous_neighbor"
+
+        return best[1], best[2]
+
+    @classmethod
+    def _parent_semantic_label(
+        cls,
+        item,
+    ) -> str | None:
+        parent_getter = getattr(item, "parent", None)
+        if not callable(parent_getter):
+            return None
+
+        current = item
+
+        for _ in range(5):
+            try:
+                current = current.parent()
+            except Exception:
+                return None
+
+            if current is None:
+                return None
+
+            label = cls._best_text_value(current)
+            if label and not cls._is_generic_label(label):
+                return label
+
+        return None
+
+    @classmethod
+    def _best_text_value(
+        cls,
+        item,
+    ) -> str | None:
+        element_info = getattr(item, "element_info", None)
+
+        for source in (
+            getattr(element_info, "name", None),
+            getattr(element_info, "rich_text", None),
+            getattr(element_info, "help_text", None),
+            getattr(element_info, "item_status", None),
+            getattr(item, "window_text", None),
+        ):
+            value = source() if callable(source) else source
+            if isinstance(value, str):
+                value = value.strip()
+                if value:
+                    return value
+
+        get_properties = getattr(
+            item,
+            "get_properties",
+            None,
+        )
+        if callable(get_properties):
+            try:
+                properties = get_properties()
+            except Exception:
+                properties = {}
+
+            if isinstance(properties, dict):
+                for key in (
+                    "name",
+                    "rich_text",
+                    "help_text",
+                    "item_status",
+                ):
+                    value = properties.get(key)
+                    if isinstance(value, str) and value.strip():
+                        return value.strip()
+
+        return None
+
+    @staticmethod
+    def _is_generic_label(value: str) -> bool:
+        normalized = value.strip().casefold()
+
+        return normalized in {
+            "",
+            "layoutitem",
+            "comboboxedit",
+            "dateedit",
+            "textbox",
+            "edit",
+            "control",
+        }
+
+    @staticmethod
+    def _label_proximity_score(
+        *,
+        control_rect: _UIARect,
+        label_rect: _UIARect,
+    ) -> float | None:
+        control_center = control_rect.center
+        label_center = label_rect.center
+
+        left_gap = control_rect.left - label_rect.right
+        vertical_overlap = min(
+            control_rect.bottom,
+            label_rect.bottom,
+        ) - max(
+            control_rect.top,
+            label_rect.top,
+        )
+
+        if 0 <= left_gap <= 260 and vertical_overlap > 0:
+            vertical_distance = abs(
+                control_center[1] - label_center[1]
+            )
+            return max(
+                0.0,
+                1.0
+                - (
+                    left_gap / 260.0
+                )
+                - min(
+                    vertical_distance / 240.0,
+                    0.35,
+                ),
+            )
+
+        top_gap = control_rect.top - label_rect.bottom
+        horizontal_overlap = min(
+            control_rect.right,
+            label_rect.right,
+        ) - max(
+            control_rect.left,
+            label_rect.left,
+        )
+
+        if 0 <= top_gap <= 100 and horizontal_overlap > 0:
+            horizontal_distance = abs(
+                control_center[0] - label_center[0]
+            )
+            return max(
+                0.0,
+                0.82
+                - (
+                    top_gap / 100.0
+                )
+                - min(
+                    horizontal_distance / 300.0,
+                    0.35,
+                ),
+            )
+
+        return None
 
     @staticmethod
     def _correlate_tracked_object(
