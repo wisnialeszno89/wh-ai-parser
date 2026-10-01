@@ -8,6 +8,9 @@ from app.agent.runtime.agent_runtime import AgentRuntime
 from app.agent.runtime.execution_context import AgentExecutionContext
 from app.agent.planning.action_plan import ActionPlan
 from app.agent.planning.action_step import ActionStep
+from app.agent.reasoning.reasoning_action import ReasoningAction
+from app.agent.reasoning.reasoning_proposal import ReasoningProposal
+from app.agent.reasoning.task_reasoner import TaskReasoner
 
 from app.agent.environment.environment_observation import (
     EnvironmentObservation,
@@ -251,3 +254,53 @@ def test_runtime_observes_before_initial_planning():
     assert control_loop.context is result.context
     assert result.context.current_scene is scene
     assert result.executed is True
+
+
+class RecordingTaskReasoner(TaskReasoner):
+    def __init__(self):
+        self.contexts = []
+
+    def reason(self, context):
+        self.contexts.append(context)
+        return ReasoningProposal(
+            actions=(
+                ReasoningAction(
+                    name="open_new_offer",
+                    description="Open the new offer form.",
+                    target="NOWA OFERTA",
+                ),
+            ),
+            rationale="Test proposal.",
+            confidence=0.8,
+        )
+
+
+def test_runtime_builds_offer_workflow_context_before_task_reasoning():
+    reasoner = RecordingTaskReasoner()
+
+    from app.agent.runtime.agent_orchestrator import AgentOrchestrator
+
+    runtime = AgentRuntime(
+        orchestrator=AgentOrchestrator(
+            task_reasoner=reasoner,
+        ),
+    )
+
+    runtime.run(
+        AgentRequest(
+            message="Przygotuj tę ofertę",
+        )
+    )
+
+    assert len(reasoner.contexts) == 1
+
+    offer_workflow = (
+        reasoner.contexts[0].offer_workflow
+    )
+
+    assert offer_workflow is not None
+    assert "workflow_state" in offer_workflow
+    assert "requires_salesperson_input" in offer_workflow
+    assert "questions" in offer_workflow
+    assert "missing_fields" in offer_workflow
+    assert "offer_context" in offer_workflow
