@@ -83,6 +83,16 @@ class ReasoningTaskPlanner:
             ):
                 return None
 
+            if (
+                action.target is not None
+                and context.scene is not None
+                and not self._matches_visible_semantic_target(
+                    action.target,
+                    context.scene,
+                )
+            ):
+                return None
+
             normalized_action = self.action_normalizer.normalize(
                 AgentAction(
                     name=action.name,
@@ -125,3 +135,38 @@ class ReasoningTaskPlanner:
             term in normalized
             for term in cls._FORBIDDEN_LOW_LEVEL_TERMS
         )
+
+
+    @staticmethod
+    def _matches_visible_semantic_target(
+        target: str,
+        scene,
+    ) -> bool:
+        normalized = target.strip().casefold()
+
+        if not normalized:
+            return False
+
+        for element in scene.elements:
+            values = [element.label]
+
+            metadata = element.metadata or {}
+            values.extend(
+                metadata.get(key)
+                for key in (
+                    "name",
+                    "semantic_label",
+                    "description",
+                    "role",
+                )
+            )
+
+            for value in values:
+                if (
+                    isinstance(value, str)
+                    and value.strip().casefold()
+                    == normalized
+                ):
+                    return True
+
+        return False
