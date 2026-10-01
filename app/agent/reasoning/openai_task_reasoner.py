@@ -114,6 +114,10 @@ Rules:
 - If the requested target cannot be expressed using a visible semantic
   label from the scene, set requires_manual_review=true rather than
   guessing an internal identifier.
+- If application knowledge is provided, treat it as domain guidance for
+  interpreting the application's workflow, field roles and safe sequence.
+  It does not override the observed scene: actual visible controls in the
+  current scene remain authoritative.
 - If offer workflow state is provided, treat it as authoritative
   semantic workflow context for quotation tasks.
 - If workflow data is incomplete but the user's request itself contains
@@ -135,6 +139,9 @@ Rules:
   scene. Never guess the target.
 - Prefer the next safe user-visible GUI action when continuing a
   READY_FOR_PRICING workflow.
+- Use application workflow knowledge to recognize which stage the current
+  WindowHub scene most likely represents, but do not assume a control exists
+  until the scene contains a matching semantic target.
 - If no clear visible control safely represents the next step,
   set requires_manual_review=true.
 - If the requested goal is already represented by the current workflow
