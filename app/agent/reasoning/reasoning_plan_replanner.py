@@ -1,4 +1,7 @@
 from app.agent.agent_action import AgentAction
+from app.agent.planning.agent_action_normalizer import (
+    AgentActionNormalizer,
+)
 from app.agent.planning.action_plan import ActionPlan
 from app.agent.planning.action_step import ActionStep
 from app.agent.planning.plan_replanner import (
@@ -53,8 +56,14 @@ class ReasoningPlanReplanner(
     def __init__(
         self,
         reasoner: PlanReasoner,
+        action_normalizer: AgentActionNormalizer | None = None,
     ) -> None:
         self.reasoner = reasoner
+        self.action_normalizer = (
+            action_normalizer
+            if action_normalizer is not None
+            else AgentActionNormalizer()
+        )
 
     def replan(
         self,
@@ -189,15 +198,29 @@ class ReasoningPlanReplanner(
             ):
                 return None
 
+            if (
+                action.name.strip().casefold()
+                in {"write_text", "type_text"}
+                and (
+                    not isinstance(action.target, str)
+                    or not action.target.strip()
+                    or not isinstance(action.value, str)
+                    or not action.value
+                )
+            ):
+                return None
+
             actions.append(
-                AgentAction(
-                    name=action.name,
-                    description=action.description,
-                    target=action.target,
-                    value=action.value,
-                    requires_confirmation=(
-                        action.requires_confirmation
-                    ),
+                self.action_normalizer.normalize(
+                    AgentAction(
+                        name=action.name,
+                        description=action.description,
+                        target=action.target,
+                        value=action.value,
+                        requires_confirmation=(
+                            action.requires_confirmation
+                        ),
+                    )
                 )
             )
 
