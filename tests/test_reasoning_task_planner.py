@@ -296,3 +296,45 @@ def test_reasoning_task_planner_rejects_technical_scene_target():
     assert ReasoningTaskPlanner(reasoner).plan(
         context=create_context()
     ) is None
+
+
+def test_reasoning_task_planner_blocks_new_offer_reset_during_ready_continuation():
+    reasoner = RecordingTaskReasoner(
+        proposal=ReasoningProposal(
+            actions=(
+                ReasoningAction(
+                    name="click_screen_element",
+                    description="Open the visible new offer control.",
+                    target="NOWA OFERTA",
+                ),
+            ),
+            rationale="Incorrectly restart the quote workflow.",
+            confidence=0.68,
+        )
+    )
+
+    context = TaskPlanningContext(
+        request_message="Okno 1230x1480 FIX",
+        intent=AgentIntent.CREATE_QUOTE.value,
+        capability_name="WH_WINDOW",
+        capability_description="Controlled WindowHub execution.",
+        skill_name="WHWindowSkill",
+        offer_workflow={
+            "workflow_state": "ready_for_pricing",
+            "is_ready_for_pricing": True,
+            "requires_salesperson_input": False,
+            "continuation_of_offer": True,
+            "questions": (),
+            "missing_fields": (),
+            "conflicts": (),
+            "offer_context": {
+                "product_type": "window",
+                "width": 1230,
+                "height": 1480,
+            },
+        },
+    )
+
+    assert ReasoningTaskPlanner(reasoner).plan(
+        context=context
+    ) is None
