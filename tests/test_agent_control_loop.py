@@ -78,6 +78,10 @@ from app.agent.verification.expectation_resolver import (
     ExpectationResolver,
 )
 
+from app.agent.verification.expected_outcome import (
+    ExpectedOutcome,
+)
+
 from app.agent.verification.outcome_verifier import (
     OutcomeVerifier,
 )
