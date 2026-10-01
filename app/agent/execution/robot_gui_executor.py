@@ -14,11 +14,15 @@ class RobotGUIExecutor(ActionExecutor):
 
     v1 supports:
         click_screen_element
+        write_text
 
     Target resolution is delegated to TargetResolver.
     """
 
-    SUPPORTED_ACTIONS = {"click_screen_element"}
+    SUPPORTED_ACTIONS = {
+        "click_screen_element",
+        "write_text",
+    }
 
     def __init__(
         self,
@@ -36,11 +40,22 @@ class RobotGUIExecutor(ActionExecutor):
         action: AgentAction,
         context: ExecutionContext,
     ) -> ExecutionResult:
-        if action.name != "click_screen_element":
+        if action.name not in self.SUPPORTED_ACTIONS:
             return ExecutionResult(
                 action_name=action.name,
                 success=False,
                 message="Unsupported robot GUI action",
+                requires_manual_review=True,
+            )
+
+        if action.name == "write_text" and not isinstance(
+            action.value,
+            str,
+        ):
+            return ExecutionResult(
+                action_name=action.name,
+                success=False,
+                message="write_text requires a text value",
                 requires_manual_review=True,
             )
 
@@ -99,9 +114,16 @@ class RobotGUIExecutor(ActionExecutor):
             screen_origin = self._screen_origin(context)
             window_handle = self._window_handle(context)
 
+            interaction = (
+                InteractionAction.WRITE
+                if action.name == "write_text"
+                else InteractionAction.CLICK
+            )
+
             result = self.robot_action_executor.execute_uia_screen_element(
                 screen_element=element,
-                action=InteractionAction.CLICK,
+                action=interaction,
+                text_value=action.value,
                 screen_origin=screen_origin,
                 window_handle=window_handle,
             )
@@ -177,9 +199,15 @@ class RobotGUIExecutor(ActionExecutor):
 
         screen_origin = self._screen_origin(context)
 
+        interaction = (
+            InteractionAction.WRITE
+            if action.name == "write_text"
+            else InteractionAction.CLICK
+        )
+
         result = self.robot_action_executor.execute(
             tracked_object=tracked_object,
-            action=InteractionAction.CLICK,
+            action=interaction,
             root=root,
             expected_control_type=expected_control_type,
             expected_bounds=tracked_object.object.bounds,
