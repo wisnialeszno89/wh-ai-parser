@@ -12,6 +12,8 @@ class AgentActionNormalizer:
 
     _KNOWN_MAPPINGS = {
         "open_new_offer": "click_screen_element",
+        "click": "click_screen_element",
+        "click_ui_element": "click_screen_element",
     }
 
     _DEFAULT_TARGETS = {
