@@ -119,3 +119,34 @@ def test_reasoning_task_planner_fails_closed_on_manual_review():
     assert planner.plan(
         context=create_context()
     ) is None
+
+def test_reasoning_task_planner_normalizes_semantic_open_new_offer():
+    reasoner = RecordingTaskReasoner(
+        proposal=ReasoningProposal(
+            actions=(
+                ReasoningAction(
+                    name="open_new_offer",
+                    description=(
+                        "Open the new offer form in WindowHub."
+                    ),
+                    target="Nowa oferta",
+                ),
+            ),
+            rationale="The user asked to start a new offer.",
+            confidence=0.98,
+        )
+    )
+
+    planner = ReasoningTaskPlanner(reasoner)
+
+    plan = planner.plan(
+        context=create_context()
+    )
+
+    assert plan is not None
+    assert len(plan.steps) == 1
+
+    action = plan.steps[0].action
+    assert action.name == "click_screen_element"
+    assert action.target == "Nowa oferta"
+
