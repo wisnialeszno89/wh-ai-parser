@@ -256,6 +256,15 @@ def main() -> int:
         "plan_reasoner="
         f"{type(getattr(getattr(runtime.control_loop, 'replanner', None), 'reasoner', None)).__name__}"
     )
+    reasoner = getattr(
+        task_planner,
+        "reasoner",
+        None,
+    )
+    print(
+        "task_vision="
+        f"{getattr(getattr(reasoner, 'config', None), 'include_screenshot', None)}"
+    )
 
     task_planner = getattr(
         runtime.orchestrator,
