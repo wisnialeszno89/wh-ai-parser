@@ -34,9 +34,13 @@ class FakeEnvironment(EnvironmentAdapter):
             else {}
         )
 
+        self.observe_count = 0
+
     def observe(
         self,
     ) -> EnvironmentObservation:
+
+        self.observe_count += 1
 
         return EnvironmentObservation(
             state=self.state,
