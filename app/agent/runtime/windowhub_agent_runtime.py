@@ -38,6 +38,7 @@ def create_windowhub_agent_runtime() -> AgentRuntime:
             application_knowledge=(
                 get_windowhub_offer_knowledge()
             ),
+            require_task_reasoning=True,
         ),
         control_loop=create_windowhub_agent_control_loop(
             plan_reasoner=plan_reasoner,
