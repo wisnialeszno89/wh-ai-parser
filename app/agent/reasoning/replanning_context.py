@@ -53,6 +53,8 @@ class ReplanningContext:
 
     scene: ScreenSceneSnapshot | None = None
 
+    application_knowledge: dict[str, object] | None = None
+
     @property
     def active_application(self) -> str | None:
         if self.scene is None:
@@ -159,6 +161,9 @@ class ReplanningContext:
                 ),
             },
             "scene": scene_payload,
+            "application_knowledge": _json_safe(
+                self.application_knowledge
+            ),
         }
 
 
