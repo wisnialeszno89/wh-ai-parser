@@ -83,6 +83,10 @@ def main() -> int:
     context = result.context
     plan = context.plan
     control = result.control_loop_result
+    salesperson_questions = context.get_value(
+        "salesperson_questions",
+        (),
+    )
 
     print()
     print("=== AGENT ===")
@@ -126,6 +130,12 @@ def main() -> int:
     print(f"stopped={control.stopped}")
     print(f"executed_actions={control.executed_actions}")
     print(f"failed_actions={control.failed_actions}")
+
+    if salesperson_questions:
+        print()
+        print("=== SALESPERSON QUESTIONS ===")
+        for question in salesperson_questions:
+            print(f"- {question}")
 
     for index, execution in enumerate(
         control.execution_results,
