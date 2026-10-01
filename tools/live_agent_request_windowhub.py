@@ -115,10 +115,30 @@ def main() -> int:
                 f"description={action.description!r}"
             )
 
+    if salesperson_questions:
+        print()
+        print("=== SALESPERSON QUESTIONS ===")
+        for question in salesperson_questions:
+            print(f"- {question}")
+
     if control is None:
         print()
-        print("ABORTED: AgentRuntime did not use the WindowHub control loop.")
-        return 5
+        print(
+            "=== CONTROL LOOP ==="
+        )
+        print(
+            "not executed: runtime stopped before GUI control "
+            "because salesperson input is required."
+        )
+        print()
+        print("=== FINAL ===")
+        print("success=False")
+        print(
+            "manual_review="
+            f"{result.requires_manual_review}"
+        )
+        print("stopped=True")
+        return 6
 
     print()
     print("=== CONTROL LOOP ===")
@@ -130,12 +150,6 @@ def main() -> int:
     print(f"stopped={control.stopped}")
     print(f"executed_actions={control.executed_actions}")
     print(f"failed_actions={control.failed_actions}")
-
-    if salesperson_questions:
-        print()
-        print("=== SALESPERSON QUESTIONS ===")
-        for question in salesperson_questions:
-            print(f"- {question}")
 
     for index, execution in enumerate(
         control.execution_results,
