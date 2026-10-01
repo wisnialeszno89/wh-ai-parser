@@ -154,6 +154,29 @@ class AgentPlanner:
     def _looks_like_click_request(self, message: str) -> bool:
         return self._extract_click_target(message) is not None
 
+    def _looks_like_open_new_offer_request(
+        self,
+        message: str,
+    ) -> bool:
+        normalized = " ".join(
+            message.casefold().split()
+        )
+
+        return any(
+            phrase in normalized
+            for phrase in (
+                "otwórz nową ofertę",
+                "otworz nowa oferte",
+                "uruchom nową ofertę",
+                "uruchom nowa oferte",
+                "przejdź do nowej oferty",
+                "przejdz do nowej oferty",
+                "wejdź w nową ofertę",
+                "wejdz w nowa oferte",
+                "otwórz nowa ofertę",
+            )
+        )
+
     def detect_intent(
         self,
         request: AgentRequest,
@@ -161,7 +184,12 @@ class AgentPlanner:
 
         message = request.message.lower()
 
-        if self._looks_like_click_request(message):
+        if (
+            self._looks_like_open_new_offer_request(
+                message
+            )
+            or self._looks_like_click_request(message)
+        ):
             return AgentIntent.EXECUTE_IN_WH
 
         if request.metadata.get(
@@ -226,7 +254,15 @@ class AgentPlanner:
         intent = self.detect_intent(request)
 
         if intent == AgentIntent.EXECUTE_IN_WH:
-            target = self._extract_click_target(request.message)
+            if self._looks_like_open_new_offer_request(
+                request.message
+            ):
+                target = "NOWA OFERTA"
+            else:
+                target = self._extract_click_target(
+                    request.message
+                )
+
             if target is None:
                 return ActionPlan(
                     intent=intent,
