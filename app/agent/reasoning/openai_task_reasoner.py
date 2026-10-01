@@ -116,9 +116,12 @@ Rules:
   guessing an internal identifier.
 - If offer workflow state is provided, treat it as authoritative
   semantic workflow context for quotation tasks.
-- If the workflow says that salesperson input is required, do not
-  invent UI actions or reopen an already-open offer; set
-  requires_manual_review=true.
+- If workflow data is incomplete but the user's request itself contains
+  the missing value, use that value to plan the required visible GUI action,
+  such as write_text or click_screen_element. Do not ask the salesperson
+  to repeat information already present in request_message.
+- If a required business value is missing from both the workflow data and
+  request_message, set requires_manual_review=true.
 - If workflow_state is READY_FOR_PRICING, the business workflow steps
   are already complete. Do NOT return analyze_request,
   collect_offer_context, validate_offer, build_construction or
