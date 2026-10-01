@@ -141,6 +141,7 @@ class ReasoningTaskPlanner:
                     or not action.value
                 )
             ):
+                self.last_failure_reason = "write_text_missing_target_or_value"
                 return None
 
             normalized_action = self.action_normalizer.normalize(
