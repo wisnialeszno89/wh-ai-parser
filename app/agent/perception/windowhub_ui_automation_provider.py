@@ -322,12 +322,15 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
             ),
         ]
 
+        current_value = self._current_control_value(item)
+
         metadata = {
             "source": "windowhub_ui_automation",
             "provider_element_id": element_id,
             "semantic_name": label,
             "name": name,
             "semantic_label_source": semantic_source,
+            "current_value": current_value,
             "automation_id": automation_id,
             "uia_control_type": control_type,
             "uia_enabled": enabled,
@@ -359,6 +362,48 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
             evidence=tuple(evidence),
         )
 
+
+
+    @staticmethod
+    def _current_control_value(item) -> str | None:
+        for method_name in (
+            "get_value",
+            "window_text",
+        ):
+            method = getattr(item, method_name, None)
+            if not callable(method):
+                continue
+
+            try:
+                value = method()
+            except Exception:
+                continue
+
+            if isinstance(value, str):
+                value = value.strip()
+                if value:
+                    return value
+
+        element_info = getattr(
+            item,
+            "element_info",
+            None,
+        )
+
+        for attribute_name in (
+            "value",
+            "legacy_value",
+            "rich_text",
+        ):
+            value = getattr(
+                element_info,
+                attribute_name,
+                None,
+            )
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+
+        return None
 
     @classmethod
     def _collect_label_candidates(
