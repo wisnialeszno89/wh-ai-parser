@@ -110,6 +110,34 @@ class AgentRuntime:
                 engine=engine
             )
 
+    def _prepare_context(
+        self,
+        request: AgentRequest,
+        *,
+        initial_scene=None,
+        offer_workflow=None,
+    ):
+        try:
+            return self.orchestrator.prepare(
+                request,
+                initial_scene=initial_scene,
+                offer_workflow=offer_workflow,
+            )
+        except TypeError as exc:
+            if "offer_workflow" in str(exc):
+                try:
+                    return self.orchestrator.prepare(
+                        request,
+                        initial_scene=initial_scene,
+                    )
+                except TypeError as nested_exc:
+                    if "initial_scene" not in str(nested_exc):
+                        raise
+                    return self.orchestrator.prepare(request)
+            if "initial_scene" in str(exc):
+                return self.orchestrator.prepare(request)
+            raise
+
     def run(
         self,
         request: AgentRequest,
@@ -121,12 +149,6 @@ class AgentRuntime:
         session = None
         offer_workflow_result = None
         planning_offer_workflow = None
-
-        # ---------------------------------------------------------
-        # Existing session: restore offer continuation BEFORE
-        # orchestration so modifiers such as "DKR, 2 sztuki"
-        # remain part of the active quote workflow.
-        # ---------------------------------------------------------
 
         if request.session_id is not None:
             session = self.session_store.get_or_create(
@@ -150,29 +172,57 @@ class AgentRuntime:
                     },
                 )
 
-        # ---------------------------------------------------------
-        # Initial intent resolution.
-        #
-        # Use the orchestrator's public API so lightweight test
-        # doubles and custom orchestrators remain compatible.
-        # ---------------------------------------------------------
+        # Observe first, then compute workflow context and finally
+        # prepare the action plan exactly once.
+        initial_scene = None
 
-        context = self.orchestrator.prepare(
-            request,
-            initial_scene=None,
-            offer_workflow=None,
-        )
+        if self.control_loop is not None:
+            try:
+                initial_scene = (
+                    self.control_loop.observe_scene()
+                )
+            except Exception as exc:
+                context = self._prepare_context(
+                    request,
+                    initial_scene=None,
+                    offer_workflow=None,
+                )
 
-        detected_intent = context.intent
+                context.set_value(
+                    "initial_observation_error",
+                    str(exc),
+                )
 
-        # ---------------------------------------------------------
-        # Build semantic offer workflow context BEFORE the final
-        # planning pass for CREATE_QUOTE requests.
-        #
-        # The first prepare() above is intentionally side-effect free;
-        # it lets custom orchestrators participate without requiring
-        # access to an internal planner attribute.
-        # ---------------------------------------------------------
+                context.requires_manual_review = True
+
+                return AgentRuntimeResult(
+                    intent=context.intent,
+                    context=context,
+                    execution_report=None,
+                    requires_manual_review=True,
+                    executed=False,
+                )
+
+        # Detect intent without invoking the task reasoner a second time.
+        # For the standard orchestrator this is deterministic and does not
+        # execute anything. Custom orchestrators fall back to their returned
+        # context when no explicit planner is exposed.
+        detected_intent = None
+
+        if hasattr(self.orchestrator, "planner"):
+            detected_intent = (
+                self.orchestrator.planner.plan(
+                    request
+                ).intent
+            )
+
+        if detected_intent is None:
+            context = self._prepare_context(
+                request,
+                initial_scene=initial_scene,
+                offer_workflow=None,
+            )
+            detected_intent = context.intent
 
         if detected_intent == AgentIntent.CREATE_QUOTE:
             if session is None:
@@ -207,83 +257,15 @@ class AgentRuntime:
                 )
             )
 
-        # ---------------------------------------------------------
-        # Initial world-state observation.
-        #
-        # The planner must see the current semantic UI state before
-        # the final action plan is created.
-        # ---------------------------------------------------------
-
-        initial_scene = None
-
-        if self.control_loop is not None:
-            try:
-                initial_scene = (
-                    self.control_loop.observe_scene()
-                )
-            except Exception as exc:
-                context = self.orchestrator.prepare(
-                    request,
-                    initial_scene=None,
-                    offer_workflow=planning_offer_workflow,
-                )
-
-                context.set_value(
-                    "initial_observation_error",
-                    str(exc),
-                )
-
-                context.requires_manual_review = True
-
-                return AgentRuntimeResult(
-                    intent=context.intent,
-                    context=context,
-                    execution_report=None,
-                    requires_manual_review=True,
-                    executed=False,
-                )
-
-        # ---------------------------------------------------------
-        # Final orchestration pass with observed world state and
-        # structured offer workflow context.
-        #
-        # For legacy/custom orchestrators that do not accept the new
-        # keyword arguments, retain the older prepare(request) contract.
-        # ---------------------------------------------------------
-
-        try:
-            context = self.orchestrator.prepare(
-                request,
-                initial_scene=initial_scene,
-                offer_workflow=planning_offer_workflow,
-            )
-        except TypeError as exc:
-            if (
-                "initial_scene" not in str(exc)
-                and "offer_workflow" not in str(exc)
-            ):
-                raise
-
-            try:
-                context = self.orchestrator.prepare(
-                    request,
-                    initial_scene=initial_scene,
-                )
-            except TypeError as exc:
-                if "initial_scene" not in str(exc):
-                    raise
-
-                context = self.orchestrator.prepare(
-                    request
-                )
+        # Prepare the final context only once for the standard path.
+        context = self._prepare_context(
+            request,
+            initial_scene=initial_scene,
+            offer_workflow=planning_offer_workflow,
+        )
 
         if initial_scene is not None:
             context.update_scene(initial_scene)
-
-        # ---------------------------------------------------------
-        # Persist semantic offer workflow state into the execution
-        # context after orchestration.
-        # ---------------------------------------------------------
 
         if offer_workflow_result is not None:
             context.set_value(
@@ -306,16 +288,6 @@ class AgentRuntime:
                 planning_offer_workflow,
             )
 
-        # ---------------------------------------------------------
-        # Workflow safety gate.
-        #
-        # The universal control-loop path must never turn an
-        # incomplete structured offer into GUI execution. The legacy
-        # executor remains responsible for its existing validation /
-        # manual-review behavior so its established contract stays
-        # intact.
-        # ---------------------------------------------------------
-
         if (
             self.control_loop is not None
             and offer_workflow_result is not None
@@ -335,10 +307,6 @@ class AgentRuntime:
                 executed=False,
             )
 
-        # ---------------------------------------------------------
-        # Manual review / missing plan.
-        # ---------------------------------------------------------
-
         if (
             context.requires_manual_review
             or context.plan is None
@@ -350,11 +318,6 @@ class AgentRuntime:
                 requires_manual_review=True,
                 executed=False,
             )
-
-        # ---------------------------------------------------------
-        # Execute semantic plan through the universal control loop
-        # when an environment runtime is configured.
-        # ---------------------------------------------------------
 
         if self.control_loop is not None:
             control_loop_result = self.control_loop.run(
@@ -373,11 +336,6 @@ class AgentRuntime:
                 ),
                 executed=True,
             )
-
-        # ---------------------------------------------------------
-        # Backward-compatible semantic execution path used when
-        # no environment-specific control loop is configured.
-        # ---------------------------------------------------------
 
         execution_report = self.plan_executor.execute(
             plan=context.plan,
