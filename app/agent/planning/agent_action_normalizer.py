@@ -14,6 +14,8 @@ class AgentActionNormalizer:
         "open_new_offer": "click_screen_element",
         "click": "click_screen_element",
         "click_ui_element": "click_screen_element",
+        "write_text": "write_text",
+        "type_text": "write_text",
     }
 
     _DEFAULT_TARGETS = {
