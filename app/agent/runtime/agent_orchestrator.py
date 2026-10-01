@@ -84,6 +84,7 @@ class AgentOrchestrator:
         capability_router: CapabilityRouter | None = None,
         skill_registry: SkillRegistry | None = None,
         task_reasoner: TaskReasoner | None = None,
+        application_knowledge: dict[str, object] | None = None,
     ) -> None:
 
         self.planner = (
@@ -119,11 +120,14 @@ class AgentOrchestrator:
             else None
         )
 
+        self.application_knowledge = application_knowledge
+
     def prepare(
         self,
         request: AgentRequest,
         initial_scene: ScreenScene | None = None,
         offer_workflow: dict[str, object] | None = None,
+        application_knowledge: dict[str, object] | None = None,
     ) -> AgentExecutionContext:
         """
         Prepare one agent request for execution.
@@ -200,6 +204,11 @@ class AgentOrchestrator:
                 skill_name=skill.__class__.__name__,
                 scene=initial_scene,
                 offer_workflow=offer_workflow,
+                application_knowledge=(
+                    application_knowledge
+                    if application_knowledge is not None
+                    else self.application_knowledge
+                ),
             )
 
             reasoned_plan = self.task_planner.plan(
