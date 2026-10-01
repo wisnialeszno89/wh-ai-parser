@@ -21,4 +21,8 @@ class ReasoningAction:
 
     description: str
 
+    # Optional semantic target such as a visible UI label.
+    # Never a coordinate, handle, runtime id or automation id.
+    target: str | None = None
+
     requires_confirmation: bool = False
