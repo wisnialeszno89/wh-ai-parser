@@ -1,6 +1,41 @@
 from uuid import uuid4
 
 
+from app.agent.agent_request import AgentRequest
+from app.agent.session.agent_session_store import AgentSessionStore
+
+from app.agent.agent_intent import AgentIntent
+
+from app.agent.offers.offer_workflow_service import (
+    OfferWorkflowService,
+)
+
+from app.agent.execution.default_executors import (
+    create_default_executor_registry,
+)
+
+from app.agent.execution.execution_engine import (
+    ExecutionEngine,
+)
+
+from app.agent.execution.plan_executor import (
+    PlanExecutor,
+)
+
+from app.agent.runtime.agent_orchestrator import (
+    AgentOrchestrator,
+)
+
+from app.agent.runtime.agent_control_loop import (
+    AgentControlLoop,
+)
+
+from app.agent.runtime.agent_runtime_result import (
+    AgentRuntimeResult,
+)
+
+
+class AgentRuntime:
     @staticmethod
     def _offer_workflow_planning_context(
         result,
@@ -38,41 +73,6 @@ from uuid import uuid4
         }
 
 
-from app.agent.agent_request import AgentRequest
-from app.agent.session.agent_session_store import AgentSessionStore
-
-from app.agent.agent_intent import AgentIntent
-
-from app.agent.offers.offer_workflow_service import (
-    OfferWorkflowService,
-)
-
-from app.agent.execution.default_executors import (
-    create_default_executor_registry,
-)
-
-from app.agent.execution.execution_engine import (
-    ExecutionEngine,
-)
-
-from app.agent.execution.plan_executor import (
-    PlanExecutor,
-)
-
-from app.agent.runtime.agent_orchestrator import (
-    AgentOrchestrator,
-)
-
-from app.agent.runtime.agent_control_loop import (
-    AgentControlLoop,
-)
-
-from app.agent.runtime.agent_runtime_result import (
-    AgentRuntimeResult,
-)
-
-
-class AgentRuntime:
     """
     Main runtime entry point for the agent.
     """
