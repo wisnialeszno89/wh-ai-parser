@@ -8,6 +8,9 @@ from app.agent.reasoning.openai_task_reasoner import (
 from app.agent.reasoning.openai_plan_reasoner import (
     OpenAIPlanReasoner,
 )
+from app.agent.knowledge.windowhub_offer_knowledge import (
+    get_windowhub_offer_knowledge,
+)
 from app.agent.runtime.windowhub_agent_control_loop import (
     create_windowhub_agent_control_loop,
 )
@@ -32,6 +35,9 @@ def create_windowhub_agent_runtime() -> AgentRuntime:
     return AgentRuntime(
         orchestrator=AgentOrchestrator(
             task_reasoner=task_reasoner,
+            application_knowledge=(
+                get_windowhub_offer_knowledge()
+            ),
         ),
         control_loop=create_windowhub_agent_control_loop(
             plan_reasoner=plan_reasoner,
