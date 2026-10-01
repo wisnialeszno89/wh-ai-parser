@@ -429,9 +429,6 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
                 if control_type not in {
                     "text",
                     "label",
-                    "header",
-                    "group",
-                    "custom",
                 }:
                     continue
 
