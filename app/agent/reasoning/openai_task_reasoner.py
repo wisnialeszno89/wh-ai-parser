@@ -24,6 +24,7 @@ class _OpenAITaskReasoningAction(BaseModel):
     name: str
     description: str
     target: str | None = None
+    value: str | None = None
     requires_confirmation: bool = False
 
 
@@ -95,8 +96,10 @@ semantic action plan that the runtime can execute safely.
 Rules:
 - Return only semantic actions.
 - A target may be a human-readable UI label or other semantic identifier.
+- For write_text actions, set target to the visible semantic field label and
+  value to the exact text that should be entered.
 - Never return mouse coordinates, screen coordinates, window handles,
-  runtime ids, automation ids, tracked object ids, keyboard commands,
+  runtime ids, automation ids, tracked object ids, raw keyboard commands,
   pyautogui calls, automation-library calls, executor names, or low-level
   GUI instructions.
 - The input may include a current semantic scene captured immediately
@@ -204,6 +207,7 @@ Rules:
                     name=action.name,
                     description=action.description,
                     target=action.target,
+                    value=action.value,
                     requires_confirmation=(
                         action.requires_confirmation
                     ),
