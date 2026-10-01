@@ -288,10 +288,22 @@ class AgentRuntime:
                 planning_offer_workflow,
             )
 
+        reasoning_active = (
+            getattr(
+                self.orchestrator,
+                "task_planner",
+                None,
+            )
+            is not None
+        )
+
         if (
-            self.control_loop is not None
-            and offer_workflow_result is not None
+            offer_workflow_result is not None
             and offer_workflow_result.requires_salesperson_input
+            and (
+                self.control_loop is not None
+                or reasoning_active
+            )
         ):
             context.requires_manual_review = True
             context.set_value(
