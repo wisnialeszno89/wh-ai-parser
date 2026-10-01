@@ -368,6 +368,7 @@ def test_runtime_continues_offer_session_with_follow_up_data():
     workflow = reasoner.contexts[-1].offer_workflow
 
     assert workflow is not None
+    assert workflow["continuation_of_offer"] is True
     assert workflow["requires_salesperson_input"] is False
     assert workflow["is_ready_for_pricing"] is True
     assert workflow["offer_context"]["width"] == 1230
