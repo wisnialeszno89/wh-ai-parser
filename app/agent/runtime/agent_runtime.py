@@ -1,6 +1,5 @@
 from uuid import uuid4
 
-
 from app.agent.agent_request import AgentRequest
 from app.agent.session.agent_session_store import AgentSessionStore
 
@@ -121,6 +120,7 @@ class AgentRuntime:
 
         session = None
         offer_workflow_result = None
+        planning_offer_workflow = None
 
         # ---------------------------------------------------------
         # Existing session: restore offer continuation BEFORE
@@ -129,7 +129,6 @@ class AgentRuntime:
         # ---------------------------------------------------------
 
         if request.session_id is not None:
-
             session = self.session_store.get_or_create(
                 session_id=request.session_id,
                 salesman_id=request.salesman_id,
@@ -152,20 +151,28 @@ class AgentRuntime:
                 )
 
         # ---------------------------------------------------------
-        # Build semantic offer workflow context BEFORE initial planning.
+        # Initial intent resolution.
         #
-        # CREATE_QUOTE requests need the normalized business state,
-        # missing fields and workflow state before the task reasoner
-        # chooses the next action.
+        # Use the orchestrator's public API so lightweight test
+        # doubles and custom orchestrators remain compatible.
         # ---------------------------------------------------------
 
-        planning_offer_workflow = None
-
-        detected_intent = (
-            self.orchestrator.planner.plan(
-                request
-            ).intent
+        context = self.orchestrator.prepare(
+            request,
+            initial_scene=None,
+            offer_workflow=None,
         )
+
+        detected_intent = context.intent
+
+        # ---------------------------------------------------------
+        # Build semantic offer workflow context BEFORE the final
+        # planning pass for CREATE_QUOTE requests.
+        #
+        # The first prepare() above is intentionally side-effect free;
+        # it lets custom orchestrators participate without requiring
+        # access to an internal planner attribute.
+        # ---------------------------------------------------------
 
         if detected_intent == AgentIntent.CREATE_QUOTE:
             if session is None:
@@ -204,7 +211,7 @@ class AgentRuntime:
         # Initial world-state observation.
         #
         # The planner must see the current semantic UI state before
-        # the first action plan is created.
+        # the final action plan is created.
         # ---------------------------------------------------------
 
         initial_scene = None
@@ -237,14 +244,38 @@ class AgentRuntime:
                 )
 
         # ---------------------------------------------------------
-        # Orchestrate the request with the observed world state.
+        # Final orchestration pass with observed world state and
+        # structured offer workflow context.
+        #
+        # For legacy/custom orchestrators that do not accept the new
+        # keyword arguments, retain the older prepare(request) contract.
         # ---------------------------------------------------------
 
-        context = self.orchestrator.prepare(
-            request,
-            initial_scene=initial_scene,
-            offer_workflow=planning_offer_workflow,
-        )
+        try:
+            context = self.orchestrator.prepare(
+                request,
+                initial_scene=initial_scene,
+                offer_workflow=planning_offer_workflow,
+            )
+        except TypeError as exc:
+            if (
+                "initial_scene" not in str(exc)
+                and "offer_workflow" not in str(exc)
+            ):
+                raise
+
+            try:
+                context = self.orchestrator.prepare(
+                    request,
+                    initial_scene=initial_scene,
+                )
+            except TypeError as exc:
+                if "initial_scene" not in str(exc):
+                    raise
+
+                context = self.orchestrator.prepare(
+                    request
+                )
 
         if initial_scene is not None:
             context.update_scene(initial_scene)
@@ -270,16 +301,24 @@ class AgentRuntime:
                 offer_workflow_result.workflow_state,
             )
 
+            context.set_value(
+                "offer_workflow_planning",
+                planning_offer_workflow,
+            )
+
         # ---------------------------------------------------------
         # Workflow safety gate.
         #
-        # When the structured offer workflow explicitly requires
-        # salesperson input, do not allow the task reasoner or any
-        # fallback planner to turn that state into GUI execution.
+        # The universal control-loop path must never turn an
+        # incomplete structured offer into GUI execution. The legacy
+        # executor remains responsible for its existing validation /
+        # manual-review behavior so its established contract stays
+        # intact.
         # ---------------------------------------------------------
 
         if (
-            offer_workflow_result is not None
+            self.control_loop is not None
+            and offer_workflow_result is not None
             and offer_workflow_result.requires_salesperson_input
         ):
             context.requires_manual_review = True
@@ -335,8 +374,11 @@ class AgentRuntime:
                 executed=True,
             )
 
+        # ---------------------------------------------------------
         # Backward-compatible semantic execution path used when
         # no environment-specific control loop is configured.
+        # ---------------------------------------------------------
+
         execution_report = self.plan_executor.execute(
             plan=context.plan,
             context=context,
