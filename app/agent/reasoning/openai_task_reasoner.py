@@ -103,6 +103,14 @@ Rules:
   before planning. Treat it as observed evidence of the visible UI state.
 - Use visible element labels, kinds and interaction capabilities to decide
   whether an action is appropriate.
+- When a scene is provided, an action target must be a visible element
+  label from that scene (case-insensitive) unless no target is needed.
+- Never use or invent technical identifiers such as AutomationId values,
+  runtime ids, provider element ids, tracked object ids or other internal
+  identifiers as action targets, even if they seem predictable.
+- If the requested target cannot be expressed using a visible semantic
+  label from the scene, set requires_manual_review=true rather than
+  guessing an internal identifier.
 - If the requested UI state is not supported by the observed scene and
   the task cannot be planned safely without guessing, set
   requires_manual_review=true.
