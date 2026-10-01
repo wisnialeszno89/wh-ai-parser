@@ -5,6 +5,9 @@ from app.runtime.execution.action_policy import ActionPolicy
 from app.runtime.execution.action_result import ActionResult
 from app.runtime.execution.interactions.interaction_action import InteractionAction
 from app.runtime.execution.robot_mouse import RobotMouse, RobotMouseMode
+from app.runtime.execution.keyboard.keyboard_controller import (
+    KeyboardController,
+)
 from app.runtime.execution.verification import ExecutionVerifier
 from app.runtime.execution.vision.models.control_type import ControlType
 from app.runtime.execution.vision.models.rect import Rect
@@ -52,6 +55,7 @@ class RobotActionExecutor:
         mouse=None,
         action_policy=None,
         verifier=None,
+        keyboard=None,
     ):
         self.mode = mode
         self.action_policy = action_policy or ActionPolicy()
@@ -65,6 +69,7 @@ class RobotActionExecutor:
             else RobotMouseMode.LIVE
         )
         self.mouse = mouse or RobotMouse(mode=mouse_mode)
+        self.keyboard = keyboard or KeyboardController()
 
     def execute(
         self,
@@ -220,6 +225,7 @@ class RobotActionExecutor:
         *,
         screen_element,
         action,
+        text_value: str | None = None,
         screen_origin: tuple[int, int] | None = None,
         window_handle=None,
     ) -> RobotActionResult:
@@ -240,7 +246,10 @@ class RobotActionExecutor:
                 reason="Action policy rejected action",
             )
 
-        if action is not InteractionAction.CLICK:
+        if action not in {
+            InteractionAction.CLICK,
+            InteractionAction.WRITE,
+        }:
             return RobotActionResult(
                 False,
                 action,
@@ -251,6 +260,38 @@ class RobotActionExecutor:
                     "RobotActionExecutor UIA path"
                 ),
             )
+
+        if action is InteractionAction.WRITE:
+            if not isinstance(text_value, str) or not text_value:
+                return RobotActionResult(
+                    False,
+                    action,
+                    self.mode,
+                    False,
+                    target_id=self._uia_target_id(metadata),
+                    confidence=confidence,
+                    reason="WRITE requires a non-empty text value",
+                )
+
+            control_type = str(
+                metadata.get("uia_control_type", "")
+            ).strip().casefold()
+
+            if control_type not in {
+                "edit",
+                "combobox",
+            }:
+                return RobotActionResult(
+                    False,
+                    action,
+                    self.mode,
+                    False,
+                    target_id=self._uia_target_id(metadata),
+                    confidence=confidence,
+                    reason=(
+                        "WRITE target is not an editable UIA control"
+                    ),
+                )
 
         metadata = getattr(screen_element, "metadata", None) or {}
         confidence = self._screen_element_confidence(screen_element)
@@ -343,6 +384,57 @@ class RobotActionExecutor:
                 point=mouse_result.point,
                 confidence=confidence,
                 reason="LIVE UIA execution was not performed",
+            )
+
+        if action is InteractionAction.WRITE:
+            if not mouse_result.success:
+                return RobotActionResult(
+                    False,
+                    action,
+                    self.mode,
+                    mouse_result.executed,
+                    target_id=self._uia_target_id(metadata),
+                    point=mouse_result.point,
+                    confidence=confidence,
+                    reason=mouse_result.reason,
+                )
+
+            if self.mode is RobotExecutionMode.DRY_RUN:
+                return RobotActionResult(
+                    True,
+                    action,
+                    self.mode,
+                    False,
+                    target_id=self._uia_target_id(metadata),
+                    point=mouse_result.point,
+                    confidence=confidence,
+                    reason="DRY_RUN text entry; hardware not touched",
+                )
+
+            try:
+                self.keyboard.hotkey("ctrl", "a")
+                self.keyboard.write(text_value)
+            except Exception as exc:
+                return RobotActionResult(
+                    False,
+                    action,
+                    self.mode,
+                    False,
+                    target_id=self._uia_target_id(metadata),
+                    point=mouse_result.point,
+                    confidence=confidence,
+                    reason=f"LIVE text entry failed: {exc}",
+                )
+
+            return RobotActionResult(
+                True,
+                action,
+                self.mode,
+                True,
+                target_id=self._uia_target_id(metadata),
+                point=mouse_result.point,
+                confidence=confidence,
+                reason="LIVE text entered via keyboard",
             )
 
         return RobotActionResult(
