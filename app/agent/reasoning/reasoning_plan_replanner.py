@@ -140,6 +140,11 @@ class ReasoningPlanReplanner(
                     verification.metadata
                 ),
                 scene=scene,
+                application_knowledge=(
+                    context.get_value(
+                        "application_knowledge"
+                    )
+                ),
             )
         )
 
