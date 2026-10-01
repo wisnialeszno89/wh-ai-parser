@@ -397,6 +397,7 @@ def test_control_loop_updates_context_perception():
         AgentAction(
             name="test_action",
             description="Test action",
+            requires_environment_observation=True,
         )
     )
 
