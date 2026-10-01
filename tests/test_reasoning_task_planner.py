@@ -225,3 +225,74 @@ def test_reasoning_task_planner_exposes_semantic_initial_scene_only():
     assert "automation_id" not in serialized
     assert "runtime_id" not in serialized
     assert "screenshot" not in serialized
+
+
+def test_reasoning_task_planner_normalizes_generic_click_with_semantic_target():
+    reasoner = RecordingTaskReasoner(
+        proposal=ReasoningProposal(
+            actions=(
+                ReasoningAction(
+                    name="click",
+                    description="Click the visible new offer control.",
+                    target="NOWA OFERTA",
+                ),
+            ),
+            rationale="Use the visible semantic control.",
+            confidence=0.96,
+        )
+    )
+
+    context = create_context()
+    context = TaskPlanningContext(
+        request_message=context.request_message,
+        intent=context.intent,
+        capability_name=context.capability_name,
+        capability_description=context.capability_description,
+        skill_name=context.skill_name,
+        skill_description=context.skill_description,
+        scene=ScreenScene(
+            observation=EnvironmentObservation(
+                state=EnvironmentState(
+                    active_application="WindowHub",
+                ),
+            ),
+            elements=(
+                ScreenElement(
+                    kind="button",
+                    label="NOWA OFERTA",
+                    confidence=0.99,
+                    interaction_capability=(
+                        InteractionCapability.CLICKABLE
+                    ),
+                ),
+            ),
+        ),
+    )
+
+    plan = ReasoningTaskPlanner(reasoner).plan(
+        context=context
+    )
+
+    assert plan is not None
+    assert plan.steps[0].action.name == "click_screen_element"
+    assert plan.steps[0].action.target == "NOWA OFERTA"
+
+
+def test_reasoning_task_planner_rejects_technical_scene_target():
+    reasoner = RecordingTaskReasoner(
+        proposal=ReasoningProposal(
+            actions=(
+                ReasoningAction(
+                    name="click",
+                    description="Click the new offer control.",
+                    target="IDC_NEW",
+                ),
+            ),
+            rationale="Technical identifier target.",
+            confidence=0.96,
+        )
+    )
+
+    assert ReasoningTaskPlanner(reasoner).plan(
+        context=create_context()
+    ) is None
