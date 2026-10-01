@@ -85,6 +85,7 @@ class AgentOrchestrator:
         skill_registry: SkillRegistry | None = None,
         task_reasoner: TaskReasoner | None = None,
         application_knowledge: dict[str, object] | None = None,
+        require_task_reasoning: bool = False,
     ) -> None:
 
         self.planner = (
@@ -121,6 +122,7 @@ class AgentOrchestrator:
         )
 
         self.application_knowledge = application_knowledge
+        self.require_task_reasoning = require_task_reasoning
 
     def prepare(
         self,
@@ -226,6 +228,25 @@ class AgentOrchestrator:
                         reasoned_plan.requires_manual_review
                     ),
                 )
+
+            if self.require_task_reasoning:
+                failure_context = AgentExecutionContext(
+                    request=request,
+                    intent=intent,
+                    plan=deterministic_plan,
+                    capability=capability,
+                    skill=skill,
+                    requires_manual_review=True,
+                )
+                failure_context.set_value(
+                    "task_reasoning_failure",
+                    getattr(
+                        self.task_planner,
+                        "last_failure_reason",
+                        "task_reasoner_failed",
+                    ),
+                )
+                return failure_context
 
         skill_plan = skill.plan(
             request
