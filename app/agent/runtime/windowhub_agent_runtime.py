@@ -5,6 +5,9 @@ from app.agent.runtime.agent_orchestrator import AgentOrchestrator
 from app.agent.reasoning.openai_task_reasoner import (
     OpenAITaskReasoner,
 )
+from app.agent.reasoning.navimind_task_reasoner import (
+    NaviMindTaskReasoner,
+)
 from app.agent.reasoning.openai_plan_reasoner import (
     OpenAIPlanReasoner,
 )
@@ -28,7 +31,10 @@ def create_windowhub_agent_runtime() -> AgentRuntime:
     task_reasoner = None
     plan_reasoner = None
 
-    if os.environ.get("AGENT_TASK_REASONING") == "1":
+    if os.environ.get("NAVIMIND_AGENT_URL", "").strip():
+        task_reasoner = NaviMindTaskReasoner()
+        plan_reasoner = OpenAIPlanReasoner()
+    elif os.environ.get("AGENT_TASK_REASONING") == "1":
         task_reasoner = OpenAITaskReasoner()
         plan_reasoner = OpenAIPlanReasoner()
 
