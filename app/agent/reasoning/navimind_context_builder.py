@@ -86,6 +86,13 @@ class NaviMindContextBuilder:
                 "semantic_only": True,
                 "max_actions": 1,
                 "verify_each_action": True,
+                "allowed_actions": (
+                    "analyze_request",
+                    "collect_offer_context",
+                    "validate_offer",
+                    "build_construction",
+                    "prepare_quote",
+                ),
             },
             metadata={
                 "bridge": "wh-ai-parser",
@@ -263,13 +270,19 @@ class NaviMindContextBuilder:
         return {
             "name": getattr(
                 skill,
-                "name",
+                "capability_name",
                 None,
             ),
-            "description": getattr(
-                skill,
-                "description",
-                None,
+            "description": (
+                getattr(
+                    skill,
+                    "description",
+                    None,
+                )
+                or (
+                    skill.__class__.__doc__
+                    or ""
+                ).strip()
             ),
         }
 
