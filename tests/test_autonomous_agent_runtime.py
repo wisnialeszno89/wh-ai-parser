@@ -3,6 +3,11 @@ from types import SimpleNamespace
 from app.agent.agent_intent import AgentIntent
 from app.agent.agent_request import AgentRequest
 from app.agent.reasoning.reasoning_action import ReasoningAction
+from app.agent.reasoning.knowledge_context import (
+    KnowledgeContext,
+    KnowledgeFact,
+    KnowledgeSource,
+)
 from app.agent.reasoning.reasoning_proposal import ReasoningProposal
 from app.agent.reasoning.reasoning_task_planner import ReasoningTaskPlanner
 from app.agent.reasoning.task_planning_context import TaskPlanningContext
@@ -135,3 +140,84 @@ def test_autonomous_unknown_intent_enters_generic_computer_use_reasoning():
     assert reasoner.contexts[0].intent == AgentIntent.COMPUTER_USE.value
     assert reasoner.contexts[0].capability_name == "COMPUTER_USE"
     assert reasoner.contexts[0].skill_name == "ComputerUseSkill"
+
+
+class ResearchMemoryReasoner(TaskReasoner):
+    def __init__(self):
+        self.contexts = []
+        self.calls = 0
+
+    def reason(self, context):
+        self.contexts.append(context)
+        self.calls += 1
+
+        knowledge = KnowledgeContext(
+            status="complete",
+            query="produkt specyfikacja",
+            sources=(
+                KnowledgeSource(
+                    source_id="web-1",
+                    title="Manufacturer documentation",
+                    url="https://example.com/spec",
+                ),
+            ),
+            facts=(
+                KnowledgeFact(
+                    fact_id="synth-fact-1",
+                    claim="Product X supports triple glazing.",
+                    source_ids=("web-1",),
+                    confidence=0.84,
+                    relevance=0.91,
+                    kind="retrieved_evidence",
+                ),
+            ),
+            limitations=("Not independently verified.",),
+        )
+
+        if self.calls == 1:
+            return ReasoningProposal(
+                actions=(
+                    ReasoningAction(
+                        name="click_screen_element",
+                        description="Open the visible product section.",
+                        target="NEXT",
+                    ),
+                ),
+                rationale="Use research-backed context.",
+                confidence=0.91,
+                metadata={
+                    "external_knowledge": knowledge.to_payload(),
+                },
+            )
+
+        return ReasoningProposal(
+            actions=(),
+            rationale="Research context persisted into the next cycle.",
+            confidence=0.97,
+            status="done",
+        )
+
+
+def test_autonomous_runtime_persists_external_knowledge_between_cycles():
+    reasoner = ResearchMemoryReasoner()
+    runtime = AgentRuntime(
+        orchestrator=AgentOrchestrator(
+            task_reasoner=reasoner,
+        ),
+        control_loop=FakeControlLoop(),
+    )
+
+    result = runtime.run_autonomous(
+        AgentRequest(message="Sprawdź produkt"),
+        max_steps=3,
+    )
+
+    assert result.success is True
+    assert result.completed is True
+    assert reasoner.calls == 2
+    assert reasoner.contexts[1].external_knowledge is not None
+    assert reasoner.contexts[1].external_knowledge.status == "complete"
+    assert (
+        reasoner.contexts[1].external_knowledge.facts[0].fact_id
+        == "synth-fact-1"
+    )
