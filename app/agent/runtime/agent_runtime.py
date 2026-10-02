@@ -305,27 +305,6 @@ class AgentRuntime:
                 application_knowledge,
             )
 
-        if offer_workflow_result is not None:
-            context.set_value(
-                "offer_context",
-                offer_workflow_result.current_context,
-            )
-
-            context.set_value(
-                "offer_workflow_result",
-                offer_workflow_result,
-            )
-
-            context.set_value(
-                "offer_workflow_state",
-                offer_workflow_result.workflow_state,
-            )
-
-            context.set_value(
-                "offer_workflow_planning",
-                planning_offer_workflow,
-            )
-
         # Preserve diagnostics in the context before any early-return path.
         # This makes a reasoning/manual-review decision explainable: the caller
         # can inspect the exact observed scene and parsed offer workflow instead
