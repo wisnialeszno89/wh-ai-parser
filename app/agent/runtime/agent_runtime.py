@@ -32,6 +32,11 @@ from app.agent.runtime.agent_control_loop import (
 from app.agent.runtime.agent_runtime_result import (
     AgentRuntimeResult,
 )
+from app.agent.runtime.autonomous_run_result import (
+    AutonomousRunResult,
+)
+from app.agent.planning.action_plan import ActionPlan
+from app.agent.planning.action_step import ActionStep
 
 
 class AgentRuntime:
@@ -158,6 +163,8 @@ class AgentRuntime:
     def run(
         self,
         request: AgentRequest,
+        *,
+        autonomous: bool = False,
     ) -> AgentRuntimeResult:
         """
         Execute one complete agent cycle.
@@ -371,6 +378,32 @@ class AgentRuntime:
             )
 
         if self.control_loop is not None:
+            # Autonomous mode intentionally executes exactly one semantic
+            # action per reasoning cycle. The next cycle observes the
+            # resulting UI and reasons again instead of trusting a long
+            # precomputed click sequence.
+            if (
+                autonomous
+                and context.plan is not None
+                and not context.plan.completed
+                and context.plan.steps
+            ):
+                first_step = context.plan.steps[0]
+                context.plan = ActionPlan(
+                    intent=context.plan.intent,
+                    steps=(
+                        ActionStep(
+                            index=1,
+                            action=first_step.action,
+                        ),
+                    ),
+                    confidence=context.plan.confidence,
+                    requires_manual_review=(
+                        context.plan.requires_manual_review
+                    ),
+                    completed=False,
+                )
+
             control_loop_result = self.control_loop.run(
                 plan=context.plan,
                 context=context,
@@ -402,4 +435,98 @@ class AgentRuntime:
                 or execution_report.requires_manual_review
             ),
             executed=True,
+        )
+
+
+    def run_autonomous(
+        self,
+        request: AgentRequest,
+        *,
+        max_steps: int = 30,
+    ) -> AutonomousRunResult:
+        """
+        Run one user goal as a closed-loop autonomous session.
+
+        Each cycle performs:
+            observe -> reason -> one semantic action -> execute -> verify
+
+        The next cycle starts from a fresh observation and can select a
+        different action. The loop stops only on explicit completion,
+        manual review/failure/stop, or the configured step limit.
+        """
+        if max_steps < 1:
+            raise ValueError("max_steps must be at least 1.")
+
+        session_id = request.session_id or f"autonomous-{uuid4().hex}"
+        autonomous_request = AgentRequest(
+            message=request.message,
+            session_id=session_id,
+            salesman_id=request.salesman_id,
+            metadata=dict(request.metadata),
+        )
+
+        results = []
+        success = False
+        completed = False
+        requires_manual_review = False
+        stopped = False
+        reason = "step_limit_reached"
+
+        for _ in range(max_steps):
+            result = self.run(
+                autonomous_request,
+                autonomous=True,
+            )
+            results.append(result)
+
+            plan = result.context.plan
+            if plan is not None and plan.completed:
+                success = True
+                completed = True
+                reason = "task_completed_by_reasoner"
+                break
+
+            control = result.control_loop_result
+            if control is None:
+                requires_manual_review = True
+                stopped = True
+                reason = str(
+                    result.context.get_value(
+                        "task_reasoning_failure",
+                        "runtime_stopped_before_control_loop",
+                    )
+                )
+                break
+
+            if control.requires_manual_review:
+                requires_manual_review = True
+                stopped = True
+                reason = "control_loop_requires_manual_review"
+                break
+
+            if control.stopped:
+                stopped = True
+                reason = "control_loop_stopped"
+                break
+
+            if not control.success:
+                stopped = True
+                reason = "control_loop_failed"
+                break
+
+            if control.executed_actions == 0:
+                stopped = True
+                reason = "no_action_executed_without_completion"
+                break
+        else:
+            stopped = True
+
+        return AutonomousRunResult(
+            session_id=session_id,
+            step_results=tuple(results),
+            success=success,
+            completed=completed,
+            requires_manual_review=requires_manual_review,
+            stopped=stopped,
+            reason=reason,
         )

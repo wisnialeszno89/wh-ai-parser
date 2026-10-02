@@ -74,6 +74,12 @@ class ReasoningTaskPlanner:
             )
             return None
 
+        status = proposal.status.strip().casefold()
+
+        if status not in {"continue", "done"}:
+            self.last_failure_reason = "invalid_proposal_status"
+            return None
+
         if proposal.requires_manual_review:
             self.last_failure_reason = (
                 "provider_requested_manual_review"
@@ -85,6 +91,19 @@ class ReasoningTaskPlanner:
                 "invalid_confidence"
             )
             return None
+
+        if status == "done":
+            if proposal.actions:
+                self.last_failure_reason = "done_status_with_actions"
+                return None
+
+            return ActionPlan(
+                intent=AgentIntent(context.intent),
+                steps=(),
+                confidence=proposal.confidence,
+                requires_manual_review=False,
+                completed=True,
+            )
 
         if not proposal.actions:
             self.last_failure_reason = (

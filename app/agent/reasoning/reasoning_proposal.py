@@ -19,6 +19,10 @@ class ReasoningProposal:
 
     requires_manual_review: bool = False
 
+    # continue = another observation/action cycle is required;
+    # done = the model believes the user's goal is complete.
+    status: str = "continue"
+
     metadata: dict[str, object] = field(
         default_factory=dict
     )

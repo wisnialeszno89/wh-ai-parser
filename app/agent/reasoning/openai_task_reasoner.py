@@ -33,6 +33,7 @@ class _OpenAITaskReasoningAction(BaseModel):
 
 class _OpenAITaskReasoningProposal(BaseModel):
     actions: list[_OpenAITaskReasoningAction]
+    status: str = "continue"
     rationale: str
     confidence: float = Field(
         ge=0.0,
@@ -166,6 +167,8 @@ Rules:
   requires_manual_review=true.
 - Never infer coordinates or provider/runtime identifiers from the scene.
 - Prefer the smallest useful plan that directly serves the user's intent.
+- Return exactly one status value: "continue" or "done". Use "done" only when the current observed UI/state provides evidence that the user's requested goal is already complete. A "done" response must contain zero actions.
+- In autonomous execution the runtime executes at most one semantic action from each reasoning cycle, then observes the resulting state and asks again. Prefer choosing only the next action rather than predicting a long sequence.
 - Do not invent facts that are not supported by the request, supplied
   capability/skill context, or observed semantic scene.
 - When essential information is missing or the request is ambiguous,
@@ -350,4 +353,5 @@ Rules:
             requires_manual_review=(
                 parsed.requires_manual_review
             ),
+            status=parsed.status,
         )

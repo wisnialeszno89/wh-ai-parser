@@ -20,3 +20,7 @@ class ActionPlan:
     confidence: float
 
     requires_manual_review: bool = False
+
+    # True means the reasoning layer observed enough evidence to
+    # declare the user's goal complete; there is no next GUI action.
+    completed: bool = False

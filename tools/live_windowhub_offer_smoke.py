@@ -32,16 +32,16 @@ def _env(name: str, default: str) -> str:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Run a configurable WindowHub offer smoke-test. "
-            "The same semantic request is sent through one session so "
-            "the agent replans against the fresh GUI scene after each step."
+            "Run one goal-driven autonomous WindowHub offer smoke-test. "
+            "The request is sent once; the runtime loops internally through "
+            "observe -> reason -> act -> verify cycles."
         )
     )
     parser.add_argument(
-        "--turns",
+        "--max-steps",
         type=int,
         default=12,
-        help="Maximum number of agent turns.",
+        help="Maximum number of autonomous observe/reason/action cycles.",
     )
     parser.add_argument(
         "--wait",
@@ -280,49 +280,31 @@ def main() -> int:
         f"{type(getattr(getattr(runtime.control_loop, 'replanner', None), 'reasoner', None)).__name__}"
     )
 
-    final_result = None
+    autonomous = runtime.run_autonomous(
+        AgentRequest(
+            message=message,
+            session_id=session_id,
+        ),
+        max_steps=max(1, args.max_steps),
+    )
 
-    for turn in range(1, max(1, args.turns) + 1):
-        result = runtime.run(
-            AgentRequest(
-                message=message,
-                session_id=session_id,
-            )
-        )
-        final_result = result
-
-        _print_result(turn, result, runtime)
-
-        control = result.control_loop_result
-        if (
-            control is None
-            or control.requires_manual_review
-            or control.stopped
-            or not control.success
-        ):
-            break
+    for step_number, result in enumerate(
+        autonomous.step_results,
+        start=1,
+    ):
+        _print_result(step_number, result, runtime)
 
     print()
     print("=== FINAL ===")
+    print(f"success={autonomous.success}")
+    print(f"completed={autonomous.completed}")
+    print(f"manual_review={autonomous.requires_manual_review}")
+    print(f"stopped={autonomous.stopped}")
+    print(f"reason={autonomous.reason!r}")
+    print(f"session_id={autonomous.session_id!r}")
+    print(f"executed_actions={autonomous.executed_actions}")
 
-    if final_result is None:
-        print("success=False")
-        return 6
-
-    control = final_result.control_loop_result
-    if control is None:
-        print("success=False")
-        print("manual_review=True")
-        print("stopped=True")
-        return 6
-
-    print(f"success={control.success}")
-    print(
-        f"manual_review={control.requires_manual_review}"
-    )
-    print(f"stopped={control.stopped}")
-
-    return 0 if control.success else 6
+    return 0 if autonomous.success else 6
 
 
 if __name__ == "__main__":
