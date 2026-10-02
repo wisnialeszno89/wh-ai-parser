@@ -37,6 +37,7 @@ from app.agent.runtime.autonomous_run_result import (
 )
 from app.agent.planning.action_plan import ActionPlan
 from app.agent.planning.action_step import ActionStep
+from app.agent.reasoning.knowledge_context import KnowledgeContext
 
 
 class AgentRuntime:
@@ -140,12 +141,26 @@ class AgentRuntime:
         offer_workflow=None,
         autonomous: bool = False,
     ):
+        external_knowledge = None
+        raw_external_knowledge = request.metadata.get(
+            "external_knowledge"
+        )
+
+        if raw_external_knowledge is not None:
+            try:
+                external_knowledge = KnowledgeContext.from_payload(
+                    raw_external_knowledge
+                )
+            except (TypeError, ValueError):
+                external_knowledge = None
+
         try:
             try:
                 return self.orchestrator.prepare(
                     request,
                     initial_scene=initial_scene,
                     offer_workflow=offer_workflow,
+                    external_knowledge=external_knowledge,
                     autonomous=autonomous,
                 )
             except TypeError as exc:
@@ -155,6 +170,7 @@ class AgentRuntime:
                     request,
                     initial_scene=initial_scene,
                     offer_workflow=offer_workflow,
+                    external_knowledge=external_knowledge,
                 )
         except TypeError as exc:
             if "offer_workflow" in str(exc):
@@ -162,6 +178,7 @@ class AgentRuntime:
                     return self.orchestrator.prepare(
                         request,
                         initial_scene=initial_scene,
+                        external_knowledge=external_knowledge,
                         autonomous=autonomous,
                     )
                 except TypeError as nested_exc:
@@ -169,6 +186,7 @@ class AgentRuntime:
                         raise
                     return self.orchestrator.prepare(
                         request,
+                        external_knowledge=external_knowledge,
                         autonomous=autonomous,
                     )
             if "initial_scene" in str(exc):
@@ -331,6 +349,32 @@ class AgentRuntime:
         # of seeing only the deterministic fallback plan.
         if initial_scene is not None:
             context.update_scene(initial_scene)
+
+        task_planner = getattr(
+            self.orchestrator,
+            "task_planner",
+            None,
+        )
+        proposal = getattr(
+            task_planner,
+            "last_proposal",
+            None,
+        )
+        proposal_metadata = getattr(
+            proposal,
+            "metadata",
+            {},
+        )
+
+        if isinstance(proposal_metadata, dict):
+            resolved_external_knowledge = proposal_metadata.get(
+                "external_knowledge"
+            )
+            if isinstance(resolved_external_knowledge, dict):
+                context.set_value(
+                    "external_knowledge",
+                    resolved_external_knowledge,
+                )
 
         if offer_workflow_result is not None:
             context.set_value(
@@ -499,6 +543,21 @@ class AgentRuntime:
                 autonomous=True,
             )
             results.append(result)
+
+            resolved_external_knowledge = result.context.get_value(
+                "external_knowledge"
+            )
+
+            if isinstance(resolved_external_knowledge, dict):
+                autonomous_request = AgentRequest(
+                    message=autonomous_request.message,
+                    session_id=autonomous_request.session_id,
+                    salesman_id=autonomous_request.salesman_id,
+                    metadata={
+                        **autonomous_request.metadata,
+                        "external_knowledge": resolved_external_knowledge,
+                    },
+                )
 
             plan = result.context.plan
             if plan is not None and plan.completed:
