@@ -212,9 +212,29 @@ class AgentOrchestrator:
             )
 
         if self.task_planner is not None:
+            navimind_user_id = request.metadata.get(
+                "navimind_user_id",
+                request.metadata.get("user_id"),
+            )
+            experience_value = request.metadata.get(
+                "agent_experience",
+                (),
+            )
+            experience = (
+                tuple(experience_value)
+                if isinstance(experience_value, (list, tuple))
+                else ()
+            )
+
             task_context = TaskPlanningContext(
                 request_message=request.message,
                 intent=intent.value,
+                session_id=request.session_id,
+                user_id=(
+                    navimind_user_id
+                    if isinstance(navimind_user_id, str)
+                    else None
+                ),
                 capability_name=capability.name,
                 capability_description=(
                     capability.description
@@ -227,6 +247,7 @@ class AgentOrchestrator:
                     if application_knowledge is not None
                     else self.application_knowledge
                 ),
+                experience=experience,
             )
 
             reasoned_plan = self.task_planner.plan(
