@@ -5,6 +5,7 @@ from app.agent.reasoning.knowledge_context import (
     KnowledgeConflict,
     KnowledgeFact,
     KnowledgeSource,
+    KnowledgeSourceQuality,
     validate_knowledge_envelope,
 )
 from app.agent.reasoning.task_planning_context import TaskPlanningContext
@@ -179,4 +180,41 @@ def test_knowledge_context_round_trips_remote_payload():
     assert restored.query == "parametr produktu"
     assert restored.sources[0].source_id == "source-1"
     assert restored.facts[0].provider_score == 0.94
+    assert restored.to_payload() == payload
+
+def test_knowledge_context_round_trips_source_quality_metadata():
+    quality = KnowledgeSourceQuality(
+        tier="authoritative",
+        score=0.93,
+        authority_score=1.0,
+        temporal_fit_score=0.9,
+        topical_fit_score=0.88,
+        reasons=(
+            "Official government source domain.",
+            "Publication date matches the requested year.",
+        ),
+    )
+
+    context = KnowledgeContext(
+        status="complete",
+        query="aktualne wymagania techniczne Niemcy 2024",
+        sources=(
+            KnowledgeSource(
+                source_id="web-1",
+                title="German official source",
+                url="https://example.bund.de/rules",
+                domain="example.bund.de",
+                source_type="web_search_result",
+                quality=quality,
+            ),
+        ),
+    )
+
+    payload = context.to_payload()
+    restored = KnowledgeContext.from_payload(payload)
+
+    assert restored.sources[0].quality is not None
+    assert restored.sources[0].quality.tier == "authoritative"
+    assert restored.sources[0].quality.score == 0.93
+    assert restored.sources[0].quality.reasons == quality.reasons
     assert restored.to_payload() == payload

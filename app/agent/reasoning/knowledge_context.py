@@ -68,6 +68,58 @@ def _validate_id_list(
 
 
 @dataclass(frozen=True)
+class KnowledgeSourceQuality:
+    tier: str
+    score: float
+    authority_score: float
+    temporal_fit_score: float
+    topical_fit_score: float
+    reasons: tuple[str, ...] = ()
+
+    def validate(self) -> None:
+        if self.tier not in {
+            "authoritative",
+            "institutional",
+            "established",
+            "general",
+            "low_confidence",
+        }:
+            raise ValueError("Unsupported knowledge source quality tier.")
+        _validate_score(self.score, "source.quality.score")
+        _validate_score(
+            self.authority_score,
+            "source.quality.authority_score",
+        )
+        _validate_score(
+            self.temporal_fit_score,
+            "source.quality.temporal_fit_score",
+        )
+        _validate_score(
+            self.topical_fit_score,
+            "source.quality.topical_fit_score",
+        )
+        if len(self.reasons) > 8:
+            raise ValueError("Source quality contains too many reasons.")
+        for reason in self.reasons:
+            _require_nonempty(
+                reason,
+                "source.quality.reason",
+                500,
+            )
+
+    def to_payload(self) -> dict[str, object]:
+        self.validate()
+        return {
+            "tier": self.tier,
+            "score": float(self.score),
+            "authority_score": float(self.authority_score),
+            "temporal_fit_score": float(self.temporal_fit_score),
+            "topical_fit_score": float(self.topical_fit_score),
+            "reasons": [reason.strip() for reason in self.reasons],
+        }
+
+
+@dataclass(frozen=True)
 class KnowledgeSource:
     source_id: str
     title: str
@@ -76,6 +128,7 @@ class KnowledgeSource:
     source_type: str = "web"
     retrieved_at: str | None = None
     published_at: str | None = None
+    quality: KnowledgeSourceQuality | None = None
 
     def validate(self) -> None:
         _require_nonempty(self.source_id, "source_id", MAX_ID_LENGTH)
@@ -98,6 +151,8 @@ class KnowledgeSource:
         )
         _validate_optional_date(self.retrieved_at, "source.retrieved_at")
         _validate_optional_date(self.published_at, "source.published_at")
+        if self.quality is not None:
+            self.quality.validate()
 
     def to_payload(self) -> dict[str, object]:
         self.validate()
@@ -113,6 +168,8 @@ class KnowledgeSource:
             payload["retrieved_at"] = self.retrieved_at.strip()
         if self.published_at is not None:
             payload["published_at"] = self.published_at.strip()
+        if self.quality is not None:
+            payload["quality"] = self.quality.to_payload()
         return payload
 
 
@@ -376,6 +433,44 @@ class KnowledgeContext:
                     published_at=(
                         item.get("published_at")
                         if isinstance(item.get("published_at"), str)
+                        else None
+                    ),
+                    quality=(
+                        KnowledgeSourceQuality(
+                            tier=str(
+                                item["quality"].get("tier", "")
+                            ),
+                            score=float(
+                                item["quality"].get("score", 0.0)
+                            ),
+                            authority_score=float(
+                                item["quality"].get(
+                                    "authority_score",
+                                    0.0,
+                                )
+                            ),
+                            temporal_fit_score=float(
+                                item["quality"].get(
+                                    "temporal_fit_score",
+                                    0.0,
+                                )
+                            ),
+                            topical_fit_score=float(
+                                item["quality"].get(
+                                    "topical_fit_score",
+                                    0.0,
+                                )
+                            ),
+                            reasons=tuple(
+                                value
+                                for value in item["quality"].get(
+                                    "reasons",
+                                    [],
+                                )
+                                if isinstance(value, str)
+                            ),
+                        )
+                        if isinstance(item.get("quality"), dict)
                         else None
                     ),
                 )
