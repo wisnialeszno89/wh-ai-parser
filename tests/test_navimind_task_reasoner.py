@@ -1,6 +1,5 @@
 import json
 
-from app.agent.bridge.world_state import WorldState
 from app.agent.reasoning.navimind_task_reasoner import (
     NaviMindTaskReasoner,
     NaviMindTaskReasonerConfig,
@@ -58,7 +57,6 @@ def test_navimind_reasoner_translates_semantic_action():
             intent="computer_use",
             session_id="session-1",
             user_id="user-1",
-            world=None,
         )
     )
 
