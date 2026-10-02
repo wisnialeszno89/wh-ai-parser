@@ -75,6 +75,16 @@ class NaviMindTaskReasoner(TaskReasoner):
     ) -> ReasoningProposal | None:
         self.last_error = None
 
+        knowledge_payload = {
+            "version": "1",
+            "local": context.application_knowledge,
+            "external": (
+                context.external_knowledge.to_payload()
+                if context.external_knowledge is not None
+                else None
+            ),
+        }
+
         contract = AgentTaskContract(
             task_id=f"agent-{uuid4().hex}",
             goal=context.request_message,
@@ -99,7 +109,7 @@ class NaviMindTaskReasoner(TaskReasoner):
             ),
             world=WorldState.from_scene(context.scene),
             offer_workflow=context.offer_workflow,
-            knowledge=context.application_knowledge,
+            knowledge=knowledge_payload,
             experience=context.experience,
             constraints={
                 "semantic_only": True,
