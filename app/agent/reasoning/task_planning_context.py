@@ -20,6 +20,10 @@ class TaskPlanningContext:
 
     intent: str
 
+    session_id: str | None = None
+
+    user_id: str | None = None
+
     capability_name: str | None = None
 
     capability_description: str | None = None
@@ -34,12 +38,16 @@ class TaskPlanningContext:
 
     application_knowledge: dict[str, object] | None = None
 
+    experience: tuple[dict[str, object], ...] = ()
+
     def to_payload(
         self,
     ) -> dict[str, object]:
         return {
             "request_message": self.request_message,
             "intent": self.intent,
+            "session_id": self.session_id,
+            "user_id": self.user_id,
             "capability": (
                 {
                     "name": self.capability_name,
@@ -63,6 +71,7 @@ class TaskPlanningContext:
             "scene": self._scene_payload(),
             "offer_workflow": self.offer_workflow,
             "application_knowledge": self.application_knowledge,
+            "experience": list(self.experience),
         }
 
     def _scene_payload(self) -> dict[str, object] | None:
