@@ -19,12 +19,12 @@ class AgentAction:
 
     description: str
 
-    target: str | None = None
-
-    value: str | None = None
-
     requires_confirmation: bool = False
 
     environment_requirement: (
         EnvironmentRequirement | None
     ) = None
+
+    target: str | None = None
+
+    value: str | None = None
