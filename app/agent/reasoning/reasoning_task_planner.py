@@ -6,6 +6,9 @@ from app.agent.agent_action import AgentAction
 from app.agent.planning.agent_action_normalizer import (
     AgentActionNormalizer,
 )
+from app.agent.reasoning.reasoning_action import (
+    ReasoningAction,
+)
 from app.agent.reasoning.task_planning_context import (
     TaskPlanningContext,
 )
