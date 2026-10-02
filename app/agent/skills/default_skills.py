@@ -1,3 +1,4 @@
+from app.agent.skills.computer_use_skill import ComputerUseSkill
 from app.agent.skills.excel_skill import ExcelSkill
 from app.agent.skills.skill_registry import SkillRegistry
 from app.agent.skills.wh_window_skill import WHWindowSkill
@@ -9,6 +10,7 @@ def create_default_skill_registry(
     return SkillRegistry(
         skills=(
             WHWindowSkill(),
+            ComputerUseSkill(),
             ExcelSkill(),
             WordSkill(),
         )
