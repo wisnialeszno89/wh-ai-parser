@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 
 from app.agent.perception.screen_scene import ScreenScene
+from app.agent.reasoning.knowledge_context import KnowledgeContext
 
 
 @dataclass(frozen=True)
@@ -38,6 +39,8 @@ class TaskPlanningContext:
 
     application_knowledge: dict[str, object] | None = None
 
+    external_knowledge: KnowledgeContext | None = None
+
     experience: tuple[dict[str, object], ...] = ()
 
     def to_payload(
@@ -71,6 +74,11 @@ class TaskPlanningContext:
             "scene": self._scene_payload(),
             "offer_workflow": self.offer_workflow,
             "application_knowledge": self.application_knowledge,
+            "external_knowledge": (
+                self.external_knowledge.to_payload()
+                if self.external_knowledge is not None
+                else None
+            ),
             "experience": list(self.experience),
         }
 

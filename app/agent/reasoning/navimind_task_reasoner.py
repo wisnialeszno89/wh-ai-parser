@@ -75,6 +75,16 @@ class NaviMindTaskReasoner(TaskReasoner):
     ) -> ReasoningProposal | None:
         self.last_error = None
 
+        knowledge_payload = {
+            "version": "1",
+            "local": context.application_knowledge,
+            "external": (
+                context.external_knowledge.to_payload()
+                if context.external_knowledge is not None
+                else None
+            ),
+        }
+
         contract = AgentTaskContract(
             task_id=f"agent-{uuid4().hex}",
             goal=context.request_message,
@@ -99,12 +109,33 @@ class NaviMindTaskReasoner(TaskReasoner):
             ),
             world=WorldState.from_scene(context.scene),
             offer_workflow=context.offer_workflow,
-            knowledge=context.application_knowledge,
+            knowledge=knowledge_payload,
             experience=context.experience,
             constraints={
                 "semantic_only": True,
                 "max_actions": 1,
                 "verify_each_action": True,
+                "research_enabled": (
+                    os.getenv(
+                        "NAVIMIND_AGENT_RESEARCH_ENABLED",
+                        "0",
+                    ).strip()
+                    == "1"
+                ),
+                "research_max_results": int(
+                    os.getenv(
+                        "NAVIMIND_RESEARCH_MAX_RESULTS",
+                        "5",
+                    )
+                ),
+                "research_depth": os.getenv(
+                    "NAVIMIND_RESEARCH_DEPTH",
+                    "basic",
+                ),
+                "research_topic": os.getenv(
+                    "NAVIMIND_RESEARCH_TOPIC",
+                    "general",
+                ),
                 "allowed_actions": (
                     NAVIMIND_ALLOWED_ACTIONS_ORDERED
                 ),

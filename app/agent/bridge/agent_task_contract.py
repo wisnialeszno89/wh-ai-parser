@@ -2,6 +2,9 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from app.agent.bridge.world_state import WorldState
+from app.agent.reasoning.knowledge_context import (
+    validate_knowledge_envelope,
+)
 
 
 @dataclass(frozen=True)
@@ -36,6 +39,9 @@ class AgentTaskContract:
     version: str = "1"
 
     def to_payload(self) -> dict[str, object]:
+        if self.knowledge is not None:
+            validate_knowledge_envelope(self.knowledge)
+
         return {
             "version": self.version,
             "task_id": self.task_id,
