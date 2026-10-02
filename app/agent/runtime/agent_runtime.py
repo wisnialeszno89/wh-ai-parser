@@ -294,9 +294,6 @@ class AgentRuntime:
             offer_workflow=planning_offer_workflow,
         )
 
-        if initial_scene is not None:
-            context.update_scene(initial_scene)
-
         application_knowledge = getattr(
             self.orchestrator,
             "application_knowledge",
@@ -324,6 +321,31 @@ class AgentRuntime:
                 offer_workflow_result.workflow_state,
             )
 
+            context.set_value(
+                "offer_workflow_planning",
+                planning_offer_workflow,
+            )
+
+        # Preserve diagnostics in the context before any early-return path.
+        # This makes a reasoning/manual-review decision explainable: the caller
+        # can inspect the exact observed scene and parsed offer workflow instead
+        # of seeing only the deterministic fallback plan.
+        if initial_scene is not None:
+            context.update_scene(initial_scene)
+
+        if offer_workflow_result is not None:
+            context.set_value(
+                "offer_context",
+                offer_workflow_result.current_context,
+            )
+            context.set_value(
+                "offer_workflow_result",
+                offer_workflow_result,
+            )
+            context.set_value(
+                "offer_workflow_state",
+                offer_workflow_result.workflow_state,
+            )
             context.set_value(
                 "offer_workflow_planning",
                 planning_offer_workflow,
