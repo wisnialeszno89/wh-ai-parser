@@ -287,3 +287,48 @@ def test_navimind_reasoner_sends_structured_external_knowledge():
         captured["body"]["knowledge"]["external"]["facts"][0]["claim"]
         == "Product X supports triple glazing."
     )
+
+
+def test_navimind_reasoner_enables_research_from_environment(monkeypatch):
+    captured = {}
+
+    def opener(request, timeout):
+        body = json.loads(request.data.decode("utf-8"))
+        captured["body"] = body
+        return _Response(
+            {
+                "version": "1",
+                "task_id": body["task_id"],
+                "status": "done",
+                "rationale": "Done.",
+                "confidence": 1.0,
+                "action": None,
+                "requires_manual_review": False,
+            }
+        )
+
+    monkeypatch.setenv("NAVIMIND_AGENT_RESEARCH_ENABLED", "1")
+    monkeypatch.setenv("NAVIMIND_RESEARCH_MAX_RESULTS", "7")
+    monkeypatch.setenv("NAVIMIND_RESEARCH_DEPTH", "advanced")
+    monkeypatch.setenv("NAVIMIND_RESEARCH_TOPIC", "news")
+
+    reasoner = NaviMindTaskReasoner(
+        config=NaviMindTaskReasonerConfig(
+            url="http://localhost:3000/api/agent/task",
+        ),
+        opener=opener,
+    )
+
+    proposal = reasoner.reason(
+        TaskPlanningContext(
+            request_message="Sprawdz informacje.",
+            intent="computer_use",
+        )
+    )
+
+    assert proposal is not None
+    constraints = captured["body"]["constraints"]
+    assert constraints["research_enabled"] is True
+    assert constraints["research_max_results"] == 7
+    assert constraints["research_depth"] == "advanced"
+    assert constraints["research_topic"] == "news"
