@@ -124,6 +124,37 @@ def _print_result(turn: int, result, runtime) -> None:
             f"{getattr(planner, 'last_failure_reason', None)!r}"
         )
 
+        print(
+            "initial_observation_error="
+            f"{result.context.get_value('initial_observation_error', None)!r}"
+        )
+
+        proposal = getattr(planner, "last_proposal", None)
+        print("reasoning_proposal=")
+        if proposal is None:
+            print("  None")
+        else:
+            print(
+                "  status="
+                f"{getattr(proposal, 'status', None)!r} "
+                "confidence="
+                f"{getattr(proposal, 'confidence', None)!r} "
+                "manual_review="
+                f"{getattr(proposal, 'requires_manual_review', None)!r}"
+            )
+            print(
+                "  rationale="
+                f"{getattr(proposal, 'rationale', None)!r}"
+            )
+            for action in getattr(proposal, "actions", ()):
+                print(
+                    "  action="
+                    f"name={getattr(action, 'name', None)!r} "
+                    f"target={getattr(action, 'target', None)!r} "
+                    f"value={getattr(action, 'value', None)!r} "
+                    f"description={getattr(action, 'description', None)!r}"
+                )
+
         offer_planning = result.context.get_value(
             "offer_workflow_planning"
         )
