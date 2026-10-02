@@ -318,6 +318,150 @@ class KnowledgeContext:
         }
 
     @classmethod
+    def from_payload(
+        cls,
+        payload: object,
+    ) -> "KnowledgeContext":
+        if not isinstance(payload, dict):
+            raise ValueError("knowledge payload must be a mapping.")
+
+        if payload.get("version") != KNOWLEDGE_CONTEXT_VERSION:
+            raise ValueError("Unsupported knowledge context version.")
+
+        status = payload.get("status")
+        if not isinstance(status, str):
+            raise ValueError("Knowledge context status must be a string.")
+
+        query = payload.get("query")
+        if query is not None and not isinstance(query, str):
+            raise ValueError("Knowledge context query must be a string or null.")
+
+        raw_sources = payload.get("sources")
+        raw_facts = payload.get("facts")
+        raw_conflicts = payload.get("conflicts")
+        raw_limitations = payload.get("limitations")
+
+        if not isinstance(raw_sources, list):
+            raise ValueError("Knowledge context sources must be a list.")
+        if not isinstance(raw_facts, list):
+            raise ValueError("Knowledge context facts must be a list.")
+        if not isinstance(raw_conflicts, list):
+            raise ValueError("Knowledge context conflicts must be a list.")
+        if not isinstance(raw_limitations, list):
+            raise ValueError("Knowledge context limitations must be a list.")
+
+        sources = []
+        for item in raw_sources:
+            if not isinstance(item, dict):
+                raise ValueError("Knowledge source must be a mapping.")
+
+            sources.append(
+                KnowledgeSource(
+                    source_id=str(item.get("source_id", "")),
+                    title=str(item.get("title", "")),
+                    url=str(item.get("url", "")),
+                    domain=(
+                        item.get("domain")
+                        if isinstance(item.get("domain"), str)
+                        else None
+                    ),
+                    source_type=str(
+                        item.get("source_type", "web")
+                    ),
+                    retrieved_at=(
+                        item.get("retrieved_at")
+                        if isinstance(item.get("retrieved_at"), str)
+                        else None
+                    ),
+                    published_at=(
+                        item.get("published_at")
+                        if isinstance(item.get("published_at"), str)
+                        else None
+                    ),
+                )
+            )
+
+        facts = []
+        for item in raw_facts:
+            if not isinstance(item, dict):
+                raise ValueError("Knowledge fact must be a mapping.")
+
+            raw_source_ids = item.get("source_ids")
+            if not isinstance(raw_source_ids, list):
+                raise ValueError("Knowledge fact source_ids must be a list.")
+
+            facts.append(
+                KnowledgeFact(
+                    fact_id=str(item.get("fact_id", "")),
+                    claim=str(item.get("claim", "")),
+                    source_ids=tuple(
+                        value
+                        for value in raw_source_ids
+                        if isinstance(value, str)
+                    ),
+                    confidence=float(item.get("confidence", 0.0)),
+                    relevance=float(item.get("relevance", 0.0)),
+                    evidence=(
+                        item.get("evidence")
+                        if isinstance(item.get("evidence"), str)
+                        else None
+                    ),
+                    kind=str(
+                        item.get("kind", "assertion")
+                    ),
+                    provider_score=(
+                        float(item["provider_score"])
+                        if item.get("provider_score") is not None
+                        else None
+                    ),
+                )
+            )
+
+        conflicts = []
+        for item in raw_conflicts:
+            if not isinstance(item, dict):
+                raise ValueError("Knowledge conflict must be a mapping.")
+
+            raw_fact_ids = item.get("fact_ids")
+            if not isinstance(raw_fact_ids, list):
+                raise ValueError("Knowledge conflict fact_ids must be a list.")
+
+            conflicts.append(
+                KnowledgeConflict(
+                    conflict_id=str(item.get("conflict_id", "")),
+                    topic=str(item.get("topic", "")),
+                    fact_ids=tuple(
+                        value
+                        for value in raw_fact_ids
+                        if isinstance(value, str)
+                    ),
+                    description=(
+                        str(item.get("description", ""))
+                        if item.get("description") is not None
+                        else ""
+                    ),
+                )
+            )
+
+        limitations = tuple(
+            value
+            for value in raw_limitations
+            if isinstance(value, str)
+        )
+
+        context = cls(
+            status=status,
+            query=query,
+            facts=tuple(facts),
+            sources=tuple(sources),
+            conflicts=tuple(conflicts),
+            limitations=limitations,
+            version=KNOWLEDGE_CONTEXT_VERSION,
+        )
+        context.validate()
+        return context
+
+    @classmethod
     def empty(cls) -> "KnowledgeContext":
         return cls()
 

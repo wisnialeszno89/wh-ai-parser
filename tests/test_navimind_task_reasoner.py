@@ -332,3 +332,77 @@ def test_navimind_reasoner_enables_research_from_environment(monkeypatch):
     assert constraints["research_max_results"] == 7
     assert constraints["research_depth"] == "advanced"
     assert constraints["research_topic"] == "news"
+
+
+def test_navimind_reasoner_captures_returned_external_knowledge():
+    captured = {}
+
+    def opener(request, timeout):
+        body = json.loads(request.data.decode("utf-8"))
+        captured["body"] = body
+        return _Response(
+            {
+                "version": "1",
+                "task_id": body["task_id"],
+                "status": "continue",
+                "rationale": "Use the research-backed information.",
+                "confidence": 0.92,
+                "action": {
+                    "name": "click_screen_element",
+                    "description": "Open the visible product section.",
+                    "target": "Produkt",
+                },
+                "requires_manual_review": False,
+                "knowledge": {
+                    "version": "1",
+                    "local": None,
+                    "external": {
+                        "version": "1",
+                        "status": "complete",
+                        "query": "produkt specyfikacja",
+                        "sources": [
+                            {
+                                "source_id": "web-1",
+                                "title": "Manufacturer documentation",
+                                "url": "https://example.com/spec",
+                                "source_type": "web_search_result",
+                            }
+                        ],
+                        "facts": [
+                            {
+                                "fact_id": "synth-fact-1",
+                                "claim": "Product X supports triple glazing.",
+                                "source_ids": ["web-1"],
+                                "confidence": 0.84,
+                                "relevance": 0.91,
+                                "kind": "retrieved_evidence",
+                            }
+                        ],
+                        "conflicts": [],
+                        "limitations": [
+                            "Not independently verified."
+                        ]
+                    }
+                }
+            }
+        )
+
+    reasoner = NaviMindTaskReasoner(
+        config=NaviMindTaskReasonerConfig(
+            url="http://localhost:3000/api/agent/task",
+        ),
+        opener=opener,
+    )
+
+    proposal = reasoner.reason(
+        TaskPlanningContext(
+            request_message="Sprawdź produkt X.",
+            intent="computer_use",
+        )
+    )
+
+    assert proposal is not None
+    external = proposal.metadata["external_knowledge"]
+    assert isinstance(external, dict)
+    assert external["status"] == "complete"
+    assert external["facts"][0]["fact_id"] == "synth-fact-1"
