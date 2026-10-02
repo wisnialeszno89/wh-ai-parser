@@ -103,8 +103,6 @@ def test_navimind_reasoner_sends_explicit_allowed_actions():
 
     # Capture the generated task id so the response satisfies the
     # correlation check introduced by the bridge.
-    original_opener = opener
-
     def correlated_opener(request, timeout):
         body = json.loads(request.data.decode("utf-8"))
         captured["task"] = body
