@@ -27,10 +27,11 @@ def test_navimind_reasoner_translates_semantic_action():
     def opener(request, timeout):
         captured["body"] = request.data
         captured["timeout"] = timeout
+        body = json.loads(request.data.decode("utf-8"))
         return _Response(
             {
                 "version": "1",
-                "task_id": "task-1",
+                "task_id": body["task_id"],
                 "status": "continue",
                 "rationale": "Advance the visible workflow.",
                 "confidence": 0.94,
