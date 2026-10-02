@@ -21,6 +21,7 @@ class CapabilityRouter:
         AgentIntent.COMPARE_VARIANTS: "WH_WINDOW",
         AgentIntent.EXECUTE_IN_WH: "WH_WINDOW",
         AgentIntent.OBSERVE_WORKFLOW: "WH_WINDOW",
+        AgentIntent.COMPUTER_USE: "COMPUTER_USE",
         AgentIntent.WRITE_CUSTOMER_REPLY: "WORD",
     }
 
