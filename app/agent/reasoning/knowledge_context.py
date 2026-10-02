@@ -124,6 +124,8 @@ class KnowledgeFact:
     confidence: float = 0.0
     relevance: float = 0.0
     evidence: str | None = None
+    kind: str = "assertion"
+    provider_score: float | None = None
 
     def validate(self) -> None:
         _require_nonempty(self.fact_id, "fact_id", MAX_ID_LENGTH)
@@ -131,6 +133,13 @@ class KnowledgeFact:
         _validate_id_list(self.source_ids, "fact.source_ids", MAX_SOURCES)
         _validate_score(self.confidence, "fact.confidence")
         _validate_score(self.relevance, "fact.relevance")
+        if self.kind not in {"assertion", "retrieved_evidence"}:
+            raise ValueError("Unsupported knowledge fact kind.")
+        if self.provider_score is not None:
+            _validate_score(
+                self.provider_score,
+                "fact.provider_score",
+            )
         if self.evidence is not None:
             _require_nonempty(
                 self.evidence,
@@ -146,7 +155,10 @@ class KnowledgeFact:
             "source_ids": list(self.source_ids),
             "confidence": float(self.confidence),
             "relevance": float(self.relevance),
+            "kind": self.kind,
         }
+        if self.provider_score is not None:
+            payload["provider_score"] = float(self.provider_score)
         if self.evidence is not None:
             payload["evidence"] = self.evidence.strip()
         return payload
