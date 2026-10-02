@@ -11,6 +11,9 @@ from dotenv import load_dotenv
 from app.agent.bridge.agent_task_contract import AgentTaskContract
 from app.agent.bridge.world_state import WorldState
 from app.agent.reasoning.reasoning_action import ReasoningAction
+from app.agent.reasoning.reasoning_action_policy import (
+    NAVIMIND_ALLOWED_ACTIONS_ORDERED,
+)
 from app.agent.reasoning.reasoning_proposal import ReasoningProposal
 from app.agent.reasoning.task_planning_context import TaskPlanningContext
 from app.agent.reasoning.task_reasoner import TaskReasoner
@@ -98,6 +101,14 @@ class NaviMindTaskReasoner(TaskReasoner):
             offer_workflow=context.offer_workflow,
             knowledge=context.application_knowledge,
             experience=context.experience,
+            constraints={
+                "semantic_only": True,
+                "max_actions": 1,
+                "verify_each_action": True,
+                "allowed_actions": (
+                    NAVIMIND_ALLOWED_ACTIONS_ORDERED
+                ),
+            },
         )
 
         body = json.dumps(
@@ -145,6 +156,20 @@ class NaviMindTaskReasoner(TaskReasoner):
             self.last_error = "invalid_navimind_response"
             return None
 
+        version = str(
+            payload.get("version", "1")
+        ).strip()
+        if version != "1":
+            self.last_error = "invalid_navimind_version"
+            return None
+
+        response_task_id = str(
+            payload.get("task_id", "")
+        ).strip()
+        if response_task_id != contract.task_id:
+            self.last_error = "navimind_task_id_mismatch"
+            return None
+
         status = str(payload.get("status", "continue")).strip().casefold()
         if status not in {"continue", "done", "manual_review"}:
             self.last_error = "invalid_navimind_status"
@@ -181,6 +206,11 @@ class NaviMindTaskReasoner(TaskReasoner):
             if not isinstance(name, str) or not name.strip():
                 self.last_error = "navimind_action_missing_name"
                 return None
+
+            name = name.strip()
+            if name not in NAVIMIND_ALLOWED_ACTIONS_ORDERED:
+                self.last_error = "navimind_action_not_allowed"
+                return None
             if not isinstance(description, str):
                 description = str(description)
             if target is not None and not isinstance(target, str):
@@ -192,7 +222,7 @@ class NaviMindTaskReasoner(TaskReasoner):
 
             actions.append(
                 ReasoningAction(
-                    name=name.strip(),
+                    name=name,
                     description=description.strip(),
                     target=target.strip() if isinstance(target, str) else None,
                     value=value,

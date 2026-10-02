@@ -32,3 +32,23 @@ also considered a safe outcome: the control loop stops instead of
 forcing execution.
 
 Default reasoning model: `gpt-5.6-luna`.
+
+## NaviMind remote task reasoning
+
+When `NAVIMIND_AGENT_URL` is configured, the WindowHub runtime uses
+`NaviMindTaskReasoner` for the initial semantic task proposal.
+
+The execution path is:
+
+`observe -> semantic perception -> NaviMind -> local action policy ->
+RobotGUIExecutor -> SafetyGate/GUI bridge -> verification -> re-observe`
+
+NaviMind receives only semantic world state. Coordinates, window handles,
+runtime/provider identifiers and executor internals stay local.
+
+The local runtime and NaviMind server both enforce the same explicit semantic
+action allowlist. Unknown remote actions fail closed and require manual review.
+
+WindowHub robot execution is DRY_RUN by default. LIVE hardware execution is
+enabled only when `WH_REAL_WINDOWHUB=1`.
+
