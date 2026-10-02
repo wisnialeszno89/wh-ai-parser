@@ -138,24 +138,39 @@ class AgentRuntime:
         *,
         initial_scene=None,
         offer_workflow=None,
+        autonomous: bool = False,
     ):
         try:
-            return self.orchestrator.prepare(
-                request,
-                initial_scene=initial_scene,
-                offer_workflow=offer_workflow,
-            )
+            try:
+                return self.orchestrator.prepare(
+                    request,
+                    initial_scene=initial_scene,
+                    offer_workflow=offer_workflow,
+                    autonomous=autonomous,
+                )
+            except TypeError as exc:
+                if "autonomous" not in str(exc):
+                    raise
+                return self.orchestrator.prepare(
+                    request,
+                    initial_scene=initial_scene,
+                    offer_workflow=offer_workflow,
+                )
         except TypeError as exc:
             if "offer_workflow" in str(exc):
                 try:
                     return self.orchestrator.prepare(
                         request,
                         initial_scene=initial_scene,
+                        autonomous=autonomous,
                     )
                 except TypeError as nested_exc:
                     if "initial_scene" not in str(nested_exc):
                         raise
-                    return self.orchestrator.prepare(request)
+                    return self.orchestrator.prepare(
+                        request,
+                        autonomous=autonomous,
+                    )
             if "initial_scene" in str(exc):
                 return self.orchestrator.prepare(request)
             raise
@@ -292,6 +307,7 @@ class AgentRuntime:
             request,
             initial_scene=initial_scene,
             offer_workflow=planning_offer_workflow,
+            autonomous=autonomous,
         )
 
         application_knowledge = getattr(
