@@ -115,6 +115,27 @@ class NaviMindTaskReasoner(TaskReasoner):
                 "semantic_only": True,
                 "max_actions": 1,
                 "verify_each_action": True,
+                "research_enabled": (
+                    os.getenv(
+                        "NAVIMIND_AGENT_RESEARCH_ENABLED",
+                        "0",
+                    ).strip()
+                    == "1"
+                ),
+                "research_max_results": int(
+                    os.getenv(
+                        "NAVIMIND_RESEARCH_MAX_RESULTS",
+                        "5",
+                    )
+                ),
+                "research_depth": os.getenv(
+                    "NAVIMIND_RESEARCH_DEPTH",
+                    "basic",
+                ),
+                "research_topic": os.getenv(
+                    "NAVIMIND_RESEARCH_TOPIC",
+                    "general",
+                ),
                 "allowed_actions": (
                     NAVIMIND_ALLOWED_ACTIONS_ORDERED
                 ),
