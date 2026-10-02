@@ -114,3 +114,24 @@ def test_runtime_runs_one_action_then_reobserves_and_reasons_again():
     assert control_loop.plans[1].steps == ()
     assert reasoner.calls == 2
     assert control_loop.observe_calls == 2
+
+
+def test_autonomous_unknown_intent_enters_generic_computer_use_reasoning():
+    reasoner = SequenceReasoner()
+    runtime = AgentRuntime(
+        orchestrator=AgentOrchestrator(
+            task_reasoner=reasoner,
+        ),
+        control_loop=FakeControlLoop(),
+    )
+
+    result = runtime.run_autonomous(
+        AgentRequest(message="Zmień bieżący widok na następny"),
+        max_steps=2,
+    )
+
+    assert result.success is True
+    assert reasoner.calls == 2
+    assert reasoner.contexts[0].intent == AgentIntent.COMPUTER_USE.value
+    assert reasoner.contexts[0].capability_name == "COMPUTER_USE"
+    assert reasoner.contexts[0].skill_name == "ComputerUseSkill"
