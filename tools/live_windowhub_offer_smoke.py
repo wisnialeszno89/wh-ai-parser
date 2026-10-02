@@ -240,7 +240,7 @@ def main() -> int:
     print(f"windowhub_hwnd={hwnd}")
     print(f"windowhub_title={_window_title(hwnd)!r}")
     print(f"session_id={session_id!r}")
-    print(f"turn_limit={args.turns}")
+    print(f"max_steps={args.max_steps}")
     print(f"scenario={message}")
 
     task_planner = getattr(
