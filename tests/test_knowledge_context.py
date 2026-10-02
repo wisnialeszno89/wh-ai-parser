@@ -151,3 +151,32 @@ def test_knowledge_envelope_requires_version_and_separates_local_external():
 
     with pytest.raises(ValueError, match="version"):
         validate_knowledge_envelope(invalid)
+
+
+def test_knowledge_context_round_trips_remote_payload():
+    payload = KnowledgeContext(
+        status="complete",
+        query="parametr produktu",
+        sources=(_source(),),
+        facts=(
+            KnowledgeFact(
+                fact_id="fact-1",
+                claim="Parameter value is 1.1.",
+                source_ids=("source-1",),
+                confidence=0.88,
+                relevance=0.91,
+                evidence="Manufacturer specification.",
+                kind="assertion",
+                provider_score=0.94,
+            ),
+        ),
+        limitations=("Freshness depends on the publication date.",),
+    ).to_payload()
+
+    restored = KnowledgeContext.from_payload(payload)
+
+    assert restored.status == "complete"
+    assert restored.query == "parametr produktu"
+    assert restored.sources[0].source_id == "source-1"
+    assert restored.facts[0].provider_score == 0.94
+    assert restored.to_payload() == payload
