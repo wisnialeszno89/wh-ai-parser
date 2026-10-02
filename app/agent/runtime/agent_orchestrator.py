@@ -27,6 +27,7 @@ from app.agent.perception.screen_scene import (
 from app.agent.reasoning.reasoning_task_planner import (
     ReasoningTaskPlanner,
 )
+from app.agent.reasoning.knowledge_context import KnowledgeContext
 
 from app.agent.reasoning.task_planning_context import (
     TaskPlanningContext,
@@ -133,6 +134,7 @@ class AgentOrchestrator:
         initial_scene: ScreenScene | None = None,
         offer_workflow: dict[str, object] | None = None,
         application_knowledge: dict[str, object] | None = None,
+        external_knowledge: KnowledgeContext | None = None,
         autonomous: bool = False,
     ) -> AgentExecutionContext:
         """
@@ -247,6 +249,7 @@ class AgentOrchestrator:
                     if application_knowledge is not None
                     else self.application_knowledge
                 ),
+                external_knowledge=external_knowledge,
                 experience=experience,
             )
 
