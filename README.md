@@ -52,3 +52,22 @@ action allowlist. Unknown remote actions fail closed and require manual review.
 WindowHub robot execution is DRY_RUN by default. LIVE hardware execution is
 enabled only when `WH_REAL_WINDOWHUB=1`.
 
+
+
+## Structured knowledge context
+
+The NaviMind bridge uses a versioned knowledge envelope:
+
+```text
+knowledge
+├── version
+├── local      # trusted application/runtime knowledge
+└── external   # provenance-aware external knowledge
+```
+
+External knowledge is represented by facts, sources, confidence, relevance,
+conflicts and limitations. It is treated as model input only; it never expands
+the local action allowlist or execution permissions.
+
+The current stage adds the contract, validation and transport only. No web
+research is executed yet.
