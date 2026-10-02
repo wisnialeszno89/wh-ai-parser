@@ -11,6 +11,7 @@ from dotenv import load_dotenv
 from app.agent.bridge.agent_task_contract import AgentTaskContract
 from app.agent.bridge.world_state import WorldState
 from app.agent.reasoning.reasoning_action import ReasoningAction
+from app.agent.reasoning.knowledge_context import KnowledgeContext
 from app.agent.reasoning.reasoning_action_policy import (
     NAVIMIND_ALLOWED_ACTIONS_ORDERED,
 )
@@ -267,15 +268,37 @@ class NaviMindTaskReasoner(TaskReasoner):
             self.last_error = "navimind_done_with_actions"
             return None
 
+        response_metadata = dict(
+            payload.get("metadata")
+            if isinstance(payload.get("metadata"), dict)
+            else {}
+        )
+
+        external_knowledge = None
+        response_knowledge = payload.get("knowledge")
+        if isinstance(response_knowledge, dict):
+            external_payload = response_knowledge.get("external")
+            if external_payload is not None:
+                try:
+                    external_knowledge = KnowledgeContext.from_payload(
+                        external_payload
+                    )
+                except Exception as exc:
+                    self.last_error = (
+                        f"invalid_navimind_knowledge: {exc}"
+                    )
+                    return None
+
+        if external_knowledge is not None:
+            response_metadata["external_knowledge"] = (
+                external_knowledge.to_payload()
+            )
+
         return ReasoningProposal(
             actions=tuple(actions),
             rationale=str(payload.get("rationale", "")),
             confidence=float(payload.get("confidence", 0.0)),
             requires_manual_review=requires_manual_review,
-            metadata=(
-                payload.get("metadata")
-                if isinstance(payload.get("metadata"), dict)
-                else {}
-            ),
+            metadata=response_metadata,
             status=("continue" if status == "manual_review" else status),
         )
