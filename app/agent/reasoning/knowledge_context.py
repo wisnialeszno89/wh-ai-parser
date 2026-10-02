@@ -237,7 +237,10 @@ class KnowledgeContext:
         source_ids: set[str] = set()
         for source in self.sources:
             source.validate()
-            source_ids.add(source.source_id.strip())
+            source_id = source.source_id.strip()
+            if source_id in source_ids:
+                raise ValueError("Knowledge source ids must be unique.")
+            source_ids.add(source_id)
 
         fact_ids: set[str] = set()
         for fact in self.facts:
