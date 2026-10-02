@@ -305,3 +305,34 @@ class KnowledgeContext:
     @classmethod
     def empty(cls) -> "KnowledgeContext":
         return cls()
+
+
+def validate_knowledge_envelope(value: dict[str, object]) -> None:
+    """Validate the transport envelope used by AgentTaskContract."""
+    if not isinstance(value, dict):
+        raise ValueError("knowledge must be a mapping.")
+
+    if value.get("version") != KNOWLEDGE_CONTEXT_VERSION:
+        raise ValueError("Unsupported knowledge envelope version.")
+
+    local = value.get("local")
+    if local is not None and not isinstance(local, dict):
+        raise ValueError("knowledge.local must be a mapping or null.")
+
+    external = value.get("external")
+    if external is not None:
+        if not isinstance(external, dict):
+            raise ValueError("knowledge.external must be a mapping or null.")
+        if external.get("version") != KNOWLEDGE_CONTEXT_VERSION:
+            raise ValueError(
+                "Unsupported external knowledge context version."
+            )
+        status = external.get("status")
+        if status not in {
+            "empty",
+            "partial",
+            "complete",
+            "conflict",
+            "error",
+        }:
+            raise ValueError("Unsupported external knowledge status.")
