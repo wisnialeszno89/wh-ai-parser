@@ -192,6 +192,7 @@ class AgentRuntime:
             if "initial_scene" in str(exc):
                 return self.orchestrator.prepare(
                     request,
+                    external_knowledge=external_knowledge,
                     autonomous=autonomous,
                 )
             raise
