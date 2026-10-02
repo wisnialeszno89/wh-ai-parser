@@ -389,3 +389,26 @@ def test_reasoning_task_planner_preserves_write_text_value():
     assert plan.steps[0].action.name == "write_text"
     assert plan.steps[0].action.target == "Szerokość"
     assert plan.steps[0].action.value == "1230"
+
+
+def test_reasoning_task_planner_rejects_action_outside_semantic_policy():
+    reasoner = RecordingTaskReasoner(
+        proposal=ReasoningProposal(
+            actions=(
+                ReasoningAction(
+                    name="execute_shell_command",
+                    description="Run a local command.",
+                ),
+            ),
+            rationale="Unsafe unsupported action.",
+            confidence=0.99,
+        )
+    )
+
+    planner = ReasoningTaskPlanner(reasoner)
+
+    assert planner.plan(
+        context=create_context()
+    ) is None
+
+    assert planner.last_failure_reason == "action_not_allowed"
