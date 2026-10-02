@@ -221,3 +221,97 @@ def test_verifier_rejects_missing_expected_element_kind():
     )
 
     assert result.verified is False
+
+
+def test_verifier_rejects_unchanged_scene_when_change_is_required():
+
+    verifier = OutcomeVerifier()
+
+    element = ScreenElement(
+        kind="button",
+        label="Open",
+        x=10,
+        y=20,
+        width=30,
+        height=40,
+        metadata={
+            "automation_id": "OpenButton",
+            "uia_enabled": True,
+            "uia_visible": True,
+        },
+    )
+
+    scene = create_scene(
+        elements=(element,)
+    )
+
+    expected = ExpectedOutcome(
+        description="Click should change the scene.",
+        require_scene_change=True,
+        baseline_scene_signature=(
+            (
+                "Open",
+                "button",
+                10,
+                20,
+                30,
+                40,
+                "OpenButton",
+                None,
+                True,
+                True,
+            ),
+        ),
+    )
+
+    result = verifier.verify(
+        expected,
+        scene,
+    )
+
+    assert result.verified is False
+    assert "did not change" in result.reason
+
+
+def test_verifier_accepts_changed_scene_when_change_is_required():
+
+    verifier = OutcomeVerifier()
+
+    scene = create_scene(
+        elements=(
+            ScreenElement(
+                kind="button",
+                label="Next",
+                x=10,
+                y=20,
+                width=30,
+                height=40,
+            ),
+        )
+    )
+
+    expected = ExpectedOutcome(
+        description="Click should change the scene.",
+        require_scene_change=True,
+        baseline_scene_signature=(
+            (
+                "Open",
+                "button",
+                10,
+                20,
+                30,
+                40,
+                None,
+                None,
+                None,
+                None,
+            ),
+        ),
+    )
+
+    result = verifier.verify(
+        expected,
+        scene,
+    )
+
+    assert result.verified is True

@@ -246,3 +246,58 @@ def test_relinks_child_to_surviving_ancestor_after_duplicate_parent_is_removed()
     assert child.parent_contour_index == 0
     assert child.depth == 1
     assert child.is_root is False
+
+def test_preserves_identical_nested_candidates():
+    candidate_filter = CandidateFilter()
+
+    contours = [
+        contour(
+            100,
+            100,
+            20,
+            20,
+        ),
+        contour(
+            100,
+            100,
+            20,
+            20,
+        ),
+    ]
+
+    hierarchy = np.array(
+        [[
+            [-1, -1, 1, -1],
+            [-1, -1, -1, 0],
+        ]],
+        dtype=np.int32,
+    )
+
+    result = candidate_filter.filter(
+        contours,
+        hierarchy=hierarchy,
+        roi_width=300,
+        roi_height=300,
+    )
+
+    assert len(result) == 2
+
+    root = next(
+        candidate
+        for candidate in result
+        if candidate.contour_index == 0
+    )
+
+    child = next(
+        candidate
+        for candidate in result
+        if candidate.contour_index == 1
+    )
+
+    assert root.parent_contour_index is None
+    assert root.depth == 0
+    assert root.is_root is True
+
+    assert child.parent_contour_index == 0
+    assert child.depth == 1
+    assert child.is_root is False

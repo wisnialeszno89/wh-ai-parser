@@ -9,6 +9,9 @@ from app.runtime.execution.vision.analyzers.candidate_hierarchy import (
     CandidateHierarchy,
     CandidateNode,
 )
+from app.runtime.execution.vision.analyzers.candidate_object_grouper_v1 import (
+    CandidateObjectGrouperV1,
+)
 from app.runtime.execution.vision.analyzers.candidate_filter import (
     CandidateFilter,
 )
@@ -24,6 +27,7 @@ from app.runtime.execution.vision.analyzers.visual_feature_extractor import (
     VisualFeatureExtractor,
 )
 from app.runtime.execution.vision.models.candidate_evidence import CandidateEvidence
+from app.runtime.execution.vision.models.logical_object import LogicalObject
 from app.runtime.execution.vision.models.control_role import (
     ControlRole,
 )
@@ -105,11 +109,16 @@ class ControlDetector:
             or InteractiveClassifierV1()
         )
 
+        self.logical_object_grouper = CandidateObjectGrouperV1()
+        self.last_logical_objects: list[LogicalObject] = []
+
     def analyze(
         self,
         screenshot: Screenshot,
         section: GUIObject,
     ) -> None:
+        self.last_logical_objects = []
+
         if section.bounds is None:
             section.children.clear()
             return
@@ -195,6 +204,24 @@ class ControlDetector:
         hierarchy_tree = self.candidate_hierarchy.build(
             candidates,
         )
+
+        logical_objects = self.logical_object_grouper.group(
+            hierarchy_tree,
+            roi_width=roi.shape[1],
+            roi_height=roi.shape[0],
+        )
+
+        self.last_logical_objects = [
+            LogicalObject(
+                bounds=logical_object.bounds.translate(
+                    r.left,
+                    r.top,
+                ),
+                root_contour_index=logical_object.root_contour_index,
+                member_contour_indices=logical_object.member_contour_indices,
+            )
+            for logical_object in logical_objects
+        ]
 
         for root in hierarchy_tree:
             section.add_child(

@@ -18,8 +18,20 @@ from app.agent.perception.perception_engine import (
     PerceptionEngine,
 )
 
+from app.agent.perception.screen_scene import (
+    ScreenScene,
+)
+
 from app.agent.planning.action_plan import (
     ActionPlan,
+)
+
+from app.agent.planning.action_step import (
+    ActionStep,
+)
+
+from app.agent.planning.plan_replanner import (
+    PlanReplanner,
 )
 
 from app.agent.runtime.action_failure_decision import (
@@ -81,6 +93,10 @@ from app.agent.runtime.verification_loop import (
     VerificationLoop,
 )
 
+from app.agent.runtime.plan_replan_record import (
+    PlanReplanRecord,
+)
+
 
 class AgentControlLoop:
     """
@@ -126,6 +142,8 @@ class AgentControlLoop:
         action_failure_policy: (
             ActionFailurePolicy | None
         ) = None,
+        replanner: PlanReplanner | None = None,
+        max_replans: int = 1,
     ) -> None:
 
         self.environment_runtime = (
@@ -154,6 +172,29 @@ class AgentControlLoop:
             else DefaultActionFailurePolicy()
         )
 
+        if max_replans < 0:
+            raise ValueError(
+                "max_replans must be non-negative."
+            )
+
+        self.replanner = replanner
+        self.max_replans = max_replans
+
+    def observe_scene(self) -> ScreenScene:
+        """
+        Observe and perceive the current environment without executing
+        an action.
+
+        This is the initial world-state snapshot used by the planner
+        before it decides what should happen next.
+        """
+
+        observation = self.environment_runtime.observe()
+
+        return self.perception_engine.perceive(
+            observation
+        )
+
     def run(
         self,
         plan: ActionPlan,
@@ -177,6 +218,8 @@ class AgentControlLoop:
         execution_results = []
 
         failure_records = []
+
+        replan_records = []
 
         step_results = []
 
@@ -313,6 +356,9 @@ class AgentControlLoop:
                 failure_records=tuple(
                     failure_records
                 ),
+                replan_records=tuple(
+                    replan_records
+                ),
                 success=success,
                 requires_manual_review=(
                     requires_manual_review
@@ -320,7 +366,28 @@ class AgentControlLoop:
                 stopped=stopped,
             )
 
-        for step in plan.steps:
+        active_steps = list(plan.steps)
+        active_plan = plan
+        step_position = 0
+        replan_count = 0
+        next_replanned_step_index = (
+            max(
+                (
+                    step.index
+                    for step in active_steps
+                ),
+                default=0,
+            )
+            + 1
+        )
+
+        while step_position < len(
+            active_steps
+        ):
+
+            step = active_steps[
+                step_position
+            ]
 
             action = step.action
 
@@ -450,26 +517,41 @@ class AgentControlLoop:
             # ---------------------------------
             # 2. OBSERVE ENVIRONMENT
             # ---------------------------------
+            #
+            # Pure semantic/business actions do not mutate or depend on
+            # the GUI. Avoid another expensive screenshot/UIA/vision cycle
+            # for them. GUI actions explicitly opt into fresh perception.
+            #
+            # Keep the current scene untouched for logical actions so the
+            # decision layer can still use the latest GUI evidence captured
+            # before planning or by a previous GUI step.
 
-            observation = (
-                self.environment_runtime.observe()
+            requires_environment_observation = (
+                action.requires_environment_observation
+                or action.name == "click_screen_element"
+                or action.environment_requirement is not None
             )
 
-            context.last_observation = (
-                observation
-            )
+            if requires_environment_observation:
+                observation = (
+                    self.environment_runtime.observe()
+                )
 
-            # ---------------------------------
-            # 3. PERCEIVE ENVIRONMENT
-            # ---------------------------------
-
-            scene = (
-                self.perception_engine.perceive(
+                context.last_observation = (
                     observation
                 )
-            )
 
-            context.current_scene = scene
+                # ---------------------------------
+                # 3. PERCEIVE ENVIRONMENT
+                # ---------------------------------
+
+                scene = (
+                    self.perception_engine.perceive(
+                        observation
+                    )
+                )
+
+                context.update_scene(scene)
 
             # ---------------------------------
             # 4. DECIDE
@@ -590,6 +672,173 @@ class AgentControlLoop:
                     ActionStepStatus.FAILED
                 )
 
+                attempts = len(
+                    execution_result.attempts
+                )
+
+                last_attempt = (
+                    execution_result.last_attempt
+                )
+
+                reason = ""
+
+                if (
+                    last_attempt is not None
+                    and last_attempt
+                    .verification_result is not None
+                    and not last_attempt
+                    .verification_result
+                    .verified
+                ):
+                    reason = (
+                        last_attempt
+                        .verification_result
+                        .reason
+                    )
+                elif last_attempt is not None:
+                    reason = (
+                        last_attempt
+                        .execution_result
+                        .message
+                    )
+
+                verification_failed = (
+                    last_attempt is not None
+                    and last_attempt
+                    .execution_result
+                    .success
+                    and last_attempt
+                    .verification_result is not None
+                    and not last_attempt
+                    .verification_result
+                    .verified
+                )
+
+                if (
+                    verification_failed
+                    and self.replanner is not None
+                    and replan_count
+                    < self.max_replans
+                ):
+                    replanned_plan = (
+                        self.replanner.replan(
+                            plan=active_plan,
+                            failed_step=step,
+                            execution_result=(
+                                execution_result
+                            ),
+                            context=context,
+                        )
+                    )
+
+                    if (
+                        replanned_plan is not None
+                        and replanned_plan.steps
+                        and not (
+                            replanned_plan
+                            .requires_manual_review
+                        )
+                    ):
+                        replacement_steps = []
+
+                        for (
+                            replanned_step
+                        ) in replanned_plan.steps:
+                            replacement_steps.append(
+                                ActionStep(
+                                    index=(
+                                        next_replanned_step_index
+                                    ),
+                                    action=(
+                                        replanned_step
+                                        .action
+                                    ),
+                                )
+                            )
+
+                            next_replanned_step_index += 1
+
+                        replacement_names = tuple(
+                            replacement.action.name
+                            for replacement
+                            in replacement_steps
+                        )
+
+                        replan_count += 1
+
+                        failure_records.append(
+                            ActionFailureRecord(
+                                action_name=action.name,
+                                reason=reason,
+                                attempts=attempts,
+                                decision=(
+                                    ActionFailureDecision
+                                    .REPLAN
+                                ),
+                            )
+                        )
+
+                        replan_records.append(
+                            PlanReplanRecord(
+                                failed_action_name=(
+                                    action.name
+                                ),
+                                reason=reason,
+                                attempts=attempts,
+                                replacement_actions=(
+                                    replacement_names
+                                ),
+                            )
+                        )
+
+                        update_runtime_state(
+                            step.index,
+                            action.name,
+                            current_step_status,
+                            attempts=attempts,
+                            last_error=reason,
+                        )
+
+                        step_results.append(
+                            ActionStepResult(
+                                action_name=action.name,
+                                status=(
+                                    ActionStepStatus.FAILED
+                                ),
+                                reason=(
+                                    "Verification failed; "
+                                    "plan was replanned."
+                                ),
+                                attempts=attempts,
+                            )
+                        )
+
+                        active_steps[
+                            step_position:
+                        ] = replacement_steps
+
+                        active_plan = (
+                            ActionPlan(
+                                intent=(
+                                    replanned_plan
+                                    .intent
+                                ),
+                                steps=tuple(
+                                    replacement_steps
+                                ),
+                                confidence=(
+                                    replanned_plan
+                                    .confidence
+                                ),
+                                requires_manual_review=(
+                                    replanned_plan
+                                    .requires_manual_review
+                                ),
+                            )
+                        )
+
+                        continue
+
                 failure_decision = (
                     self.action_failure_policy.decide(
                         action,
@@ -597,24 +846,6 @@ class AgentControlLoop:
                         context,
                     )
                 )
-
-                attempts = len(
-                    execution_result.attempts
-                )
-
-                reason = ""
-
-                if execution_result.attempts:
-
-                    last_attempt = (
-                        execution_result.attempts[-1]
-                    )
-
-                    reason = (
-                        last_attempt
-                        .execution_result
-                        .message
-                    )
 
                 failure_record = (
                     ActionFailureRecord(
@@ -653,6 +884,7 @@ class AgentControlLoop:
                         )
                     )
 
+                    step_position += 1
                     continue
 
                 if (
@@ -675,6 +907,7 @@ class AgentControlLoop:
                         )
                     )
 
+                    step_position += 1
                     continue
 
                 if (
@@ -766,6 +999,8 @@ class AgentControlLoop:
                     requires_manual_review=True,
                     stopped=True,
                 )
+
+            step_position += 1
 
         return build_result(
             success=True,

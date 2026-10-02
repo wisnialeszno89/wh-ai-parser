@@ -10,5 +10,6 @@ class AgentIntent(str, Enum):
     WRITE_CUSTOMER_REPLY = "write_customer_reply"
     EXECUTE_IN_WH = "execute_in_wh"
     OBSERVE_WORKFLOW = "observe_workflow"
+    COMPUTER_USE = "computer_use"
     HELP = "help"
     UNKNOWN = "unknown"

@@ -106,7 +106,7 @@ class ActionExecutor:
 
     def _resolve_create_point(self, action, vision) -> tuple[int, int]:
         if action.tool in (GuiTool.MULLION, GuiTool.HORIZONTAL_MULLION, GuiTool.MOVABLE_MULLION):
-            point = self.context.gui_state.last_created_point
+            point = getattr(self.context.gui_state, "last_created_point", None)
             if point is None:
                 raise RuntimeError(f"{action.tool.name} CREATE requires a previously created frame")
             self.context.gui_state.frame_point = point
@@ -121,7 +121,7 @@ class ActionExecutor:
             if point is None:
                 raise RuntimeError("HARDWARE CREATE requires a sash, frame, or last-created point")
             return point
-        stored = self.context.gui_state.workspace_bounds
+        stored = getattr(self.context.gui_state, "workspace_bounds", None)
         if stored is not None:
             x, y, width, height = stored
             point = (x + width // 2, y + height // 2)
@@ -134,7 +134,7 @@ class ActionExecutor:
         return point
 
     def _workspace_rect(self, vision):
-        stored = self.context.gui_state.workspace_bounds
+        stored = getattr(self.context.gui_state, "workspace_bounds", None)
         if stored is not None:
             x, y, width, height = stored
             from app.runtime.execution.vision.models.rect import Rect
@@ -147,7 +147,7 @@ class ActionExecutor:
         return None
 
     def _resolve_panel_point(self, vision, tool) -> tuple[int, int] | None:
-        mullion = self.context.gui_state.mullion_point
+        mullion = getattr(self.context.gui_state, "mullion_point", None)
         if mullion is None:
             canvas = self._workspace_rect(vision)
             if canvas is None:
@@ -211,7 +211,7 @@ class ActionExecutor:
 
     def _advance_panel_after_glass(self) -> None:
         state = self.context.gui_state
-        state.glass_point = state.last_created_point
+        state.glass_point = getattr(state, "last_created_point", None)
         if state.last_panel_component != "GLASS":
             return
         if state.mullion_orientation == "horizontal":

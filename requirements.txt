@@ -2,3 +2,9 @@ numpy
 opencv-python
 Pillow
 pytest
+openai
+pydantic>=2
+python-dotenv
+pywinauto
+pyautogui
+mss

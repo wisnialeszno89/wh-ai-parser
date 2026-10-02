@@ -1,4 +1,4 @@
-from app.agent.decision.decision_engine import (
+﻿from app.agent.decision.decision_engine import (
     DecisionEngine,
 )
 
@@ -22,8 +22,24 @@ from app.agent.perception.perception_engine import (
     PerceptionEngine,
 )
 
+from app.agent.perception.perception_provider import (
+    PerceptionProvider,
+)
+
 from app.agent.runtime.agent_control_loop import (
     AgentControlLoop,
+)
+
+from app.agent.planning.plan_replanner import (
+    PlanReplanner,
+)
+
+from app.agent.reasoning.plan_reasoner import (
+    PlanReasoner,
+)
+
+from app.agent.reasoning.reasoning_plan_replanner import (
+    ReasoningPlanReplanner,
 )
 
 from app.agent.runtime.verification_loop import (
@@ -43,14 +59,18 @@ def create_default_agent_control_loop(
     *,
     environment: EnvironmentAdapter,
     execution_engine: ExecutionEngine,
+    perception_providers: tuple[PerceptionProvider, ...] = (),
+    replanner: PlanReplanner | None = None,
+    plan_reasoner: PlanReasoner | None = None,
+    max_replans: int = 1,
 ) -> AgentControlLoop:
     """
     Create a complete default agent control loop.
 
     The factory wires together the standard safe agent runtime.
 
-    Platform-specific factories may later provide specialised
-    implementations for:
+    Platform-specific factories may provide specialised
+    perception providers for:
 
     - Windows
     - browser automation
@@ -65,22 +85,18 @@ def create_default_agent_control_loop(
     )
 
     perception_engine = (
-        PerceptionEngine()
+        PerceptionEngine(
+            providers=perception_providers
+        )
     )
 
     verification_loop = (
         VerificationLoop(
             execution_engine=execution_engine,
             environment=environment,
-            perception_engine=(
-                perception_engine
-            ),
-            expectation_resolver=(
-                ExpectationResolver()
-            ),
-            outcome_verifier=(
-                OutcomeVerifier()
-            ),
+            perception_engine=perception_engine,
+            expectation_resolver=ExpectationResolver(),
+            outcome_verifier=OutcomeVerifier(),
         )
     )
 
@@ -90,20 +106,19 @@ def create_default_agent_control_loop(
         )
     )
 
+    if replanner is None and plan_reasoner is not None:
+        replanner = (
+            ReasoningPlanReplanner(
+                plan_reasoner
+            )
+        )
+
     return AgentControlLoop(
-        environment_runtime=(
-            environment_runtime
-        ),
-        perception_engine=(
-            perception_engine
-        ),
-        decision_engine=(
-            DecisionEngine()
-        ),
-        verification_loop=(
-            verification_loop
-        ),
-        environment_preparation_loop=(
-            environment_preparation_loop
-        ),
+        environment_runtime=environment_runtime,
+        perception_engine=perception_engine,
+        decision_engine=DecisionEngine(),
+        verification_loop=verification_loop,
+        environment_preparation_loop=environment_preparation_loop,
+        replanner=replanner,
+        max_replans=max_replans,
     )

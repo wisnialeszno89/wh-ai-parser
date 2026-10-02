@@ -73,7 +73,7 @@ def test_wh_executor_rejects_unknown_action():
     assert executor.supports(action) is False
 
 
-def test_prepare_quote_requires_review():
+def test_prepare_quote_completes_preparation_without_review():
 
     executor = WHActionExecutor()
 
@@ -89,7 +89,12 @@ def test_prepare_quote_requires_review():
 
     assert result.success is True
 
-    assert result.requires_manual_review is True
+    assert result.requires_manual_review is False
+
+    assert result.metadata == {
+        "workflow_stage": "quotation",
+        "confirmation_required": False,
+    }
 
     assert (
         context.get_value("quote_prepared")

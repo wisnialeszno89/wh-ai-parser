@@ -1,4 +1,4 @@
-import ctypes
+﻿import ctypes
 import math
 import numpy as np
 import cv2
@@ -64,7 +64,7 @@ class CanvasAnalyzer:
         # Legacy toolbar detection returns a tall rectangle for the real
         # vertical WindowHub toolbar. Its bottom is around the drawing area, so
         # using toolbar.bottom as top_limit would discard the actual window.
-        vertical_toolbar = toolbar_bounds.height > toolbar_bounds.width * 2
+        toolbar_height = getattr(toolbar_bounds, "height", 0); toolbar_width = getattr(toolbar_bounds, "width", 0); vertical_toolbar = toolbar_height > toolbar_width * 2
         if vertical_toolbar:
             top_limit = int(height * 0.18)
         else:
@@ -391,7 +391,7 @@ class CanvasAnalyzer:
         return max(0.0, min(a2, b2) - max(a1, b1))
 
     def _fallback(self, width: int, height: int, toolbar_bounds) -> Rect:
-        vertical_toolbar = toolbar_bounds.height > toolbar_bounds.width * 2
+        toolbar_height = getattr(toolbar_bounds, "height", 0); toolbar_width = getattr(toolbar_bounds, "width", 0); vertical_toolbar = toolbar_height > toolbar_width * 2
         if vertical_toolbar:
             left = int(width * 0.08)
             right = int(width * 0.70)
@@ -409,3 +409,5 @@ class CanvasAnalyzer:
             width=max(1, right - left),
             height=max(1, bottom - top),
         )
+
+

@@ -75,3 +75,39 @@ def test_unknown_request_requires_manual_review():
 
     assert plan.intent == AgentIntent.UNKNOWN
     assert plan.requires_manual_review is True
+
+
+def test_quote_plan_prepares_quote_without_confirmation():
+    planner = AgentPlanner()
+
+    plan = planner.plan(
+        AgentRequest(
+            message="Zrób wycenę okna 1230x1480 FIX"
+        )
+    )
+
+    prepare_quote = next(
+        step.action
+        for step in plan.steps
+        if step.action.name == "prepare_quote"
+    )
+
+    assert prepare_quote.requires_confirmation is False
+
+def test_semantic_open_new_offer_request_plans_uia_click():
+    planner = AgentPlanner()
+
+    plan = planner.plan(
+        AgentRequest(
+            message="Otwórz nową ofertę"
+        )
+    )
+
+    assert plan.intent == AgentIntent.EXECUTE_IN_WH
+    assert plan.requires_manual_review is False
+    assert len(plan.steps) == 1
+
+    action = plan.steps[0].action
+    assert action.name == "click_screen_element"
+    assert action.target == "NOWA OFERTA"
+

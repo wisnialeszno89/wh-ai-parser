@@ -36,26 +36,6 @@ from app.agent.verification.outcome_verifier import (
 class VerificationLoop:
     """
     Controlled action execution feedback loop.
-
-    Flow:
-
-        action
-          ->
-        execute
-          ->
-        observe
-          ->
-        perceive
-          ->
-        resolve expectation
-          ->
-        verify outcome
-          ->
-        success / retry / manual review
-
-    The loop intentionally has a small retry limit.
-    It must never repeatedly interact with an environment
-    without control.
     """
 
     def __init__(
@@ -73,24 +53,11 @@ class VerificationLoop:
                 "max_attempts must be at least 1"
             )
 
-        self.execution_engine = (
-            execution_engine
-        )
-
+        self.execution_engine = execution_engine
         self.environment = environment
-
-        self.perception_engine = (
-            perception_engine
-        )
-
-        self.expectation_resolver = (
-            expectation_resolver
-        )
-
-        self.outcome_verifier = (
-            outcome_verifier
-        )
-
+        self.perception_engine = perception_engine
+        self.expectation_resolver = expectation_resolver
+        self.outcome_verifier = outcome_verifier
         self.max_attempts = max_attempts
 
     def run(
@@ -125,13 +92,16 @@ class VerificationLoop:
 
             verification_result = None
 
-            if execution_result.success:
+            if (
+                execution_result.success
+                and expected_outcome is not None
+            ):
 
                 observation = (
                     self.environment.observe()
                 )
 
-                context.last_observation = (
+                context.update_observation(
                     observation
                 )
 
@@ -141,55 +111,53 @@ class VerificationLoop:
                     )
                 )
 
-                context.current_scene = scene
+                context.update_scene(scene)
 
-                if expected_outcome is not None:
-
-                    verification_result = (
-                        self.outcome_verifier.verify(
-                            expected_outcome,
-                            scene,
-                        )
+                verification_result = (
+                    self.outcome_verifier.verify(
+                        expected_outcome,
+                        scene,
                     )
+                )
 
             attempt = ExecutionAttempt(
                 action=action,
                 execution_result=execution_result,
                 expected_outcome=expected_outcome,
-                verification_result=(
-                    verification_result
-                ),
+                verification_result=verification_result,
                 attempt_number=attempt_number,
             )
 
-            attempts.append(
-                attempt
-            )
+            attempts.append(attempt)
 
             if not execution_result.success:
-
                 return ExecutionLoopResult(
                     attempts=tuple(attempts),
                     success=False,
                     requires_manual_review=(
-                        execution_result
-                        .requires_manual_review
+                        execution_result.requires_manual_review
                     ),
                     stopped=True,
                 )
 
             if verification_result is None:
-
                 return ExecutionLoopResult(
                     attempts=tuple(attempts),
                     success=True,
                 )
 
-            if verification_result.success:
-
+            if verification_result.verified:
                 return ExecutionLoopResult(
                     attempts=tuple(attempts),
                     success=True,
+                )
+
+            if action.name == "click_screen_element":
+                return ExecutionLoopResult(
+                    attempts=tuple(attempts),
+                    success=False,
+                    requires_manual_review=True,
+                    stopped=True,
                 )
 
         return ExecutionLoopResult(

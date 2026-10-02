@@ -35,6 +35,32 @@ class OutcomeVerifier:
 
         state = scene.observation.state
 
+        if expected.require_scene_change:
+            baseline = expected.baseline_scene_signature
+            if baseline is None:
+                return VerificationResult(
+                    verified=False,
+                    reason=(
+                        "Scene-change verification has no baseline "
+                        "semantic scene signature."
+                    ),
+                    confidence=1.0,
+                )
+
+            current = self._scene_signature(scene)
+            if current == baseline:
+                return VerificationResult(
+                    verified=False,
+                    reason=(
+                        "Semantic screen scene did not change "
+                        "after the GUI action."
+                    ),
+                    confidence=0.95,
+                    metadata={
+                        "scene_changed": False,
+                    },
+                )
+
 
         if (
             expected.expected_active_application
@@ -204,4 +230,35 @@ class OutcomeVerifier:
                 "Environment matches expected outcome."
             ),
             confidence=1.0,
+        )
+
+
+    @staticmethod
+    def _scene_signature(
+        scene: ScreenScene,
+    ) -> tuple[tuple[object, ...], ...]:
+        signature = []
+
+        for element in scene.elements:
+            metadata = element.metadata or {}
+            signature.append(
+                (
+                    element.label,
+                    element.kind,
+                    int(element.x),
+                    int(element.y),
+                    int(element.width),
+                    int(element.height),
+                    metadata.get("automation_id"),
+                    metadata.get("name"),
+                    metadata.get("uia_enabled"),
+                    metadata.get("uia_visible"),
+                )
+            )
+
+        return tuple(
+            sorted(
+                signature,
+                key=lambda item: repr(item),
+            )
         )

@@ -16,6 +16,8 @@ class ActionFailureDecision(
 
     RETRY = "retry"
 
+    REPLAN = "replan"
+
     SKIP = "skip"
 
     MANUAL_REVIEW = "manual_review"

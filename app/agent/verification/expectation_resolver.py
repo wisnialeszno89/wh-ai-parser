@@ -38,7 +38,8 @@ class ExpectationResolver:
             return expectation
 
         return self._resolve_default(
-            action
+            action,
+            context,
         )
 
     def _resolve_from_context(
@@ -80,15 +81,63 @@ class ExpectationResolver:
     def _resolve_default(
         self,
         action: AgentAction,
+        context: ExecutionContext,
     ) -> ExpectedOutcome | None:
         """
         Resolve built-in expectations for generic actions.
 
-        Abstract agent actions currently do not require a GUI
-        verification outcome, therefore they return None.
+        GUI clicks receive a conservative default expectation:
+        the semantic screen scene must change after the click.
+        This intentionally avoids assuming that the clicked control
+        must disappear.
 
-        Specific environments may provide richer expectations
-        through the execution context.
+        Abstract and other actions remain unverified by default.
         """
 
-        return None
+        if action.name != "click_screen_element":
+            return None
+
+        scene = context.current_scene
+        if scene is None:
+            return None
+
+        return ExpectedOutcome(
+            description=(
+                "The semantic screen scene should change "
+                "after the GUI click."
+            ),
+            require_scene_change=True,
+            baseline_scene_signature=(
+                self._scene_signature(scene)
+            ),
+        )
+
+    @staticmethod
+    def _scene_signature(
+        scene,
+    ) -> tuple[tuple[object, ...], ...]:
+        signature = []
+
+        for element in scene.elements:
+            metadata = element.metadata or {}
+            signature.append(
+                (
+                    element.label,
+                    element.kind,
+                    int(element.x),
+                    int(element.y),
+                    int(element.width),
+                    int(element.height),
+                    metadata.get("automation_id"),
+                    metadata.get("name"),
+                    metadata.get("uia_enabled"),
+                    metadata.get("uia_visible"),
+                )
+            )
+
+        return tuple(
+            sorted(
+                signature,
+                key=lambda item: repr(item),
+            )
+        )

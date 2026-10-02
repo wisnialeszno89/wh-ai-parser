@@ -23,6 +23,15 @@ EXCEL = Capability(
 )
 
 
+COMPUTER_USE = Capability(
+    name="COMPUTER_USE",
+    description=(
+        "Universal semantic computer-use capability: observe the current "
+        "environment, choose safe semantic UI actions and verify results."
+    ),
+)
+
+
 WORD = Capability(
     name="WORD",
     description=(
@@ -37,6 +46,7 @@ def create_default_capability_registry(
     return CapabilityRegistry(
         capabilities=(
             WH_WINDOW,
+            COMPUTER_USE,
             EXCEL,
             WORD,
         )

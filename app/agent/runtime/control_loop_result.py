@@ -28,6 +28,10 @@ from app.agent.runtime.action_step_runtime_state import (
     ActionStepRuntimeState,
 )
 
+from app.agent.runtime.plan_replan_record import (
+    PlanReplanRecord,
+)
+
 from app.agent.runtime.execution_loop_result import (
     ExecutionLoopResult,
 )
@@ -83,6 +87,11 @@ class ControlLoopResult:
 
     failure_records: tuple[
         ActionFailureRecord,
+        ...
+    ] = ()
+
+    replan_records: tuple[
+        PlanReplanRecord,
         ...
     ] = ()
 
@@ -151,6 +160,15 @@ class ControlLoopResult:
             self.step_transitions
         )
 
+
+    @property
+    def replanned_actions(self) -> int:
+        """
+        Number of plan replacements performed after
+        failed verification.
+        """
+
+        return len(self.replan_records)
 
     def get_runtime_state(
         self,

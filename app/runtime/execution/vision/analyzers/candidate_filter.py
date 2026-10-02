@@ -318,6 +318,8 @@ class CandidateFilter:
                         existing.rect,
                     )
                     >= self.config.max_iou
+                    and candidate.parent_contour_index
+                    != existing.contour_index
                 ):
                     duplicate = True
                     break

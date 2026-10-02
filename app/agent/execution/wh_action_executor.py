@@ -394,11 +394,10 @@ class WHActionExecutor(ActionExecutor):
             message=(
                 "Quotation preparation completed."
             ),
-            requires_manual_review=True,
             metadata={
                 "workflow_stage":
                     "quotation",
                 "confirmation_required":
-                    True,
+                    False,
             },
         )

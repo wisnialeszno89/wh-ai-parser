@@ -117,7 +117,7 @@ class AgentPlanner:
         has_dimensions = (
             re.search(
                 r"\b\d{2,5}\s*[x×]\s*\d{2,5}\b",
-                message,
+                message
             )
             is not None
         )
@@ -127,12 +127,70 @@ class AgentPlanner:
             and has_dimensions
         )
 
+    def _extract_click_target(self, message: str) -> str | None:
+        """
+        Extract only the semantic target from an explicit click request.
+
+        The target is intentionally kept as human-readable semantics;
+        no coordinates or low-level GUI commands are produced here.
+        """
+        pattern = re.compile(
+            r"^\s*(?:kliknij|click|naciśnij|nacisnij)\s+"
+            r"(?:(?:w|na)\s+)?"
+            r"(?:(?:przycisk|button)\s+)?"
+            r"(.+?)\s*[.!?]*\s*$",
+            re.IGNORECASE,
+        )
+        match = pattern.match(message)
+        if match is None:
+            return None
+
+        target = match.group(1).strip(" \"'„”«»")
+        if not target:
+            return None
+
+        return target
+
+    def _looks_like_click_request(self, message: str) -> bool:
+        return self._extract_click_target(message) is not None
+
+    def _looks_like_open_new_offer_request(
+        self,
+        message: str,
+    ) -> bool:
+        normalized = " ".join(
+            message.casefold().split()
+        )
+
+        return any(
+            phrase in normalized
+            for phrase in (
+                "otwórz nową ofertę",
+                "otworz nowa oferte",
+                "uruchom nową ofertę",
+                "uruchom nowa oferte",
+                "przejdź do nowej oferty",
+                "przejdz do nowej oferty",
+                "wejdź w nową ofertę",
+                "wejdz w nowa oferte",
+                "otwórz nowa ofertę",
+            )
+        )
+
     def detect_intent(
         self,
         request: AgentRequest,
     ) -> AgentIntent:
 
         message = request.message.lower()
+
+        if (
+            self._looks_like_open_new_offer_request(
+                message
+            )
+            or self._looks_like_click_request(message)
+        ):
+            return AgentIntent.EXECUTE_IN_WH
 
         if request.metadata.get(
             "continuation_of_offer"
@@ -195,6 +253,43 @@ class AgentPlanner:
 
         intent = self.detect_intent(request)
 
+        if intent == AgentIntent.EXECUTE_IN_WH:
+            if self._looks_like_open_new_offer_request(
+                request.message
+            ):
+                target = "NOWA OFERTA"
+            else:
+                target = self._extract_click_target(
+                    request.message
+                )
+
+            if target is None:
+                return ActionPlan(
+                    intent=intent,
+                    confidence=0.0,
+                    requires_manual_review=True,
+                    steps=(),
+                )
+
+            return ActionPlan(
+                intent=intent,
+                confidence=1.0,
+                requires_manual_review=False,
+                steps=(
+                    ActionStep(
+                        index=1,
+                        action=AgentAction(
+                            name="click_screen_element",
+                            description=(
+                                "Click the requested screen element "
+                                "through the controlled GUI executor."
+                            ),
+                            target=target,
+                        ),
+                    ),
+                ),
+            )
+
         if intent == AgentIntent.CREATE_QUOTE:
             return ActionPlan(
                 intent=intent,
@@ -250,7 +345,6 @@ class AgentPlanner:
                                 "Prepare quotation workflow "
                                 "for controlled execution."
                             ),
-                            requires_confirmation=True,
                         ),
                     ),
                 ),
@@ -384,7 +478,7 @@ class AgentPlanner:
                                 "Research current market information."
                             ),
                         ),
-                        ),
+                    ),
                     ActionStep(
                         index=3,
                         action=AgentAction(

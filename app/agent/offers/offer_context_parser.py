@@ -207,7 +207,9 @@ class OfferContextParser:
     ) -> int:
 
         patterns = (
-            r"\b(\d+)\s*(?:x|szt\.?|sztuk|sztuki)\b",
+            r"\bilość\s*[:=]?\s*(\d+)\b",
+            r"\bilo[śs]c\s*[:=]?\s*(\d+)\b",
+            r"\b(\d+)\s*(?:szt\.?|sztuk|sztuki)\b",
             r"\bpotrzebuję\s+(\d+)\b",
             r"\bchcę\s+(\d+)\b",
         )
@@ -358,13 +360,24 @@ class OfferContextParser:
             )
 
         ral_match = re.search(
-            r"\b(?:kolor\s+)?(\d{4})\s+"
+            r"\bkolor\s*[:=]?\s*(\d{4})\b\s*"
             r"(?:od środka|wewnątrz|obustronnie)\b",
             request,
         )
 
         if ral_match:
             return ral_match.group(1)
+
+        generic_match = re.search(
+            r"\bkolor\s*[:=]?\s*"
+            r"(biały|białe|biała|antracyt|czarny|brąz)\b",
+            request,
+        )
+
+        if generic_match:
+            return color_patterns.get(
+                generic_match.group(1)
+            )
 
         return None
 
@@ -399,7 +412,7 @@ class OfferContextParser:
             )
 
         ral_match = re.search(
-            r"\b(?:kolor\s+)?(\d{4})\s+"
+            r"\bkolor\s*[:=]?\s*(\d{4})\b\s*"
             r"(?:z zewnątrz|na zewnątrz|obustronnie)\b",
             request,
         )
@@ -415,7 +428,7 @@ class OfferContextParser:
     ) -> str | None:
 
         match = re.search(
-            r"\b(?:kolor\s+)?(\d{4})\b",
+            r"\bkolor\s*[:=]?\s*(\d{4})\b",
             request,
         )
 

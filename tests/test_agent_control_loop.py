@@ -78,6 +78,10 @@ from app.agent.verification.expectation_resolver import (
     ExpectationResolver,
 )
 
+from app.agent.verification.expected_outcome import (
+    ExpectedOutcome,
+)
+
 from app.agent.verification.outcome_verifier import (
     OutcomeVerifier,
 )
@@ -393,6 +397,7 @@ def test_control_loop_updates_context_perception():
         AgentAction(
             name="test_action",
             description="Test action",
+            requires_environment_observation=True,
         )
     )
 
@@ -410,3 +415,119 @@ def test_control_loop_updates_context_perception():
         context.current_scene
         is not None
     )
+
+
+def test_control_loop_skips_perception_for_logical_actions():
+    environment = create_environment()
+
+    environment_runtime = EnvironmentRuntime(
+        adapter=environment
+    )
+
+    perception_engine = PerceptionEngine()
+
+    executor = SuccessfulExecutor()
+
+    registry = ExecutorRegistry(
+        executors=(executor,)
+    )
+
+    execution_engine = ExecutionEngine(
+        registry
+    )
+
+    verification_loop = VerificationLoop(
+        execution_engine=execution_engine,
+        environment=environment,
+        perception_engine=perception_engine,
+        expectation_resolver=ExpectationResolver(),
+        outcome_verifier=OutcomeVerifier(),
+    )
+
+    loop = AgentControlLoop(
+        environment_runtime=environment_runtime,
+        perception_engine=perception_engine,
+        decision_engine=DecisionEngine(),
+        verification_loop=verification_loop,
+    )
+
+    plan = create_plan(
+        AgentAction(
+            name="analyze_request",
+            description="Analyze request.",
+        ),
+        AgentAction(
+            name="collect_offer_context",
+            description="Collect offer context.",
+        ),
+    )
+
+    result = loop.run(
+        plan,
+        create_context(),
+    )
+
+    assert result.success is True
+    assert environment.observe_count == 0
+
+
+def test_control_loop_refreshes_scene_for_gui_click():
+    environment = create_environment()
+
+    environment_runtime = EnvironmentRuntime(
+        adapter=environment
+    )
+
+    perception_engine = PerceptionEngine()
+
+    executor = SuccessfulExecutor()
+
+    registry = ExecutorRegistry(
+        executors=(executor,)
+    )
+
+    execution_engine = ExecutionEngine(
+        registry
+    )
+
+    verification_loop = VerificationLoop(
+        execution_engine=execution_engine,
+        environment=environment,
+        perception_engine=perception_engine,
+        expectation_resolver=ExpectationResolver(),
+        outcome_verifier=OutcomeVerifier(),
+    )
+
+    loop = AgentControlLoop(
+        environment_runtime=environment_runtime,
+        perception_engine=perception_engine,
+        decision_engine=DecisionEngine(),
+        verification_loop=verification_loop,
+    )
+
+    context = create_context()
+    context.set_value(
+        "expected_outcomes",
+        {
+            "click_screen_element": ExpectedOutcome(
+                description="The click executor completed the requested semantic interaction.",
+            ),
+        },
+    )
+
+    plan = create_plan(
+        AgentAction(
+            name="click_screen_element",
+            description="Click a visible semantic control.",
+            target="NOWA OFERTA",
+        )
+    )
+
+    result = loop.run(
+        plan,
+        context,
+    )
+
+    assert result.success is True
+    assert environment.observe_count == 2
+    assert context.current_scene is not None
