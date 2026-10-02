@@ -9,6 +9,9 @@ from app.agent.planning.agent_action_normalizer import (
 from app.agent.reasoning.reasoning_action import (
     ReasoningAction,
 )
+from app.agent.reasoning.reasoning_action_policy import (
+    NAVIMIND_ALLOWED_ACTIONS,
+)
 from app.agent.reasoning.task_planning_context import (
     TaskPlanningContext,
 )
@@ -117,6 +120,15 @@ class ReasoningTaskPlanner:
         actions = []
 
         for action in proposal.actions:
+            if (
+                action.name.strip()
+                not in NAVIMIND_ALLOWED_ACTIONS
+            ):
+                self.last_failure_reason = (
+                    "action_not_allowed"
+                )
+                return None
+
             if self._is_low_level(action.name):
                 self.last_failure_reason = "low_level_action_name"
                 return None
