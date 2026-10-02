@@ -172,7 +172,10 @@ class AgentRuntime:
                         autonomous=autonomous,
                     )
             if "initial_scene" in str(exc):
-                return self.orchestrator.prepare(request)
+                return self.orchestrator.prepare(
+                    request,
+                    autonomous=autonomous,
+                )
             raise
 
     def run(
@@ -225,6 +228,7 @@ class AgentRuntime:
                     request,
                     initial_scene=None,
                     offer_workflow=None,
+                    autonomous=autonomous,
                 )
 
                 context.set_value(
