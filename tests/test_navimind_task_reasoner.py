@@ -153,6 +153,7 @@ def test_navimind_reasoner_sends_explicit_allowed_actions():
     assert len(
         captured["task"]["constraints"]["allowed_actions"]
     ) > 0
+    assert captured["task"]["constraints"]["research_enabled"] is False
 
 
 def test_navimind_reasoner_rejects_action_outside_local_policy():
