@@ -242,10 +242,13 @@ def main() -> int:
         )
         return 2
 
-    if os.environ.get("AGENT_TASK_REASONING") != "1":
+    if (
+        os.environ.get("NAVIMIND_AGENT_URL", "").strip() == ""
+        and os.environ.get("AGENT_TASK_REASONING") != "1"
+    ):
         print(
-            "ABORTED: Set AGENT_TASK_REASONING=1 to use the "
-            "OpenAI task reasoner."
+            "ABORTED: Configure NAVIMIND_AGENT_URL or set "
+            "AGENT_TASK_REASONING=1 to enable task reasoning."
         )
         return 2
 
