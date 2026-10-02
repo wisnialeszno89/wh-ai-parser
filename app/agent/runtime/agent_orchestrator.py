@@ -12,6 +12,9 @@ from app.agent.capabilities.default_capabilities import (
 from app.agent.planning.agent_planner import (
     AgentPlanner,
 )
+from app.agent.planning.action_plan import (
+    ActionPlan,
+)
 
 from app.agent.runtime.execution_context import (
     AgentExecutionContext,
@@ -130,6 +133,7 @@ class AgentOrchestrator:
         initial_scene: ScreenScene | None = None,
         offer_workflow: dict[str, object] | None = None,
         application_knowledge: dict[str, object] | None = None,
+        autonomous: bool = False,
     ) -> AgentExecutionContext:
         """
         Prepare one agent request for execution.
@@ -154,6 +158,18 @@ class AgentOrchestrator:
         )
 
         intent = deterministic_plan.intent
+
+        # Autonomous computer-use requests must not be blocked by the
+        # deterministic intent keyword classifier. Unknown language is
+        # precisely where model reasoning should take over after observation.
+        if intent == AgentIntent.UNKNOWN and autonomous:
+            intent = AgentIntent.COMPUTER_USE
+            deterministic_plan = ActionPlan(
+                intent=intent,
+                steps=(),
+                confidence=0.0,
+                requires_manual_review=True,
+            )
 
         if intent == AgentIntent.UNKNOWN:
             return AgentExecutionContext(
