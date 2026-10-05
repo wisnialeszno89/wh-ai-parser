@@ -35,11 +35,16 @@ class WindowHubFocusWindowPreparationHandler(
         self,
         *,
         window_provider: Callable[[], object] | None = None,
+        foreground_provider: Callable[[], int] | None = None,
         sleep_seconds: float = 0.15,
     ) -> None:
         self._window_provider = (
             window_provider
             or self._locate_windowhub_window
+        )
+        self._foreground_provider = (
+            foreground_provider
+            or self._foreground_window_handle
         )
         self._sleep_seconds = sleep_seconds
 
@@ -111,7 +116,7 @@ class WindowHubFocusWindowPreparationHandler(
 
         try:
             foreground = int(
-                ctypes.windll.user32.GetForegroundWindow()
+                self._foreground_provider()
             )
         except Exception as exc:
             return EnvironmentPreparationResult(
@@ -134,6 +139,17 @@ class WindowHubFocusWindowPreparationHandler(
                 "foreground_handle": foreground,
                 "focused": focused,
             },
+        )
+
+    @staticmethod
+    def _foreground_window_handle() -> int:
+        if __import__("os").name != "nt":
+            raise RuntimeError(
+                "WindowHub focus verification requires Windows."
+            )
+
+        return int(
+            ctypes.windll.user32.GetForegroundWindow()
         )
 
     @staticmethod
