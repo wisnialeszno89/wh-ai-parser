@@ -64,6 +64,7 @@ def test_registry_lists_all_capabilities():
 
     assert names == {
         "WH_WINDOW",
+        "COMPUTER_USE",
         "EXCEL",
         "WORD",
     }
