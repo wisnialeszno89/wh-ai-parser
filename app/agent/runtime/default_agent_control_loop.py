@@ -61,6 +61,7 @@ def create_default_agent_control_loop(
     execution_engine: ExecutionEngine,
     perception_providers: tuple[PerceptionProvider, ...] = (),
     replanner: PlanReplanner | None = None,
+    environment_preparation_loop=None,
     plan_reasoner: PlanReasoner | None = None,
     max_replans: int = 1,
 ) -> AgentControlLoop:
@@ -100,11 +101,12 @@ def create_default_agent_control_loop(
         )
     )
 
-    environment_preparation_loop = (
-        create_default_environment_preparation_loop(
-            environment=environment
+    if environment_preparation_loop is None:
+        environment_preparation_loop = (
+            create_default_environment_preparation_loop(
+                environment=environment
+            )
         )
-    )
 
     if replanner is None and plan_reasoner is not None:
         replanner = (
