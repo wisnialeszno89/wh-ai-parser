@@ -120,6 +120,25 @@ class EnvironmentReadinessEvaluator:
                 ),
             )
 
+        if requirement.requires_focus:
+            focused = observation.metadata.get("window_focused")
+            if focused is not True:
+                return EnvironmentReadinessResult(
+                    readiness=(
+                        EnvironmentReadiness.PREPARATION_REQUIRED
+                    ),
+                    reason=(
+                        "Required WindowHub window does not "
+                        "have focus."
+                    ),
+                    target_application=(
+                        requirement.application
+                    ),
+                    target_window_title=(
+                        requirement.window_title
+                    ),
+                )
+
         return EnvironmentReadinessResult(
             readiness=EnvironmentReadiness.READY,
             reason=(
