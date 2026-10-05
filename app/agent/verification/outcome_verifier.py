@@ -62,14 +62,17 @@ class OutcomeVerifier:
                     },
                 )
 
+
         if (
             expected.expected_active_application
             is not None
         ):
+
             if (
                 state.active_application
                 != expected.expected_active_application
             ):
+
                 return VerificationResult(
                     verified=False,
                     reason=(
@@ -87,14 +90,17 @@ class OutcomeVerifier:
                     },
                 )
 
+
         if (
             expected.expected_window_title
             is not None
         ):
+
             if (
                 state.active_window_title
                 != expected.expected_window_title
             ):
+
                 return VerificationResult(
                     verified=False,
                     reason=(
@@ -112,19 +118,24 @@ class OutcomeVerifier:
                     },
                 )
 
+
         if (
             expected.expected_element_label
             is not None
         ):
+
             found = scene.find_by_label(
                 expected.expected_element_label
             )
+
             exists = bool(found)
+
 
             if (
                 expected.element_should_exist
                 and not exists
             ):
+
                 return VerificationResult(
                     verified=False,
                     reason=(
@@ -139,10 +150,12 @@ class OutcomeVerifier:
                     },
                 )
 
+
             if (
                 not expected.element_should_exist
                 and exists
             ):
+
                 return VerificationResult(
                     verified=False,
                     reason=(
@@ -157,6 +170,7 @@ class OutcomeVerifier:
                         "found": True,
                     },
                 )
+
 
         if (
             expected.expected_element_current_value
@@ -199,19 +213,24 @@ class OutcomeVerifier:
                     },
                 )
 
+
         if (
             expected.expected_element_kind
             is not None
         ):
+
             elements = scene.elements_of_kind(
                 expected.expected_element_kind
             )
+
             exists = bool(elements)
+
 
             if (
                 expected.element_should_exist
                 and not exists
             ):
+
                 return VerificationResult(
                     verified=False,
                     reason=(
@@ -226,10 +245,12 @@ class OutcomeVerifier:
                     },
                 )
 
+
             if (
                 not expected.element_should_exist
                 and exists
             ):
+
                 return VerificationResult(
                     verified=False,
                     reason=(
@@ -245,6 +266,7 @@ class OutcomeVerifier:
                     },
                 )
 
+
         return VerificationResult(
             verified=True,
             reason=(
@@ -252,6 +274,7 @@ class OutcomeVerifier:
             ),
             confidence=1.0,
         )
+
 
     @staticmethod
     def _current_value(element) -> str | None:
@@ -262,6 +285,7 @@ class OutcomeVerifier:
             return value.strip() or None
 
         return None
+
 
     @staticmethod
     def _scene_signature(
