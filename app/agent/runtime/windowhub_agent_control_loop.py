@@ -79,6 +79,9 @@ def create_windowhub_agent_control_loop(
         environment=environment,
         plan_reasoner=plan_reasoner,
         execution_engine=execution_engine,
+        environment_preparation_loop=(
+            create_default_windowhub_environment_preparation_runtime()
+        ),
         perception_providers=(
             perception_provider,
             WindowHubUIAutomationProvider(),
