@@ -51,6 +51,8 @@ class FakeUIAItem:
         height=80,
         runtime_id=(1, 2, 3),
         value=None,
+        parent=None,
+        class_name="",
     ):
         self.element_info = SimpleNamespace(
             name=name,
@@ -60,7 +62,9 @@ class FakeUIAItem:
             visible=visible,
             runtime_id=runtime_id,
             rich_text=value,
+            class_name=class_name,
         )
+        self._parent = parent
         self._rectangle = SimpleNamespace(
             left=left,
             top=top,
@@ -70,6 +74,9 @@ class FakeUIAItem:
 
     def rectangle(self):
         return self._rectangle
+
+    def parent(self):
+        return self._parent
 
 
 class FakeUIAWindow:
@@ -412,3 +419,34 @@ def test_ui_automation_provider_exposes_current_editor_value():
 
     assert len(elements) == 1
     assert elements[0].metadata["current_value"] == "1230"
+
+
+def test_ui_automation_provider_exposes_bounded_ancestor_context():
+    container = FakeUIAItem(
+        name="Konstrukcja",
+        control_type="Pane",
+        class_name="Afx:Pane",
+    )
+    item = FakeUIAItem(
+        name="Szerokość",
+        control_type="Edit",
+        parent=container,
+    )
+
+    desktop = FakeDesktop(
+        FakeUIAWindow(
+            (item,),
+            title="Okna - WindowHub",
+        )
+    )
+
+    elements = WindowHubUIAutomationProvider(
+        desktop_factory=lambda: desktop,
+    ).perceive(
+        make_observation()
+    )
+
+    assert len(elements) == 1
+    assert elements[0].metadata["uia_ancestor_context"] == (
+        ("Pane", "Afx:Pane", "Konstrukcja"),
+    )
