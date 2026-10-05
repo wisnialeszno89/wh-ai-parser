@@ -20,6 +20,8 @@ class ExpectedOutcome:
 
     element_should_exist: bool = True
 
+    expected_element_current_value: str | None = None
+
     expected_active_application: str | None = None
 
     expected_window_title: str | None = None
