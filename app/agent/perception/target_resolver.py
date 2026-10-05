@@ -11,8 +11,11 @@ class TargetResolution:
     """
 
     resolved: bool
+
     element: ScreenElement | None = None
+
     reason: str = ""
+
     score: float = 0.0
 
 
@@ -138,6 +141,7 @@ class TargetResolver:
         element: ScreenElement,
         target: str,
     ) -> bool:
+
         metadata = element.metadata
 
         if not metadata:
@@ -152,6 +156,7 @@ class TargetResolver:
             "role",
         ):
             value = metadata.get(key)
+
             if (
                 isinstance(value, str)
                 and value.casefold() == target
