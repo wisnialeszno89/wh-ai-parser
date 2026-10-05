@@ -434,3 +434,72 @@ def test_click_verification_failure_never_retries_physical_action():
     assert result.requires_manual_review is True
     assert len(result.attempts) == 1
     # The action executes before the first observe/perceive cycle, so the\n    # initial runtime value is still absent. The important invariant is\n    # that the physical click is not retried after failed verification.\n    assert executor.seen_generations == [None]
+
+
+class DryRunAwareExecutor:
+    def supports(self, action: AgentAction) -> bool:
+        return True
+
+    def execute(
+        self,
+        action: AgentAction,
+        context: ExecutionContext,
+    ) -> ExecutionResult:
+        return ExecutionResult(
+            action_name=action.name,
+            success=True,
+            message="DRY_RUN action; hardware not touched",
+            metadata={"executed": False},
+        )
+
+
+class VerificationMustNotRun:
+    def resolve(
+        self,
+        action: AgentAction,
+        context: ExecutionContext,
+    ) -> ExpectedOutcome:
+        return ExpectedOutcome(
+            description="This would require a real environment.",
+            expected_element_label="Szerokość",
+            expected_element_current_value="1230",
+        )
+
+
+class VerificationExploder:
+    def verify(
+        self,
+        expected: ExpectedOutcome,
+        scene: ScreenScene,
+    ) -> VerificationResult:
+        raise AssertionError(
+            "Verification must be skipped when execution did not occur."
+        )
+
+
+def test_dry_run_success_skips_environment_verification():
+    registry = ExecutorRegistry(
+        executors=(DryRunAwareExecutor(),)
+    )
+
+    environment = FakeEnvironment(
+        state=create_observation().state
+    )
+
+    loop = VerificationLoop(
+        execution_engine=ExecutionEngine(registry),
+        environment=environment,
+        perception_engine=PerceptionEngine(),
+        expectation_resolver=VerificationMustNotRun(),
+        outcome_verifier=VerificationExploder(),
+    )
+
+    result = loop.run(
+        create_action(),
+        create_context(),
+    )
+
+    assert result.success is True
+    assert result.stopped is False
+    assert result.last_attempt is not None
+    assert result.last_attempt.verification_result is None

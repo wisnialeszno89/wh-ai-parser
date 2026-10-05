@@ -315,3 +315,63 @@ def test_verifier_accepts_changed_scene_when_change_is_required():
     )
 
     assert result.verified is True
+
+
+def test_verifier_accepts_expected_current_value():
+    verifier = OutcomeVerifier()
+
+    field = ScreenElement(
+        kind="edit",
+        label="Szerokość",
+        metadata={
+            "current_value": "1230",
+        },
+    )
+
+    scene = create_scene(
+        elements=(field,)
+    )
+
+    expected = ExpectedOutcome(
+        description="Width should contain 1230.",
+        expected_element_label="Szerokość",
+        expected_element_current_value="1230",
+    )
+
+    result = verifier.verify(
+        expected,
+        scene,
+    )
+
+    assert result.verified is True
+
+
+def test_verifier_rejects_unexpected_current_value():
+    verifier = OutcomeVerifier()
+
+    field = ScreenElement(
+        kind="edit",
+        label="Szerokość",
+        metadata={
+            "current_value": "1240",
+        },
+    )
+
+    scene = create_scene(
+        elements=(field,)
+    )
+
+    expected = ExpectedOutcome(
+        description="Width should contain 1230.",
+        expected_element_label="Szerokość",
+        expected_element_current_value="1230",
+    )
+
+    result = verifier.verify(
+        expected,
+        scene,
+    )
+
+    assert result.verified is False
+    assert result.metadata is not None
+    assert result.metadata["actual_value"] == "1240"

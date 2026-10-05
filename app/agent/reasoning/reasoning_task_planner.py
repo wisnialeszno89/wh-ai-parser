@@ -271,6 +271,7 @@ class ReasoningTaskPlanner:
                 for key in (
                     "name",
                     "semantic_label",
+                    "semantic_name",
                     "description",
                     "role",
                 )

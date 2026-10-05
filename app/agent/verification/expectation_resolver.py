@@ -88,29 +88,54 @@ class ExpectationResolver:
 
         GUI clicks receive a conservative default expectation:
         the semantic screen scene must change after the click.
-        This intentionally avoids assuming that the clicked control
-        must disappear.
+        Text entry receives a stronger semantic verification:
+        the targeted field should expose the requested value after
+        execution.
 
         Abstract and other actions remain unverified by default.
         """
 
-        if action.name != "click_screen_element":
+        if context.current_scene is None:
             return None
 
-        scene = context.current_scene
-        if scene is None:
-            return None
+        if action.name == "click_screen_element":
+            return ExpectedOutcome(
+                description=(
+                    "The semantic screen scene should change "
+                    "after the GUI click."
+                ),
+                require_scene_change=True,
+                baseline_scene_signature=(
+                    self._scene_signature(context.current_scene)
+                ),
+            )
 
-        return ExpectedOutcome(
-            description=(
-                "The semantic screen scene should change "
-                "after the GUI click."
-            ),
-            require_scene_change=True,
-            baseline_scene_signature=(
-                self._scene_signature(scene)
-            ),
-        )
+        if action.name == "write_text":
+            target = (
+                action.target.strip()
+                if isinstance(action.target, str)
+                else None
+            )
+            value = (
+                action.value
+                if isinstance(action.value, str)
+                else None
+            )
+
+            if not target or not value:
+                return None
+
+            return ExpectedOutcome(
+                description=(
+                    "The targeted semantic field should contain "
+                    "the requested text after execution."
+                ),
+                expected_element_label=target,
+                element_should_exist=True,
+                expected_element_current_value=value,
+            )
+
+        return None
 
     @staticmethod
     def _scene_signature(

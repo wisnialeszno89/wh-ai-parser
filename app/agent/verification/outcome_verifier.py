@@ -25,6 +25,7 @@ class OutcomeVerifier:
     - active window title
     - expected element existence
     - expected element disappearance
+    - expected element current value
     """
 
     def verify(
@@ -172,6 +173,48 @@ class OutcomeVerifier:
 
 
         if (
+            expected.expected_element_current_value
+            is not None
+            and expected.expected_element_label
+            is not None
+        ):
+            found = scene.find_by_label(
+                expected.expected_element_label
+            )
+
+            if not found:
+                return VerificationResult(
+                    verified=False,
+                    reason=(
+                        "Expected value could not be checked "
+                        "because the target element was not found."
+                    ),
+                    confidence=0.9,
+                )
+
+            actual_value = self._current_value(found[0])
+
+            if actual_value != expected.expected_element_current_value:
+                return VerificationResult(
+                    verified=False,
+                    reason=(
+                        "Targeted semantic field does not contain "
+                        "the expected value."
+                    ),
+                    confidence=0.95,
+                    metadata={
+                        "expected_label": (
+                            expected.expected_element_label
+                        ),
+                        "expected_value": (
+                            expected.expected_element_current_value
+                        ),
+                        "actual_value": actual_value,
+                    },
+                )
+
+
+        if (
             expected.expected_element_kind
             is not None
         ):
@@ -231,6 +274,17 @@ class OutcomeVerifier:
             ),
             confidence=1.0,
         )
+
+
+    @staticmethod
+    def _current_value(element) -> str | None:
+        metadata = element.metadata or {}
+
+        value = metadata.get("current_value")
+        if isinstance(value, str):
+            return value.strip() or None
+
+        return None
 
 
     @staticmethod

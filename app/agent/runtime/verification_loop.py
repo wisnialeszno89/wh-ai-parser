@@ -96,29 +96,38 @@ class VerificationLoop:
                 execution_result.success
                 and expected_outcome is not None
             ):
+                execution_was_performed = (
+                    execution_result.metadata or {}
+                ).get("executed")
 
-                observation = (
-                    self.environment.observe()
-                )
+                # A DRY_RUN action may legitimately report success while
+                # explicitly stating that no hardware interaction occurred.
+                # In that case the real environment cannot prove the expected
+                # post-action state, so verification must not manufacture a
+                # failure from the unchanged dry-run scene.
+                if execution_was_performed is not False:
+                    observation = (
+                        self.environment.observe()
+                    )
 
-                context.update_observation(
-                    observation
-                )
-
-                scene = (
-                    self.perception_engine.perceive(
+                    context.update_observation(
                         observation
                     )
-                )
 
-                context.update_scene(scene)
-
-                verification_result = (
-                    self.outcome_verifier.verify(
-                        expected_outcome,
-                        scene,
+                    scene = (
+                        self.perception_engine.perceive(
+                            observation
+                        )
                     )
-                )
+
+                    context.update_scene(scene)
+
+                    verification_result = (
+                        self.outcome_verifier.verify(
+                            expected_outcome,
+                            scene,
+                        )
+                    )
 
             attempt = ExecutionAttempt(
                 action=action,

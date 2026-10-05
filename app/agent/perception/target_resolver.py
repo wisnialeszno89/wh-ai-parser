@@ -151,6 +151,7 @@ class TargetResolver:
             "name",
             "label",
             "semantic_label",
+            "semantic_name",
             "description",
             "role",
         ):
