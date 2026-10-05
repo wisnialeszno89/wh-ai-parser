@@ -324,6 +324,7 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
 
         current_value = self._current_control_value(item)
         ancestor_context = self._ancestor_context(item)
+        document_scope = self._document_scope(item)
         tab_scope = (
             self._tab_scope(item)
             if control_type == "tabitem"
@@ -345,6 +346,7 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
             # Structural UIA context is observational evidence only. It is
             # deliberately not treated as a document scope by itself.
             "uia_ancestor_context": ancestor_context,
+            "document_scope": document_scope,
             "automation_id": automation_id,
             "uia_control_type": control_type,
             "uia_enabled": enabled,
@@ -438,6 +440,66 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
             )
 
         return tuple(context)
+
+    @staticmethod
+    def _document_scope(item) -> str | None:
+        """
+        Return a document tab name only when UIA proves that the element
+        is structurally contained by a WindowHub document tab.
+
+        This is intentionally narrower than generic ancestor inspection:
+        the candidate tab must itself be a TabItem whose parent is the
+        WindowHub Afx:TabWnd host. If that relationship is absent, scope
+        remains unknown.
+        """
+        current = item
+
+        for _ in range(12):
+            parent_getter = getattr(current, "parent", None)
+            if not callable(parent_getter):
+                return None
+
+            try:
+                current = parent_getter()
+            except Exception:
+                return None
+
+            if current is None:
+                return None
+
+            try:
+                element_info = current.element_info
+                control_type = str(
+                    getattr(element_info, "control_type", "")
+                ).strip().casefold()
+                name = WindowHubUIAutomationProvider._string(
+                    getattr(element_info, "name", None)
+                )
+            except Exception:
+                return None
+
+            if control_type != "tabitem" or not name:
+                continue
+
+            try:
+                host = current.parent()
+                host_info = host.element_info
+                host_control_type = str(
+                    getattr(host_info, "control_type", "")
+                ).strip().casefold()
+                host_class_name = str(
+                    getattr(host_info, "class_name", "")
+                ).strip().casefold()
+            except Exception:
+                continue
+
+            if (
+                host_control_type == "tab"
+                and "afxtabwnd" in host_class_name.replace(":", "")
+            ):
+                return name
+
+        return None
 
     @staticmethod
     def _tab_scope(item) -> str | None:
