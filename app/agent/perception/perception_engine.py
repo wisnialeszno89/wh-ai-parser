@@ -38,6 +38,42 @@ class PerceptionEngine:
             else ScreenElementFusion()
         )
 
+    @staticmethod
+    def _resolve_active_document(elements):
+        document_tabs = tuple(
+            element
+            for element in elements
+            if (
+                element.kind.casefold() == "tabitem"
+                and isinstance(element.metadata, dict)
+                and element.metadata.get("uia_tab_scope") == "document"
+            )
+        )
+
+        selected_documents = tuple(
+            element.label.strip()
+            for element in document_tabs
+            if (
+                isinstance(element.label, str)
+                and element.label.strip()
+                and element.metadata.get(
+                    "uia_document_tab_selected"
+                ) is True
+            )
+        )
+
+        active_document = (
+            selected_documents[0]
+            if len(selected_documents) == 1
+            else None
+        )
+
+        return (
+            active_document,
+            len(document_tabs),
+            len(selected_documents),
+        )
+
     def perceive(
         self,
         observation: EnvironmentObservation,
@@ -63,6 +99,26 @@ class PerceptionEngine:
         )
         scene_metadata["merged_group_count"] = (
             fusion_result.merged_group_count
+        )
+
+        active_document, document_tab_count, selected_document_count = (
+            self._resolve_active_document(
+                fusion_result.elements,
+            )
+        )
+        scene_metadata["active_document"] = active_document
+        scene_metadata["document_tab_count"] = document_tab_count
+        scene_metadata["selected_document_tab_count"] = (
+            selected_document_count
+        )
+        scene_metadata["active_document_resolution"] = (
+            "resolved"
+            if selected_document_count == 1
+            else (
+                "not_observed"
+                if document_tab_count == 0
+                else "unresolved"
+            )
         )
 
         return ScreenScene(
