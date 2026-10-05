@@ -25,8 +25,9 @@ class DefaultActionFailurePolicy(
     """
     Conservative default failure policy.
 
-    The runtime must never silently continue after a failure
-    unless a more specific policy explicitly allows it.
+    The runtime never silently continues after a failure unless the
+    action explicitly allows skipping. Recovery/replanning is handled
+    before this policy is consulted.
     """
 
     def decide(
@@ -36,9 +37,16 @@ class DefaultActionFailurePolicy(
         context: ExecutionContext,
     ) -> ActionFailureDecision:
 
+        # A safety/manual-review condition must never be bypassed by
+        # the optional-action mechanism.
         if result.requires_manual_review:
             return (
                 ActionFailureDecision.MANUAL_REVIEW
+            )
+
+        if action.allow_skip_on_failure:
+            return (
+                ActionFailureDecision.SKIP
             )
 
         if result.stopped:
