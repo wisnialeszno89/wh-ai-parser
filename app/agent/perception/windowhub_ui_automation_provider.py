@@ -323,6 +323,11 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
         ]
 
         current_value = self._current_control_value(item)
+        selected = (
+            self._selection_state(item)
+            if control_type == "tabitem"
+            else None
+        )
 
         metadata = {
             "source": "windowhub_ui_automation",
@@ -336,6 +341,7 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
             "uia_enabled": enabled,
             "uia_visible": visible,
             "uia_runtime_id": runtime_id,
+            "uia_selected": selected,
             "correlation": (
                 "unique_visual_center_inside_uia_bounds"
                 if tracked_id
@@ -363,6 +369,39 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
         )
 
 
+
+    @staticmethod
+    def _selection_state(item) -> bool | None:
+        """
+        Read SelectionItemPattern state for selectable UIA controls.
+
+        WindowHub exposes document tabs through TabItem controls. The
+        selection state is observed from UIA rather than inferred from
+        position, styling, or window title.
+        """
+        try:
+            iface = getattr(item, "iface_selection_item", None)
+            if iface is not None:
+                return bool(iface.CurrentIsSelected)
+        except Exception:
+            pass
+
+        try:
+            properties = item.get_properties()
+        except Exception:
+            properties = {}
+
+        if isinstance(properties, dict):
+            for key in (
+                "is_selected",
+                "selection_item_is_selected",
+                "selected",
+            ):
+                value = properties.get(key)
+                if isinstance(value, bool):
+                    return value
+
+        return None
 
     @staticmethod
     def _current_control_value(item) -> str | None:
