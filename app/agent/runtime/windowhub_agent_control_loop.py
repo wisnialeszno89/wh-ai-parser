@@ -32,6 +32,10 @@ from app.agent.environment.windowhub_environment_adapter import (
     WindowHubEnvironmentAdapter,
 )
 
+from app.agent.environment.default_windowhub_environment_preparation_loop import (
+    create_default_windowhub_environment_preparation_loop,
+)
+
 from app.agent.perception.windowhub_vision_provider import (
     WindowHubVisionProvider,
 )
