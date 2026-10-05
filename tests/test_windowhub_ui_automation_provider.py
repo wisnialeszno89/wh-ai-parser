@@ -421,6 +421,69 @@ def test_ui_automation_provider_exposes_current_editor_value():
     assert elements[0].metadata["current_value"] == "1230"
 
 
+def test_ui_automation_provider_exposes_explicit_document_scope():
+    tab_host = FakeUIAItem(
+        name="",
+        control_type="Tab",
+        class_name="Afx:TabWnd",
+    )
+    document_tab = FakeUIAItem(
+        name="OFR/4024",
+        control_type="TabItem",
+        parent=tab_host,
+    )
+    item = FakeUIAItem(
+        name="Szerokość",
+        control_type="Edit",
+        parent=document_tab,
+    )
+
+    desktop = FakeDesktop(
+        FakeUIAWindow(
+            (item,),
+            title="Okna - WindowHub",
+        )
+    )
+
+    elements = WindowHubUIAutomationProvider(
+        desktop_factory=lambda: desktop,
+    ).perceive(
+        make_observation()
+    )
+
+    assert len(elements) == 1
+    assert elements[0].metadata["document_scope"] == "OFR/4024"
+
+
+def test_ui_automation_provider_leaves_document_scope_unknown_without_tab_ancestry():
+    container = FakeUIAItem(
+        name="Konstrukcja",
+        control_type="Pane",
+        class_name="Afx:Pane",
+    )
+    item = FakeUIAItem(
+        name="Szerokość",
+        control_type="Edit",
+        parent=container,
+    )
+
+    desktop = FakeDesktop(
+        FakeUIAWindow(
+            (item,),
+            title="Okna - WindowHub",
+        )
+    )
+
+    elements = WindowHubUIAutomationProvider(
+        desktop_factory=lambda: desktop,
+    ).perceive(
+        make_observation()
+    )
+
+    assert len(elements) == 1
+    assert elements[0].metadata["document_scope"] is None
+
+
 def test_ui_automation_provider_exposes_bounded_ancestor_context():
     container = FakeUIAItem(
         name="Konstrukcja",
