@@ -323,6 +323,7 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
         ]
 
         current_value = self._current_control_value(item)
+        ancestor_context = self._ancestor_context(item)
         tab_scope = (
             self._tab_scope(item)
             if control_type == "tabitem"
@@ -341,6 +342,9 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
             "name": name,
             "semantic_label_source": semantic_source,
             "current_value": current_value,
+            # Structural UIA context is observational evidence only. It is
+            # deliberately not treated as a document scope by itself.
+            "uia_ancestor_context": ancestor_context,
             "automation_id": automation_id,
             "uia_control_type": control_type,
             "uia_enabled": enabled,
@@ -380,6 +384,60 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
         )
 
 
+
+    @staticmethod
+    def _ancestor_context(
+        item,
+        *,
+        max_depth: int = 8,
+    ) -> tuple[tuple[str | None, str | None, str | None], ...]:
+        """
+        Capture a bounded semantic UIA ancestry path.
+
+        This is observational context for reasoning, diagnostics and later
+        scope inference. It must not by itself authorize a document scope,
+        because WindowHub's document content may not be a direct child of
+        its document tab control.
+        """
+        context = []
+        current = item
+
+        for _ in range(max_depth):
+            parent_getter = getattr(current, "parent", None)
+            if not callable(parent_getter):
+                break
+
+            try:
+                current = parent_getter()
+            except Exception:
+                break
+
+            if current is None:
+                break
+
+            try:
+                element_info = current.element_info
+                control_type = WindowHubUIAutomationProvider._string(
+                    getattr(element_info, "control_type", None)
+                )
+                class_name = WindowHubUIAutomationProvider._string(
+                    getattr(element_info, "class_name", None)
+                )
+                name = WindowHubUIAutomationProvider._string(
+                    getattr(element_info, "name", None)
+                )
+            except Exception:
+                break
+
+            context.append(
+                (
+                    control_type,
+                    class_name,
+                    name,
+                )
+            )
+
+        return tuple(context)
 
     @staticmethod
     def _tab_scope(item) -> str | None:
