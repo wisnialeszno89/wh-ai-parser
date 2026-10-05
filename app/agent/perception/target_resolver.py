@@ -86,22 +86,14 @@ class TargetResolver:
             )
         ]
 
-        if len(exact) == 1:
-            return TargetResolution(
-                resolved=True,
-                element=exact[0],
-                reason="Exact screen element label match.",
-                score=1.0,
-            )
+        exact_resolution = self._resolve_scoped_candidates(
+            scene=scene,
+            candidates=exact,
+            match_reason="Exact screen element label match.",
+        )
 
-        if len(exact) > 1:
-            return TargetResolution(
-                resolved=False,
-                reason=(
-                    "Multiple screen elements matched the target "
-                    "exactly."
-                ),
-            )
+        if exact_resolution is not None:
+            return exact_resolution
 
         semantic = [
             element
@@ -112,22 +104,15 @@ class TargetResolver:
             )
         ]
 
-        if len(semantic) == 1:
-            return TargetResolution(
-                resolved=True,
-                element=semantic[0],
-                reason="Semantic metadata match.",
-                score=0.8,
-            )
+        semantic_resolution = self._resolve_scoped_candidates(
+            scene=scene,
+            candidates=semantic,
+            match_reason="Semantic metadata match.",
+            score=0.8,
+        )
 
-        if len(semantic) > 1:
-            return TargetResolution(
-                resolved=False,
-                reason=(
-                    "Multiple screen elements matched the target "
-                    "through metadata."
-                ),
-            )
+        if semantic_resolution is not None:
+            return semantic_resolution
 
         return TargetResolution(
             resolved=False,
@@ -135,6 +120,91 @@ class TargetResolver:
                 "No visible screen element matched the target."
             ),
         )
+
+    @classmethod
+    def _resolve_scoped_candidates(
+        cls,
+        *,
+        scene: ScreenScene,
+        candidates: list[ScreenElement],
+        match_reason: str,
+        score: float = 1.0,
+    ) -> TargetResolution | None:
+        """
+        Resolve candidates with the scene's active document context.
+
+        Scope is applied only when the scene has a resolved active document.
+        An element is eligible for scoped resolution only when it carries an
+        explicit document_scope equal to that active document.
+
+        Missing scope evidence never becomes a guess.
+        """
+        if not candidates:
+            return None
+
+        active_document = scene.active_document
+
+        if active_document is None:
+            if len(candidates) == 1:
+                return TargetResolution(
+                    resolved=True,
+                    element=candidates[0],
+                    reason=match_reason,
+                    score=score,
+                )
+
+            return TargetResolution(
+                resolved=False,
+                reason=(
+                    "Multiple screen elements matched the target, but "
+                    "the active document is not reliably resolved."
+                ),
+            )
+
+        scoped = [
+            element
+            for element in candidates
+            if cls._document_scope(element) == active_document
+        ]
+
+        if len(scoped) == 1:
+            return TargetResolution(
+                resolved=True,
+                element=scoped[0],
+                reason=(
+                    f"{match_reason} Active document scope "
+                    f"'{active_document}' matched."
+                ),
+                score=score,
+            )
+
+        if len(scoped) > 1:
+            return TargetResolution(
+                resolved=False,
+                reason=(
+                    "Multiple screen elements matched the target "
+                    f"inside active document '{active_document}'."
+                ),
+            )
+
+        return TargetResolution(
+            resolved=False,
+            reason=(
+                f"Target matched outside active document "
+                f"'{active_document}', or no explicit document scope "
+                "was observed."
+            ),
+        )
+
+    @staticmethod
+    def _document_scope(element: ScreenElement) -> str | None:
+        metadata = element.metadata or {}
+        value = metadata.get("document_scope")
+
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+
+        return None
 
     @staticmethod
     def _matches_metadata(
