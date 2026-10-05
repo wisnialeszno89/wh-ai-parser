@@ -109,3 +109,58 @@ def test_default_policy_stops_when_execution_stopped():
         decision
         == ActionFailureDecision.STOP
     )
+
+
+def test_default_policy_skips_explicitly_optional_action():
+
+    policy = (
+        DefaultActionFailurePolicy()
+    )
+
+    result = ExecutionLoopResult(
+        attempts=(),
+        success=False,
+    )
+
+    decision = policy.decide(
+        AgentAction(
+            name="optional_action",
+            description="Optional",
+            allow_skip_on_failure=True,
+        ),
+        result,
+        create_context(),
+    )
+
+    assert (
+        decision
+        == ActionFailureDecision.SKIP
+    )
+
+
+def test_default_policy_does_not_skip_optional_action_when_manual_review_is_required():
+
+    policy = (
+        DefaultActionFailurePolicy()
+    )
+
+    result = ExecutionLoopResult(
+        attempts=(),
+        success=False,
+        requires_manual_review=True,
+    )
+
+    decision = policy.decide(
+        AgentAction(
+            name="optional_action",
+            description="Optional",
+            allow_skip_on_failure=True,
+        ),
+        result,
+        create_context(),
+    )
+
+    assert (
+        decision
+        == ActionFailureDecision.MANUAL_REVIEW
+    )
