@@ -28,6 +28,14 @@ class ScreenScene:
         default_factory=dict
     )
 
+    @property
+    def active_document(self) -> str | None:
+        """Return the semantically selected WindowHub document, when resolved."""
+        value = self.metadata.get("active_document")
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+        return None
+
     def elements_of_kind(
         self,
         kind: str,
