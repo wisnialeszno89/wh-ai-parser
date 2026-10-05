@@ -63,9 +63,15 @@ class ReasoningTaskPlanner:
         context: TaskPlanningContext,
     ) -> ActionPlan | None:
         self.last_failure_reason = None
+
         proposal = self.reasoner.reason(context)
         self.last_proposal = proposal
-        reasoner_error = getattr(self.reasoner, "last_error", None)
+
+        reasoner_error = getattr(
+            self.reasoner,
+            "last_error",
+            None,
+        )
 
         if proposal is None:
             self.last_failure_reason = (
@@ -75,16 +81,21 @@ class ReasoningTaskPlanner:
             return None
 
         status = proposal.status.strip().casefold()
+
         if status not in {"continue", "done"}:
             self.last_failure_reason = "invalid_proposal_status"
             return None
 
         if proposal.requires_manual_review:
-            self.last_failure_reason = "provider_requested_manual_review"
+            self.last_failure_reason = (
+                "provider_requested_manual_review"
+            )
             return None
 
         if not 0.0 <= proposal.confidence <= 1.0:
-            self.last_failure_reason = "invalid_confidence"
+            self.last_failure_reason = (
+                "invalid_confidence"
+            )
             return None
 
         if status == "done":
@@ -101,14 +112,21 @@ class ReasoningTaskPlanner:
             )
 
         if not proposal.actions:
-            self.last_failure_reason = "proposal_contains_no_actions"
+            self.last_failure_reason = (
+                "proposal_contains_no_actions"
+            )
             return None
 
         actions = []
 
         for action in proposal.actions:
-            if action.name.strip() not in NAVIMIND_ALLOWED_ACTIONS:
-                self.last_failure_reason = "action_not_allowed"
+            if (
+                action.name.strip()
+                not in NAVIMIND_ALLOWED_ACTIONS
+            ):
+                self.last_failure_reason = (
+                    "action_not_allowed"
+                )
                 return None
 
             if self._is_low_level(action.name):
@@ -140,7 +158,10 @@ class ReasoningTaskPlanner:
                 self.last_failure_reason = "target_not_visible_in_scene"
                 return None
 
-            if self._is_forbidden_offer_continuation_action(action, context):
+            if self._is_forbidden_offer_continuation_action(
+                action,
+                context,
+            ):
                 self.last_failure_reason = "forbidden_offer_continuation_action"
                 return None
 
@@ -161,12 +182,17 @@ class ReasoningTaskPlanner:
                 AgentAction(
                     name=action.name,
                     description=action.description,
-                    requires_confirmation=action.requires_confirmation,
+                    requires_confirmation=(
+                        action.requires_confirmation
+                    ),
                     target=action.target,
                     value=action.value,
                 )
             )
-            actions.append(normalized_action)
+
+            actions.append(
+                normalized_action
+            )
 
         return ActionPlan(
             intent=AgentIntent(context.intent),
@@ -175,11 +201,15 @@ class ReasoningTaskPlanner:
                     index=index,
                     action=action,
                 )
-                for index, action in enumerate(actions, start=1)
+                for index, action in enumerate(
+                    actions,
+                    start=1,
+                )
             ),
             confidence=proposal.confidence,
             requires_manual_review=False,
         )
+
 
     @staticmethod
     def _is_forbidden_offer_continuation_action(
@@ -189,7 +219,8 @@ class ReasoningTaskPlanner:
         workflow = context.offer_workflow or {}
 
         if (
-            workflow.get("workflow_state") != "ready_for_pricing"
+            workflow.get("workflow_state")
+            != "ready_for_pricing"
             or not workflow.get("continuation_of_offer")
         ):
             return False
@@ -203,12 +234,23 @@ class ReasoningTaskPlanner:
             else ""
         )
 
-        return target in {"nowa oferta", "nowa_oferta"}
+        return target in {
+            "nowa oferta",
+            "nowa_oferta",
+        }
 
     @classmethod
-    def _is_low_level(cls, value: str) -> bool:
+    def _is_low_level(
+        cls,
+        value: str,
+    ) -> bool:
         normalized = value.strip().casefold()
-        return any(term in normalized for term in cls._FORBIDDEN_LOW_LEVEL_TERMS)
+
+        return any(
+            term in normalized
+            for term in cls._FORBIDDEN_LOW_LEVEL_TERMS
+        )
+
 
     @staticmethod
     def _matches_visible_semantic_target(
@@ -222,6 +264,7 @@ class ReasoningTaskPlanner:
 
         for element in scene.elements:
             values = [element.label]
+
             metadata = element.metadata or {}
             values.extend(
                 metadata.get(key)
@@ -237,15 +280,18 @@ class ReasoningTaskPlanner:
             for value in values:
                 if (
                     isinstance(value, str)
-                    and value.strip().casefold() == normalized
+                    and value.strip().casefold()
+                    == normalized
                 ):
                     return True
 
         return False
 
+
     @staticmethod
     def _is_technical_target(value: str) -> bool:
         normalized = value.strip().casefold()
+
         if not normalized:
             return False
 
@@ -259,4 +305,5 @@ class ReasoningTaskPlanner:
             "tracked_object:",
             "tracked_object_id=",
         )
+
         return normalized.startswith(prefixes)
