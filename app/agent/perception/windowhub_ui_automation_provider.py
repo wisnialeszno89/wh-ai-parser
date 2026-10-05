@@ -323,9 +323,14 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
         ]
 
         current_value = self._current_control_value(item)
+        tab_scope = (
+            self._tab_scope(item)
+            if control_type == "tabitem"
+            else None
+        )
         selected = (
             self._selection_state(item)
-            if control_type == "tabitem"
+            if tab_scope == "document"
             else None
         )
 
@@ -342,6 +347,12 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
             "uia_visible": visible,
             "uia_runtime_id": runtime_id,
             "uia_selected": selected,
+            "uia_tab_scope": tab_scope,
+            "uia_document_tab_selected": (
+                selected
+                if tab_scope == "document"
+                else None
+            ),
             "correlation": (
                 "unique_visual_center_inside_uia_bounds"
                 if tracked_id
@@ -369,6 +380,52 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
         )
 
 
+
+    @staticmethod
+    def _tab_scope(item) -> str | None:
+        """
+        Distinguish WindowHub document tabs from nested tabs such as
+        the per-document "Notatka" tab.
+
+        WindowHub exposes document tabs under an MDI tab host with the
+        "Afx:TabWnd" class, while nested tabs use standard SysTabControl32.
+        """
+        try:
+            parent = item.parent()
+        except Exception:
+            return None
+
+        if parent is None:
+            return None
+
+        try:
+            control_type = str(
+                getattr(
+                    parent.element_info,
+                    "control_type",
+                    "",
+                )
+            ).strip().casefold()
+            class_name = str(
+                getattr(
+                    parent.element_info,
+                    "class_name",
+                    "",
+                )
+            ).strip().casefold()
+        except Exception:
+            return None
+
+        if control_type != "tab":
+            return None
+
+        if "afxtabwnd" in class_name.replace(":", ""):
+            return "document"
+
+        if "systabcontrol32" in class_name:
+            return "nested"
+
+        return "other"
 
     @staticmethod
     def _selection_state(item) -> bool | None:
