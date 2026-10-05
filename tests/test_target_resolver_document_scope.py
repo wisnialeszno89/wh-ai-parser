@@ -48,7 +48,7 @@ def test_resolver_prefers_matching_active_document_scope():
 
     assert result.resolved is True
     assert result.element is active
-    assert "active document scope" in result.reason
+    assert "Active document scope" in result.reason
 
 
 def test_resolver_rejects_duplicate_target_without_explicit_scope():
