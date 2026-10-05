@@ -23,4 +23,10 @@ jobs:
 
       - name: Run knowledge and NaviMind bridge tests
         run: |
-          pytest -q tests/test_knowledge_context.py tests/test_navimind_task_reasoner.py tests/test_autonomous_agent_runtime.py
+          pytest -q \
+            tests/test_knowledge_context.py \
+            tests/test_navimind_task_reasoner.py \
+            tests/test_autonomous_agent_runtime.py \
+            tests/test_windowhub_ui_automation_provider.py \
+            tests/test_windowhub_tab_selection.py \
+            tests/test_active_document_context.py
