@@ -36,3 +36,8 @@ class AgentAction:
     # environment observe → perceive cycle. GUI actions set this flag or
     # are recognized explicitly by the control loop.
     requires_environment_observation: bool = False
+
+    # Some actions are useful but not required for the task to continue.
+    # Recovery/replanning still happens first; only after those mechanisms
+    # fail may the failure policy choose to skip such an action.
+    allow_skip_on_failure: bool = False
