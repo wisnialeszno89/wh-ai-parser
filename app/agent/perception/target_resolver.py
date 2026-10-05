@@ -187,12 +187,32 @@ class TargetResolver:
                 ),
             )
 
+        # A unique candidate without explicit scope remains safe to resolve:
+        # there is no competing element to distinguish. Scope becomes a
+        # mandatory discriminator only when multiple candidates exist.
+        unscoped = [
+            element
+            for element in candidates
+            if cls._document_scope(element) is None
+        ]
+
+        if len(candidates) == 1 and len(unscoped) == 1:
+            return TargetResolution(
+                resolved=True,
+                element=unscoped[0],
+                reason=(
+                    f"{match_reason} No competing target required "
+                    "document scope."
+                ),
+                score=score,
+            )
+
         return TargetResolution(
             resolved=False,
             reason=(
                 f"Target matched outside active document "
                 f"'{active_document}', or no explicit document scope "
-                "was observed."
+                "was observed for a competing target."
             ),
         )
 
