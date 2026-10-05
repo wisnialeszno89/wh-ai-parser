@@ -84,7 +84,11 @@ class RobotGUIExecutor(ActionExecutor):
                 action_name=action.name,
                 success=False,
                 message=resolution.reason,
-                requires_manual_review=True,
+                # Ambiguous/missing semantic targets are recoverable execution
+                # failures. The control loop may retry, replan, or skip an
+                # explicitly optional action. Safety-gate failures remain
+                # manual-review conditions later in this executor.
+                requires_manual_review=False,
                 metadata={
                     "target": target,
                     "resolution_score": resolution.score,
@@ -107,7 +111,7 @@ class RobotGUIExecutor(ActionExecutor):
                         "Resolved screen element has no tracked object id "
                         "and is not a guarded UIA target"
                     ),
-                    requires_manual_review=True,
+                    requires_manual_review=False,
                     metadata={
                         "target": target,
                         "resolution_score": resolution.score,
@@ -165,7 +169,7 @@ class RobotGUIExecutor(ActionExecutor):
                 action_name=action.name,
                 success=False,
                 message="Tracked object for resolved target was not found",
-                requires_manual_review=True,
+                requires_manual_review=False,
                 metadata={
                     "target": target,
                     "target_id": target_id,
