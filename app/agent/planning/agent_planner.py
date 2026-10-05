@@ -3,6 +3,9 @@ import re
 from app.agent.agent_action import AgentAction
 from app.agent.agent_intent import AgentIntent
 from app.agent.agent_request import AgentRequest
+from app.agent.environment.environment_requirement import (
+    EnvironmentRequirement,
+)
 from app.agent.planning.action_plan import ActionPlan
 from app.agent.planning.action_step import ActionStep
 
@@ -285,6 +288,12 @@ class AgentPlanner:
                                 "through the controlled GUI executor."
                             ),
                             target=target,
+                            environment_requirement=(
+                                EnvironmentRequirement(
+                                    application="WindowHub",
+                                    requires_focus=True,
+                                )
+                            ),
                         ),
                     ),
                 ),

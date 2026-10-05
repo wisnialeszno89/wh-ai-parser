@@ -1,3 +1,4 @@
+import ctypes
 import pygetwindow as gw
 
 from app.agent.environment.environment_adapter import (
@@ -54,6 +55,13 @@ class WindowHubEnvironmentAdapter(EnvironmentAdapter):
         )
         window_title = (window.title or "").strip() or None
 
+        try:
+            window_handle = int(
+                getattr(window, "_hWnd", 0)
+            )
+        except (TypeError, ValueError):
+            window_handle = 0
+
         screenshot = self.screenshot_engine.capture(
             window_rect
         )
@@ -64,13 +72,6 @@ class WindowHubEnvironmentAdapter(EnvironmentAdapter):
             screen_width=screenshot.width,
             screen_height=screenshot.height,
         )
-
-        try:
-            window_handle = int(
-                getattr(window, "_hWnd", 0)
-            )
-        except (TypeError, ValueError):
-            window_handle = 0
 
         return EnvironmentObservation(
             state=state,
@@ -83,8 +84,25 @@ class WindowHubEnvironmentAdapter(EnvironmentAdapter):
                     if window_handle > 0
                     else None
                 ),
+                "window_focused": self._is_foreground_window(
+                    window_handle
+                ),
             },
         )
+
+    @staticmethod
+    def _is_foreground_window(window_handle: int) -> bool:
+        if window_handle <= 0:
+            return False
+
+        try:
+            foreground = int(
+                ctypes.windll.user32.GetForegroundWindow()
+            )
+        except Exception:
+            return False
+
+        return foreground == window_handle
 
     @staticmethod
     def _locate_windowhub_window():
