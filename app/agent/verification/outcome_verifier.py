@@ -119,6 +119,14 @@ class OutcomeVerifier:
                 )
 
 
+        if expected.expected_semantic_elements:
+            semantic_result = self._verify_semantic_elements(
+                expected.expected_semantic_elements,
+                scene,
+            )
+            if semantic_result is not None:
+                return semantic_result
+
         if (
             expected.expected_element_label
             is not None
@@ -275,6 +283,106 @@ class OutcomeVerifier:
             confidence=1.0,
         )
 
+
+    @staticmethod
+    def _verify_semantic_elements(
+        requirements,
+        scene: ScreenScene,
+    ) -> VerificationResult | None:
+        for requirement in requirements:
+            if not isinstance(requirement, dict):
+                continue
+
+            kind = requirement.get("kind")
+            label = requirement.get("label")
+
+            candidates = [
+                element
+                for element in scene.elements
+                if (
+                    (
+                        not isinstance(kind, str)
+                        or element.kind.casefold()
+                        == kind.casefold()
+                    )
+                    and (
+                        not isinstance(label, str)
+                        or (
+                            isinstance(element.label, str)
+                            and element.label.casefold()
+                            == label.casefold()
+                        )
+                    )
+                )
+            ]
+
+            if not candidates:
+                return VerificationResult(
+                    verified=False,
+                    reason=(
+                        "Expected semantic element was not found."
+                    ),
+                    confidence=0.95,
+                    metadata={
+                        "requirement": dict(requirement),
+                    },
+                )
+
+            state_keys = (
+                "current_value",
+                "uia_selected",
+                "document_scope",
+            )
+
+            matched = False
+            for element in candidates:
+                metadata = element.metadata or {}
+                state_matches = True
+
+                for key in state_keys:
+                    if key not in requirement:
+                        continue
+
+                    expected_value = requirement.get(key)
+                    actual_value = metadata.get(key)
+
+                    if actual_value != expected_value:
+                        state_matches = False
+                        break
+
+                if state_matches:
+                    matched = True
+                    break
+
+            if not matched:
+                return VerificationResult(
+                    verified=False,
+                    reason=(
+                        "Expected semantic element state was not observed."
+                    ),
+                    confidence=0.95,
+                    metadata={
+                        "requirement": dict(requirement),
+                        "candidates": [
+                            {
+                                "label": element.label,
+                                "kind": element.kind,
+                                "current_value": (
+                                    element.metadata or {}
+                                ).get("current_value"),
+                                "uia_selected": (
+                                    element.metadata or {}
+                                ).get("uia_selected"),
+                                "document_scope": (
+                                    element.metadata or {}
+                                ).get("document_scope"),
+                            }
+                            for element in candidates
+                        ],
+                    },
+                )
+
+        return None
 
     @staticmethod
     def _current_value(element) -> str | None:
