@@ -1,13 +1,16 @@
 from app.agent.adapters.default_adapters import (
     create_default_adapter_registry,
 )
+from app.agent.adapters.excel_workbook_adapter import (
+    ExcelWorkbookAdapter,
+)
 from app.agent.adapters.filesystem_adapter import FileSystemAdapter
 from app.agent.adapters.word_document_adapter import (
     WordDocumentAdapter,
 )
 
 
-def test_default_registry_exposes_filesystem_and_word_adapters(tmp_path):
+def test_default_registry_exposes_core_file_adapters(tmp_path):
     registry = create_default_adapter_registry(
         filesystem_roots=(tmp_path,),
     )
@@ -24,6 +27,12 @@ def test_default_registry_exposes_filesystem_and_word_adapters(tmp_path):
         application="Word",
         capability="create",
     )
-
     assert isinstance(word, WordDocumentAdapter)
     assert word.descriptor.adapter_id == "word_document"
+
+    excel = registry.resolve(
+        application="Excel",
+        capability="write_range",
+    )
+    assert isinstance(excel, ExcelWorkbookAdapter)
+    assert excel.descriptor.adapter_id == "excel_workbook"
