@@ -6,6 +6,8 @@ from app.agent.learning.windowhub_learning_controller import (
     WindowHubLearningController,
 )
 from app.agent.learning.windowhub_mouse_observer import (
+    GA_ROOT,
+    GA_ROOTOWNER,
     WindowHubMouseObserver,
 )
 from app.agent.learning.workflow_memory_store import WorkflowMemoryStore
@@ -130,6 +132,38 @@ def test_windowhub_mouse_observer_ignores_click_outside_windowhub():
     )
 
     assert captured == []
+
+
+def test_windowhub_mouse_observer_accepts_windowhub_owned_dialog():
+    class FakeUser32:
+        def GetAncestor(self, hwnd, flags):
+            if flags == GA_ROOT:
+                return 9000
+            if flags == GA_ROOTOWNER:
+                return 7146954
+            raise AssertionError(flags)
+
+    assert WindowHubMouseObserver._topmost_belongs_to_windowhub(
+        topmost=9001,
+        windowhub_hwnd=7146954,
+        user32=FakeUser32(),
+    )
+
+
+def test_windowhub_mouse_observer_rejects_unrelated_dialog():
+    class FakeUser32:
+        def GetAncestor(self, hwnd, flags):
+            if flags == GA_ROOT:
+                return 9000
+            if flags == GA_ROOTOWNER:
+                return 8000
+            raise AssertionError(flags)
+
+    assert not WindowHubMouseObserver._topmost_belongs_to_windowhub(
+        topmost=9001,
+        windowhub_hwnd=7146954,
+        user32=FakeUser32(),
+    )
 
 
 def test_windowhub_learning_controller_starts_from_real_semantic_scene(monkeypatch):
