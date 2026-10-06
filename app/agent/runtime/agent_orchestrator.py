@@ -37,6 +37,10 @@ from app.agent.learning.workflow_memory_store import (
     WorkflowMemoryStore,
 )
 from app.agent.learning.workflow_repository import WorkflowRepository
+from app.agent.adapters.adapter_registry import AdapterRegistry
+from app.agent.adapters.default_adapters import (
+    create_default_adapter_registry,
+)
 from app.agent.memory.agent_memory import AgentMemoryRepository
 from app.agent.memory.agent_memory_store import AgentMemoryStore
 
@@ -103,6 +107,7 @@ class AgentOrchestrator:
         require_task_reasoning: bool = False,
         workflow_memory_store: WorkflowMemoryStore | None = None,
         memory_store: AgentMemoryStore | None = None,
+        adapter_registry: AdapterRegistry | None = None,
     ) -> None:
 
         self.planner = (
@@ -150,6 +155,11 @@ class AgentOrchestrator:
                 repository=AgentMemoryRepository(),
                 load_persisted=True,
             )
+        )
+        self.adapter_registry = (
+            adapter_registry
+            if adapter_registry is not None
+            else create_default_adapter_registry()
         )
 
     def prepare(
@@ -291,6 +301,13 @@ class AgentOrchestrator:
                 external_knowledge=external_knowledge,
                 experience=experience,
                 learned_workflows=learned_workflows,
+                adapters=tuple(
+                    descriptor.to_payload()
+                    for descriptor in self.adapter_registry.describe()
+                    if self.adapter_registry.resolve(
+                        application=descriptor.application
+                    ) is not None
+                ),
                 world=SemanticWorldModel.from_scene(initial_scene),
             )
 

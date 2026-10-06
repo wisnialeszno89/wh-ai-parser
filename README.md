@@ -105,3 +105,17 @@ Memories contain the application, intent, learned workflow identity, outcome
 and compact diagnostics, while raw user requests and machine-specific runtime
 identifiers are excluded. Recent experiences can be supplied to task
 reasoning as prior context.
+
+
+## Universal desktop adapters
+
+The Universal Agent now has a semantic application-adapter contract and a
+deterministic adapter registry. The first concrete adapter is the filesystem:
+it can list, read, write, copy, move and test paths inside explicitly allowed
+roots. Writes require explicit overwrite permission when a destination
+already exists, and deletion is not part of this first adapter.
+
+The default workspace is configured by `AGENT_FILESYSTEM_ROOT`. The adapter
+layer is separate from GUI perception and execution, so later Word, Excel,
+browser and email adapters can reuse the same semantic registry without
+becoming WindowHub-specific.
