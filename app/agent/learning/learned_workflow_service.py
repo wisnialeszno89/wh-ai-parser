@@ -23,9 +23,9 @@ class LearnedWorkflowExecutionResult:
 class LearnedWorkflowService:
     """Resolve an explicit learned procedure and replay it safely.
 
-    Exact or near-exact trigger matches are intentionally required for this
-    first execution bridge. Parameter adaptation and fuzzy intent expansion
-    will be added only after learned workflow execution is stable.
+    Exact trigger matching remains the execution gate. Request-time
+    parameters can override parameterized text-entry values without changing
+    the stored workflow.
     """
 
     def __init__(
@@ -81,3 +81,25 @@ class LearnedWorkflowService:
             match=match,
             replay=replay,
         )
+
+    def _resolve_parameters(
+        self,
+        request: AgentRequest,
+        workflow,
+    ) -> Mapping[str, object]:
+        explicit = request.metadata.get("learned_parameters")
+        if isinstance(explicit, Mapping):
+            return dict(explicit)
+
+        if self.parameter_resolver is None:
+            return {}
+
+        resolved = self.parameter_resolver(
+            request,
+            workflow,
+        )
+
+        if isinstance(resolved, Mapping):
+            return dict(resolved)
+
+        return {}
