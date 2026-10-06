@@ -71,15 +71,18 @@ class HumanActionInterpreter:
             assert element.height is not None
 
             if (
-                element.x <= event.x <= element.x + element.width
-                and element.y <= event.y <= element.y + element.height
+                element.x <= event.x < element.x + element.width
+                and element.y <= event.y < element.y + element.height
             ):
                 candidates.append(element)
 
-        if len(candidates) != 1:
+        target_element = HumanActionInterpreter._resolve_click_candidate(
+            candidates
+        )
+        if target_element is None:
             return None
 
-        target = candidates[0].label
+        target = target_element.label
         if not target or not target.strip():
             return None
 
@@ -88,6 +91,63 @@ class HumanActionInterpreter:
             target=target.strip(),
             description=f"Activate '{target.strip()}'.",
         )
+
+    @staticmethod
+    def _resolve_click_candidate(candidates):
+        if len(candidates) == 1:
+            return candidates[0]
+
+        # Accessibility trees often contain a clickable parent/container
+        # around the actual clickable child. Prefer the unique smallest
+        # candidate only when its bounds are strictly contained by every
+        # other candidate. Partial overlaps and equal/identical bounds remain
+        # ambiguous and therefore fail closed.
+        for candidate in candidates:
+            assert candidate.x is not None
+            assert candidate.y is not None
+            assert candidate.width is not None
+            assert candidate.height is not None
+
+            c_left = candidate.x
+            c_top = candidate.y
+            c_right = candidate.x + candidate.width
+            c_bottom = candidate.y + candidate.height
+
+            strictly_inside_all = True
+
+            for other in candidates:
+                if other is candidate:
+                    continue
+
+                assert other.x is not None
+                assert other.y is not None
+                assert other.width is not None
+                assert other.height is not None
+
+                o_left = other.x
+                o_top = other.y
+                o_right = other.x + other.width
+                o_bottom = other.y + other.height
+
+                if not (
+                    o_left <= c_left
+                    and o_top <= c_top
+                    and c_right <= o_right
+                    and c_bottom <= o_bottom
+                    and (
+                        c_left > o_left
+                        or c_top > o_top
+                        or c_right < o_right
+                        or c_bottom < o_bottom
+                    )
+                ):
+                    strictly_inside_all = False
+                    break
+
+            if strictly_inside_all:
+                return candidate
+
+        return None
 
     @staticmethod
     def _active_edit_target(
