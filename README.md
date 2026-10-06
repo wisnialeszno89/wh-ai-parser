@@ -44,6 +44,12 @@ An exact learned trigger is resolved before generic task planning and then
 replayed through the same observation, target-resolution, safety, execution
 and verification control loop.
 
+Teaching can also infer text entry from semantic field value changes. The
+first text-learning path observes UI state, coalesces rapid changes until the
+value is stable, and records a semantic `write_text` action targeted to the
+field label. No raw keyboard events, scan codes or clipboard contents are
+captured.
+
 The workflow data intentionally excludes coordinates, window handles,
 runtime/provider identifiers and other machine-specific execution details.
 
