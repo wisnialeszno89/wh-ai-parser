@@ -4,6 +4,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Sequence
 
+from app.agent.adapters.application_adapter import (
+    AdapterDescriptor,
+    ApplicationAdapter,
+)
+
 
 @dataclass(frozen=True)
 class ExcelWorkbookSummary:
@@ -513,9 +518,3 @@ class ExcelWorkbookAdapter(ApplicationAdapter):
         raise PermissionError(
             f"Path '{path}' is outside all allowed Excel workbook roots."
         )
-
-
-from app.agent.adapters.application_adapter import (
-    AdapterDescriptor,
-    ApplicationAdapter,
-)
