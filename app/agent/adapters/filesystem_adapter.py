@@ -105,15 +105,19 @@ class FileSystemAdapter(ApplicationAdapter):
             directory_path.iterdir(),
             key=lambda item: item.name.casefold(),
         ):
+            is_symlink = child.is_symlink()
+            is_file = child.is_file() if not is_symlink else False
+            is_directory = child.is_dir() if not is_symlink else False
+
             entries.append(
                 FileEntry(
                     path=str(child),
                     name=child.name,
-                    is_file=child.is_file(),
-                    is_directory=child.is_dir(),
+                    is_file=is_file,
+                    is_directory=is_directory,
                     size_bytes=(
                         child.stat().st_size
-                        if child.is_file()
+                        if is_file
                         else None
                     ),
                 )
@@ -196,12 +200,19 @@ class FileSystemAdapter(ApplicationAdapter):
         source_path = self._resolve_for_access(source)
         destination_path = self._resolve_for_create(destination)
 
+        if not source_path.is_file():
+            raise ValueError(
+                "Filesystem move currently supports files only."
+            )
+
         if destination_path.exists() and not overwrite:
             raise FileExistsError(str(destination_path))
 
         destination_path.parent.mkdir(parents=True, exist_ok=True)
 
         if overwrite:
+            if destination_path.is_dir():
+                raise IsADirectoryError(str(destination_path))
             destination_path.unlink()
 
         moved = move(
