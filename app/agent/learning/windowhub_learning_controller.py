@@ -9,10 +9,17 @@ from app.agent.environment.environment_preparation_type import (
 from app.agent.environment.environment_preparation_strategy import (
     EnvironmentPreparationStrategy,
 )
+from app.agent.environment.windowhub_environment_adapter import (
+    WindowHubEnvironmentAdapter,
+)
 from app.agent.environment.windowhub_focus_window_preparation_handler import (
     WindowHubFocusWindowPreparationHandler,
 )
 from app.agent.learning.learned_workflow import LearnedWorkflow
+from app.agent.perception.screen_scene import ScreenScene
+from app.agent.perception.windowhub_ui_automation_provider import (
+    WindowHubUIAutomationProvider,
+)
 from app.agent.learning.learning_observation_coordinator import (
     LearningObservationCoordinator,
 )
@@ -58,6 +65,12 @@ class WindowHubLearningController:
         self.control_loop = (
             control_loop or create_windowhub_agent_control_loop()
         )
+        # Learning needs event-time semantic snapshots. The full Universal
+        # Control Loop is intentionally expensive because it includes CV and
+        # ROI analysis. Use a fast UIA-only observation path while teaching so
+        # rapid consecutive human clicks cannot overtake perception.
+        self._learning_environment = WindowHubEnvironmentAdapter()
+        self._learning_uia_provider = WindowHubUIAutomationProvider()
         self.focus_handler = (
             focus_handler
             or WindowHubFocusWindowPreparationHandler()
@@ -65,6 +78,14 @@ class WindowHubLearningController:
         self._coordinator: (
             LearningObservationCoordinator | None
         ) = None
+
+    def _observe_learning_scene(self) -> ScreenScene:
+        observation = self._learning_environment.observe()
+        elements = self._learning_uia_provider.perceive(observation)
+        return ScreenScene(
+            observation=observation,
+            elements=elements,
+        )
 
     def start(
         self,
@@ -88,7 +109,7 @@ class WindowHubLearningController:
                 f"{focus_result.reason}"
             )
 
-        scene = self.control_loop.observe_scene()
+        scene = self._observe_learning_scene()
 
         application = (
             scene.observation.state.active_application
@@ -105,7 +126,7 @@ class WindowHubLearningController:
         self._coordinator = LearningObservationCoordinator(
             session=self.learning_session,
             observer=self.observer,
-            scene_provider=self.control_loop.observe_scene,
+            scene_provider=self._observe_learning_scene,
         )
         self._coordinator.start()
 
