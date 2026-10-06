@@ -124,15 +124,19 @@ class LearningObservationCoordinator:
         if scene_before is None:
             return
 
+        # Observe the resulting state before persisting the step so the
+        # learned workflow contains a real state -> action -> state transition.
+        scene_after = self.scene_provider()
+
         recorded = self.session.record_human_event(
             event=event,
             scene_before=scene_before,
+            scene_after=scene_after,
         )
 
         if not recorded:
             return
 
-        scene_after = self.scene_provider()
         if scene_after is not None:
             self.session.observe_before(
                 scene_after
