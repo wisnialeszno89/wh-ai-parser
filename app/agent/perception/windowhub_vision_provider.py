@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from app.agent.environment.environment_observation import (
     EnvironmentObservation,
 )
@@ -26,11 +28,6 @@ from app.runtime.execution.vision.models.tracked_object import (
 from app.runtime.execution.vision.models.control_type import (
     ControlType,
 )
-from app.runtime.execution.vision.pipeline.vision_pipeline import (
-    VisionPipeline,
-)
-
-
 class WindowHubVisionProvider(PerceptionProvider):
     """
     WindowHub-specific perception adapter.
@@ -44,11 +41,14 @@ class WindowHubVisionProvider(PerceptionProvider):
         vision_pipeline: VisionPipeline | None = None,
         interaction_capability_resolver: InteractionCapabilityResolver | None = None,
     ) -> None:
-        self.vision_pipeline = (
-            vision_pipeline
-            if vision_pipeline is not None
-            else VisionPipeline()
-        )
+        if vision_pipeline is None:
+            from app.runtime.execution.vision.pipeline.vision_pipeline import (
+                VisionPipeline,
+            )
+
+            vision_pipeline = VisionPipeline()
+
+        self.vision_pipeline = vision_pipeline
         self.interaction_capability_resolver = (
             interaction_capability_resolver
             if interaction_capability_resolver is not None

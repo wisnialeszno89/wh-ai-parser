@@ -3,13 +3,13 @@
 ## Universal Agent Reasoning
 
 The Universal Agent Core can optionally use an OpenAI-backed
-`PlanReasoner` for verification-driven replanning.
+PlanReasoner for verification-driven replanning.
 
 Configuration:
 
-1. Copy `.env.example` to `.env`.
-2. Set `OPENAI_API_KEY`.
-3. Optionally change `AGENT_REASONING_MODEL`.
+1. Copy .env.example to .env.
+2. Set OPENAI_API_KEY.
+3. Optionally change AGENT_REASONING_MODEL.
 4. Run the provider-only probe:
 
 ```powershell
@@ -19,7 +19,7 @@ python tools/probe_openai_reasoner.py
 The probe calls only the reasoning provider. It does not execute
 WindowHub, mouse, keyboard or any physical GUI action.
 
-For the end-to-end reasoning → replanning → control-loop dry run:
+For the end-to-end reasoning -> replanning -> control-loop dry run:
 
 ```powershell
 python tools/probe_openai_control_loop.py
@@ -31,17 +31,31 @@ WindowHub or perform physical GUI actions. A manual-review response is
 also considered a safe outcome: the control loop stops instead of
 forcing execution.
 
-Default reasoning model: `gpt-5.6-luna`.
+Default reasoning model: gpt-5.6-luna.
+
+## Learned skills
+
+The agent can learn human-demonstrated workflows as semantic state
+transitions. Learned workflows are persisted outside the source tree by
+default in runtime_data/learned_workflows and can be retrieved by a
+deterministic semantic matcher.
+
+An exact learned trigger is resolved before generic task planning and then
+replayed through the same observation, target-resolution, safety, execution
+and verification control loop.
+
+The workflow data intentionally excludes coordinates, window handles,
+runtime/provider identifiers and other machine-specific execution details.
 
 ## NaviMind remote task reasoning
 
-When `NAVIMIND_AGENT_URL` is configured, the WindowHub runtime uses
-`NaviMindTaskReasoner` for the initial semantic task proposal.
+When NAVIMIND_AGENT_URL is configured, the WindowHub runtime uses
+NaviMindTaskReasoner for the initial semantic task proposal.
 
 The execution path is:
 
-`observe -> semantic perception -> NaviMind -> local action policy ->
-RobotGUIExecutor -> SafetyGate/GUI bridge -> verification -> re-observe`
+observe -> semantic perception -> NaviMind -> local action policy ->
+RobotGUIExecutor -> SafetyGate/GUI bridge -> verification -> re-observe
 
 NaviMind receives only semantic world state. Coordinates, window handles,
 runtime/provider identifiers and executor internals stay local.
@@ -50,9 +64,7 @@ The local runtime and NaviMind server both enforce the same explicit semantic
 action allowlist. Unknown remote actions fail closed and require manual review.
 
 WindowHub robot execution is DRY_RUN by default. LIVE hardware execution is
-enabled only when `WH_REAL_WINDOWHUB=1`.
-
-
+enabled only when WH_REAL_WINDOWHUB=1.
 
 ## Structured knowledge context
 
@@ -66,8 +78,8 @@ knowledge
 ```
 
 External knowledge is represented by facts, sources, confidence, relevance,
-conflicts and limitations. It is treated as model input only; it never expands
-the local action allowlist or execution permissions.
+conflicts and limitations. It is treated as model input only; it never
+expands the local action allowlist or execution permissions.
 
 The current stage adds the contract, validation and transport only. No web
 research is executed yet.

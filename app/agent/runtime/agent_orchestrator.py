@@ -36,6 +36,7 @@ from app.agent.reasoning.task_planning_context import (
 from app.agent.learning.workflow_memory_store import (
     WorkflowMemoryStore,
 )
+from app.agent.learning.workflow_repository import WorkflowRepository
 
 from app.agent.reasoning.task_reasoner import (
     TaskReasoner,
@@ -108,18 +109,13 @@ class AgentOrchestrator:
         )
 
         if capability_router is not None:
-            self.capability_router = (
-                capability_router
-            )
+            self.capability_router = capability_router
         else:
             capability_registry = (
                 create_default_capability_registry()
             )
-
-            self.capability_router = (
-                CapabilityRouter(
-                    capability_registry
-                )
+            self.capability_router = CapabilityRouter(
+                capability_registry
             )
 
         self.skill_registry = (
@@ -139,7 +135,10 @@ class AgentOrchestrator:
         self.workflow_memory_store = (
             workflow_memory_store
             if workflow_memory_store is not None
-            else WorkflowMemoryStore()
+            else WorkflowMemoryStore(
+                repository=WorkflowRepository(),
+                load_persisted=True,
+            )
         )
 
     def prepare(
@@ -151,33 +150,9 @@ class AgentOrchestrator:
         external_knowledge: KnowledgeContext | None = None,
         autonomous: bool = False,
     ) -> AgentExecutionContext:
-        """
-        Prepare one agent request for execution.
-
-        This method:
-
-        1. creates a semantic plan
-        2. detects the intent
-        3. resolves the required capability
-        4. resolves the specialized skill
-        5. returns a complete execution context
-
-        No external actions are executed here.
-
-        When an initial semantic scene is available, it is supplied to
-        the task reasoner so planning can account for the current UI
-        state before proposing an action.
-        """
-
-        deterministic_plan = self.planner.plan(
-            request
-        )
-
+        deterministic_plan = self.planner.plan(request)
         intent = deterministic_plan.intent
 
-        # Autonomous computer-use requests must not be blocked by the
-        # deterministic intent keyword classifier. Unknown language is
-        # precisely where model reasoning should take over after observation.
         if intent == AgentIntent.UNKNOWN and autonomous:
             intent = AgentIntent.COMPUTER_USE
             deterministic_plan = ActionPlan(
@@ -197,12 +172,7 @@ class AgentOrchestrator:
                 requires_manual_review=True,
             )
 
-        capability = (
-            self.capability_router.resolve(
-                intent
-            )
-        )
-
+        capability = self.capability_router.resolve(intent)
         if capability is None:
             return AgentExecutionContext(
                 request=request,
@@ -213,10 +183,7 @@ class AgentOrchestrator:
                 requires_manual_review=True,
             )
 
-        skill = self.skill_registry.resolve(
-            capability.name
-        )
-
+        skill = self.skill_registry.resolve(capability.name)
         if skill is None:
             return AgentExecutionContext(
                 request=request,
@@ -259,17 +226,20 @@ class AgentOrchestrator:
                         initial_scene.observation.state.active_application
                     )
 
-                matching_workflows = (
-                    self.workflow_memory_store.find(
+                matches = (
+                    self.workflow_memory_store.match(
+                        request.message,
                         application=active_application,
-                        trigger=request.message,
+                        limit=5,
+                        min_score=0.55,
                     )
                     if active_application is not None
                     else ()
                 )
+
                 learned_workflows = tuple(
-                    workflow.to_payload()
-                    for workflow in matching_workflows
+                    match.workflow.to_payload()
+                    for match in matches
                 )
 
             task_context = TaskPlanningContext(
@@ -282,9 +252,7 @@ class AgentOrchestrator:
                     else None
                 ),
                 capability_name=capability.name,
-                capability_description=(
-                    capability.description
-                ),
+                capability_description=capability.description,
                 skill_name=skill.__class__.__name__,
                 operating_mode=(
                     request.mode.value
@@ -301,9 +269,7 @@ class AgentOrchestrator:
                 external_knowledge=external_knowledge,
                 experience=experience,
                 learned_workflows=learned_workflows,
-                world=SemanticWorldModel.from_scene(
-                    initial_scene
-                ),
+                world=SemanticWorldModel.from_scene(initial_scene),
             )
 
             reasoned_plan = self.task_planner.plan(
@@ -341,9 +307,7 @@ class AgentOrchestrator:
                 )
                 return failure_context
 
-        skill_plan = skill.plan(
-            request
-        )
+        skill_plan = skill.plan(request)
 
         return AgentExecutionContext(
             request=request,
@@ -351,7 +315,5 @@ class AgentOrchestrator:
             plan=skill_plan,
             capability=capability,
             skill=skill,
-            requires_manual_review=(
-                skill_plan.requires_manual_review
-            ),
+            requires_manual_review=skill_plan.requires_manual_review,
         )

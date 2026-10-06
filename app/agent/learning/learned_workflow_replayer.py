@@ -8,6 +8,7 @@ from app.agent.agent_action import AgentAction
 from app.agent.agent_intent import AgentIntent
 from app.agent.agent_request import AgentRequest
 from app.agent.learning.learned_workflow import LearnedWorkflow
+from app.agent.learning.semantic_transition import SemanticTransition
 from app.agent.planning.action_plan import ActionPlan
 from app.agent.planning.action_step import ActionStep
 from app.agent.runtime.action_step_result import ActionStepResult
@@ -59,12 +60,9 @@ class LearnedWorkflowReplayer:
         confidence: float = 0.99,
     ) -> ActionPlan:
         if not workflow.steps:
-            raise ValueError(
-                "Cannot replay a workflow without steps."
-            )
+            raise ValueError("Cannot replay a workflow without steps.")
 
         actions = []
-
         for step in workflow.steps:
             learned_action = step.action
 
@@ -116,24 +114,18 @@ class LearnedWorkflowReplayer:
             },
         )
 
-        context = ExecutionContext(
-            request=request,
-        )
+        context = ExecutionContext(request=request)
 
-        # A learned workflow is a sequence of semantic state transitions,
-        # not one blind macro. Execute one learned step at a time so the
-        # result of step N becomes the observed state for step N+1.
         all_step_results = []
         step_results_by_run = []
         completed_steps = 0
-        last_result = None
 
         try:
             initial_scene = self.control_loop.observe_scene()
             context.update_scene(initial_scene)
         except AttributeError:
-            # Keep lightweight/fake control loops usable in unit tests and
-            # legacy integrations that only expose run().
+            # Keep lightweight/fake control loops usable in tests and legacy
+            # integrations that only expose run().
             initial_scene = context.current_scene
 
         for step in workflow.steps:
@@ -150,7 +142,7 @@ class LearnedWorkflowReplayer:
                 all_step_results.append(failure)
                 break
 
-            semantic_requirements = self._transition_requirements(
+            transition = SemanticTransition.from_snapshots(
                 step.before,
                 step.after,
             )
@@ -160,21 +152,13 @@ class LearnedWorkflowReplayer:
                 {
                     step.action.name: ExpectedOutcome(
                         description=(
-                            "The semantic state learned after this "
-                            "workflow action should be observed."
+                            "Verify the compact semantic state learned "
+                            "after this workflow action."
                         ),
-                        expected_active_application=(
-                            step.after.application
-                            if step.after is not None
-                            else None
-                        ),
-                        expected_window_title=(
-                            step.after.window_title
-                            if step.after is not None
-                            else None
-                        ),
+                        expected_active_application=transition.application,
+                        expected_window_title=transition.window_title,
                         expected_semantic_elements=(
-                            semantic_requirements
+                            transition.requirements
                         ),
                     )
                 },
@@ -221,11 +205,7 @@ class LearnedWorkflowReplayer:
             completed_steps == len(workflow.steps)
             and len(workflow.steps) > 0
             and all(
-                getattr(
-                    result,
-                    "success",
-                    False,
-                )
+                getattr(result, "success", False)
                 for result in step_results_by_run
             )
         )
@@ -308,77 +288,10 @@ class LearnedWorkflowReplayer:
         before,
         after,
     ) -> tuple[dict[str, object], ...]:
-        if before is None or after is None:
-            return ()
-
-        before_by_key = {}
-
-        for element in before.elements:
-            key = (
-                str(element.get("kind") or "").casefold(),
-                str(element.get("label") or "").casefold(),
-            )
-            before_by_key.setdefault(key, []).append(element)
-
-        requirements = []
-
-        for element in after.elements:
-            key = (
-                str(element.get("kind") or "").casefold(),
-                str(element.get("label") or "").casefold(),
-            )
-            candidates = before_by_key.get(key, [])
-
-            if not candidates:
-                requirements.append(
-                    LearnedWorkflowReplayer._requirement_from_element(
-                        element
-                    )
-                )
-                continue
-
-            before_element = candidates[0]
-            changed = {}
-
-            for state_key in (
-                "current_value",
-                "uia_selected",
-                "document_scope",
-            ):
-                if state_key in element and (
-                    element.get(state_key)
-                    != before_element.get(state_key)
-                ):
-                    changed[state_key] = element.get(state_key)
-
-            if changed:
-                requirement = {
-                    "kind": element.get("kind"),
-                    "label": element.get("label"),
-                }
-                requirement.update(changed)
-                requirements.append(requirement)
-
-        return tuple(requirements)
-
-    @staticmethod
-    def _requirement_from_element(
-        element,
-    ) -> dict[str, object]:
-        requirement = {
-            "kind": element.get("kind"),
-            "label": element.get("label"),
-        }
-
-        for key in (
-            "current_value",
-            "uia_selected",
-            "document_scope",
-        ):
-            if key in element:
-                requirement[key] = element.get(key)
-
-        return requirement
+        return SemanticTransition.from_snapshots(
+            before,
+            after,
+        ).requirements
 
     @staticmethod
     def load_json(
@@ -387,9 +300,7 @@ class LearnedWorkflowReplayer:
         workflow_path = Path(path)
 
         payload = json.loads(
-            workflow_path.read_text(
-                encoding="utf-8",
-            )
+            workflow_path.read_text(encoding="utf-8")
         )
 
         if not isinstance(payload, dict):

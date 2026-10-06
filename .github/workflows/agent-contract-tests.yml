@@ -21,7 +21,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install pytest python-dotenv
 
-      - name: Run knowledge and NaviMind bridge tests
+      - name: Run agent contract and learned-skill tests
         run: |
           pytest -q \
             tests/test_knowledge_context.py \
@@ -29,4 +29,11 @@ jobs:
             tests/test_autonomous_agent_runtime.py \
             tests/test_windowhub_ui_automation_provider.py \
             tests/test_windowhub_tab_selection.py \
-            tests/test_active_document_context.py
+            tests/test_active_document_context.py \
+            tests/test_workflow_repository.py \
+            tests/test_learned_workflow_repository.py \
+            tests/test_workflow_matcher.py \
+            tests/test_semantic_transition.py \
+            tests/test_learned_workflow_replayer.py \
+            tests/test_learned_workflow_service.py \
+            tests/test_learned_workflow_runtime.py

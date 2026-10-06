@@ -8,3 +8,4 @@ python-dotenv
 pywinauto
 pyautogui
 mss
+pygetwindow

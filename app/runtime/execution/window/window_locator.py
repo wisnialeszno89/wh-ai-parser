@@ -1,8 +1,16 @@
+import os
+
 from app.runtime.execution.window.window_rect import (
     WindowRect,
 )
 
-import pygetwindow as gw
+if os.name == "nt":
+    try:
+        import pygetwindow as gw
+    except ImportError:
+        gw = None
+else:
+    gw = None
 
 
 class WindowLocator:
@@ -10,6 +18,11 @@ class WindowLocator:
     def locate(
         self,
     ) -> WindowRect:
+
+        if gw is None:
+            raise RuntimeError(
+                "WindowLocator requires Windows and the PyGetWindow package."
+            )
 
         candidates = []
 

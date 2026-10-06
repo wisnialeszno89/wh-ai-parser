@@ -1,20 +1,17 @@
 {
     "name": "single_window",
-
+    "difficulty": "medium",
+    "manual_review": false,
     "steps": [
-
         {
             "operation": "FRAME"
         },
-
         {
             "operation": "SASH"
         },
-
         {
             "operation": "HARDWARE"
         },
-
         {
             "operation": "GLASS"
         }
