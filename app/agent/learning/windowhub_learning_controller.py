@@ -30,6 +30,7 @@ from app.agent.learning.windowhub_mouse_observer import (
 from app.agent.learning.workflow_memory_store import (
     WorkflowMemoryStore,
 )
+from app.agent.learning.workflow_repository import WorkflowRepository
 from app.agent.runtime.windowhub_agent_control_loop import (
     create_windowhub_agent_control_loop,
 )
@@ -60,7 +61,12 @@ class WindowHubLearningController:
             observer or WindowHubMouseObserver()
         )
         self.workflow_memory_store = (
-            workflow_memory_store or WorkflowMemoryStore()
+            workflow_memory_store
+            if workflow_memory_store is not None
+            else WorkflowMemoryStore(
+                repository=WorkflowRepository(),
+                load_persisted=True,
+            )
         )
         self.control_loop = (
             control_loop or create_windowhub_agent_control_loop()
@@ -150,9 +156,7 @@ class WindowHubLearningController:
             notes=notes,
             metadata=metadata,
         )
-        self.workflow_memory_store.save(
-            workflow
-        )
+        self.workflow_memory_store.save(workflow)
         self._coordinator = None
         return workflow
 
