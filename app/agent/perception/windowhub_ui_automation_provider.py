@@ -162,11 +162,22 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
 
         elements: list[ScreenElement] = []
 
-        for current_window in windows:
+        for window_index, current_window in enumerate(windows):
             try:
                 descendants = tuple(current_window.descendants())
             except Exception:
                 continue
+
+            is_owned_modal = (
+                window_index > 0
+                and foreground_handle_int > 0
+                and foreground_owner_int == root_handle_int
+            )
+            current_window_handle = (
+                foreground_handle_int
+                if is_owned_modal
+                else root_handle_int
+            )
 
             label_candidates = self._collect_label_candidates(
                 descendants,
@@ -181,6 +192,8 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
                     origin_y=origin_y,
                     tracked_objects=tracked_objects,
                     label_candidates=label_candidates,
+                    window_handle=current_window_handle,
+                    owned_modal=is_owned_modal,
                 )
                 if element is not None:
                     elements.append(element)
@@ -248,6 +261,8 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
         origin_y: int,
         tracked_objects,
         label_candidates=(),
+        window_handle: int = 0,
+        owned_modal: bool = False,
     ) -> ScreenElement | None:
         try:
             name = self._string(
@@ -406,6 +421,8 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
                 if tab_scope == "document"
                 else None
             ),
+            "uia_window_handle": window_handle,
+            "uia_owned_modal": owned_modal,
             "correlation": (
                 "unique_visual_center_inside_uia_bounds"
                 if tracked_id
