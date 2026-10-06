@@ -10,7 +10,10 @@ from app.agent.agent_request import AgentRequest
 from app.agent.learning.learned_workflow import LearnedWorkflow
 from app.agent.planning.action_plan import ActionPlan
 from app.agent.planning.action_step import ActionStep
+from app.agent.runtime.action_step_result import ActionStepResult
+from app.agent.runtime.action_step_status import ActionStepStatus
 from app.agent.runtime.execution_context import ExecutionContext
+from app.agent.verification.expected_outcome import ExpectedOutcome
 
 
 @dataclass(frozen=True)
@@ -99,8 +102,6 @@ class LearnedWorkflowReplayer:
         *,
         request_message: str | None = None,
     ) -> LearnedWorkflowReplayResult:
-        plan = self.build_plan(workflow)
-
         request = AgentRequest(
             message=(
                 request_message.strip()
@@ -119,28 +120,265 @@ class LearnedWorkflowReplayer:
             request=request,
         )
 
-        result = self.control_loop.run(
-            plan,
-            context,
+        # A learned workflow is a sequence of semantic state transitions,
+        # not one blind macro. Execute one learned step at a time so the
+        # result of step N becomes the observed state for step N+1.
+        all_step_results = []
+        step_results_by_run = []
+        completed_steps = 0
+        last_result = None
+
+        try:
+            initial_scene = self.control_loop.observe_scene()
+            context.update_scene(initial_scene)
+        except AttributeError:
+            # Keep lightweight/fake control loops usable in unit tests and
+            # legacy integrations that only expose run().
+            initial_scene = context.current_scene
+
+        for step in workflow.steps:
+            before_error = self._before_state_mismatch(
+                step.before,
+                context.current_scene,
+            )
+            if before_error is not None:
+                failure = ActionStepResult(
+                    action_name=step.action.name,
+                    status=ActionStepStatus.STOPPED,
+                    reason=before_error,
+                )
+                all_step_results.append(failure)
+                break
+
+            semantic_requirements = self._transition_requirements(
+                step.before,
+                step.after,
+            )
+
+            context.set_value(
+                "expected_outcomes",
+                {
+                    step.action.name: ExpectedOutcome(
+                        description=(
+                            "The semantic state learned after this "
+                            "workflow action should be observed."
+                        ),
+                        expected_active_application=(
+                            step.after.application
+                            if step.after is not None
+                            else None
+                        ),
+                        expected_window_title=(
+                            step.after.window_title
+                            if step.after is not None
+                            else None
+                        ),
+                        expected_semantic_elements=(
+                            semantic_requirements
+                        ),
+                    )
+                },
+            )
+
+            single_step_plan = ActionPlan(
+                intent=AgentIntent.OBSERVE_WORKFLOW,
+                steps=(
+                    ActionStep(
+                        index=step.index,
+                        action=AgentAction(
+                            name=step.action.name,
+                            description=(
+                                step.action.description
+                                or f"Replay learned action "
+                                f"'{step.action.name}'."
+                            ),
+                            target=step.action.target,
+                            value=step.action.value,
+                            requires_environment_observation=True,
+                        ),
+                    ),
+                ),
+                confidence=0.99,
+            )
+
+            last_result = self.control_loop.run(
+                single_step_plan,
+                context,
+            )
+
+            step_results = tuple(
+                getattr(last_result, "step_results", ()) or ()
+            )
+            all_step_results.extend(step_results)
+            step_results_by_run.append(last_result)
+
+            if not bool(getattr(last_result, "success", False)):
+                break
+
+            completed_steps += 1
+
+        success = (
+            completed_steps == len(workflow.steps)
+            and len(workflow.steps) > 0
+            and all(
+                getattr(
+                    result,
+                    "success",
+                    False,
+                )
+                for result in step_results_by_run
+            )
         )
 
-        completed_steps = sum(
-            1
-            for step_result in result.step_results
-            if getattr(
-                getattr(step_result, "status", None),
-                "value",
-                None,
-            ) == "completed"
-        )
+        summary = type(
+            "LearnedWorkflowReplayControlLoopSummary",
+            (),
+            {
+                "step_results": tuple(all_step_results),
+                "success": success,
+                "runs": tuple(step_results_by_run),
+            },
+        )()
 
         return LearnedWorkflowReplayResult(
             workflow=workflow,
-            success=bool(result.success),
+            success=success,
             completed_steps=completed_steps,
             total_steps=len(workflow.steps),
-            control_loop_result=result,
+            control_loop_result=summary,
         )
+
+    @staticmethod
+    def _before_state_mismatch(
+        snapshot,
+        scene,
+    ) -> str | None:
+        if snapshot is None or scene is None:
+            return None
+
+        state = scene.observation.state
+
+        for expected, actual, label in (
+            (
+                snapshot.application,
+                state.active_application,
+                "application",
+            ),
+            (
+                snapshot.window_title,
+                state.active_window_title,
+                "window title",
+            ),
+        ):
+            if (
+                isinstance(expected, str)
+                and expected.strip()
+                and (
+                    not isinstance(actual, str)
+                    or actual.strip().casefold()
+                    != expected.strip().casefold()
+                )
+            ):
+                return (
+                    f"Learned BEFORE {label} does not match the "
+                    f"current environment: expected "
+                    f"{expected!r}, got {actual!r}."
+                )
+
+        if (
+            isinstance(snapshot.active_document, str)
+            and snapshot.active_document.strip()
+            and scene.active_document
+            and (
+                scene.active_document.strip().casefold()
+                != snapshot.active_document.strip().casefold()
+            )
+        ):
+            return (
+                "Learned BEFORE active document does not match "
+                f"the current environment: expected "
+                f"{snapshot.active_document!r}, got "
+                f"{scene.active_document!r}."
+            )
+
+        return None
+
+    @staticmethod
+    def _transition_requirements(
+        before,
+        after,
+    ) -> tuple[dict[str, object], ...]:
+        if before is None or after is None:
+            return ()
+
+        before_by_key = {}
+
+        for element in before.elements:
+            key = (
+                str(element.get("kind") or "").casefold(),
+                str(element.get("label") or "").casefold(),
+            )
+            before_by_key.setdefault(key, []).append(element)
+
+        requirements = []
+
+        for element in after.elements:
+            key = (
+                str(element.get("kind") or "").casefold(),
+                str(element.get("label") or "").casefold(),
+            )
+            candidates = before_by_key.get(key, [])
+
+            if not candidates:
+                requirements.append(
+                    LearnedWorkflowReplayer._requirement_from_element(
+                        element
+                    )
+                )
+                continue
+
+            before_element = candidates[0]
+            changed = {}
+
+            for state_key in (
+                "current_value",
+                "uia_selected",
+                "document_scope",
+            ):
+                if state_key in element and (
+                    element.get(state_key)
+                    != before_element.get(state_key)
+                ):
+                    changed[state_key] = element.get(state_key)
+
+            if changed:
+                requirement = {
+                    "kind": element.get("kind"),
+                    "label": element.get("label"),
+                }
+                requirement.update(changed)
+                requirements.append(requirement)
+
+        return tuple(requirements)
+
+    @staticmethod
+    def _requirement_from_element(
+        element,
+    ) -> dict[str, object]:
+        requirement = {
+            "kind": element.get("kind"),
+            "label": element.get("label"),
+        }
+
+        for key in (
+            "current_value",
+            "uia_selected",
+            "document_scope",
+        ):
+            if key in element:
+                requirement[key] = element.get(key)
+
+        return requirement
 
     @staticmethod
     def load_json(
