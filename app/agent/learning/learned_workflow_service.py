@@ -4,11 +4,15 @@ from dataclasses import dataclass, field
 from collections.abc import Callable, Mapping
 
 from app.agent.agent_request import AgentRequest
+from app.agent.learning.learned_parameter import LearnedParameterBinder
 from app.agent.learning.learned_workflow_replayer import (
     LearnedWorkflowReplayResult,
     LearnedWorkflowReplayer,
 )
-from app.agent.learning.workflow_matcher import WorkflowMatch
+from app.agent.learning.workflow_matcher import (
+    WorkflowMatch,
+    WorkflowMatcher,
+)
 from app.agent.learning.workflow_memory_store import WorkflowMemoryStore
 
 
@@ -60,11 +64,21 @@ class LearnedWorkflowService:
             min_score=self.min_score,
         )
 
-        if not matches:
-            return None
+        if matches:
+            match = matches[0]
+        else:
+            candidate_matches = self.memory_store.match(
+                request.message,
+                application=application,
+                limit=5,
+                min_score=0.90,
+            )
+            match = self._select_parameterized_continuation(
+                request,
+                candidate_matches,
+            )
 
-        match = matches[0]
-        if not match.workflow.steps:
+        if match is None or not match.workflow.steps:
             return None
 
         parameters = self._resolve_parameters(
@@ -115,3 +129,72 @@ class LearnedWorkflowService:
             return dict(resolved)
 
         return {}
+
+    @staticmethod
+    def _select_parameterized_continuation(
+        request: AgentRequest,
+        candidates: tuple[WorkflowMatch, ...],
+    ) -> WorkflowMatch | None:
+        """
+        Allow a parameterized learned workflow to accept a request that starts
+        with its exact trigger and supplies all learned parameters.
+
+        This is intentionally narrower than generic fuzzy matching.
+        """
+        binder = LearnedParameterBinder()
+        normalized_message = WorkflowMatcher._normalize(
+            request.message
+        )
+
+        for candidate in candidates:
+            workflow = candidate.workflow
+            if not any(
+                step.action.value_source == "parameter"
+                and bool(step.action.parameter_name)
+                for step in workflow.steps
+            ):
+                continue
+
+            trigger = WorkflowMatcher._normalize(
+                workflow.trigger
+            )
+            if (
+                not trigger
+                or normalized_message == trigger
+                or not normalized_message.startswith(
+                    trigger + " "
+                )
+            ):
+                continue
+
+            # Parameter resolution is performed here so an otherwise similar
+            # workflow cannot fire merely because its trigger is a prefix.
+            explicit = request.metadata.get("learned_parameters")
+            parameters = (
+                dict(explicit)
+                if isinstance(explicit, Mapping)
+                else {}
+            )
+
+            if not parameters:
+                continue
+
+            parameterized_actions = tuple(
+                step.action
+                for step in workflow.steps
+                if (
+                    step.action.value_source == "parameter"
+                    and step.action.parameter_name
+                )
+            )
+
+            if all(
+                binder.has_parameter(
+                    action,
+                    parameters,
+                )
+                for action in parameterized_actions
+            ):
+                return candidate
+
+        return None
