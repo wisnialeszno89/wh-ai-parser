@@ -26,6 +26,12 @@ class ExpectedOutcome:
 
     expected_window_title: str | None = None
 
+    # Optional semantic state requirements. Each mapping describes one
+    # element that should be present after execution. The structure is
+    # technology-neutral and may contain fields such as kind, label,
+    # current_value, uia_selected or document_scope.
+    expected_semantic_elements: tuple[dict[str, object], ...] = ()
+
     # When enabled, verification requires the post-action semantic
     # scene to differ from the scene observed immediately before
     # execution. The baseline is captured by ExpectationResolver.
