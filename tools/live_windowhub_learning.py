@@ -15,6 +15,81 @@ from app.agent.learning.windowhub_learning_controller import (
 )
 
 
+def _print_workflow_summary(workflow) -> None:
+    payload = workflow.to_payload()
+    steps = payload.get("steps", [])
+
+    print()
+    print("=" * 80)
+    print("NAUKA ZAKOŃCZONA — SKRÓT")
+    print("=" * 80)
+    print(f"Workflow : {payload.get('name')}")
+    print(f"Trigger  : {payload.get('trigger')}")
+    print(f"Aplikacja: {payload.get('application')}")
+    print(f"Liczba kroków: {len(steps)}")
+    print()
+
+    if not steps:
+        print("BRAK ZAREJESTROWANYCH KROKÓW.")
+        return
+
+    for step in steps:
+        action = step.get("action", {})
+        before = step.get("before") or {}
+        after = step.get("after") or {}
+
+        action_name = action.get("name") or "?"
+        target = action.get("target")
+        value = action.get("value")
+
+        print(
+            f"KROK {step.get('index', '?')}: "
+            f"{action_name}"
+            + (f" -> {target}" if target else "")
+            + (f" = {value}" if value else "")
+        )
+
+        before_title = before.get("window_title")
+        after_title = after.get("window_title")
+        before_doc = before.get("active_document")
+        after_doc = after.get("active_document")
+
+        if before_title != after_title:
+            print(f"  okno: {before_title!r} -> {after_title!r}")
+        if before_doc != after_doc:
+            print(f"  dokument: {before_doc!r} -> {after_doc!r}")
+
+        before_count = len(before.get("elements", []))
+        after_count = len(after.get("elements", []))
+        print(f"  elementy semantyczne: {before_count} -> {after_count}")
+
+        before_labels = {
+            e.get("semantic_name")
+            for e in before.get("elements", [])
+            if e.get("semantic_name")
+        }
+        after_labels = {
+            e.get("semantic_name")
+            for e in after.get("elements", [])
+            if e.get("semantic_name")
+        }
+        added = sorted(after_labels - before_labels)
+        removed = sorted(before_labels - after_labels)
+
+        if added:
+            print("  pojawiły się: " + ", ".join(added[:8]))
+            if len(added) > 8:
+                print(f"  ... +{len(added) - 8} kolejnych")
+        if removed:
+            print("  zniknęły: " + ", ".join(removed[:8]))
+            if len(removed) > 8:
+                print(f"  ... -{len(removed) - 8} kolejnych")
+
+        print()
+
+    print("=" * 80)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description=(
@@ -40,6 +115,11 @@ def main() -> int:
         "--output",
         default="outputs/learned_windowhub_workflow.json",
         help="Where to write the learned workflow JSON.",
+    )
+    parser.add_argument(
+        "--summary-only",
+        action="store_true",
+        help="Print only a concise summary; full workflow JSON is still saved.",
     )
 
     args = parser.parse_args()
@@ -102,9 +182,13 @@ def main() -> int:
         encoding="utf-8",
     )
 
-    print()
-    print("[DONE] Learned workflow:")
-    print(json.dumps(workflow.to_payload(), ensure_ascii=False, indent=2))
+    if args.summary_only:
+        _print_workflow_summary(workflow)
+    else:
+        print()
+        print("[DONE] Learned workflow:")
+        print(json.dumps(workflow.to_payload(), ensure_ascii=False, indent=2))
+
     print()
     print(f"[SAVED] {output_path}")
 
