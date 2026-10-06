@@ -651,8 +651,10 @@ class AgentRuntime:
                     "executed_actions": (
                         control_loop_result.executed_actions
                     ),
-                    "failed_actions": (
-                        control_loop_result.failed_actions
+                    "failed_actions": getattr(
+                        control_loop_result,
+                        "failed_actions",
+                        0,
                     ),
                 },
             )
