@@ -1,7 +1,9 @@
-from types import SimpleNamespace
-
 from app.agent.agent_request import AgentRequest
-from app.agent.learning.learned_workflow import LearnedWorkflow
+from app.agent.learning.learned_workflow import (
+    LearnedAction,
+    LearnedWorkflow,
+    LearnedWorkflowStep,
+)
 from app.agent.learning.learned_workflow_replayer import (
     LearnedWorkflowReplayResult,
     LearnedWorkflowReplayer,
@@ -9,17 +11,30 @@ from app.agent.learning.learned_workflow_replayer import (
 from app.agent.learning.learned_workflow_service import (
     LearnedWorkflowService,
 )
+from app.agent.learning.semantic_snapshot import SemanticSnapshot
 from app.agent.learning.workflow_memory_store import WorkflowMemoryStore
 
 
 def _workflow():
+    snapshot = SemanticSnapshot(
+        application="WindowHub",
+        window_title="Okna -",
+    )
     return LearnedWorkflow(
         workflow_id="wf-1",
         name="Dodanie okna",
         application="WindowHub",
         trigger="dodaj nowe okno",
         steps=(
-            SimpleNamespace(),
+            LearnedWorkflowStep(
+                index=1,
+                action=LearnedAction(
+                    name="click_screen_element",
+                    target="Dodaj",
+                ),
+                before=snapshot,
+                after=snapshot,
+            ),
         ),
     )
 
