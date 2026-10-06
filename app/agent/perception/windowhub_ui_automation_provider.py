@@ -371,7 +371,15 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
         )
         selected = (
             self._selection_state(item)
-            if tab_scope == "document"
+            if (
+                control_type in {
+                    "radiobutton",
+                    "listitem",
+                    "tabitem",
+                    "treeitem",
+                }
+                or tab_scope == "document"
+            )
             else None
         )
 
