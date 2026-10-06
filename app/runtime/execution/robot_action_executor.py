@@ -552,11 +552,51 @@ class RobotActionExecutor:
 
             target = candidates[0]
 
-            click_input = getattr(target, "click_input", None)
-            if not callable(click_input):
-                return None
+            # Prefer the UIA semantic interaction pattern over a coordinate
+            # click. Radio buttons and other SelectionItem controls must be
+            # selected through their control pattern; buttons can expose the
+            # Invoke pattern. This is more reliable than clicking the center
+            # of a small modal control.
+            used_semantic_pattern = False
+            normalized_type = (
+                control_type.strip().casefold()
+                if isinstance(control_type, str)
+                else ""
+            )
 
-            click_input()
+            if normalized_type in {
+                "radiobutton",
+                "listitem",
+                "tabitem",
+                "treeitem",
+            }:
+                select = getattr(target, "select", None)
+                if callable(select):
+                    select()
+                    used_semantic_pattern = True
+
+            if not used_semantic_pattern and normalized_type in {
+                "button",
+                "splitbutton",
+                "menuitem",
+                "hyperlink",
+            }:
+                invoke = getattr(target, "invoke", None)
+                if callable(invoke):
+                    invoke()
+                    used_semantic_pattern = True
+
+            if not used_semantic_pattern and normalized_type == "checkbox":
+                toggle = getattr(target, "toggle", None)
+                if callable(toggle):
+                    toggle()
+                    used_semantic_pattern = True
+
+            if not used_semantic_pattern:
+                click_input = getattr(target, "click_input", None)
+                if not callable(click_input):
+                    return None
+                click_input()
 
             if action is InteractionAction.WRITE:
                 if not isinstance(text_value, str) or not text_value:
