@@ -92,11 +92,15 @@ class FakeUIAWindow:
 
 
 class FakeDesktop:
-    def __init__(self, window):
+    def __init__(self, window, windows_by_handle=None):
         self._window = window
+        self._windows_by_handle = dict(windows_by_handle or {})
 
     def get_active(self):
         return self._window
+
+    def window(self, *, handle):
+        return self._windows_by_handle[handle]
 
 
 def make_observation(tracked_objects=()):
@@ -513,3 +517,49 @@ def test_ui_automation_provider_exposes_bounded_ancestor_context():
     assert elements[0].metadata["uia_ancestor_context"] == (
         ("Pane", "Afx:Pane", "Konstrukcja"),
     )
+
+
+def test_ui_automation_provider_includes_windowhub_owned_foreground_dialog():
+    root_item = FakeUIAItem(
+        name="Dodaj",
+        left=110,
+        top=210,
+        width=70,
+        height=40,
+    )
+    dialog_button = FakeUIAItem(
+        name="Dalej >",
+        left=1000,
+        top=900,
+        width=120,
+        height=40,
+    )
+
+    root_window = FakeUIAWindow(
+        (root_item,),
+        title="Okna - WindowHub",
+    )
+    dialog_window = FakeUIAWindow(
+        (dialog_button,),
+        title="Wielkość okna",
+    )
+    desktop = FakeDesktop(
+        root_window,
+        windows_by_handle={
+            200: root_window,
+            400: dialog_window,
+        },
+    )
+
+    observation = make_observation()
+    observation.metadata["window_handle"] = 200
+    observation.metadata["foreground_window_handle"] = 400
+    observation.metadata["foreground_root_owner_handle"] = 200
+
+    elements = WindowHubUIAutomationProvider(
+        desktop_factory=lambda: desktop,
+    ).perceive(observation)
+
+    labels = {element.label for element in elements}
+    assert "Dodaj" in labels
+    assert "Dalej >" in labels
