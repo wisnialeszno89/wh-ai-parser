@@ -14,6 +14,7 @@ from app.agent.learning.windows_mouse_observer import WindowsMouseObserver
 
 
 GA_ROOT = 2
+GA_ROOTOWNER = 3
 
 
 class WindowHubMouseObserver(HumanActionObserver):
@@ -21,9 +22,10 @@ class WindowHubMouseObserver(HumanActionObserver):
     WindowHub-scoped mouse observer.
 
     The underlying Windows observer watches the left mouse button globally,
-    while this adapter accepts only clicks whose topmost window belongs to the
-    dynamically located WindowHub root. Coordinates are converted from screen
-    space to WindowHub-local space before the semantic interpreter sees them.
+    while this adapter accepts clicks whose top-level window is WindowHub or
+    whose root owner is WindowHub (for owned dialogs/modal forms). Coordinates
+    are converted from screen space to WindowHub-local space before the
+    semantic interpreter sees them.
     """
 
     def __init__(
@@ -79,6 +81,32 @@ class WindowHubMouseObserver(HumanActionObserver):
 
         return handle
 
+    @staticmethod
+    def _topmost_belongs_to_windowhub(
+        *,
+        topmost: int,
+        windowhub_hwnd: int,
+        user32,
+    ) -> bool:
+        root = int(
+            user32.GetAncestor(
+                topmost,
+                GA_ROOT,
+            )
+        )
+        if root == windowhub_hwnd:
+            return True
+
+        # Owned dialogs/modal forms are separate top-level windows, so their
+        # GA_ROOT is the dialog itself while GA_ROOTOWNER points to WindowHub.
+        root_owner = int(
+            user32.GetAncestor(
+                topmost,
+                GA_ROOTOWNER,
+            )
+        )
+        return root_owner == windowhub_hwnd
+
     @classmethod
     def _windowhub_local_position(
         cls,
@@ -102,19 +130,18 @@ class WindowHubMouseObserver(HumanActionObserver):
             int(screen_y),
         )
 
+        user32 = ctypes.windll.user32
         topmost = int(
-            ctypes.windll.user32.WindowFromPoint(point)
+            user32.WindowFromPoint(point)
         )
         if topmost <= 0:
             return None
 
-        root = int(
-            ctypes.windll.user32.GetAncestor(
-                topmost,
-                GA_ROOT,
-            )
-        )
-        if root != hwnd:
+        if not cls._topmost_belongs_to_windowhub(
+            topmost=topmost,
+            windowhub_hwnd=hwnd,
+            user32=user32,
+        ):
             return None
 
         left = int(window.left)
