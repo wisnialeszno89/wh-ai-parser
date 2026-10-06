@@ -24,7 +24,13 @@ class FileEntry:
         }
 
 
-class FileSystemAdapter:
+from app.agent.adapters.application_adapter import (
+    ApplicationAdapter,
+    AdapterDescriptor,
+)
+
+
+class FileSystemAdapter(ApplicationAdapter):
     """
     Semantic filesystem adapter with explicit allowed roots.
 
@@ -54,9 +60,7 @@ class FileSystemAdapter:
         self._roots = roots
 
     @property
-    def descriptor(self):
-        from app.agent.adapters.application_adapter import AdapterDescriptor
-
+    def descriptor(self) -> AdapterDescriptor:
         return AdapterDescriptor(
             adapter_id=self.adapter_id,
             application="FileSystem",
