@@ -73,6 +73,17 @@ class WindowHubEnvironmentAdapter(EnvironmentAdapter):
             screen_height=screenshot.height,
         )
 
+        foreground_window_handle = (
+            self._foreground_window_handle()
+        )
+        foreground_root_owner_handle = (
+            self._root_owner_window_handle(
+                foreground_window_handle
+            )
+            if foreground_window_handle > 0
+            else 0
+        )
+
         return EnvironmentObservation(
             state=state,
             metadata={
@@ -84,25 +95,53 @@ class WindowHubEnvironmentAdapter(EnvironmentAdapter):
                     if window_handle > 0
                     else None
                 ),
-                "window_focused": self._is_foreground_window(
-                    window_handle
+                "window_focused": (
+                    foreground_window_handle == window_handle
+                ),
+                "foreground_window_handle": (
+                    foreground_window_handle
+                    if foreground_window_handle > 0
+                    else None
+                ),
+                "foreground_root_owner_handle": (
+                    foreground_root_owner_handle
+                    if foreground_root_owner_handle > 0
+                    else None
                 ),
             },
         )
 
     @staticmethod
-    def _is_foreground_window(window_handle: int) -> bool:
-        if window_handle <= 0:
-            return False
-
+    def _foreground_window_handle() -> int:
         try:
-            foreground = int(
+            return int(
                 ctypes.windll.user32.GetForegroundWindow()
             )
         except Exception:
-            return False
+            return 0
 
-        return foreground == window_handle
+    @staticmethod
+    def _root_owner_window_handle(window_handle: int) -> int:
+        if window_handle <= 0:
+            return 0
+
+        try:
+            return int(
+                ctypes.windll.user32.GetAncestor(
+                    int(window_handle),
+                    3,
+                )
+            )
+        except Exception:
+            return 0
+
+    @staticmethod
+    def _is_foreground_window(window_handle: int) -> bool:
+        return (
+            window_handle > 0
+            and WindowHubEnvironmentAdapter._foreground_window_handle()
+            == window_handle
+        )
 
     @staticmethod
     def _locate_windowhub_window():
