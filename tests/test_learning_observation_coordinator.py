@@ -107,6 +107,7 @@ def test_coordinator_translates_human_click_to_learned_step():
         )
     )
 
+    coordinator.stop()
     workflow = session.finish()
 
     assert observer.started
