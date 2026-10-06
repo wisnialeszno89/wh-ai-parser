@@ -36,8 +36,12 @@ class LearningObservationCoordinator:
             raise RuntimeError("Learning session is not active.")
 
         scene = self.scene_provider()
-        if scene is not None:
-            self.session.observe_before(scene)
+        if scene is None:
+            raise RuntimeError(
+                "A semantic scene is required before learning can start."
+            )
+
+        self.session.observe_before(scene)
 
         self.observer.start(
             self._handle_event
@@ -50,7 +54,7 @@ class LearningObservationCoordinator:
         self,
         event: HumanActionEvent,
     ) -> None:
-        scene_before = self.session._before_scene
+        scene_before = self.session.before_scene
         if scene_before is None:
             scene_before = self.scene_provider()
 
