@@ -77,8 +77,7 @@ def main() -> int:
     try:
         input()
     except KeyboardInterrupt:
-        print("
-[STOP] Demonstracja przerwana.")
+        print("\n[STOP] Demonstracja przerwana.")
         controller.discard()
         return 130
 
