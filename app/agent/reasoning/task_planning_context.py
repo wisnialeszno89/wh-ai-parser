@@ -2,6 +2,7 @@ from dataclasses import dataclass
 
 from app.agent.perception.screen_scene import ScreenScene
 from app.agent.reasoning.knowledge_context import KnowledgeContext
+from app.agent.world.semantic_world_model import SemanticWorldModel
 
 
 @dataclass(frozen=True)
@@ -47,6 +48,8 @@ class TaskPlanningContext:
 
     learned_workflows: tuple[dict[str, object], ...] = ()
 
+    world: SemanticWorldModel | None = None
+
     def to_payload(
         self,
     ) -> dict[str, object]:
@@ -86,6 +89,11 @@ class TaskPlanningContext:
             ),
             "experience": list(self.experience),
             "learned_workflows": list(self.learned_workflows),
+            "world": (
+                self.world.to_payload()
+                if self.world is not None
+                else None
+            ),
         }
 
     def _scene_payload(self) -> dict[str, object] | None:
