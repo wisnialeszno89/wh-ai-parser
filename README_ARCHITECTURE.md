@@ -52,6 +52,10 @@ Already present:
 - durable learned workflow repository
 - deterministic semantic workflow matcher
 - compact BEFORE -> AFTER transition model
+- parameterized learned text actions
+- persistent agent experience memory
+- universal adapter registry and filesystem adapter
+- semantic Word .docx document adapter
 
 ## Next vertical milestones
 
@@ -60,9 +64,10 @@ Already present:
 3. Parameterized learned skills for request-time values. ✅
 4. Persistent agent experience memory for successful and failed execution. ✅
 5. Universal desktop adapter contract + filesystem adapter. ✅
-6. Word, Excel, browser and email adapters.
-7. Remote worker transport: HTTP/WebSocket command and status channel.
-8. Controlled external research provider feeding the provenance-aware
+6. Word document adapter. ✅
+7. Live Word desktop control, Excel, browser and email adapters.
+8. Remote worker transport: HTTP/WebSocket command and status channel.
+9. Controlled external research provider feeding the provenance-aware
    knowledge layer.
 
 WindowHub remains the first demanding application adapter, not the definition
