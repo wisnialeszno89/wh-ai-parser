@@ -73,6 +73,45 @@ class SemanticSnapshot:
             },
         )
 
+    @classmethod
+    def from_payload(
+        cls,
+        payload: dict[str, object],
+    ) -> "SemanticSnapshot":
+        elements_payload = payload.get("elements") or []
+        if not isinstance(elements_payload, list):
+            raise ValueError("Snapshot elements must be a list.")
+
+        elements = tuple(
+            dict(item)
+            for item in elements_payload
+            if isinstance(item, dict)
+        )
+
+        metadata = payload.get("metadata") or {}
+        if not isinstance(metadata, dict):
+            metadata = {}
+
+        return cls(
+            application=(
+                str(payload["application"])
+                if payload.get("application") is not None
+                else None
+            ),
+            window_title=(
+                str(payload["window_title"])
+                if payload.get("window_title") is not None
+                else None
+            ),
+            active_document=(
+                str(payload["active_document"])
+                if payload.get("active_document") is not None
+                else None
+            ),
+            elements=elements,
+            metadata=dict(metadata),
+        )
+
     def to_payload(self) -> dict[str, object]:
         return {
             "application": self.application,
