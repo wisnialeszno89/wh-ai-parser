@@ -33,6 +33,10 @@ from app.agent.reasoning.task_planning_context import (
     TaskPlanningContext,
 )
 
+from app.agent.learning.workflow_memory_store import (
+    WorkflowMemoryStore,
+)
+
 from app.agent.reasoning.task_reasoner import (
     TaskReasoner,
 )
@@ -90,6 +94,7 @@ class AgentOrchestrator:
         task_reasoner: TaskReasoner | None = None,
         application_knowledge: dict[str, object] | None = None,
         require_task_reasoning: bool = False,
+        workflow_memory_store: WorkflowMemoryStore | None = None,
     ) -> None:
 
         self.planner = (
@@ -127,6 +132,11 @@ class AgentOrchestrator:
 
         self.application_knowledge = application_knowledge
         self.require_task_reasoning = require_task_reasoning
+        self.workflow_memory_store = (
+            workflow_memory_store
+            if workflow_memory_store is not None
+            else WorkflowMemoryStore()
+        )
 
     def prepare(
         self,
@@ -228,6 +238,36 @@ class AgentOrchestrator:
                 else ()
             )
 
+            learned_workflow_value = request.metadata.get(
+                "learned_workflows",
+                (),
+            )
+            learned_workflows = (
+                tuple(learned_workflow_value)
+                if isinstance(learned_workflow_value, (list, tuple))
+                else ()
+            )
+
+            if not learned_workflows:
+                active_application = None
+                if initial_scene is not None:
+                    active_application = (
+                        initial_scene.observation.state.active_application
+                    )
+
+                matching_workflows = (
+                    self.workflow_memory_store.find(
+                        application=active_application,
+                        trigger=request.message,
+                    )
+                    if active_application is not None
+                    else ()
+                )
+                learned_workflows = tuple(
+                    workflow.to_payload()
+                    for workflow in matching_workflows
+                )
+
             task_context = TaskPlanningContext(
                 request_message=request.message,
                 intent=intent.value,
@@ -242,6 +282,11 @@ class AgentOrchestrator:
                     capability.description
                 ),
                 skill_name=skill.__class__.__name__,
+                operating_mode=(
+                    request.mode.value
+                    if hasattr(request.mode, "value")
+                    else str(request.mode)
+                ),
                 scene=initial_scene,
                 offer_workflow=offer_workflow,
                 application_knowledge=(
@@ -251,6 +296,7 @@ class AgentOrchestrator:
                 ),
                 external_knowledge=external_knowledge,
                 experience=experience,
+                learned_workflows=learned_workflows,
             )
 
             reasoned_plan = self.task_planner.plan(
