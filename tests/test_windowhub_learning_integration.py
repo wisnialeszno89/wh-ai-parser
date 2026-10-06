@@ -171,3 +171,5 @@ def test_windowhub_learning_controller_starts_from_real_semantic_scene():
     assert workflow.application == "WindowHub"
     assert len(workflow.steps) == 1
     assert workflow.steps[0].action.target == "Zapisz"
+    assert workflow.steps[0].before.elements[0]["label"] == "Zapisz"
+    assert workflow.steps[0].after.elements[0]["label"] == "Zapisane"
