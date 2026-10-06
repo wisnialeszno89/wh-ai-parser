@@ -113,3 +113,46 @@ def test_windowhub_locator_ignores_minimized_candidates(monkeypatch):
 
     assert selected.title == "Okna - live"
     assert selected._hWnd == 300
+
+
+def test_observe_exposes_foreground_owned_dialog_handles(monkeypatch):
+    windows = (
+        _window(
+            "Okna - OFR/1234",
+            hwnd=200,
+            width=1200,
+            height=800,
+        ),
+    )
+
+    monkeypatch.setattr(
+        module.gw,
+        "getAllWindows",
+        lambda: windows,
+    )
+
+    adapter = WindowHubEnvironmentAdapter()
+    adapter.screenshot_engine = SimpleNamespace(
+        capture=lambda rect: SimpleNamespace(
+            width=1200,
+            height=800,
+        )
+    )
+
+    monkeypatch.setattr(
+        WindowHubEnvironmentAdapter,
+        "_foreground_window_handle",
+        staticmethod(lambda: 400),
+    )
+    monkeypatch.setattr(
+        WindowHubEnvironmentAdapter,
+        "_root_owner_window_handle",
+        staticmethod(lambda hwnd: 200),
+    )
+
+    observation = adapter.observe()
+
+    assert observation.metadata["window_handle"] == 200
+    assert observation.metadata["foreground_window_handle"] == 400
+    assert observation.metadata["foreground_root_owner_handle"] == 200
+    assert observation.metadata["window_focused"] is False
