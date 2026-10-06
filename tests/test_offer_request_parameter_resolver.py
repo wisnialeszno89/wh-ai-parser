@@ -48,3 +48,21 @@ def test_offer_parameter_resolver_exposes_width_alias_for_polish_label():
 
     assert values["szerokosc"] == 1350
     assert resolver.parameter_for_label("Szerokość") == "width"
+
+
+def test_offer_parameter_resolver_parses_quantity_from_plain_product_count():
+    resolver = OfferRequestParameterResolver()
+
+    values = resolver.resolve(
+        AgentRequest(
+            message="dodaj nowe okno 6 okien 1200x1500"
+        ),
+        LearnedWorkflow(
+            workflow_id="wf",
+            name="x",
+            application="WindowHub",
+            trigger="dodaj nowe okno",
+        ),
+    )
+
+    assert values["quantity"] == 6
