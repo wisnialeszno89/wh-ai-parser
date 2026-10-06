@@ -58,6 +58,9 @@ class LearnedWorkflowService:
             return None
 
         match = matches[0]
+        if not match.workflow.steps:
+            return None
+
         replay = LearnedWorkflowReplayer(
             control_loop=self.control_loop,
         ).replay(
