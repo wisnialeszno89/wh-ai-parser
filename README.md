@@ -96,3 +96,12 @@ expands the local action allowlist or execution permissions.
 
 The current stage adds the contract, validation and transport only. No web
 research is executed yet.
+
+
+### Agent experience memory
+
+The runtime now keeps a durable, model-safe memory of execution outcomes.
+Memories contain the application, intent, learned workflow identity, outcome
+and compact diagnostics, while raw user requests and machine-specific runtime
+identifiers are excluded. Recent experiences can be supplied to task
+reasoning as prior context.
