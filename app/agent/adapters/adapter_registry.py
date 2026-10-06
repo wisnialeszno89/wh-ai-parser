@@ -33,6 +33,11 @@ class AdapterRegistry:
             self.register(adapter)
 
     def register(self, adapter: ApplicationAdapter) -> None:
+        if not isinstance(adapter, ApplicationAdapter):
+            raise TypeError(
+                "Registered adapter must implement ApplicationAdapter."
+            )
+
         adapter_id = adapter.descriptor.adapter_id.strip()
         if not adapter_id:
             raise ValueError("Adapter id must not be empty.")
