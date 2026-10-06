@@ -25,6 +25,8 @@ class TaskPlanningContext:
 
     user_id: str | None = None
 
+    operating_mode: str = "execute"
+
     capability_name: str | None = None
 
     capability_description: str | None = None
@@ -43,6 +45,8 @@ class TaskPlanningContext:
 
     experience: tuple[dict[str, object], ...] = ()
 
+    learned_workflows: tuple[dict[str, object], ...] = ()
+
     def to_payload(
         self,
     ) -> dict[str, object]:
@@ -51,6 +55,7 @@ class TaskPlanningContext:
             "intent": self.intent,
             "session_id": self.session_id,
             "user_id": self.user_id,
+            "operating_mode": self.operating_mode,
             "capability": (
                 {
                     "name": self.capability_name,
@@ -80,6 +85,7 @@ class TaskPlanningContext:
                 else None
             ),
             "experience": list(self.experience),
+            "learned_workflows": list(self.learned_workflows),
         }
 
     def _scene_payload(self) -> dict[str, object] | None:
