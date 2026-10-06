@@ -86,9 +86,15 @@ class LearningObservationCoordinator:
             self._running = False
             self._queue.put(self._STOP)
 
+            # The STOP sentinel is queued after all human events already
+            # captured by the observer. Drain the queue before returning so
+            # a slow post-action semantic observation cannot be lost when
+            # the user finishes the demonstration.
+            self._queue.join()
+
         worker = self._worker
         if worker is not None and worker.is_alive():
-            worker.join(timeout=5.0)
+            worker.join(timeout=1.0)
 
         self._worker = None
 
