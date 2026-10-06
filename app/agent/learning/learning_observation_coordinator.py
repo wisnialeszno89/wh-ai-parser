@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+import queue
+import threading
 
 from app.agent.learning.human_action_event import HumanActionEvent
 from app.agent.learning.human_action_observer import HumanActionObserver
@@ -15,10 +17,13 @@ class LearningObservationCoordinator:
     """
     Bridges a platform input observer with LearningSession.
 
-    The coordinator captures the current semantic scene before interpreting
-    a human event and refreshes it afterwards. The concrete platform observer
-    never needs to know how the application is perceived.
+    Input events are queued so a slow perception cycle cannot block the
+    platform mouse observer and cause later human interactions to be missed.
+    Events are interpreted sequentially against the latest known semantic
+    scene.
     """
+
+    _STOP = object()
 
     def __init__(
         self,
@@ -30,6 +35,11 @@ class LearningObservationCoordinator:
         self.session = session
         self.observer = observer
         self.scene_provider = scene_provider
+        self._queue: queue.Queue[
+            HumanActionEvent | object
+        ] = queue.Queue()
+        self._worker: threading.Thread | None = None
+        self._running = False
 
     def start(self) -> None:
         if not self.session.is_active:
@@ -43,14 +53,60 @@ class LearningObservationCoordinator:
 
         self.session.observe_before(scene)
 
-        self.observer.start(
-            self._handle_event
+        self._running = True
+        self._worker = threading.Thread(
+            target=self._process_events,
+            name="agent-learning-observation-coordinator",
+            daemon=True,
         )
+        self._worker.start()
+
+        try:
+            self.observer.start(
+                self._handle_event
+            )
+        except Exception:
+            self._running = False
+            self._queue.put(self._STOP)
+            self._worker.join(timeout=1.0)
+            self._worker = None
+            raise
 
     def stop(self) -> None:
         self.observer.stop()
 
+        if self._running:
+            self._running = False
+            self._queue.put(self._STOP)
+
+        worker = self._worker
+        if worker is not None and worker.is_alive():
+            worker.join(timeout=5.0)
+
+        self._worker = None
+
     def _handle_event(
+        self,
+        event: HumanActionEvent,
+    ) -> None:
+        self._queue.put(event)
+
+    def _process_events(self) -> None:
+        while True:
+            item = self._queue.get()
+
+            if item is self._STOP:
+                self._queue.task_done()
+                return
+
+            assert isinstance(item, HumanActionEvent)
+
+            try:
+                self._process_event(item)
+            finally:
+                self._queue.task_done()
+
+    def _process_event(
         self,
         event: HumanActionEvent,
     ) -> None:
