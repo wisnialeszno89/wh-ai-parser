@@ -8,9 +8,25 @@ wh-ai-parser ma stać się uniwersalnym agentem komputerowym sterowanym poleceni
 
 - Repo: wisnialeszno89/wh-ai-parser
 - Gałąź: work/agent-v1-robot-integration
-- HEAD podczas przeglądu: 8cd8402d39297cda1ace3fd1f536287db3d7e6b2
-- Ostatni commit: test(perception): cover WindowHub document content reader
+- HEAD podczas ostatniej aktualizacji stanu: b14f84a9a882d271f3aa736b760dcf3281db801e
+- Ostatni commit: docs(agent): define digital worker architecture
 - Lokalnie mogą istnieć niezatwierdzone skrypty diagnostyczne/outputy. Nie resetować, nie stashować i nie usuwać ich bez wyraźnej potrzeby.
+
+## Nowy kierunek: Digital Worker
+
+Agent jest rozwijany jako uniwersalny cyfrowy pracownik biurowy. WindowHub jest jednym z adapterów aplikacyjnych, nie docelowym centrum architektury.
+
+Dodano fundament trybu uczenia:
+- AgentMode: EXECUTE / LEARN / ASSIST
+- SemanticSnapshot do bezpiecznego zapisu stanu bez współrzędnych i identyfikatorów GUI
+- LearnedAction / LearnedWorkflowStep / LearnedWorkflow
+- LearningRecorder do zapisu demonstracji człowieka
+- WorkflowMemoryStore jako pierwszą granicę pamięci wyuczonych procedur
+- AgentRequest przekazuje jawny tryb pracy
+- TaskPlanningContext przekazuje operating_mode i learned_workflows do reasonera
+- AgentOrchestrator pobiera pasujące learned workflows z pamięci
+- AgentRuntime zachowuje tryb w kolejnych cyklach autonomicznych
+- docs/DIGITAL_WORKER_ARCHITECTURE.md opisuje docelową architekturę
 
 ## Co już jest
 
@@ -78,6 +94,17 @@ Nie budować jej od nowa. Repo ma m.in. ConstructionSchema, ConstructionSchemaFa
 - Każdy realny customer case ma stać się regression testem.
 
 ## Najbliższy plan
+
+### Digital Worker
+1. Zbudować semantyczny world model / affordance model nad istniejącym ScreenScene, bez duplikowania percepcji.
+2. Podłączyć rzeczywiste przechwytywanie działań użytkownika do trybu LEARN.
+3. Uczyć workflow z obserwowanych przejść stan -> akcja -> stan, a następnie wykonywać je przez istniejący controlled execution + verification.
+4. Dodać trwałą pamięć workflow/experience.
+5. Rozbudować computer-use o pliki, przeglądarkę i typowe aplikacje biurowe.
+6. Zdefiniować policy/approval layer dla operacji ryzykownych i wrażliwych.
+7. Dodać zdalny kanał poleceń (chat/web/voice) dopiero nad stabilnym lokalnym workerem.
+
+### WindowHub
 
 1. Nie wykonywać kolejnych losowych testów współrzędnych.
 2. Przed diagnostyką WindowFromPoint zawsze zapewnić fokus WindowHub przez istniejący WindowHubFocusWindowPreparationHandler.
