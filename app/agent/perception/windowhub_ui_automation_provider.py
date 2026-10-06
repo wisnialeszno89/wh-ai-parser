@@ -121,30 +121,65 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
         origin_y = int(getattr(window_rect, "top", 0))
 
         tracked_objects = self._tracked_objects(observation)
+        windows = [window]
+
+        root_handle = observation.metadata.get("window_handle")
+        foreground_handle = observation.metadata.get(
+            "foreground_window_handle"
+        )
+        foreground_owner = observation.metadata.get(
+            "foreground_root_owner_handle"
+        )
+
+        try:
+            root_handle_int = int(root_handle or 0)
+            foreground_handle_int = int(foreground_handle or 0)
+            foreground_owner_int = int(foreground_owner or 0)
+        except (TypeError, ValueError):
+            root_handle_int = 0
+            foreground_handle_int = 0
+            foreground_owner_int = 0
+
+        # A modal/owned WindowHub dialog is a separate top-level window.
+        # Perceive it alongside the main WindowHub root so controls such as
+        # "Dalej >" become part of the current semantic scene.
+        if (
+            foreground_handle_int > 0
+            and foreground_handle_int != root_handle_int
+            and foreground_owner_int == root_handle_int
+        ):
+            try:
+                dialog = desktop.window(
+                    handle=foreground_handle_int
+                ).wrapper_object()
+                windows.append(dialog)
+            except Exception:
+                pass
 
         elements: list[ScreenElement] = []
 
-        try:
-            descendants = tuple(window.descendants())
-        except Exception:
-            return ()
+        for current_window in windows:
+            try:
+                descendants = tuple(current_window.descendants())
+            except Exception:
+                continue
 
-        label_candidates = self._collect_label_candidates(
-            descendants,
-            origin_x=origin_x,
-            origin_y=origin_y,
-        )
-
-        for item in descendants:
-            element = self._to_screen_element(
-                item=item,
+            label_candidates = self._collect_label_candidates(
+                descendants,
                 origin_x=origin_x,
                 origin_y=origin_y,
-                tracked_objects=tracked_objects,
-                label_candidates=label_candidates,
             )
-            if element is not None:
-                elements.append(element)
+
+            for item in descendants:
+                element = self._to_screen_element(
+                    item=item,
+                    origin_x=origin_x,
+                    origin_y=origin_y,
+                    tracked_objects=tracked_objects,
+                    label_candidates=label_candidates,
+                )
+                if element is not None:
+                    elements.append(element)
 
         return tuple(elements)
 
