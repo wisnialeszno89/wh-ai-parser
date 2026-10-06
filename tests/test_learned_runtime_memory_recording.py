@@ -1,6 +1,7 @@
 from types import SimpleNamespace
 
 from app.agent.agent_request import AgentRequest
+from app.agent.learning.agent_mode import AgentMode
 from app.agent.learning.learned_workflow import (
     LearnedAction,
     LearnedWorkflow,
@@ -85,10 +86,7 @@ def test_runtime_records_learned_workflow_outcome_without_raw_request():
     result = runtime.run(
         AgentRequest(
             message="dodaj nowe okno",
-            mode=__import__(
-                "app.agent.learning.agent_mode",
-                fromlist=["AgentMode"],
-            ).AgentMode.EXECUTE,
+            mode=AgentMode.EXECUTE,
         )
     )
 
