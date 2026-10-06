@@ -2,6 +2,10 @@ from types import SimpleNamespace
 
 from app.agent.agent_request import AgentRequest
 from app.agent.learning.learned_workflow import LearnedWorkflow
+from app.agent.learning.learned_workflow_replayer import (
+    LearnedWorkflowReplayResult,
+    LearnedWorkflowReplayer,
+)
 from app.agent.learning.learned_workflow_service import (
     LearnedWorkflowService,
 )
@@ -14,7 +18,9 @@ def _workflow():
         name="Dodanie okna",
         application="WindowHub",
         trigger="dodaj nowe okno",
-        steps=(),
+        steps=(
+            SimpleNamespace(),
+        ),
     )
 
 
@@ -22,25 +28,42 @@ class FakeReplayerControlLoop:
     pass
 
 
-def test_service_requires_high_confidence_match():
-    store = WorkflowMemoryStore(workflows=(_workflow(),))
+def test_service_resolves_exact_trigger_and_replays(monkeypatch):
+    workflow = _workflow()
+    store = WorkflowMemoryStore(workflows=(workflow,))
+    replay_result = LearnedWorkflowReplayResult(
+        workflow=workflow,
+        success=True,
+        completed_steps=1,
+        total_steps=1,
+        control_loop_result=None,
+    )
+
+    def fake_replay(self, workflow, *, request_message):
+        assert request_message == "dodaj nowe okno"
+        return replay_result
+
+    monkeypatch.setattr(
+        LearnedWorkflowReplayer,
+        "replay",
+        fake_replay,
+    )
+
     service = LearnedWorkflowService(
         memory_store=store,
         control_loop=FakeReplayerControlLoop(),
         min_score=0.99,
     )
 
-    # Empty workflows cannot replay, but the service should still resolve
-    # the exact trigger before the replayer reports the invalid workflow.
-    try:
-        service.execute(
-            AgentRequest(message="dodaj nowe okno"),
-            application="WindowHub",
-        )
-    except ValueError as exc:
-        assert "without steps" in str(exc)
-    else:
-        raise AssertionError("Expected empty learned workflow to be rejected")
+    result = service.execute(
+        AgentRequest(message="dodaj nowe okno"),
+        application="WindowHub",
+    )
+
+    assert result is not None
+    assert result.match.workflow.workflow_id == "wf-1"
+    assert result.match.score == 1.0
+    assert result.replay is replay_result
 
 
 def test_service_returns_none_without_match():
@@ -54,40 +77,3 @@ def test_service_returns_none_without_match():
         AgentRequest(message="zrob cos innego"),
         application="WindowHub",
     ) is None
-
-
-def test_service_exposes_ranked_match_and_replay():
-    class FakeReplayer:
-        def replay(self, workflow, *, request_message):
-            return SimpleNamespace(
-                workflow=workflow,
-                success=True,
-                completed_steps=1,
-                total_steps=1,
-            )
-
-    store = WorkflowMemoryStore(workflows=(
-        LearnedWorkflow(
-            workflow_id="wf-1",
-            name="Dodanie okna",
-            application="WindowHub",
-            trigger="dodaj nowe okno",
-            steps=(
-                SimpleNamespace(index=1),
-            ),
-        ),
-    ))
-
-    service = LearnedWorkflowService(
-        memory_store=store,
-        control_loop=FakeReplayerControlLoop(),
-    )
-
-    # The public service uses the concrete semantic replayer. Keep this test
-    # focused on resolution by supplying a real workflow with a minimal fake
-    # control loop in a separate compatibility test below.
-    assert service.memory_store.match(
-        "dodaj nowe okno",
-        application="WindowHub",
-        min_score=0.99,
-    )[0].workflow.workflow_id == "wf-1"
