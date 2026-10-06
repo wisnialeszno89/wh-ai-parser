@@ -1,5 +1,7 @@
 from dataclasses import dataclass, field
 
+from app.agent.learning.agent_mode import AgentMode
+
 
 @dataclass(frozen=True)
 class AgentRequest:
@@ -23,3 +25,5 @@ class AgentRequest:
     metadata: dict[str, object] = field(
         default_factory=dict
     )
+
+    mode: AgentMode = AgentMode.EXECUTE
