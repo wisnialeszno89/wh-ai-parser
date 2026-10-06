@@ -5,6 +5,7 @@ import os
 
 from app.agent.adapters.adapter_registry import AdapterRegistry
 from app.agent.adapters.filesystem_adapter import FileSystemAdapter
+from app.agent.adapters.word_document_adapter import WordDocumentAdapter
 
 
 def create_default_adapter_registry(
@@ -23,6 +24,9 @@ def create_default_adapter_registry(
     return AdapterRegistry(
         adapters=(
             FileSystemAdapter(
+                allowed_roots=roots,
+            ),
+            WordDocumentAdapter(
                 allowed_roots=roots,
             ),
         )
