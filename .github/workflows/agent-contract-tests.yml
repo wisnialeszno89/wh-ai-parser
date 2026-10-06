@@ -19,7 +19,7 @@ jobs:
       - name: Install test dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install pytest python-dotenv python-docx
+          pip install pytest python-dotenv python-docx openpyxl
 
       - name: Run agent contract and learned-skill tests
         run: |
@@ -49,4 +49,5 @@ jobs:
             tests/test_filesystem_adapter.py \
             tests/test_default_adapters.py \
             tests/test_word_document_adapter.py \
+            tests/test_excel_workbook_adapter.py \
             tests/test_task_planning_context_adapters.py
