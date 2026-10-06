@@ -153,9 +153,15 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
             and foreground_owner_int == root_handle_int
         ):
             try:
-                dialog = desktop.window(
+                dialog_spec = desktop.window(
                     handle=foreground_handle_int
-                ).wrapper_object()
+                )
+                wrapper = getattr(dialog_spec, "wrapper_object", None)
+                dialog = (
+                    wrapper()
+                    if callable(wrapper)
+                    else dialog_spec
+                )
                 windows.append(dialog)
             except Exception:
                 pass
@@ -221,7 +227,12 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
                     "Invalid observed WindowHub window handle."
                 )
             window_spec = desktop.window(handle=handle)
-            return window_spec.wrapper_object()
+            wrapper = getattr(window_spec, "wrapper_object", None)
+            return (
+                wrapper()
+                if callable(wrapper)
+                else window_spec
+            )
 
         if allow_test_factory_fallback:
             get_active = getattr(desktop, "get_active", None)
