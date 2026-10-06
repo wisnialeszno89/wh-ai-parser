@@ -111,7 +111,11 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
         expected_title = observation.state.active_window_title
         if expected_title:
             try:
-                if window.window_text() != expected_title:
+                actual_title = window.window_text()
+                if (
+                    actual_title.strip()
+                    != expected_title.strip()
+                ):
                     return ()
             except Exception:
                 return ()
