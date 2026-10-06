@@ -132,11 +132,17 @@ def test_windowhub_mouse_observer_ignores_click_outside_windowhub():
     assert captured == []
 
 
-def test_windowhub_learning_controller_starts_from_real_semantic_scene():
+def test_windowhub_learning_controller_starts_from_real_semantic_scene(monkeypatch):
     mouse = FakeMouseObserver()
     focus = FakeFocusHandler()
     scenes = [_scene(), _scene("Zapisane")]
     loop = FakeControlLoop(scenes)
+
+    monkeypatch.setattr(
+        WindowHubMouseObserver,
+        "_windowhub_local_position",
+        staticmethod(lambda x, y: (x, y)),
+    )
 
     controller = WindowHubLearningController(
         learning_session=LearningSession(),
