@@ -66,6 +66,10 @@ class LearnedWorkflowService:
 
         if matches:
             match = matches[0]
+            parameters = self._resolve_parameters(
+                request,
+                match.workflow,
+            )
         else:
             candidate_matches = self.memory_store.match(
                 request.message,
@@ -73,18 +77,25 @@ class LearnedWorkflowService:
                 limit=5,
                 min_score=0.90,
             )
-            match = self._select_parameterized_continuation(
-                request,
-                candidate_matches,
-            )
+            match = None
+            parameters = {}
+
+            for candidate in candidate_matches:
+                candidate_parameters = self._resolve_parameters(
+                    request,
+                    candidate.workflow,
+                )
+                if self._is_parameterized_continuation(
+                    request,
+                    candidate,
+                    candidate_parameters,
+                ):
+                    match = candidate
+                    parameters = candidate_parameters
+                    break
 
         if match is None or not match.workflow.steps:
             return None
-
-        parameters = self._resolve_parameters(
-            request,
-            match.workflow,
-        )
 
         replayer = LearnedWorkflowReplayer(
             control_loop=self.control_loop,
@@ -131,70 +142,50 @@ class LearnedWorkflowService:
         return {}
 
     @staticmethod
-    def _select_parameterized_continuation(
+    def _is_parameterized_continuation(
         request: AgentRequest,
-        candidates: tuple[WorkflowMatch, ...],
-    ) -> WorkflowMatch | None:
-        """
-        Allow a parameterized learned workflow to accept a request that starts
-        with its exact trigger and supplies all learned parameters.
-
-        This is intentionally narrower than generic fuzzy matching.
-        """
+        candidate: WorkflowMatch,
+        parameters: Mapping[str, object],
+    ) -> bool:
         binder = LearnedParameterBinder()
+        workflow = candidate.workflow
+
+        if not any(
+            step.action.value_source == "parameter"
+            and bool(step.action.parameter_name)
+            for step in workflow.steps
+        ):
+            return False
+
         normalized_message = WorkflowMatcher._normalize(
             request.message
         )
+        trigger = WorkflowMatcher._normalize(
+            workflow.trigger
+        )
 
-        for candidate in candidates:
-            workflow = candidate.workflow
-            if not any(
-                step.action.value_source == "parameter"
-                and bool(step.action.parameter_name)
-                for step in workflow.steps
-            ):
-                continue
-
-            trigger = WorkflowMatcher._normalize(
-                workflow.trigger
+        if (
+            not trigger
+            or normalized_message == trigger
+            or not normalized_message.startswith(
+                trigger + " "
             )
+        ):
+            return False
+
+        parameterized_actions = tuple(
+            step.action
+            for step in workflow.steps
             if (
-                not trigger
-                or normalized_message == trigger
-                or not normalized_message.startswith(
-                    trigger + " "
-                )
-            ):
-                continue
-
-            # Parameter resolution is performed here so an otherwise similar
-            # workflow cannot fire merely because its trigger is a prefix.
-            explicit = request.metadata.get("learned_parameters")
-            parameters = (
-                dict(explicit)
-                if isinstance(explicit, Mapping)
-                else {}
+                step.action.value_source == "parameter"
+                and step.action.parameter_name
             )
+        )
 
-            if not parameters:
-                continue
-
-            parameterized_actions = tuple(
-                step.action
-                for step in workflow.steps
-                if (
-                    step.action.value_source == "parameter"
-                    and step.action.parameter_name
-                )
+        return all(
+            binder.has_parameter(
+                action,
+                parameters,
             )
-
-            if all(
-                binder.has_parameter(
-                    action,
-                    parameters,
-                )
-                for action in parameterized_actions
-            ):
-                return candidate
-
-        return None
+            for action in parameterized_actions
+        )
