@@ -59,7 +59,7 @@ class FakeControlLoop:
     def observe_scene(self):
         return self.scene
 
-    def run(self, *, plan, context):
+    def run(self, plan, context):
         self.run_calls += 1
         return SimpleNamespace(
             success=True,
