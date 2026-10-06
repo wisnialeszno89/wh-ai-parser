@@ -372,6 +372,18 @@ class RobotActionExecutor:
             int(y + height // 2 + origin[1]),
         )
 
+        if self.mode is RobotExecutionMode.LIVE:
+            live_result = self._execute_live_uia_target(
+                metadata=metadata,
+                action=action,
+                text_value=text_value,
+                window_handle=window_handle,
+                fallback_point=point,
+                confidence=confidence,
+            )
+            if live_result is not None:
+                return live_result
+
         mouse_result = self.mouse.click(*point)
 
         if self.mode is RobotExecutionMode.LIVE and not mouse_result.executed:
@@ -447,6 +459,156 @@ class RobotActionExecutor:
             confidence=confidence,
             reason=mouse_result.reason,
         )
+
+    def _execute_live_uia_target(
+        self,
+        *,
+        metadata,
+        action,
+        text_value: str | None,
+        window_handle,
+        fallback_point: tuple[int, int],
+        confidence: float,
+    ) -> RobotActionResult | None:
+        """
+        Prefer the live UI Automation control itself over a calculated
+        screen coordinate.
+
+        This is important for modal controls such as radio buttons: the
+        semantic target is reacquired from the current foreground WindowHub
+        window immediately before the action, so a stale/incorrect
+        center point cannot silently hit an adjacent option.
+        """
+        if __import__("os").name != "nt":
+            return None
+
+        try:
+            handle = int(window_handle)
+        except (TypeError, ValueError):
+            return None
+
+        if handle <= 0:
+            return None
+
+        runtime_id = metadata.get("uia_runtime_id")
+        target_name = metadata.get("name")
+        control_type = metadata.get("uia_control_type")
+
+        try:
+            from pywinauto import Desktop
+
+            window = Desktop(backend="uia").window(
+                handle=handle
+            ).wrapper_object()
+
+            candidates = []
+            for item in window.descendants():
+                try:
+                    item_runtime_id = self._normalize_uia_runtime_id(
+                        getattr(item.element_info, "runtime_id", None)
+                    )
+                    item_control_type = str(
+                        getattr(
+                            item.element_info,
+                            "control_type",
+                            "",
+                        )
+                    ).strip().casefold()
+                    item_name = str(
+                        getattr(
+                            item.element_info,
+                            "name",
+                            "",
+                        )
+                    ).strip()
+                except Exception:
+                    continue
+
+                if (
+                    isinstance(runtime_id, str)
+                    and runtime_id
+                    and item_runtime_id == runtime_id
+                ):
+                    candidates.append(item)
+                    continue
+
+                if (
+                    not runtime_id
+                    and isinstance(target_name, str)
+                    and target_name.strip()
+                    and item_name.casefold()
+                    == target_name.strip().casefold()
+                    and (
+                        not isinstance(control_type, str)
+                        or not control_type.strip()
+                        or item_control_type
+                        == control_type.strip().casefold()
+                    )
+                ):
+                    candidates.append(item)
+
+            if len(candidates) != 1:
+                return None
+
+            target = candidates[0]
+
+            click_input = getattr(target, "click_input", None)
+            if not callable(click_input):
+                return None
+
+            click_input()
+
+            if action is InteractionAction.WRITE:
+                if not isinstance(text_value, str) or not text_value:
+                    return RobotActionResult(
+                        False,
+                        action,
+                        self.mode,
+                        False,
+                        target_id=self._uia_target_id(metadata),
+                        point=fallback_point,
+                        confidence=confidence,
+                        reason="WRITE requires a non-empty text value",
+                    )
+
+                try:
+                    self.keyboard.hotkey("ctrl", "a")
+                    self.keyboard.write(text_value)
+                except Exception as exc:
+                    return RobotActionResult(
+                        False,
+                        action,
+                        self.mode,
+                        False,
+                        target_id=self._uia_target_id(metadata),
+                        point=fallback_point,
+                        confidence=confidence,
+                        reason=f"LIVE text entry failed: {exc}",
+                    )
+
+            return RobotActionResult(
+                True,
+                action,
+                self.mode,
+                True,
+                target_id=self._uia_target_id(metadata),
+                point=fallback_point,
+                confidence=confidence,
+                reason="LIVE UIA control executed directly",
+            )
+
+        except Exception:
+            return None
+
+    @staticmethod
+    def _normalize_uia_runtime_id(value) -> str | None:
+        if value is None:
+            return None
+
+        if isinstance(value, (tuple, list)):
+            return "-".join(str(part) for part in value)
+
+        return str(value)
 
     @staticmethod
     def _screen_element_confidence(screen_element) -> float:
