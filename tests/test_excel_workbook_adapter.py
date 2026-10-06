@@ -48,8 +48,9 @@ def test_excel_adapter_appends_rows_and_creates_sheet(tmp_path):
         allowed_roots=(root,)
     )
 
-    path = adapter.create(
-        root / "oferta.xlsx",
+    path = root / "oferta.xlsx"
+    adapter.create(
+        path,
         sheets=("Oferta",),
     )
 
