@@ -18,6 +18,7 @@ class LearnedWorkflowExecutionResult:
 
     match: WorkflowMatch
     replay: LearnedWorkflowReplayResult
+    parameters: Mapping[str, object]
 
 
 class LearnedWorkflowService:
@@ -80,6 +81,7 @@ class LearnedWorkflowService:
         return LearnedWorkflowExecutionResult(
             match=match,
             replay=replay,
+            parameters=parameters,
         )
 
     def _resolve_parameters(
