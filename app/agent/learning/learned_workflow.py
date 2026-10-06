@@ -18,6 +18,13 @@ class LearnedAction:
     value: str | None = None
     description: str = ""
 
+    # "literal" preserves the demonstrated value. "parameter" means the
+    # value may be overridden for a replay by a request-time parameter.
+    value_source: str = "literal"
+
+    # Stable semantic parameter name, e.g. "szerokosc" for "Szerokość".
+    parameter_name: str | None = None
+
     @classmethod
     def from_payload(
         cls,
@@ -38,6 +45,14 @@ class LearnedAction:
             description=str(
                 payload.get("description") or ""
             ),
+            value_source=str(
+                payload.get("value_source") or "literal"
+            ),
+            parameter_name=(
+                str(payload["parameter_name"])
+                if payload.get("parameter_name") is not None
+                else None
+            ),
         )
 
     def to_payload(self) -> dict[str, object]:
@@ -46,6 +61,8 @@ class LearnedAction:
             "target": self.target,
             "value": self.value,
             "description": self.description,
+            "value_source": self.value_source,
+            "parameter_name": self.parameter_name,
         }
 
 
