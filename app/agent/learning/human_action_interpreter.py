@@ -53,6 +53,37 @@ class HumanActionInterpreter:
         if event.x is None or event.y is None:
             return None
 
+        metadata = event.metadata or {}
+        event_name = metadata.get("event_uia_name")
+        event_control_type = metadata.get("event_uia_control_type")
+
+        # Prefer the semantic target captured at physical click time. The UI
+        # can advance before the queued event is processed, so a later scene
+        # must not erase an action that was unambiguously observed.
+        if (
+            isinstance(event_name, str)
+            and event_name.strip()
+            and isinstance(event_control_type, str)
+            and event_control_type.strip().casefold()
+            in {
+                "button",
+                "checkbox",
+                "combobox",
+                "hyperlink",
+                "listitem",
+                "menuitem",
+                "radiobutton",
+                "splitbutton",
+                "tabitem",
+                "treeitem",
+            }
+        ):
+            return LearnedAction(
+                name="click_screen_element",
+                target=event_name.strip(),
+                description=f"Activate '{event_name.strip()}'.",
+            )
+
         candidates = []
 
         for element in scene.elements:
