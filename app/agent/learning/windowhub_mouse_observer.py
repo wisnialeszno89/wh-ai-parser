@@ -66,20 +66,89 @@ class WindowHubMouseObserver(HumanActionObserver):
                 return
 
             x, y = local
+
+            metadata = {
+                **dict(event.metadata or {}),
+                "scope": "WindowHub",
+            }
+
+            # Capture a semantic hint at the exact moment of the physical
+            # click. This prevents a fast second click from being interpreted
+            # against a later UI state after the dialog has already changed.
+            event_semantics = self._semantic_target_at_screen_position(
+                event.x,
+                event.y,
+            )
+            if event_semantics is not None:
+                metadata.update(event_semantics)
+
             callback(
                 HumanActionEvent(
                     action_type=event.action_type,
                     x=x,
                     y=y,
                     value=event.value,
-                    metadata={
-                        **dict(event.metadata or {}),
-                        "scope": "WindowHub",
-                    },
+                    metadata=metadata,
                 )
             )
 
         return handle
+
+    @staticmethod
+    def _semantic_target_at_screen_position(
+        screen_x: int,
+        screen_y: int,
+    ) -> dict[str, object] | None:
+        try:
+            point = ctypes.wintypes.POINT(
+                int(screen_x),
+                int(screen_y),
+            )
+            user32 = ctypes.windll.user32
+            hwnd = int(user32.WindowFromPoint(point))
+            if hwnd <= 0:
+                return None
+
+            from pywinauto import Desktop
+
+            item = (
+                Desktop(backend="uia")
+                .window(handle=hwnd)
+                .wrapper_object()
+            )
+            info = item.element_info
+
+            control_type = str(
+                getattr(info, "control_type", "") or ""
+            ).strip().casefold()
+            name = str(
+                getattr(info, "name", "") or ""
+            ).strip()
+
+            if not name:
+                return None
+
+            if control_type not in {
+                "button",
+                "checkbox",
+                "combobox",
+                "hyperlink",
+                "listitem",
+                "menuitem",
+                "radiobutton",
+                "splitbutton",
+                "tabitem",
+                "treeitem",
+            }:
+                return None
+
+            return {
+                "event_uia_name": name,
+                "event_uia_control_type": control_type,
+                "event_uia_source": "windowhub_mouse_uia",
+            }
+        except Exception:
+            return None
 
     @staticmethod
     def _topmost_belongs_to_windowhub(
