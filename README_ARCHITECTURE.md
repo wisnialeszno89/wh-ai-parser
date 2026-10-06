@@ -58,8 +58,8 @@ Already present:
 1. Learned skill resolution: matched workflow -> replay service. ✅
 2. Semantic text-entry learning from field state changes. ✅
 3. Parameterized learned skills for request-time values. ✅
-4. Universal desktop adapters: files, Word, Excel, browser and email.
-5. Persistent agent memory: sessions, successful experiences and preferences.
+4. Persistent agent experience memory for successful and failed execution.
+5. Universal desktop adapters: files, Word, Excel, browser and email.
 6. Remote worker transport: HTTP/WebSocket command and status channel.
 7. Controlled external research provider feeding the provenance-aware
    knowledge layer.
