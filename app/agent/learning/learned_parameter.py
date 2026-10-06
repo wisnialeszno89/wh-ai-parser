@@ -35,6 +35,28 @@ class LearnedParameterBinder:
     value for the current replay only.
     """
 
+    def has_parameter(
+        self,
+        action: LearnedAction,
+        parameters: Mapping[str, object] | None = None,
+    ) -> bool:
+        if (
+            action.value_source != "parameter"
+            or not action.parameter_name
+            or parameters is None
+        ):
+            return False
+
+        parameter_name = canonical_parameter_name(
+            action.parameter_name
+        )
+
+        return any(
+            canonical_parameter_name(str(key)) == parameter_name
+            and value is not None
+            for key, value in parameters.items()
+        )
+
     def bind(
         self,
         action: LearnedAction,
