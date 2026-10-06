@@ -31,6 +31,7 @@ jobs:
             tests/test_windowhub_tab_selection.py \
             tests/test_active_document_context.py \
             tests/test_workflow_repository.py \
+            tests/test_learned_workflow_repository.py \
             tests/test_workflow_matcher.py \
             tests/test_semantic_transition.py \
             tests/test_learned_workflow_replayer.py \
