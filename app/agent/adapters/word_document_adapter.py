@@ -4,6 +4,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
 
+from app.agent.adapters.application_adapter import (
+    AdapterDescriptor,
+    ApplicationAdapter,
+)
+
 
 @dataclass(frozen=True)
 class WordDocumentSummary:
@@ -21,7 +26,7 @@ class WordDocumentSummary:
         }
 
 
-class WordDocumentAdapter:
+class WordDocumentAdapter(ApplicationAdapter):
     """Semantic .docx document adapter with explicit filesystem roots.
 
     This adapter works with the Word document format directly rather than
@@ -53,11 +58,7 @@ class WordDocumentAdapter:
         self._roots = roots
 
     @property
-    def descriptor(self):
-        from app.agent.adapters.application_adapter import (
-            AdapterDescriptor,
-        )
-
+    def descriptor(self) -> AdapterDescriptor:
         return AdapterDescriptor(
             adapter_id=self.adapter_id,
             application="Word",
@@ -101,6 +102,11 @@ class WordDocumentAdapter:
         document_path = self._resolve_for_access(path)
         self._require_docx(document_path)
 
+        if not document_path.exists():
+            raise FileNotFoundError(str(document_path))
+        if not document_path.is_file():
+            raise IsADirectoryError(str(document_path))
+
         document = self._document(document_path)
 
         sections: list[str] = []
@@ -127,6 +133,11 @@ class WordDocumentAdapter:
     ) -> WordDocumentSummary:
         document_path = self._resolve_for_access(path)
         self._require_docx(document_path)
+
+        if not document_path.exists():
+            raise FileNotFoundError(str(document_path))
+        if not document_path.is_file():
+            raise IsADirectoryError(str(document_path))
 
         document = self._document(document_path)
 
@@ -188,6 +199,8 @@ class WordDocumentAdapter:
 
         if not document_path.exists():
             raise FileNotFoundError(str(document_path))
+        if not document_path.is_file():
+            raise IsADirectoryError(str(document_path))
 
         if not isinstance(text, str):
             raise TypeError(
