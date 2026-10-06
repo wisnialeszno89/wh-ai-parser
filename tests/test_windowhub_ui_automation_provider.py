@@ -220,7 +220,7 @@ def test_ui_automation_provider_accepts_window_title_with_trailing_whitespace():
     desktop = FakeDesktop(
         FakeUIAWindow(
             (item,),
-            title="Okna - ",
+            title="Okna - WindowHub ",
         )
     )
 
