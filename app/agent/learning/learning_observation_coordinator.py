@@ -45,7 +45,14 @@ class LearningObservationCoordinator:
         if not self.session.is_active:
             raise RuntimeError("Learning session is not active.")
 
-        scene = self.scene_provider()
+        # The controller may already have captured the initial scene. Do not
+        # take a second observation here because the UI can legitimately
+        # change between those two calls, which would make the first human
+        # action be interpreted against the wrong state.
+        scene = self.session.before_scene
+        if scene is None:
+            scene = self.scene_provider()
+
         if scene is None:
             raise RuntimeError(
                 "A semantic scene is required before learning can start."
