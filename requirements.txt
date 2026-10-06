@@ -10,3 +10,4 @@ pyautogui
 mss
 pygetwindow
 python-docx
+openpyxl
