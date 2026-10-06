@@ -27,6 +27,12 @@ from app.agent.learning.learning_session import LearningSession
 from app.agent.learning.windowhub_mouse_observer import (
     WindowHubMouseObserver,
 )
+from app.agent.learning.composite_human_action_observer import (
+    CompositeHumanActionObserver,
+)
+from app.agent.learning.semantic_text_input_observer import (
+    SemanticTextInputObserver,
+)
 from app.agent.learning.workflow_memory_store import (
     WorkflowMemoryStore,
 )
@@ -50,6 +56,7 @@ class WindowHubLearningController:
         *,
         learning_session: LearningSession | None = None,
         observer: WindowHubMouseObserver | None = None,
+        text_observer: SemanticTextInputObserver | None = None,
         workflow_memory_store: WorkflowMemoryStore | None = None,
         control_loop=None,
         focus_handler: WindowHubFocusWindowPreparationHandler | None = None,
@@ -59,6 +66,12 @@ class WindowHubLearningController:
         )
         self.observer = (
             observer or WindowHubMouseObserver()
+        )
+        self.text_observer = (
+            text_observer
+            or SemanticTextInputObserver(
+                scene_provider=self._observe_learning_scene
+            )
         )
         self.workflow_memory_store = (
             workflow_memory_store
@@ -131,7 +144,12 @@ class WindowHubLearningController:
 
         self._coordinator = LearningObservationCoordinator(
             session=self.learning_session,
-            observer=self.observer,
+            observer=CompositeHumanActionObserver(
+                observers=(
+                    self.observer,
+                    self.text_observer,
+                )
+            ),
             scene_provider=self._observe_learning_scene,
         )
         self._coordinator.start()

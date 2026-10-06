@@ -28,10 +28,27 @@ class HumanActionInterpreter:
             return self._interpret_click(event=event, scene=scene)
 
         if action_type in {"write_text", "type_text"}:
-            if not isinstance(event.value, str) or not event.value:
+            if not isinstance(event.value, str):
                 return None
 
-            target = self._active_edit_target(scene)
+            metadata = event.metadata or {}
+            event_name = metadata.get("event_uia_name")
+            event_control_type = metadata.get("event_uia_control_type")
+
+            target = None
+
+            if (
+                isinstance(event_name, str)
+                and event_name.strip()
+                and isinstance(event_control_type, str)
+                and event_control_type.strip().casefold()
+                in {"edit", "textbox", "input", "combobox"}
+            ):
+                target = event_name.strip()
+
+            if target is None:
+                target = self._active_edit_target(scene)
+
             if target is None:
                 return None
 
