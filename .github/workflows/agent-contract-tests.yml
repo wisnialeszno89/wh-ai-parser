@@ -38,4 +38,8 @@ jobs:
             tests/test_learned_workflow_service.py \
             tests/test_learned_workflow_runtime.py \
             tests/test_semantic_text_input_observer.py \
-            tests/test_human_action_interpreter_text_input.py
+            tests/test_human_action_interpreter_text_input.py \
+            tests/test_learned_parameter.py \
+            tests/test_learned_workflow_parameter_replay.py \
+            tests/test_learned_workflow_service_parameters.py \
+            tests/test_offer_request_parameter_resolver.py
