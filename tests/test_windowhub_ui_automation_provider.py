@@ -212,6 +212,28 @@ def test_ui_automation_provider_rejects_ambiguous_visual_correlation():
     assert elements[0].metadata["correlation"] == "unresolved"
 
 
+def test_ui_automation_provider_accepts_window_title_with_trailing_whitespace():
+    item = FakeUIAItem(
+        name="Dodaj",
+        automation_id="Dodaj",
+    )
+    desktop = FakeDesktop(
+        FakeUIAWindow(
+            (item,),
+            title="Okna - ",
+        )
+    )
+
+    elements = WindowHubUIAutomationProvider(
+        desktop_factory=lambda: desktop,
+    ).perceive(
+        make_observation()
+    )
+
+    assert len(elements) == 1
+    assert elements[0].label == "Dodaj"
+
+
 def test_ui_automation_provider_disabled_control_is_not_interactive():
     item = FakeUIAItem(
         name="Zamień miejscami",
