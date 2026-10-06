@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from collections.abc import Callable, Mapping
 
 from app.agent.agent_request import AgentRequest
@@ -18,7 +18,9 @@ class LearnedWorkflowExecutionResult:
 
     match: WorkflowMatch
     replay: LearnedWorkflowReplayResult
-    parameters: Mapping[str, object]
+    parameters: Mapping[str, object] = field(
+        default_factory=dict
+    )
 
 
 class LearnedWorkflowService:
@@ -70,13 +72,21 @@ class LearnedWorkflowService:
             match.workflow,
         )
 
-        replay = LearnedWorkflowReplayer(
+        replayer = LearnedWorkflowReplayer(
             control_loop=self.control_loop,
-        ).replay(
-            match.workflow,
-            request_message=request.message,
-            parameters=parameters,
         )
+
+        if parameters:
+            replay = replayer.replay(
+                match.workflow,
+                request_message=request.message,
+                parameters=parameters,
+            )
+        else:
+            replay = replayer.replay(
+                match.workflow,
+                request_message=request.message,
+            )
 
         return LearnedWorkflowExecutionResult(
             match=match,
