@@ -55,6 +55,7 @@ class SemanticSnapshot:
                 "document_scope",
                 "uia_tab_scope",
                 "uia_document_tab_selected",
+                "uia_selected",
             ):
                 value = metadata.get(key)
                 if isinstance(value, (str, int, float, bool)):
