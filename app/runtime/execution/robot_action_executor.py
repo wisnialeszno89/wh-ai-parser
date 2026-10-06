@@ -570,26 +570,72 @@ class RobotActionExecutor:
                 "tabitem",
                 "treeitem",
             }:
+                is_selected = getattr(target, "is_selected", None)
                 select = getattr(target, "select", None)
-                if callable(select):
+
+                def selected_now() -> bool:
+                    if not callable(is_selected):
+                        return False
+                    try:
+                        return bool(is_selected())
+                    except Exception:
+                        return False
+
+                def wait_for_selected() -> bool:
+                    import time
+
+                    for _ in range(8):
+                        if selected_now():
+                            return True
+                        time.sleep(0.08)
+                    return selected_now()
+
+                if selected_now():
+                    used_semantic_pattern = True
+                elif callable(select):
                     try:
                         select()
-                        used_semantic_pattern = True
                     except Exception:
-                        used_semantic_pattern = False
+                        pass
+                    used_semantic_pattern = wait_for_selected()
 
-                    # Some native/legacy dialogs expose SelectionItemPattern
-                    # but do not update their selected state through Select().
-                    # pywinauto's higher-level click() has a legacy
-                    # DoDefaultAction fallback, so use it when selection did
-                    # not actually take effect.
-                    is_selected = getattr(target, "is_selected", None)
-                    if callable(is_selected):
+                # Some native/legacy WindowHub radio controls expose a
+                # SelectionItem pattern but do not actually change state
+                # through Select(). Escalate to the wrapper's default click,
+                # then finally to physical click_input(). We verify the
+                # semantic selected state after each attempt.
+                if not used_semantic_pattern:
+                    click = getattr(target, "click", None)
+                    if callable(click):
                         try:
-                            if not bool(is_selected()):
-                                used_semantic_pattern = False
+                            click()
                         except Exception:
                             pass
+                        used_semantic_pattern = wait_for_selected()
+
+                if not used_semantic_pattern:
+                    click_input = getattr(target, "click_input", None)
+                    if callable(click_input):
+                        try:
+                            click_input()
+                        except Exception:
+                            pass
+                        used_semantic_pattern = wait_for_selected()
+
+                if not used_semantic_pattern:
+                    return RobotActionResult(
+                        False,
+                        action,
+                        self.mode,
+                        False,
+                        target_id=self._uia_target_id(metadata),
+                        point=fallback_point,
+                        confidence=confidence,
+                        reason=(
+                            "UIA selection action executed but the target "
+                            "did not become selected."
+                        ),
+                    )
 
             if not used_semantic_pattern and normalized_type in {
                 "button",
@@ -599,8 +645,11 @@ class RobotActionExecutor:
             }:
                 click = getattr(target, "click", None)
                 if callable(click):
-                    click()
-                    used_semantic_pattern = True
+                    try:
+                        click()
+                        used_semantic_pattern = True
+                    except Exception:
+                        pass
 
             if not used_semantic_pattern and normalized_type == "checkbox":
                 toggle = getattr(target, "toggle", None)
