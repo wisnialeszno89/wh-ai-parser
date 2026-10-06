@@ -3,10 +3,12 @@ from __future__ import annotations
 from collections.abc import Callable
 import queue
 import threading
+import time
 
 from app.agent.learning.human_action_event import HumanActionEvent
 from app.agent.learning.human_action_observer import HumanActionObserver
 from app.agent.learning.learning_session import LearningSession
+from app.agent.learning.semantic_snapshot import SemanticSnapshot
 from app.agent.perception.screen_scene import ScreenScene
 
 
@@ -119,6 +121,10 @@ class LearningObservationCoordinator:
             finally:
                 self._queue.task_done()
 
+    _POST_EVENT_SETTLE_TIMEOUT_SECONDS = 1.0
+    _POST_EVENT_POLL_INTERVAL_SECONDS = 0.05
+    _INTERPRET_RETRY_COUNT = 4
+
     def _process_event(
         self,
         event: HumanActionEvent,
@@ -130,9 +136,10 @@ class LearningObservationCoordinator:
         if scene_before is None:
             return
 
-        # Observe the resulting state before persisting the step so the
-        # learned workflow contains a real state -> action -> state transition.
-        scene_after = self.scene_provider()
+        # A human action can change the UI slightly after the physical click.
+        # Wait for a semantic scene transition before recording the post-state
+        # so the next event is interpreted against the state the human saw.
+        scene_after = self._observe_after_event(scene_before)
 
         recorded = self.session.record_human_event(
             event=event,
@@ -140,10 +147,97 @@ class LearningObservationCoordinator:
             scene_after=scene_after,
         )
 
+        # A queued event may overtake the previous slow semantic observation.
+        # When the stored before-scene cannot interpret the event, refresh the
+        # current semantic scene and retry a few times instead of dropping the
+        # human action.
+        for _ in range(self._INTERPRET_RETRY_COUNT):
+            if recorded:
+                break
+
+            refreshed = self.scene_provider()
+            if refreshed is None:
+                time.sleep(self._POST_EVENT_POLL_INTERVAL_SECONDS)
+                continue
+
+            scene_before = refreshed
+            scene_after = self._observe_after_event(scene_before)
+            recorded = self.session.record_human_event(
+                event=event,
+                scene_before=scene_before,
+                scene_after=scene_after,
+            )
+
         if not recorded:
             return
 
-        if scene_after is not None:
-            self.session.observe_before(
-                scene_after
+        self.session.observe_before(
+            scene_after or scene_before
+        )
+
+    def _observe_after_event(
+        self,
+        scene_before: ScreenScene,
+    ) -> ScreenScene | None:
+        initial_fingerprint = self._scene_fingerprint(
+            scene_before
+        )
+
+        deadline = (
+            time.monotonic()
+            + self._POST_EVENT_SETTLE_TIMEOUT_SECONDS
+        )
+
+        latest_scene = None
+        previous_fingerprint = None
+        stable_count = 0
+
+        while time.monotonic() < deadline:
+            time.sleep(
+                self._POST_EVENT_POLL_INTERVAL_SECONDS
             )
+
+            scene = self.scene_provider()
+            if scene is None:
+                continue
+
+            latest_scene = scene
+            fingerprint = self._scene_fingerprint(scene)
+
+            if fingerprint == previous_fingerprint:
+                stable_count += 1
+            else:
+                previous_fingerprint = fingerprint
+                stable_count = 1
+
+            if (
+                fingerprint != initial_fingerprint
+                and stable_count >= 2
+            ):
+                return scene
+
+        return latest_scene or scene_before
+
+    @staticmethod
+    def _scene_fingerprint(
+        scene: ScreenScene,
+    ) -> tuple[object, ...]:
+        snapshot = SemanticSnapshot.from_scene(scene)
+
+        return (
+            snapshot.application,
+            snapshot.window_title,
+            snapshot.active_document,
+            tuple(
+                (
+                    item.get("kind"),
+                    item.get("label"),
+                    item.get("interaction_capability"),
+                    item.get("current_value"),
+                    item.get("document_scope"),
+                    item.get("uia_tab_scope"),
+                    item.get("uia_document_tab_selected"),
+                )
+                for item in snapshot.elements
+            ),
+        )
