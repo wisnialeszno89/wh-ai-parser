@@ -4,6 +4,13 @@ from app.agent.agent_request import AgentRequest
 from app.agent.session.agent_session_store import AgentSessionStore
 
 from app.agent.agent_intent import AgentIntent
+from app.agent.learning.agent_mode import AgentMode
+from app.agent.learning.learned_workflow_replayer import (
+    LearnedWorkflowReplayer,
+)
+from app.agent.learning.learned_workflow_service import (
+    LearnedWorkflowService,
+)
 
 from app.agent.offers.offer_workflow_service import (
     OfferWorkflowService,
@@ -31,6 +38,9 @@ from app.agent.runtime.agent_control_loop import (
 
 from app.agent.runtime.agent_runtime_result import (
     AgentRuntimeResult,
+)
+from app.agent.runtime.execution_context import (
+    AgentExecutionContext,
 )
 from app.agent.runtime.autonomous_run_result import (
     AutonomousRunResult,
@@ -131,6 +141,104 @@ class AgentRuntime:
                 "write_text",
             }
             for step in plan.steps
+        )
+
+    def _try_execute_learned_workflow(
+        self,
+        request: AgentRequest,
+        *,
+        initial_scene=None,
+    ) -> AgentRuntimeResult | None:
+        """Resolve an exact learned skill before generic task planning.
+
+        Learned replay is an explicit high-confidence skill path. Once an
+        exact trigger is resolved, its success or failure is returned to the
+        caller instead of silently falling back to a different plan.
+        """
+        if self.control_loop is None:
+            return None
+
+        if request.mode != AgentMode.EXECUTE:
+            return None
+
+        if request.metadata.get(
+            "disable_learned_workflow_replay"
+        ) is True:
+            return None
+
+        workflow_memory_store = getattr(
+            self.orchestrator,
+            "workflow_memory_store",
+            None,
+        )
+        if workflow_memory_store is None:
+            return None
+
+        application = None
+        if initial_scene is not None:
+            application = (
+                initial_scene.observation.state.active_application
+            )
+
+        execution = LearnedWorkflowService(
+            memory_store=workflow_memory_store,
+            control_loop=self.control_loop,
+            min_score=0.99,
+        ).execute(
+            request,
+            application=application,
+        )
+
+        if execution is None:
+            return None
+
+        workflow = execution.match.workflow
+        replay = execution.replay
+
+        plan = LearnedWorkflowReplayer(
+            control_loop=self.control_loop,
+        ).build_plan(workflow)
+
+        context = AgentExecutionContext(
+            request=request,
+            intent=AgentIntent.OBSERVE_WORKFLOW,
+            plan=plan,
+            capability=None,
+            skill=None,
+            requires_manual_review=not replay.success,
+        )
+
+        if initial_scene is not None:
+            context.update_scene(initial_scene)
+
+        context.set_value(
+            "learned_workflow_id",
+            workflow.workflow_id,
+        )
+        context.set_value(
+            "learned_workflow_name",
+            workflow.name,
+        )
+        context.set_value(
+            "learned_workflow_match_score",
+            execution.match.score,
+        )
+        context.set_value(
+            "learned_workflow_match_reasons",
+            execution.match.reasons,
+        )
+        context.set_value(
+            "learned_workflow_result",
+            replay,
+        )
+
+        return AgentRuntimeResult(
+            intent=AgentIntent.OBSERVE_WORKFLOW,
+            context=context,
+            execution_report=None,
+            requires_manual_review=not replay.success,
+            executed=True,
+            control_loop_result=replay.control_loop_result,
         )
 
     def _prepare_context(
@@ -264,6 +372,16 @@ class AgentRuntime:
                     requires_manual_review=True,
                     executed=False,
                 )
+
+        learned_workflow_result = (
+            self._try_execute_learned_workflow(
+                request,
+                initial_scene=initial_scene,
+            )
+        )
+
+        if learned_workflow_result is not None:
+            return learned_workflow_result
 
         # Detect intent without invoking the task reasoner a second time.
         # For the standard orchestrator this is deterministic and does not
