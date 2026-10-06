@@ -17,6 +17,9 @@ from app.agent.knowledge.windowhub_offer_knowledge import (
 from app.agent.runtime.windowhub_agent_control_loop import (
     create_windowhub_agent_control_loop,
 )
+from app.agent.offers.offer_request_parameter_resolver import (
+    OfferRequestParameterResolver,
+)
 
 
 def create_windowhub_agent_runtime() -> AgentRuntime:
@@ -48,5 +51,8 @@ def create_windowhub_agent_runtime() -> AgentRuntime:
         ),
         control_loop=create_windowhub_agent_control_loop(
             plan_reasoner=plan_reasoner,
+        ),
+        learned_parameter_resolver=(
+            OfferRequestParameterResolver().resolve
         ),
     )
