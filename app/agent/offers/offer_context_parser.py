@@ -210,6 +210,7 @@ class OfferContextParser:
             r"\bilość\s*[:=]?\s*(\d+)\b",
             r"\bilo[śs]c\s*[:=]?\s*(\d+)\b",
             r"\b(\d+)\s*(?:szt\.?|sztuk|sztuki)\b",
+            r"\b(\d+)\s+(?:okien|okna|okno|drzwi)\b",
             r"\bpotrzebuję\s+(\d+)\b",
             r"\bchcę\s+(\d+)\b",
         )

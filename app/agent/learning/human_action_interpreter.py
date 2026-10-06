@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from app.agent.learning.human_action_event import HumanActionEvent
+from app.agent.learning.learned_parameter import canonical_parameter_name
 from app.agent.learning.learned_workflow import LearnedAction
 from app.agent.perception.interaction_capability import (
     InteractionCapability,
@@ -36,6 +37,8 @@ class HumanActionInterpreter:
             event_control_type = metadata.get("event_uia_control_type")
 
             target = None
+            parameter_name = None
+            value_source = "literal"
 
             if (
                 isinstance(event_name, str)
@@ -45,6 +48,12 @@ class HumanActionInterpreter:
                 in {"edit", "textbox", "input", "combobox"}
             ):
                 target = event_name.strip()
+
+                if metadata.get("semantic_text_input") is True:
+                    parameter_name = canonical_parameter_name(
+                        target
+                    )
+                    value_source = "parameter"
 
             if target is None:
                 target = self._active_edit_target(scene)
@@ -57,6 +66,8 @@ class HumanActionInterpreter:
                 target=target,
                 value=event.value,
                 description=f"Enter text into '{target}'.",
+                value_source=value_source,
+                parameter_name=parameter_name,
             )
 
         return None

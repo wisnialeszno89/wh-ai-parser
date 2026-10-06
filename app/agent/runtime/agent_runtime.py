@@ -100,6 +100,7 @@ class AgentRuntime:
         plan_executor: PlanExecutor | None = None,
         session_store: AgentSessionStore | None = None,
         control_loop: AgentControlLoop | None = None,
+        learned_parameter_resolver=None,
     ) -> None:
 
         self.orchestrator = (
@@ -109,6 +110,7 @@ class AgentRuntime:
         )
 
         self.control_loop = control_loop
+        self.learned_parameter_resolver = learned_parameter_resolver
 
         self.session_store = (
             session_store
@@ -184,6 +186,7 @@ class AgentRuntime:
             memory_store=workflow_memory_store,
             control_loop=self.control_loop,
             min_score=0.99,
+            parameter_resolver=self.learned_parameter_resolver,
         ).execute(
             request,
             application=application,
@@ -197,7 +200,10 @@ class AgentRuntime:
 
         plan = LearnedWorkflowReplayer(
             control_loop=self.control_loop,
-        ).build_plan(workflow)
+        ).build_plan(
+            workflow,
+            parameters=execution.parameters,
+        )
 
         context = AgentExecutionContext(
             request=request,
@@ -226,6 +232,10 @@ class AgentRuntime:
         context.set_value(
             "learned_workflow_match_reasons",
             execution.match.reasons,
+        )
+        context.set_value(
+            "learned_workflow_parameters",
+            dict(execution.parameters),
         )
         context.set_value(
             "learned_workflow_result",

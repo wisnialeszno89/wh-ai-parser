@@ -75,3 +75,37 @@ def test_write_text_without_semantic_target_stays_conservative():
     )
 
     assert action is None
+
+
+def test_semantic_text_event_marks_learned_action_as_parameterizable():
+    scene = ScreenScene(
+        observation=EnvironmentObservation(
+            state=EnvironmentState(active_application="WindowHub")
+        ),
+        elements=(
+            ScreenElement(
+                kind="edit",
+                label="Szerokość",
+                interaction_capability=InteractionCapability.CLICKABLE,
+                metadata={"current_value": ""},
+            ),
+        ),
+    )
+
+    action = HumanActionInterpreter().interpret(
+        event=HumanActionEvent(
+            action_type="write_text",
+            value="1230",
+            metadata={
+                "event_uia_name": "Szerokość",
+                "event_uia_control_type": "edit",
+                "event_uia_source": "semantic_text_input",
+                "semantic_text_input": True,
+            },
+        ),
+        scene=scene,
+    )
+
+    assert action is not None
+    assert action.value_source == "parameter"
+    assert action.parameter_name == "szerokosc"

@@ -9,6 +9,7 @@ from app.agent.agent_intent import AgentIntent
 from app.agent.agent_request import AgentRequest
 from app.agent.learning.learned_workflow import LearnedWorkflow
 from app.agent.learning.semantic_transition import SemanticTransition
+from app.agent.learning.learned_parameter import LearnedParameterBinder
 from app.agent.planning.action_plan import ActionPlan
 from app.agent.planning.action_step import ActionStep
 from app.agent.runtime.action_step_result import ActionStepResult
@@ -58,13 +59,18 @@ class LearnedWorkflowReplayer:
         workflow: LearnedWorkflow,
         *,
         confidence: float = 0.99,
+        parameters=None,
     ) -> ActionPlan:
         if not workflow.steps:
             raise ValueError("Cannot replay a workflow without steps.")
 
+        binder = LearnedParameterBinder()
         actions = []
         for step in workflow.steps:
-            learned_action = step.action
+            learned_action = binder.bind(
+                step.action,
+                parameters,
+            )
 
             if not learned_action.name:
                 raise ValueError(
@@ -99,6 +105,7 @@ class LearnedWorkflowReplayer:
         workflow: LearnedWorkflow,
         *,
         request_message: str | None = None,
+        parameters=None,
     ) -> LearnedWorkflowReplayResult:
         request = AgentRequest(
             message=(
@@ -128,6 +135,8 @@ class LearnedWorkflowReplayer:
             # integrations that only expose run().
             initial_scene = context.current_scene
 
+        binder = LearnedParameterBinder()
+
         for step in workflow.steps:
             before_error = self._before_state_mismatch(
                 step.before,
@@ -145,6 +154,10 @@ class LearnedWorkflowReplayer:
             transition = SemanticTransition.from_snapshots(
                 step.before,
                 step.after,
+            )
+            learned_action = binder.bind(
+                step.action,
+                parameters,
             )
 
             context.set_value(
@@ -170,14 +183,14 @@ class LearnedWorkflowReplayer:
                     ActionStep(
                         index=step.index,
                         action=AgentAction(
-                            name=step.action.name,
+                            name=learned_action.name,
                             description=(
-                                step.action.description
+                                learned_action.description
                                 or f"Replay learned action "
-                                f"'{step.action.name}'."
+                                f"'{learned_action.name}'."
                             ),
-                            target=step.action.target,
-                            value=step.action.value,
+                            target=learned_action.target,
+                            value=learned_action.value,
                             requires_environment_observation=True,
                         ),
                     ),

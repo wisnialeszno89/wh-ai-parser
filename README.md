@@ -53,6 +53,13 @@ captured.
 The workflow data intentionally excludes coordinates, window handles,
 runtime/provider identifiers and other machine-specific execution details.
 
+Semantic text-entry steps are parameterizable. During a new replay, a
+WindowHub offer request can override learned field values such as width,
+height and quantity while the demonstrated workflow structure remains fixed.
+The runtime still requires a high-confidence learned trigger; parameterized
+continuation is accepted only when the trigger is the start of the request
+and all learned parameters resolve.
+
 ## NaviMind remote task reasoning
 
 When NAVIMIND_AGENT_URL is configured, the WindowHub runtime uses
