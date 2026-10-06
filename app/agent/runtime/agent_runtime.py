@@ -11,6 +11,7 @@ from app.agent.learning.learned_workflow_replayer import (
 from app.agent.learning.learned_workflow_service import (
     LearnedWorkflowService,
 )
+from app.agent.memory.agent_memory import AgentExperience
 
 from app.agent.offers.offer_workflow_service import (
     OfferWorkflowService,
@@ -240,6 +241,27 @@ class AgentRuntime:
         context.set_value(
             "learned_workflow_result",
             replay,
+        )
+
+        self._remember_experience(
+            kind="learned_workflow_replay",
+            application=application,
+            intent=AgentIntent.OBSERVE_WORKFLOW.value,
+            workflow_id=workflow.workflow_id,
+            outcome="success" if replay.success else "failure",
+            summary=(
+                f"Replayed learned workflow '{workflow.name}'."
+            ),
+            metadata={
+                "parameter_names": tuple(
+                    sorted(
+                        str(key)
+                        for key in execution.parameters
+                    )
+                ),
+                "completed_steps": replay.completed_steps,
+                "total_steps": replay.total_steps,
+            },
         )
 
         return AgentRuntimeResult(
@@ -603,6 +625,38 @@ class AgentRuntime:
                 context=context,
             )
 
+            self._remember_experience(
+                kind="runtime_execution",
+                application=(
+                    initial_scene.observation.state.active_application
+                    if initial_scene is not None
+                    else None
+                ),
+                intent=context.intent.value,
+                workflow_id=None,
+                outcome=(
+                    "manual_review"
+                    if control_loop_result.requires_manual_review
+                    else (
+                        "success"
+                        if control_loop_result.success
+                        else "failure"
+                    )
+                ),
+                summary=(
+                    f"Executed semantic plan for intent "
+                    f"'{context.intent.value}'."
+                ),
+                metadata={
+                    "executed_actions": (
+                        control_loop_result.executed_actions
+                    ),
+                    "failed_actions": (
+                        control_loop_result.failed_actions
+                    ),
+                },
+            )
+
             return AgentRuntimeResult(
                 intent=context.intent,
                 context=context,
@@ -620,6 +674,33 @@ class AgentRuntime:
             context=context,
         )
 
+        self._remember_experience(
+            kind="runtime_execution",
+            application=(
+                initial_scene.observation.state.active_application
+                if initial_scene is not None
+                else None
+            ),
+            intent=context.intent.value,
+            workflow_id=None,
+            outcome=(
+                "manual_review"
+                if execution_report.requires_manual_review
+                else (
+                    "success"
+                    if execution_report.success
+                    else "failure"
+                )
+            ),
+            summary=(
+                f"Executed semantic plan for intent "
+                f"'{context.intent.value}'."
+            ),
+            metadata={
+                "steps": len(context.plan.steps),
+            },
+        )
+
         return AgentRuntimeResult(
             intent=context.intent,
             context=context,
@@ -631,6 +712,37 @@ class AgentRuntime:
             executed=True,
         )
 
+    def _remember_experience(
+        self,
+        *,
+        kind: str,
+        application: str | None,
+        intent: str | None,
+        workflow_id: str | None,
+        outcome: str,
+        summary: str,
+        metadata: dict[str, object] | None = None,
+    ) -> None:
+        store = getattr(
+            self.orchestrator,
+            "memory_store",
+            None,
+        )
+        if store is None:
+            return
+
+        experience = AgentExperience(
+            experience_id=f"{kind}:{uuid4().hex}",
+            kind=kind,
+            application=application,
+            intent=intent,
+            workflow_id=workflow_id,
+            outcome=outcome,
+            summary=summary,
+            metadata=dict(metadata or {}),
+        )
+
+        store.add(experience)
 
     def run_autonomous(
         self,
