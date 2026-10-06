@@ -6,6 +6,7 @@ import os
 from app.agent.adapters.adapter_registry import AdapterRegistry
 from app.agent.adapters.filesystem_adapter import FileSystemAdapter
 from app.agent.adapters.excel_workbook_adapter import ExcelWorkbookAdapter
+from app.agent.adapters.email_draft_adapter import EmailDraftAdapter
 from app.agent.adapters.word_document_adapter import WordDocumentAdapter
 
 
@@ -28,6 +29,9 @@ def create_default_adapter_registry(
                 allowed_roots=roots,
             ),
             ExcelWorkbookAdapter(
+                allowed_roots=roots,
+            ),
+            EmailDraftAdapter(
                 allowed_roots=roots,
             ),
             WordDocumentAdapter(
