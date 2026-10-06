@@ -42,4 +42,6 @@ jobs:
             tests/test_learned_parameter.py \
             tests/test_learned_workflow_parameter_replay.py \
             tests/test_learned_workflow_service_parameters.py \
-            tests/test_offer_request_parameter_resolver.py
+            tests/test_offer_request_parameter_resolver.py \
+            tests/test_durable_agent_experience_memory.py \
+            tests/test_learned_runtime_memory_recording.py

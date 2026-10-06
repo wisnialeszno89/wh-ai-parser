@@ -37,6 +37,8 @@ from app.agent.learning.workflow_memory_store import (
     WorkflowMemoryStore,
 )
 from app.agent.learning.workflow_repository import WorkflowRepository
+from app.agent.memory.agent_memory import AgentMemoryRepository
+from app.agent.memory.agent_memory_store import AgentMemoryStore
 
 from app.agent.reasoning.task_reasoner import (
     TaskReasoner,
@@ -100,6 +102,7 @@ class AgentOrchestrator:
         application_knowledge: dict[str, object] | None = None,
         require_task_reasoning: bool = False,
         workflow_memory_store: WorkflowMemoryStore | None = None,
+        memory_store: AgentMemoryStore | None = None,
     ) -> None:
 
         self.planner = (
@@ -137,6 +140,14 @@ class AgentOrchestrator:
             if workflow_memory_store is not None
             else WorkflowMemoryStore(
                 repository=WorkflowRepository(),
+                load_persisted=True,
+            )
+        )
+        self.memory_store = (
+            memory_store
+            if memory_store is not None
+            else AgentMemoryStore(
+                repository=AgentMemoryRepository(),
                 load_persisted=True,
             )
         )
@@ -201,13 +212,24 @@ class AgentOrchestrator:
             )
             experience_value = request.metadata.get(
                 "agent_experience",
-                (),
             )
-            experience = (
-                tuple(experience_value)
-                if isinstance(experience_value, (list, tuple))
-                else ()
-            )
+
+            if isinstance(experience_value, (list, tuple)):
+                experience = tuple(experience_value)
+            else:
+                active_application = None
+                if initial_scene is not None:
+                    active_application = (
+                        initial_scene.observation.state.active_application
+                    )
+
+                experience = tuple(
+                    item.to_payload()
+                    for item in self.memory_store.recent(
+                        limit=10,
+                        application=active_application,
+                    )
+                )
 
             learned_workflow_value = request.metadata.get(
                 "learned_workflows",
