@@ -62,7 +62,7 @@ def test_replayer_applies_parameter_override_to_write_text_action():
         control_loop=loop,
     ).replay(
         workflow,
-        parameters={"width": 1350},
+        parameters={"szerokosc": 1350},
     )
 
     assert result.success is True
