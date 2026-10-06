@@ -529,6 +529,7 @@ class AgentRuntime:
             session_id=session_id,
             salesman_id=request.salesman_id,
             metadata=dict(request.metadata),
+            mode=request.mode,
         )
 
         results = []
@@ -558,6 +559,7 @@ class AgentRuntime:
                         **autonomous_request.metadata,
                         "external_knowledge": resolved_external_knowledge,
                     },
+                    mode=autonomous_request.mode,
                 )
 
             plan = result.context.plan
