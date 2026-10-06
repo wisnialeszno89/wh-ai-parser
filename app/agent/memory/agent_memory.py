@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+from datetime import datetime, timezone
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Mapping
@@ -24,6 +25,7 @@ class AgentExperience:
     workflow_id: str | None
     outcome: str
     summary: str
+    created_at: str | None = None
     metadata: dict[str, object] = field(default_factory=dict)
 
     def to_payload(self) -> dict[str, object]:
@@ -35,6 +37,7 @@ class AgentExperience:
             "workflow_id": self.workflow_id,
             "outcome": self.outcome,
             "summary": self.summary,
+            "created_at": self.created_at,
             "metadata": dict(self.metadata),
         }
 
@@ -63,6 +66,11 @@ class AgentExperience:
             ),
             outcome=str(payload.get("outcome") or ""),
             summary=str(payload.get("summary") or ""),
+            created_at=(
+                str(payload["created_at"])
+                if payload.get("created_at") is not None
+                else None
+            ),
             metadata=dict(payload.get("metadata") or {}),
         )
 
