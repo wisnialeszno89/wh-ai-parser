@@ -167,6 +167,30 @@ class TargetResolver:
             if cls._document_scope(element) == active_document
         ]
 
+        # Owned modal dialogs are an explicit execution scope of their own.
+        # A modal control such as "Okno" or "Dalej >" belongs to the current
+        # workflow dialog, not to the active document tab, so document scope
+        # must not reject an otherwise unique modal candidate.
+        modal = [
+            element
+            for element in candidates
+            if (
+                isinstance(element.metadata, dict)
+                and element.metadata.get("uia_owned_modal") is True
+            )
+        ]
+
+        if len(modal) == 1:
+            return TargetResolution(
+                resolved=True,
+                element=modal[0],
+                reason=(
+                    f"{match_reason} Owned WindowHub modal scope "
+                    "matched."
+                ),
+                score=score,
+            )
+
         if len(scoped) == 1:
             return TargetResolution(
                 resolved=True,
