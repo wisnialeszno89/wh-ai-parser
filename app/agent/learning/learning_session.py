@@ -30,6 +30,10 @@ class LearningSession:
     def is_active(self) -> bool:
         return self.recorder.is_recording
 
+    @property
+    def before_scene(self) -> ScreenScene | None:
+        return self._before_scene
+
     def start(
         self,
         *,
