@@ -99,3 +99,43 @@ def test_learned_workflow_round_trip_from_payload():
     )
 
     assert restored == workflow
+
+
+def test_replayer_derives_semantic_transition_requirements():
+    before = SemanticSnapshot(
+        application="WindowHub",
+        window_title="Okna -",
+        active_document="Dokument1",
+        elements=(
+            {
+                "kind": "radiobutton",
+                "label": "Okno",
+                "uia_selected": False,
+            },
+        ),
+    )
+    after = SemanticSnapshot(
+        application="WindowHub",
+        window_title="Dodawanie nowej pozycji",
+        active_document="Dokument1",
+        elements=(
+            {
+                "kind": "radiobutton",
+                "label": "Okno",
+                "uia_selected": True,
+            },
+        ),
+    )
+
+    requirements = LearnedWorkflowReplayer._transition_requirements(
+        before,
+        after,
+    )
+
+    assert requirements == (
+        {
+            "kind": "radiobutton",
+            "label": "Okno",
+            "uia_selected": True,
+        },
+    )
