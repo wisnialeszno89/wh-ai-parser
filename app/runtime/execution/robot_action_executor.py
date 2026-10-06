@@ -572,8 +572,24 @@ class RobotActionExecutor:
             }:
                 select = getattr(target, "select", None)
                 if callable(select):
-                    select()
-                    used_semantic_pattern = True
+                    try:
+                        select()
+                        used_semantic_pattern = True
+                    except Exception:
+                        used_semantic_pattern = False
+
+                    # Some native/legacy dialogs expose SelectionItemPattern
+                    # but do not update their selected state through Select().
+                    # pywinauto's higher-level click() has a legacy
+                    # DoDefaultAction fallback, so use it when selection did
+                    # not actually take effect.
+                    is_selected = getattr(target, "is_selected", None)
+                    if callable(is_selected):
+                        try:
+                            if not bool(is_selected()):
+                                used_semantic_pattern = False
+                        except Exception:
+                            pass
 
             if not used_semantic_pattern and normalized_type in {
                 "button",
@@ -581,9 +597,9 @@ class RobotActionExecutor:
                 "menuitem",
                 "hyperlink",
             }:
-                invoke = getattr(target, "invoke", None)
-                if callable(invoke):
-                    invoke()
+                click = getattr(target, "click", None)
+                if callable(click):
+                    click()
                     used_semantic_pattern = True
 
             if not used_semantic_pattern and normalized_type == "checkbox":
