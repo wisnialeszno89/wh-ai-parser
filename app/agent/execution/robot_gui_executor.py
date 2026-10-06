@@ -290,7 +290,13 @@ class RobotGUIExecutor(ActionExecutor):
         if observation is None:
             return None
 
-        value = observation.metadata.get("window_handle")
+        # For LIVE UIA execution the foreground window is the safest
+        # execution scope. WindowHub may put controls inside a modal child
+        # window while the root application handle remains unchanged.
+        value = observation.metadata.get(
+            "foreground_window_handle",
+            observation.metadata.get("window_handle"),
+        )
 
         try:
             handle = int(value)
