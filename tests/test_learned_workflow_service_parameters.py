@@ -79,3 +79,48 @@ def test_service_prefers_explicit_request_parameters(monkeypatch):
 
     assert result.parameters == {"width": 1350}
     assert captured["parameters"] == {"width": 1350}
+
+
+def test_service_accepts_trigger_prefix_when_all_learned_parameters_resolve(
+    monkeypatch,
+):
+    workflow = _workflow()
+    store = WorkflowMemoryStore(workflows=(workflow,))
+
+    replay = LearnedWorkflowReplayResult(
+        workflow=workflow,
+        success=True,
+        completed_steps=1,
+        total_steps=1,
+        control_loop_result=None,
+    )
+    captured = {}
+
+    def fake_replay(self, workflow, *, request_message, parameters):
+        captured["parameters"] = parameters
+        return replay
+
+    monkeypatch.setattr(
+        "app.agent.learning.learned_workflow_replayer.LearnedWorkflowReplayer.replay",
+        fake_replay,
+    )
+
+    service = LearnedWorkflowService(
+        memory_store=store,
+        control_loop=FakeControlLoop(),
+        parameter_resolver=lambda request, workflow: {
+            "szerokosc": 1350,
+        },
+    )
+
+    result = service.execute(
+        AgentRequest(
+            message="dodaj nowe okno o szerokości 1350",
+        ),
+        application="WindowHub",
+    )
+
+    assert result is not None
+    assert result.match.score == 0.92
+    assert result.parameters == {"szerokosc": 1350}
+    assert captured["parameters"] == {"szerokosc": 1350}
