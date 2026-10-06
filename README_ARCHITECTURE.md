@@ -56,6 +56,7 @@ Already present:
 - persistent agent experience memory
 - universal adapter registry and filesystem adapter
 - semantic Word .docx document adapter
+- semantic local email .eml draft adapter
 
 ## Next vertical milestones
 
@@ -65,7 +66,9 @@ Already present:
 4. Persistent agent experience memory for successful and failed execution. ✅
 5. Universal desktop adapter contract + filesystem adapter. ✅
 6. Word document adapter. ✅
-7. Live Word desktop control, Excel, browser and email adapters.
+7. Live Word desktop control, Excel, browser and email adapters. The first
+   email layer can already build safe local .eml drafts; network sending is
+   intentionally separate.
 8. Remote worker transport: HTTP/WebSocket command and status channel.
 9. Controlled external research provider feeding the provenance-aware
    knowledge layer.
