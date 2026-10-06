@@ -38,6 +38,17 @@ Istnieją już: AgentRequest, AgentRuntime, AgentOrchestrator, AgentPlanner, cap
 
 AgentRuntime ma pętlę: observe -> reason -> jeden semantyczny action -> execute -> verify -> ponowna obserwacja. W autonomous wykonywany jest maksymalnie jeden krok na iterację.
 
+### World Model
+
+Dodano pierwszą warstwę semantic world model:
+- SemanticEntity opisuje obiekty znaczące dla użytkownika
+- Affordance opisuje możliwe operacje bez fizycznych identyfikatorów
+- SemanticWorldModel buduje snapshot ze ScreenScene
+- TaskPlanningContext może przekazać world model do reasonera
+- AgentOrchestrator buduje world model z aktualnej obserwacji
+
+To ma być wspólny model dla WindowHub, Excel, Word, browsera i kolejnych adapterów.
+
 ### WindowHub
 
 Istnieją już: WindowHubEnvironmentAdapter, WindowHubFocusWindowPreparationHandler, WindowHubVisionProvider, WindowHubUIAutomationProvider, WindowHubDocumentReader, WindowHubFormReader, WindowHub offer knowledge, WHWindowSkill, offer workflow/session services oraz realne testy dry-run/safety-chain.
