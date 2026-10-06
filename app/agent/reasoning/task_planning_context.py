@@ -48,6 +48,8 @@ class TaskPlanningContext:
 
     learned_workflows: tuple[dict[str, object], ...] = ()
 
+    adapters: tuple[dict[str, object], ...] = ()
+
     world: SemanticWorldModel | None = None
 
     def to_payload(
@@ -89,6 +91,7 @@ class TaskPlanningContext:
             ),
             "experience": list(self.experience),
             "learned_workflows": list(self.learned_workflows),
+            "adapters": list(self.adapters),
             "world": (
                 self.world.to_payload()
                 if self.world is not None
