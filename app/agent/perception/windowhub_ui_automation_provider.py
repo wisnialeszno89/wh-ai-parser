@@ -409,6 +409,8 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
             else None
         )
 
+        focused = self._keyboard_focus_state(item)
+
         metadata = {
             "source": "windowhub_ui_automation",
             "provider_element_id": element_id,
@@ -426,6 +428,7 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
             "uia_visible": visible,
             "uia_runtime_id": runtime_id,
             "uia_selected": selected,
+            "uia_focused": focused,
             "uia_tab_scope": tab_scope,
             "uia_document_tab_selected": (
                 selected
@@ -621,6 +624,52 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
             return "nested"
 
         return "other"
+
+    @staticmethod
+    def _keyboard_focus_state(item) -> bool | None:
+        """
+        Read keyboard focus from UIA when the provider exposes it.
+
+        Focus is observational context for semantic teaching only; it is
+        never used as a persisted runtime identifier.
+        """
+        method = getattr(item, "has_keyboard_focus", None)
+        if callable(method):
+            try:
+                return bool(method())
+            except Exception:
+                pass
+
+        element_info = getattr(item, "element_info", None)
+
+        for attribute_name in (
+            "has_keyboard_focus",
+            "keyboard_focus",
+        ):
+            value = getattr(
+                element_info,
+                attribute_name,
+                None,
+            )
+            if isinstance(value, bool):
+                return value
+
+        try:
+            properties = item.get_properties()
+        except Exception:
+            properties = {}
+
+        if isinstance(properties, dict):
+            for key in (
+                "has_keyboard_focus",
+                "keyboard_focus",
+                "is_keyboard_focused",
+            ):
+                value = properties.get(key)
+                if isinstance(value, bool):
+                    return value
+
+        return None
 
     @staticmethod
     def _selection_state(item) -> bool | None:
