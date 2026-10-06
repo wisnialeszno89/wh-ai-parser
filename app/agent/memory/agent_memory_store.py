@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
+from datetime import datetime, timezone
 from typing import Mapping
 
 from app.agent.memory.agent_memory import (
@@ -96,7 +97,10 @@ class AgentMemoryStore:
             ]
 
         experiences.sort(
-            key=lambda item: item.experience_id,
+            key=lambda item: (
+                item.created_at or "",
+                item.experience_id,
+            ),
             reverse=True,
         )
         return tuple(experiences[:limit])
@@ -131,5 +135,6 @@ class AgentMemoryStore:
             workflow_id=workflow_id,
             outcome=outcome,
             summary=summary,
+            created_at=datetime.now(timezone.utc).isoformat(),
             metadata=dict(metadata or {}),
         )
