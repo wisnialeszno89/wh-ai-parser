@@ -49,6 +49,10 @@ from app.agent.skills.skill_registry import (
     SkillRegistry,
 )
 
+from app.agent.world.semantic_world_model import (
+    SemanticWorldModel,
+)
+
 
 class AgentOrchestrator:
     """
@@ -297,6 +301,9 @@ class AgentOrchestrator:
                 external_knowledge=external_knowledge,
                 experience=experience,
                 learned_workflows=learned_workflows,
+                world=SemanticWorldModel.from_scene(
+                    initial_scene
+                ),
             )
 
             reasoned_plan = self.task_planner.plan(
