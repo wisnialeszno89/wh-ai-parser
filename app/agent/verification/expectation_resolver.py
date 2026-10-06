@@ -157,6 +157,7 @@ class ExpectationResolver:
                     metadata.get("name"),
                     metadata.get("uia_enabled"),
                     metadata.get("uia_visible"),
+                    metadata.get("uia_selected"),
                 )
             )
 
