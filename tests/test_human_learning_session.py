@@ -129,3 +129,46 @@ def test_ambiguous_click_fails_closed():
     )
 
     assert action is None
+
+
+def test_nested_clickable_parent_resolves_to_inner_target():
+    scene = _scene()
+
+    inner = ScreenElement(
+        kind="button",
+        label="Dodaj",
+        x=120,
+        y=110,
+        width=60,
+        height=20,
+        confidence=0.90,
+        interaction_capability=InteractionCapability.CLICKABLE,
+    )
+
+    outer = ScreenElement(
+        kind="panel",
+        label="Sekcja",
+        x=100,
+        y=100,
+        width=100,
+        height=40,
+        confidence=0.99,
+        interaction_capability=InteractionCapability.CLICKABLE,
+    )
+
+    nested_scene = ScreenScene(
+        observation=scene.observation,
+        elements=(outer, inner),
+    )
+
+    action = HumanActionInterpreter().interpret(
+        event=HumanActionEvent(
+            action_type="click",
+            x=130,
+            y=120,
+        ),
+        scene=nested_scene,
+    )
+
+    assert action is not None
+    assert action.target == "Dodaj"
