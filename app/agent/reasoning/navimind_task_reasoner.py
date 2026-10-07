@@ -108,7 +108,11 @@ class NaviMindTaskReasoner(TaskReasoner):
                 if context.skill_name is not None
                 else None
             ),
-            world=WorldState.from_scene(context.scene),
+            world=(
+                WorldState.from_browser_page(context.browser_page)
+                if context.browser_page is not None
+                else WorldState.from_scene(context.scene)
+            ),
             offer_workflow=context.offer_workflow,
             knowledge=knowledge_payload,
             experience=context.experience,
