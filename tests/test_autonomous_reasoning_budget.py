@@ -8,15 +8,27 @@ from app.agent.reasoning.reasoning_proposal import ReasoningProposal
 from app.agent.reasoning.task_reasoner import TaskReasoner
 from app.agent.runtime.agent_orchestrator import AgentOrchestrator
 from app.agent.runtime.agent_runtime import AgentRuntime
+from app.agent.runtime.reasoning_usage import ReasoningUsage
 
 
 class BudgetReasoner(TaskReasoner):
     def __init__(self, done_on_call=None):
         self.calls = 0
         self.done_on_call = done_on_call
+        self.last_usage = None
 
     def reason(self, context):
         self.calls += 1
+        self.last_usage = ReasoningUsage(
+            provider="openai",
+            model="gpt-4.1-mini",
+            input_tokens=1_000,
+            output_tokens=100,
+            total_tokens=1_100,
+            cached_input_tokens=400,
+            reasoning_tokens=0,
+            estimated_cost_usd=0.00044,
+        )
 
         if self.done_on_call == self.calls:
             return ReasoningProposal(
@@ -92,6 +104,9 @@ def test_autonomous_reasoning_budget_stops_without_a_third_reasoning_call():
     assert result.reasoning_calls == 2
     assert reasoner.calls == 2
     assert result.executed_actions == 2
+    assert result.reasoning_cost.calls == 2
+    assert result.reasoning_cost.total_tokens == 2_200
+    assert result.reasoning_cost.estimated_cost_usd == pytest.approx(0.00088)
 
 
 def test_autonomous_reasoning_budget_allows_completion_at_the_limit():
@@ -111,6 +126,8 @@ def test_autonomous_reasoning_budget_allows_completion_at_the_limit():
     assert result.reason == "task_completed_by_reasoner"
     assert result.reasoning_calls == 2
     assert reasoner.calls == 2
+    assert result.reasoning_cost.calls == 2
+    assert result.reasoning_cost.estimated_cost_usd == pytest.approx(0.00088)
 
 
 def test_autonomous_reasoning_budget_rejects_non_positive_limit():
