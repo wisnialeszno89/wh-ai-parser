@@ -31,6 +31,51 @@ class ConfirmationRequest:
         }
 
 
+def browser_confirmation_context_key(
+    page,
+    action: AgentAction,
+) -> str:
+    """Return a stable local fingerprint for the approved browser state."""
+
+    from app.agent.adapters.browser_adapter import BrowserPage
+
+    if not isinstance(page, BrowserPage):
+        raise TypeError("Browser confirmation requires BrowserPage context.")
+
+    target = action.target.strip().casefold() if isinstance(action.target, str) else ""
+    candidates = [
+        element
+        for element in page.elements
+        if isinstance(element.label, str)
+        and element.label.strip().casefold() == target
+    ]
+
+    payload = {
+        "url": page.url,
+        "title": page.title,
+        "target": target,
+        "target_count": len(candidates),
+        "target_elements": [
+            {
+                "kind": element.kind,
+                "interaction_capability": element.interaction_capability,
+                "current_value": element.current_value,
+                "confidence": element.confidence,
+            }
+            for element in candidates
+        ],
+    }
+
+    encoded = json.dumps(
+        payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+
+    return hashlib.sha256(encoded).hexdigest()
+
+
 def action_confirmation_key(action: AgentAction) -> str:
     """Return a deterministic identity key for an exact semantic action."""
 
