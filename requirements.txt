@@ -11,3 +11,5 @@ mss
 pygetwindow
 python-docx
 openpyxl
+
+playwright
