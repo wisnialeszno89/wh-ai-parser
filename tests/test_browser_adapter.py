@@ -168,6 +168,7 @@ def test_browser_page_and_elements_are_model_safe_payloads():
     assert payload["elements"][0]["label"] == "Dalej"
     assert "metadata" not in payload["elements"][0]
 
+
 def test_browser_adapter_dry_run_still_validates_url_and_target():
     provider = FakeBrowserProvider()
     adapter = BrowserAdapter(
