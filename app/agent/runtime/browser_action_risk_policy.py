@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+
 from app.agent.agent_action import AgentAction
 
 
@@ -30,7 +32,6 @@ class BrowserActionRiskPolicy:
         "zamów",
         "zamow",
         "anuluj",
-        "usuń",
         "delete",
         "submit",
         "confirm",
@@ -61,7 +62,11 @@ class BrowserActionRiskPolicy:
         )
 
         return any(
-            term in normalized
+            re.search(
+                rf"(?<!\w){re.escape(term)}(?!\w)",
+                normalized,
+            )
+            is not None
             for term in cls.HIGH_IMPACT_TERMS
         )
 

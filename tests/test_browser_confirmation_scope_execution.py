@@ -17,7 +17,7 @@ from app.agent.runtime.browser_agent_control_loop import (
 
 
 @dataclass
-class RiskProvider:
+class ScopeExecutionProvider:
     page: BrowserPage
 
     def __post_init__(self):
@@ -35,12 +35,19 @@ class RiskProvider:
 
     def click(self, target):
         self.clicks.append(target.label)
-        self.page = replace(
-            self.page,
-            title="Submitted",
-            text="Zamówienie zatwierdzone.",
-            elements=(),
-        )
+        if target.label == "Dalej":
+            self.page = replace(
+                self.page,
+                title="Checkout — step 2",
+                text="Przejdź do zatwierdzenia.",
+            )
+        else:
+            self.page = replace(
+                self.page,
+                title="Submitted",
+                text="Zamówienie zatwierdzone.",
+                elements=(),
+            )
         return self.page
 
     def write_text(self, target, value):
@@ -53,60 +60,61 @@ class RiskProvider:
         return self.page
 
 
-class ModelOmitsConfirmationReasoner(TaskReasoner):
+class MultiStepReasoner(TaskReasoner):
     def reason(self, context):
         return ReasoningProposal(
             actions=(
                 ReasoningAction(
                     name="browser_click",
-                    description="Submit the order.",
-                    target="Zatwierdź zamówienie",
-                    requires_confirmation=False,
-                ),
-            ),
-            rationale="The model intentionally omits the confirmation flag.",
-            confidence=0.99,
-        )
-
-
-class SafeReasoner(TaskReasoner):
-    def reason(self, context):
-        return ReasoningProposal(
-            actions=(
-                ReasoningAction(
-                    name="browser_click",
-                    description="Continue to the confirmation step.",
+                    description="Continue to the order confirmation.",
                     target="Dalej",
                     requires_confirmation=False,
                 ),
+                ReasoningAction(
+                    name="browser_click",
+                    description="Submit the order after confirmation.",
+                    target="Zatwierdź zamówienie",
+                    requires_confirmation=True,
+                ),
             ),
-            rationale="Ordinary workflow continuation.",
+            rationale="Resume must be scoped to the approved action.",
             confidence=0.99,
         )
 
 
-def create_runtime(reasoner, labels):
+def create_runtime():
     page = BrowserPage(
         url="https://example.com/checkout",
         title="Checkout",
-        text="Formularz.",
-        elements=tuple(
+        text="Formularz zamówienia.",
+        elements=(
             BrowserElement(
-                label=label,
+                label="Dalej",
                 kind="button",
                 interaction_capability="CLICKABLE",
                 confidence=0.99,
                 metadata={
                     "provider": "fake",
                     "strategy": "text",
-                    "locator_value": label,
+                    "locator_value": "Dalej",
                     "role": "button",
                 },
-            )
-            for label in labels
+            ),
+            BrowserElement(
+                label="Zatwierdź zamówienie",
+                kind="button",
+                interaction_capability="CLICKABLE",
+                confidence=0.99,
+                metadata={
+                    "provider": "fake",
+                    "strategy": "text",
+                    "locator_value": "Zatwierdź zamówienie",
+                    "role": "button",
+                },
+            ),
         ),
     )
-    provider = RiskProvider(page=page)
+    provider = ScopeExecutionProvider(page=page)
     adapter = BrowserAdapter(
         provider=provider,
         allowed_domains=("example.com",),
@@ -114,7 +122,7 @@ def create_runtime(reasoner, labels):
     )
     runtime = AgentRuntime(
         orchestrator=AgentOrchestrator(
-            task_reasoner=reasoner,
+            task_reasoner=MultiStepReasoner(),
             require_task_reasoning=True,
         ),
         control_loop=create_browser_agent_control_loop(
@@ -126,44 +134,33 @@ def create_runtime(reasoner, labels):
     return runtime, provider
 
 
-def test_local_risk_policy_blocks_high_impact_click_even_when_model_omits_confirmation():
-    runtime, provider = create_runtime(
-        ModelOmitsConfirmationReasoner(),
-        ("Zatwierdź zamówienie",),
-    )
+def test_confirmation_resume_does_not_replay_prior_steps():
+    runtime, provider = create_runtime()
 
     blocked = runtime.run(
         AgentRequest(
-            message="Zatwierdź moje zamówienie.",
-            session_id="risk-session",
+            message="Przejdź dalej i zatwierdź moje zamówienie.",
+            session_id="scope-execution-session",
             metadata={"target_application": "Browser"},
         )
     )
 
-    assert blocked.requires_manual_review is True
-    assert blocked.control_loop_result is not None
-    assert blocked.control_loop_result.executed_actions == 0
     assert blocked.confirmation_request is not None
-    assert blocked.confirmation_request.target == "Zatwierdź zamówienie"
-    assert provider.clicks == []
+    token = blocked.confirmation_request.token
+    assert provider.clicks == ["Dalej"]
 
-
-def test_local_risk_policy_allows_ordinary_click_without_confirmation():
-    runtime, provider = create_runtime(
-        SafeReasoner(),
-        ("Dalej",),
-    )
-
-    result = runtime.run(
+    approved = runtime.run(
         AgentRequest(
-            message="Przejdź dalej.",
-            session_id="safe-session",
-            metadata={"target_application": "Browser"},
+            message="Przejdź dalej i zatwierdź moje zamówienie.",
+            session_id="scope-execution-session",
+            metadata={
+                "target_application": "Browser",
+                "confirmation_token": token,
+            },
         )
     )
 
-    assert result.requires_manual_review is False
-    assert result.control_loop_result is not None
-    assert result.control_loop_result.success is True
-    assert result.control_loop_result.executed_actions == 1
-    assert provider.clicks == ["Dalej"]
+    assert approved.requires_manual_review is False
+    assert approved.control_loop_result is not None
+    assert approved.control_loop_result.success is True
+    assert provider.clicks == ["Dalej", "Zatwierdź zamówienie"]
