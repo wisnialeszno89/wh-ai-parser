@@ -74,3 +74,10 @@ def test_browser_env_bool(monkeypatch, value, expected):
         )
         == expected
     )
+
+
+def test_element_details_script_normalizes_whitespace_without_corrupting_labels():
+    script = PlaywrightBrowserProvider._ELEMENT_DETAILS_SCRIPT
+
+    assert 'value.replace(/\\s+/g, " ").trim()' in script
+    assert 'value.replace(/s+/g, " ").trim()' not in script
