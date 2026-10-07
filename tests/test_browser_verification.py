@@ -188,15 +188,7 @@ def test_browser_verification_loop_uses_browser_page_not_desktop_observe():
                 },
             )
 
-    @dataclass
-    class ExplodingEnvironment(FakeEnvironment):
-        def observe(self):
-            raise AssertionError(
-                "Desktop environment observation must not be used "
-                "for browser verification."
-            )
-
-    environment = ExplodingEnvironment(
+    environment = FakeEnvironment(
         state=EnvironmentState(
             active_application="TestApp",
             active_window_title="Test Window",
@@ -204,6 +196,14 @@ def test_browser_verification_loop_uses_browser_page_not_desktop_observe():
             screen_height=1080,
         )
     )
+
+    def exploding_observe():
+        raise AssertionError(
+            "Desktop environment observation must not be used "
+            "for browser verification."
+        )
+
+    environment.observe = exploding_observe
 
     loop = VerificationLoop(
         execution_engine=ExecutionEngine(
