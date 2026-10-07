@@ -151,23 +151,14 @@ def test_runtime_passes_live_browser_page_into_navimind_context():
     assert context.browser_page is not None
     assert context.browser_page.url == "https://example.com/form"
     assert context.world is not None
-    assert context.world.application is None
-    assert context.world.to_payload() == (
-        {
-            "application": None,
-            "window_title": None,
-            "active_document": None,
-            "entities": [],
-            "affordances": [],
-            "metadata": {},
-        }
-        if context.world
-        else None
-    ) is False
+    assert context.world.application == "Browser"
+    assert context.world.window_title == "Example Form"
+    assert context.world.find_entities("Dalej")
+    assert context.world.metadata["browser_url"] == (
+        "https://example.com/form"
+    )
+    assert context.world.metadata["browser_text"] == "Formularz klienta"
 
     assert context.browser_page.elements[0].label == "Dalej"
-    assert context.world is None or "Dalej" in str(
-        context.browser_page.elements
-    )
     assert result.context.plan is not None
     assert result.context.plan.steps[0].action.name == "browser_click"
