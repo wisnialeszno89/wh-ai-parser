@@ -20,14 +20,6 @@ NAVIMIND_ALLOWED_ACTIONS = frozenset(
         "write_text",
         "type_text",
         "open_new_offer",
-
-        # Semantic browser actions.
-        "open_url",
-        "read_page",
-        "browser_click",
-        "browser_write_text",
-        "select_option",
-        "browser_back",
     }
 )
 
