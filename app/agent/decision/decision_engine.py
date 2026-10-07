@@ -1,4 +1,5 @@
 from app.agent.agent_action import AgentAction
+from app.agent.runtime.confirmation import action_confirmation_key
 
 from app.agent.decision.decision import (
     Decision,
@@ -61,6 +62,28 @@ class DecisionEngine:
             )
 
         if action.requires_confirmation:
+            approved_key = context.get_value(
+                "confirmed_action_key"
+            )
+            expected_key = action_confirmation_key(
+                action
+            )
+
+            if approved_key == expected_key:
+                return Decision(
+                    decision_type=(
+                        DecisionType.PROCEED
+                    ),
+                    reason=(
+                        "Explicit confirmation accepted."
+                    ),
+                    metadata={
+                        "reason_code": (
+                            "confirmation_accepted"
+                        ),
+                    },
+                )
+
             return Decision(
                 decision_type=(
                     DecisionType.MANUAL_REVIEW
@@ -70,6 +93,11 @@ class DecisionEngine:
                     "confirmation."
                 ),
                 requires_manual_review=True,
+                metadata={
+                    "reason_code": (
+                        "confirmation_required"
+                    ),
+                },
             )
 
         scene = getattr(
