@@ -267,7 +267,17 @@ class BrowserAdapter(ApplicationAdapter):
                 f"Browser target does not have {capability} capability."
             )
 
-        if not 0.0 <= float(target.confidence) <= 1.0:
+        try:
+            confidence = float(target.confidence)
+        except (TypeError, ValueError):
+            raise ValueError("Browser target confidence must be numeric.")
+
+        if not 0.0 <= confidence <= 1.0:
             raise ValueError(
                 "Browser target confidence must be between 0 and 1."
+            )
+
+        if confidence <= 0.0:
+            raise PermissionError(
+                "Browser interaction target requires positive confidence."
             )
