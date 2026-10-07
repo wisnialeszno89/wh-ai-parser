@@ -47,6 +47,9 @@ from app.agent.runtime.execution_context import (
 from app.agent.runtime.autonomous_run_result import (
     AutonomousRunResult,
 )
+from app.agent.runtime.browser_action_risk_policy import (
+    BrowserActionRiskPolicy,
+)
 from app.agent.runtime.confirmation import (
     ConfirmationRequest,
     action_confirmation_key,
@@ -473,7 +476,12 @@ class AgentRuntime:
             (
                 step.action
                 for step in plan.steps
-                if step.action.requires_confirmation
+                if (
+                    step.action.requires_confirmation
+                    or BrowserActionRiskPolicy.requires_confirmation(
+                        step.action
+                    )
+                )
             ),
             None,
         )
