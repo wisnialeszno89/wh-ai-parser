@@ -1327,6 +1327,7 @@ class AgentRuntime:
         *,
         max_steps: int = 30,
         max_reasoning_calls: int = 8,
+        max_estimated_reasoning_cost_usd: float | None = None,
     ) -> AutonomousRunResult:
         """
         Run one user goal as a closed-loop autonomous session.
@@ -1340,6 +1341,14 @@ class AgentRuntime:
         """
         if max_steps < 1:
             raise ValueError("max_steps must be at least 1.")
+        if (
+            max_estimated_reasoning_cost_usd is not None
+            and max_estimated_reasoning_cost_usd <= 0
+        ):
+            raise ValueError(
+                "max_estimated_reasoning_cost_usd must be greater than 0."
+            )
+
         reasoning_budget = ReasoningBudget(max_reasoning_calls)
         reasoning_cost_tracker = ReasoningCostTracker()
 
@@ -1447,6 +1456,22 @@ class AgentRuntime:
             if control.executed_actions == 0:
                 stopped = True
                 reason = "no_action_executed_without_completion"
+                break
+
+            if (
+                max_estimated_reasoning_cost_usd is not None
+                and (
+                    reasoning_cost_tracker.summary().estimated_cost_usd
+                    is not None
+                )
+                and (
+                    reasoning_cost_tracker.summary().estimated_cost_usd
+                    >= max_estimated_reasoning_cost_usd
+                )
+            ):
+                requires_manual_review = True
+                stopped = True
+                reason = "reasoning_cost_limit_reached"
                 break
         else:
             stopped = True
