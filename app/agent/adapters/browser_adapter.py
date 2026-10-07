@@ -155,20 +155,30 @@ class BrowserAdapter(ApplicationAdapter):
         normalized = self._validate_url(url)
 
         if self._dry_run:
-            return self._provider.current_page()
+            return self._validate_page(
+                self._provider.current_page()
+            )
 
-        return self._provider.open(normalized)
+        return self._validate_page(
+            self._provider.open(normalized)
+        )
 
     def read(self) -> BrowserPage:
-        return self._provider.current_page()
+        return self._validate_page(
+            self._provider.current_page()
+        )
 
     def click(self, target: BrowserElement) -> BrowserPage:
         self._validate_target(target, capability="CLICKABLE")
 
         if self._dry_run:
-            return self._provider.current_page()
+            return self._validate_page(
+                self._provider.current_page()
+            )
 
-        return self._provider.click(target)
+        return self._validate_page(
+            self._provider.click(target)
+        )
 
     def write_text(
         self,
@@ -181,9 +191,13 @@ class BrowserAdapter(ApplicationAdapter):
             raise ValueError("Browser text value must not be empty.")
 
         if self._dry_run:
-            return self._provider.current_page()
+            return self._validate_page(
+                self._provider.current_page()
+            )
 
-        return self._provider.write_text(target, value)
+        return self._validate_page(
+            self._provider.write_text(target, value)
+        )
 
     def select_option(
         self,
@@ -196,15 +210,35 @@ class BrowserAdapter(ApplicationAdapter):
             raise ValueError("Browser option value must not be empty.")
 
         if self._dry_run:
-            return self._provider.current_page()
+            return self._validate_page(
+                self._provider.current_page()
+            )
 
-        return self._provider.select_option(target, value)
+        return self._validate_page(
+            self._provider.select_option(target, value)
+        )
 
     def back(self) -> BrowserPage:
         if self._dry_run:
-            return self._provider.current_page()
+            return self._validate_page(
+                self._provider.current_page()
+            )
 
-        return self._provider.back()
+        return self._validate_page(
+            self._provider.back()
+        )
+
+    def _validate_page(self, page: BrowserPage) -> BrowserPage:
+        if not isinstance(page, BrowserPage):
+            raise TypeError(
+                "Browser provider must return BrowserPage."
+            )
+
+        # Providers may follow redirects or navigate as a side effect of
+        # clicks. Validate the resulting page too, not only the requested URL.
+        self._validate_url(page.url)
+
+        return page
 
     @staticmethod
     def _normalize_domain(value: str) -> str:
