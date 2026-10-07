@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from app.agent.adapters.browser_adapter import BrowserPage
 from app.agent.perception.screen_scene import ScreenScene
 from app.agent.world.affordance import Affordance
 from app.agent.world.semantic_entity import SemanticEntity
@@ -129,6 +130,75 @@ class SemanticWorldModel:
             affordances=tuple(affordances),
             metadata={
                 "entity_count": len(scene.elements),
+                "included_entity_count": len(entities),
+            },
+        )
+
+    @classmethod
+    def from_browser_page(
+        cls,
+        page: BrowserPage | None,
+        *,
+        max_entities: int = 100,
+    ) -> "SemanticWorldModel":
+        if page is None:
+            return cls()
+
+        entities: list[SemanticEntity] = []
+        affordances: list[Affordance] = []
+
+        for element in page.elements[:max_entities]:
+            capability = (
+                element.interaction_capability.strip().casefold()
+            )
+
+            if capability == "clickable":
+                affordance_names = ("browser_click",)
+            elif capability == "editable":
+                affordance_names = ("browser_write_text",)
+            elif capability == "selectable":
+                affordance_names = ("browser_select_option",)
+            else:
+                affordance_names = ()
+
+            entity = SemanticEntity(
+                kind=element.kind,
+                label=element.label,
+                current_value=element.current_value,
+                confidence=element.confidence,
+                affordance_names=affordance_names,
+            )
+            entities.append(entity)
+
+            target = entity.semantic_name()
+            if target is not None:
+                for action_name in affordance_names:
+                    affordances.append(
+                        Affordance(
+                            action_name=action_name,
+                            target=target,
+                            description=(
+                                f"Use '{action_name}' on "
+                                f"'{target}'."
+                            ),
+                            confidence=(
+                                element.confidence
+                                if element.confidence is not None
+                                else 0.0
+                            ),
+                        )
+                    )
+
+        return cls(
+            application="Browser",
+            window_title=page.title,
+            entities=tuple(entities),
+            affordances=tuple(affordances),
+            metadata={
+                "browser_url": page.url,
+                "browser_title": page.title,
+                "browser_text": page.text,
+                "entity_count": len(page.elements),
                 "included_entity_count": len(entities),
             },
         )
