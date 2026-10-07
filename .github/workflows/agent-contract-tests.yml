@@ -51,4 +51,5 @@ jobs:
             tests/test_word_document_adapter.py \
             tests/test_excel_workbook_adapter.py \
             tests/test_email_draft_adapter.py \
+            tests/test_browser_adapter.py \
             tests/test_task_planning_context_adapters.py
