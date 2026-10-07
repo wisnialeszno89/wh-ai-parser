@@ -54,4 +54,5 @@ jobs:
             tests/test_browser_adapter.py \
             tests/test_browser_verification.py \
             tests/test_playwright_browser_provider.py \
+            tests/test_browser_navimind_bridge.py \
             tests/test_task_planning_context_adapters.py
