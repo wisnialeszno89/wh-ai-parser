@@ -379,9 +379,8 @@ class AgentRuntime:
             )
             return False
 
-        pending = self._pending_confirmations.pop(
-            token.strip(),
-            None,
+        pending = self._pending_confirmations.get(
+            token.strip()
         )
 
         if pending is None:
@@ -421,6 +420,11 @@ class AgentRuntime:
                 "confirmation_token_action_mismatch",
             )
             return False
+
+        self._pending_confirmations.pop(
+            token.strip(),
+            None,
+        )
 
         context.set_value(
             "confirmed_action_key",
@@ -743,6 +747,45 @@ class AgentRuntime:
             "metadata",
             {},
         )
+
+        confirmation_token = request.metadata.get(
+            "confirmation_token"
+        )
+
+        if confirmation_token is not None:
+            if (
+                not isinstance(confirmation_token, str)
+                or not confirmation_token.strip()
+            ):
+                context.requires_manual_review = True
+                context.set_value(
+                    "task_reasoning_failure",
+                    "invalid_confirmation_token",
+                )
+                return AgentRuntimeResult(
+                    intent=context.intent,
+                    context=context,
+                    execution_report=None,
+                    requires_manual_review=True,
+                    executed=False,
+                )
+
+            if (
+                confirmation_token.strip()
+                not in self._pending_confirmations
+            ):
+                context.requires_manual_review = True
+                context.set_value(
+                    "task_reasoning_failure",
+                    "invalid_or_expired_confirmation_token",
+                )
+                return AgentRuntimeResult(
+                    intent=context.intent,
+                    context=context,
+                    execution_report=None,
+                    requires_manual_review=True,
+                    executed=False,
+                )
 
         if isinstance(proposal_metadata, dict):
             resolved_external_knowledge = proposal_metadata.get(
