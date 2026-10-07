@@ -1,6 +1,7 @@
 from uuid import uuid4
 
 from app.agent.agent_request import AgentRequest
+from app.agent.adapters.browser_adapter import BrowserAdapter, BrowserPage
 from app.agent.session.agent_session_store import AgentSessionStore
 
 from app.agent.agent_intent import AgentIntent
@@ -102,6 +103,8 @@ class AgentRuntime:
         session_store: AgentSessionStore | None = None,
         control_loop: AgentControlLoop | None = None,
         learned_parameter_resolver=None,
+        browser_adapter: BrowserAdapter | None = None,
+        browser_context_enabled: bool = False,
     ) -> None:
 
         self.orchestrator = (
@@ -112,6 +115,8 @@ class AgentRuntime:
 
         self.control_loop = control_loop
         self.learned_parameter_resolver = learned_parameter_resolver
+        self.browser_adapter = browser_adapter
+        self.browser_context_enabled = browser_context_enabled
 
         self.session_store = (
             session_store
@@ -122,7 +127,9 @@ class AgentRuntime:
         if plan_executor is not None:
             self.plan_executor = plan_executor
         else:
-            registry = create_default_executor_registry()
+            registry = create_default_executor_registry(
+                browser_adapter=browser_adapter,
+            )
 
             engine = ExecutionEngine(
                 registry=registry
@@ -280,6 +287,7 @@ class AgentRuntime:
         initial_scene=None,
         offer_workflow=None,
         autonomous: bool = False,
+        browser_page: BrowserPage | None = None,
     ):
         external_knowledge = None
         raw_external_knowledge = request.metadata.get(
@@ -299,6 +307,7 @@ class AgentRuntime:
                 return self.orchestrator.prepare(
                     request,
                     initial_scene=initial_scene,
+                    browser_page=browser_page,
                     offer_workflow=offer_workflow,
                     external_knowledge=external_knowledge,
                     autonomous=autonomous,
@@ -309,6 +318,7 @@ class AgentRuntime:
                 return self.orchestrator.prepare(
                     request,
                     initial_scene=initial_scene,
+                    browser_page=browser_page,
                     offer_workflow=offer_workflow,
                     external_knowledge=external_knowledge,
                 )
@@ -376,6 +386,65 @@ class AgentRuntime:
         # Observe first, then compute workflow context and finally
         # prepare the action plan exactly once.
         initial_scene = None
+        browser_page = None
+
+        browser_requested = (
+            self.browser_context_enabled
+            or (
+                request.metadata.get("target_application")
+                and str(
+                    request.metadata.get(
+                        "target_application"
+                    )
+                ).strip().casefold()
+                == "browser"
+            )
+        )
+
+        if browser_requested:
+            if self.browser_adapter is None:
+                context = self._prepare_context(
+                    request,
+                    initial_scene=None,
+                    browser_page=None,
+                    offer_workflow=None,
+                    autonomous=autonomous,
+                )
+                context.requires_manual_review = True
+                context.set_value(
+                    "browser_observation_error",
+                    "browser_adapter_unavailable",
+                )
+                return AgentRuntimeResult(
+                    intent=context.intent,
+                    context=context,
+                    execution_report=None,
+                    requires_manual_review=True,
+                    executed=False,
+                )
+
+            try:
+                browser_page = self.browser_adapter.read()
+            except Exception as exc:
+                context = self._prepare_context(
+                    request,
+                    initial_scene=None,
+                    browser_page=None,
+                    offer_workflow=None,
+                    autonomous=autonomous,
+                )
+                context.requires_manual_review = True
+                context.set_value(
+                    "browser_observation_error",
+                    str(exc),
+                )
+                return AgentRuntimeResult(
+                    intent=context.intent,
+                    context=context,
+                    execution_report=None,
+                    requires_manual_review=True,
+                    executed=False,
+                )
 
         if self.control_loop is not None:
             try:
@@ -479,6 +548,7 @@ class AgentRuntime:
         context = self._prepare_context(
             request,
             initial_scene=initial_scene,
+            browser_page=browser_page,
             offer_workflow=planning_offer_workflow,
             autonomous=autonomous,
         )
