@@ -426,7 +426,7 @@ class PlaywrightBrowserProvider(BrowserProvider):
     element => {
         const clean = value => {
             if (typeof value !== "string") return "";
-            return value.replace(/\\s+/g, " ").trim();
+            return value.replace(/\s+/g, " ").trim();
         };
 
         const directLabel = clean(element.getAttribute("aria-label"));
