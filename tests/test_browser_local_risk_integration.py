@@ -75,7 +75,7 @@ class SafeReasoner(TaskReasoner):
             actions=(
                 ReasoningAction(
                     name="browser_click",
-                    description="Continue to the next step.",
+                    description="Continue to the confirmation step.",
                     target="Dalej",
                     requires_confirmation=False,
                 ),
