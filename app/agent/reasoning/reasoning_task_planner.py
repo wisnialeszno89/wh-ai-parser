@@ -8,6 +8,7 @@ from app.agent.reasoning.reasoning_action import ReasoningAction
 from app.agent.reasoning.reasoning_action_policy import NAVIMIND_ALLOWED_ACTIONS
 from app.agent.reasoning.task_planning_context import TaskPlanningContext
 from app.agent.reasoning.task_reasoner import TaskReasoner
+from app.agent.runtime.reasoning_budget import ReasoningBudget
 
 
 class ReasoningTaskPlanner:
@@ -62,8 +63,16 @@ class ReasoningTaskPlanner:
         self,
         *,
         context: TaskPlanningContext,
+        reasoning_budget: ReasoningBudget | None = None,
     ) -> ActionPlan | None:
         self.last_failure_reason = None
+
+        if (
+            reasoning_budget is not None
+            and not reasoning_budget.consume()
+        ):
+            self.last_failure_reason = "reasoning_budget_exhausted"
+            return None
 
         proposal = self.reasoner.reason(context)
         self.last_proposal = proposal

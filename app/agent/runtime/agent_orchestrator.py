@@ -19,6 +19,7 @@ from app.agent.planning.action_plan import (
 from app.agent.runtime.execution_context import (
     AgentExecutionContext,
 )
+from app.agent.runtime.reasoning_budget import ReasoningBudget
 
 from app.agent.perception.screen_scene import (
     ScreenScene,
@@ -174,6 +175,7 @@ class AgentOrchestrator:
         application_knowledge: dict[str, object] | None = None,
         external_knowledge: KnowledgeContext | None = None,
         autonomous: bool = False,
+        reasoning_budget: ReasoningBudget | None = None,
     ) -> AgentExecutionContext:
         deterministic_plan = self.planner.plan(request)
         intent = deterministic_plan.intent
@@ -326,6 +328,7 @@ class AgentOrchestrator:
 
             reasoned_plan = self.task_planner.plan(
                 context=task_context,
+                reasoning_budget=reasoning_budget,
             )
 
             if reasoned_plan is not None:

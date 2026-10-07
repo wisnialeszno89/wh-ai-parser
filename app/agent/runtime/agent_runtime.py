@@ -48,6 +48,7 @@ from app.agent.runtime.execution_context import (
 from app.agent.runtime.autonomous_run_result import (
     AutonomousRunResult,
 )
+from app.agent.runtime.reasoning_budget import ReasoningBudget
 from app.agent.runtime.browser_action_risk_policy import (
     BrowserActionRiskPolicy,
 )
@@ -318,6 +319,7 @@ class AgentRuntime:
         offer_workflow=None,
         autonomous: bool = False,
         browser_page: BrowserPage | None = None,
+        reasoning_budget: ReasoningBudget | None = None,
     ):
         external_knowledge = None
         raw_external_knowledge = request.metadata.get(
@@ -341,6 +343,7 @@ class AgentRuntime:
                     offer_workflow=offer_workflow,
                     external_knowledge=external_knowledge,
                     autonomous=autonomous,
+                    reasoning_budget=reasoning_budget,
                 )
             except TypeError as exc:
                 if "autonomous" not in str(exc):
@@ -351,6 +354,7 @@ class AgentRuntime:
                     browser_page=browser_page,
                     offer_workflow=offer_workflow,
                     external_knowledge=external_knowledge,
+                    reasoning_budget=reasoning_budget,
                 )
         except TypeError as exc:
             if "offer_workflow" in str(exc):
@@ -616,6 +620,7 @@ class AgentRuntime:
         request: AgentRequest,
         *,
         autonomous: bool = False,
+        reasoning_budget: ReasoningBudget | None = None,
     ) -> AgentRuntimeResult:
         """
         Execute one complete agent cycle.
@@ -643,6 +648,36 @@ class AgentRuntime:
             context.set_value(
                 "task_reasoning_failure",
                 confirmation_failure,
+            )
+            return AgentRuntimeResult(
+                intent=context.intent,
+                context=context,
+                execution_report=None,
+                requires_manual_review=True,
+                executed=False,
+            )
+
+        task_planner = getattr(
+            self.orchestrator,
+            "task_planner",
+            None,
+        )
+        if (
+            reasoning_budget is not None
+            and task_planner is not None
+            and reasoning_budget.exhausted
+        ):
+            context = AgentExecutionContext(
+                request=request,
+                intent=AgentIntent.COMPUTER_USE,
+                plan=None,
+                capability=None,
+                skill=None,
+                requires_manual_review=True,
+            )
+            context.set_value(
+                "task_reasoning_failure",
+                "reasoning_budget_exhausted",
             )
             return AgentRuntimeResult(
                 intent=context.intent,
@@ -722,6 +757,7 @@ class AgentRuntime:
                     browser_page=None,
                     offer_workflow=None,
                     autonomous=autonomous,
+                    reasoning_budget=reasoning_budget,
                 )
                 context.requires_manual_review = True
                 context.set_value(
@@ -864,6 +900,7 @@ class AgentRuntime:
             browser_page=browser_page,
             offer_workflow=planning_offer_workflow,
             autonomous=autonomous,
+            reasoning_budget=reasoning_budget,
         )
 
         if browser_page is not None:
@@ -1274,6 +1311,7 @@ class AgentRuntime:
         request: AgentRequest,
         *,
         max_steps: int = 30,
+        max_reasoning_calls: int = 8,
     ) -> AutonomousRunResult:
         """
         Run one user goal as a closed-loop autonomous session.
@@ -1287,6 +1325,7 @@ class AgentRuntime:
         """
         if max_steps < 1:
             raise ValueError("max_steps must be at least 1.")
+        reasoning_budget = ReasoningBudget(max_reasoning_calls)
 
         session_id = request.session_id or f"autonomous-{uuid4().hex}"
         autonomous_request = AgentRequest(
@@ -1308,6 +1347,7 @@ class AgentRuntime:
             result = self.run(
                 autonomous_request,
                 autonomous=True,
+                reasoning_budget=reasoning_budget,
             )
             results.append(result)
 
@@ -1336,6 +1376,17 @@ class AgentRuntime:
 
             control = result.control_loop_result
             if control is None:
+                if (
+                    result.context.get_value(
+                        "task_reasoning_failure"
+                    )
+                    == "reasoning_budget_exhausted"
+                ):
+                    requires_manual_review = True
+                    stopped = True
+                    reason = "reasoning_budget_exhausted"
+                    break
+
                 requires_manual_review = True
                 stopped = True
                 reason = str(
@@ -1377,4 +1428,5 @@ class AgentRuntime:
             requires_manual_review=requires_manual_review,
             stopped=stopped,
             reason=reason,
+            reasoning_calls=reasoning_budget.calls,
         )
