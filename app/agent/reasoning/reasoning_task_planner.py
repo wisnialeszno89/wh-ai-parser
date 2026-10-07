@@ -95,6 +95,10 @@ class ReasoningTaskPlanner:
             self.last_failure_reason = "invalid_confidence"
             return None
 
+        if status == "continue" and proposal.confidence <= 0.0:
+            self.last_failure_reason = "non_positive_confidence"
+            return None
+
         if status == "done":
             if proposal.actions:
                 self.last_failure_reason = "done_status_with_actions"
