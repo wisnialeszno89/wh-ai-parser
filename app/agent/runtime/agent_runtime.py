@@ -403,13 +403,18 @@ class AgentRuntime:
             return False
 
         plan = context.plan
-        if (
-            plan is None
-            or not plan.steps
-            or action_confirmation_key(
-                plan.steps[0].action
-            ) != action_key
-        ):
+        matching_action = None
+
+        if plan is not None:
+            for step in plan.steps:
+                if (
+                    action_confirmation_key(step.action)
+                    == action_key
+                ):
+                    matching_action = step.action
+                    break
+
+        if matching_action is None:
             context.requires_manual_review = True
             context.set_value(
                 "task_reasoning_failure",
@@ -460,8 +465,18 @@ class AgentRuntime:
         if not isinstance(session_id, str) or not session_id.strip():
             return None
 
+        action = next(
+            (
+                step.action
+                for step in plan.steps
+                if step.action.requires_confirmation
+            ),
+            None,
+        )
+        if action is None:
+            return None
+
         token = uuid4().hex
-        action = plan.steps[0].action
         confirmation = ConfirmationRequest(
             token=token,
             session_id=session_id,
