@@ -65,24 +65,12 @@ class DecisionEngine:
         local_confirmation_required, local_risk_reason = (
             BrowserActionRiskPolicy.evaluate(action)
         )
+        effective_confirmation_required = (
+            action.requires_confirmation
+            or local_confirmation_required
+        )
 
-        if (
-            local_confirmation_required
-            and not action.requires_confirmation
-        ):
-            return Decision(
-                decision_type=DecisionType.MANUAL_REVIEW,
-                reason=(
-                    local_risk_reason
-                    or "Local browser risk policy requires confirmation."
-                ),
-                requires_manual_review=True,
-                metadata={
-                    "reason_code": "local_risk_confirmation_required",
-                },
-            )
-
-        if action.requires_confirmation:
+        if effective_confirmation_required:
             approved_key = context.get_value(
                 "confirmed_action_key"
             )
@@ -92,32 +80,29 @@ class DecisionEngine:
 
             if approved_key == expected_key:
                 return Decision(
-                    decision_type=(
-                        DecisionType.PROCEED
-                    ),
-                    reason=(
-                        "Explicit confirmation accepted."
-                    ),
+                    decision_type=DecisionType.PROCEED,
+                    reason="Explicit confirmation accepted.",
                     metadata={
-                        "reason_code": (
-                            "confirmation_accepted"
-                        ),
+                        "reason_code": "confirmation_accepted",
                     },
                 )
 
+            if local_confirmation_required:
+                reason = (
+                    local_risk_reason
+                    or "Local browser risk policy requires confirmation."
+                )
+            else:
+                reason = (
+                    "Action requires explicit confirmation."
+                )
+
             return Decision(
-                decision_type=(
-                    DecisionType.MANUAL_REVIEW
-                ),
-                reason=(
-                    "Action requires explicit "
-                    "confirmation."
-                ),
+                decision_type=DecisionType.MANUAL_REVIEW,
+                reason=reason,
                 requires_manual_review=True,
                 metadata={
-                    "reason_code": (
-                        "confirmation_required"
-                    ),
+                    "reason_code": "confirmation_required",
                 },
             )
 
