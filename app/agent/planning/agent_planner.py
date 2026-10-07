@@ -187,6 +187,15 @@ class AgentPlanner:
 
         message = request.message.lower()
 
+        target_application = request.metadata.get(
+            "target_application"
+        )
+        if (
+            isinstance(target_application, str)
+            and target_application.strip().casefold() == "browser"
+        ):
+            return AgentIntent.COMPUTER_USE
+
         if (
             self._looks_like_open_new_offer_request(
                 message
