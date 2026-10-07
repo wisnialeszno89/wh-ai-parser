@@ -1022,18 +1022,73 @@ class AgentRuntime:
             )
 
         if self.control_loop is not None:
-            if self._consume_confirmation_token(
+            confirmation_token_present = (
+                request.metadata.get("confirmation_token") is not None
+            )
+
+            confirmation_consumed = self._consume_confirmation_token(
                 request,
                 context,
-            ) is False and request.metadata.get(
-                "confirmation_token"
-            ) is not None:
+            )
+
+            if (
+                not confirmation_consumed
+                and confirmation_token_present
+            ):
                 return AgentRuntimeResult(
                     intent=context.intent,
                     context=context,
                     execution_report=None,
                     requires_manual_review=True,
                     executed=False,
+                )
+
+            if confirmation_consumed:
+                confirmed_key = context.get_value(
+                    "confirmed_action_key"
+                )
+                if not isinstance(confirmed_key, str):
+                    context.requires_manual_review = True
+                    context.set_value(
+                        "task_reasoning_failure",
+                        "confirmation_scope_missing",
+                    )
+                    return AgentRuntimeResult(
+                        intent=context.intent,
+                        context=context,
+                        execution_report=None,
+                        requires_manual_review=True,
+                        executed=False,
+                    )
+
+                confirmed_steps = tuple(
+                    step
+                    for step in context.plan.steps
+                    if action_confirmation_key(step.action)
+                    == confirmed_key
+                )
+
+                if len(confirmed_steps) != 1:
+                    context.requires_manual_review = True
+                    context.set_value(
+                        "task_reasoning_failure",
+                        "confirmation_scope_ambiguous",
+                    )
+                    return AgentRuntimeResult(
+                        intent=context.intent,
+                        context=context,
+                        execution_report=None,
+                        requires_manual_review=True,
+                        executed=False,
+                    )
+
+                confirmed_step = confirmed_steps[0]
+                context.plan = ActionPlan(
+                    intent=context.plan.intent,
+                    steps=(confirmed_step,),
+                    confidence=context.plan.confidence,
+                    requires_manual_review=False,
+                    completed=False,
                 )
 
             # Autonomous mode intentionally executes exactly one semantic
