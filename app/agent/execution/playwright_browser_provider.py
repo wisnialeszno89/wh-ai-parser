@@ -156,16 +156,18 @@ class PlaywrightBrowserProvider(BrowserProvider):
         try:
             if self._context is not None:
                 self._context.close()
-            elif self._browser is not None:
-                self._browser.close()
         finally:
-            self._context = None
-            self._browser = None
-            self._page = None
+            try:
+                if self._browser is not None:
+                    self._browser.close()
+            finally:
+                self._context = None
+                self._browser = None
+                self._page = None
 
-            if self._playwright is not None:
-                self._playwright.stop()
-                self._playwright = None
+                if self._playwright is not None:
+                    self._playwright.stop()
+                    self._playwright = None
 
     def _ensure_page(self):
         if self._page is not None and not self._page.is_closed():
