@@ -53,7 +53,16 @@ def main() -> int:
         print("BROWSER -> NAVIMIND SMOKE")
         print("=" * 72)
         print("intent:", result.intent.value)
-        print("executed:", result.executed)
+        print("runtime_executed:", result.executed)
+        control = result.control_loop_result
+        browser_action_executed = None
+        if control is not None and control.last_execution_result is not None:
+            attempt = control.last_execution_result.last_attempt
+            if attempt is not None:
+                execution_result = attempt.execution_result
+                metadata = execution_result.metadata or {}
+                browser_action_executed = metadata.get("executed")
+        print("browser_action_executed:", browser_action_executed)
         print(
             "requires_manual_review:",
             result.requires_manual_review,
