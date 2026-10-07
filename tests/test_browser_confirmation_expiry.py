@@ -1,5 +1,7 @@
 from dataclasses import dataclass
 
+import pytest
+
 from app.agent.adapters.browser_adapter import (
     BrowserAdapter,
     BrowserElement,
@@ -162,19 +164,8 @@ def test_expired_confirmation_fails_before_reasoning_and_execution():
 
 
 def test_confirmation_ttl_rejects_non_positive_configuration():
-    reasoner = CountingReasoner()
-    clock = Clock()
-
-    try:
-        make_runtime(reasoner, clock)
-    except Exception:
-        pass
-
-    # Exercise the public constructor validation directly without requiring
-    # a browser provider.
-    try:
+    with pytest.raises(
+        ValueError,
+        match="confirmation_ttl_seconds must be greater than zero.",
+    ):
         AgentRuntime(confirmation_ttl_seconds=0)
-    except ValueError as exc:
-        assert str(exc) == "confirmation_ttl_seconds must be greater than zero."
-    else:
-        raise AssertionError("Expected invalid confirmation TTL to fail.")
