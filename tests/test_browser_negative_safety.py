@@ -310,26 +310,39 @@ def test_browser_click_verification_fails_closed_when_page_does_not_change():
     assert result.metadata["browser_page_changed"] is False
 
 
-def test_verification_loop_does_not_repeat_browser_click_after_verified_failure():
+def test_verification_loop_stops_after_repeated_browser_verification_failure():
     class UnchangedBrowserExecutor:
+        def __init__(self, page):
+            self.page = page
+            self.calls = 0
+
         def supports(self, action):
             return action.name == "browser_click"
 
         def execute(self, action, context):
-            return BrowserActionExecutor(
-                create_adapter(
-                    page=create_page(),
-                    dry_run=True,
-                )[0]
-            ).execute(action, context)
+            self.calls += 1
+            context.set_value("browser_page", self.page)
+            return __import__(
+                "app.agent.execution.execution_result",
+                fromlist=["ExecutionResult"],
+            ).ExecutionResult(
+                action_name=action.name,
+                success=True,
+                message="Browser click completed.",
+                metadata={
+                    "browser_operation": "click",
+                    "executed": True,
+                },
+            )
 
     page = create_page()
     context = create_context(page)
+    executor = UnchangedBrowserExecutor(page)
 
     loop = VerificationLoop(
         execution_engine=ExecutionEngine(
             ExecutorRegistry(
-                executors=(UnchangedBrowserExecutor(),),
+                executors=(executor,),
             )
         ),
         environment=None,
@@ -347,9 +360,16 @@ def test_verification_loop_does_not_repeat_browser_click_after_verified_failure(
         context,
     )
 
-    assert result.success is True
-    assert len(result.attempts) == 1
-    assert result.attempts[0].verification_result is None
+    assert result.success is False
+    assert result.requires_manual_review is True
+    assert result.stopped is True
+    assert len(result.attempts) == 2
+    assert executor.calls == 2
+    assert all(
+        attempt.verification_result is not None
+        and attempt.verification_result.verified is False
+        for attempt in result.attempts
+    )
 
 
 def test_browser_dry_run_never_invokes_provider_action():
