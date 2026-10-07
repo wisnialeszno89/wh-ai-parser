@@ -1,4 +1,5 @@
 from app.agent.agent_action import AgentAction
+from app.agent.runtime.browser_action_risk_policy import BrowserActionRiskPolicy
 from app.agent.runtime.confirmation import action_confirmation_key
 
 from app.agent.decision.decision import (
@@ -59,6 +60,26 @@ class DecisionEngine:
                     "manual review."
                 ),
                 requires_manual_review=True,
+            )
+
+        local_confirmation_required, local_risk_reason = (
+            BrowserActionRiskPolicy.evaluate(action)
+        )
+
+        if (
+            local_confirmation_required
+            and not action.requires_confirmation
+        ):
+            return Decision(
+                decision_type=DecisionType.MANUAL_REVIEW,
+                reason=(
+                    local_risk_reason
+                    or "Local browser risk policy requires confirmation."
+                ),
+                requires_manual_review=True,
+                metadata={
+                    "reason_code": "local_risk_confirmation_required",
+                },
             )
 
         if action.requires_confirmation:
