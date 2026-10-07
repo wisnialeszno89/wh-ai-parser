@@ -8,28 +8,29 @@ class ExpectedOutcome:
     executing an action.
 
     The model intentionally remains environment-independent.
-    Verification is performed against the semantic scene
-    and environment observation.
+    Verification is performed against the semantic scene,
+    environment observation, or a provider-neutral application
+    snapshot supplied by the execution context.
     """
 
     description: str
 
     expected_element_label: str | None = None
-
     expected_element_kind: str | None = None
-
     element_should_exist: bool = True
-
     expected_element_current_value: str | None = None
 
     expected_active_application: str | None = None
-
     expected_window_title: str | None = None
 
+    # Browser/provider-neutral application state.
+    expected_browser_url: str | None = None
+    expected_browser_title: str | None = None
+    expected_browser_element_label: str | None = None
+    expected_browser_element_current_value: str | None = None
+
     # Optional semantic state requirements. Each mapping describes one
-    # element that should be present after execution. The structure is
-    # technology-neutral and may contain fields such as kind, label,
-    # current_value, uia_selected or document_scope.
+    # element that should be present after execution.
     expected_semantic_elements: tuple[dict[str, object], ...] = ()
 
     # When enabled, verification requires the post-action semantic
