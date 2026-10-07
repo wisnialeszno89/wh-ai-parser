@@ -42,12 +42,14 @@ class VerificationLoop:
         attempts = []
 
         for attempt_number in range(1, self.max_attempts + 1):
-            execution_result = self.execution_engine.execute(action, context)
-
+            # Resolve the expected post-state before execution so any
+            # baseline captured by the expectation is genuinely pre-action.
             expected_outcome = self.expectation_resolver.resolve(
                 action,
                 context,
             )
+
+            execution_result = self.execution_engine.execute(action, context)
 
             verification_result = None
 

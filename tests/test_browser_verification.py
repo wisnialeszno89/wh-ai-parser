@@ -231,3 +231,120 @@ def test_browser_verification_loop_uses_browser_page_not_desktop_observe():
     assert result.last_attempt is not None
     assert result.last_attempt.verification_result is not None
     assert result.last_attempt.verification_result.verified is True
+
+
+def test_browser_click_expectation_verifies_semantic_page_change():
+    context = create_context()
+    baseline_page = create_page()
+    context.set_value("browser_page", baseline_page)
+
+    expected = ExpectationResolver().resolve(
+        AgentAction(
+            name="browser_click",
+            description="Click the button.",
+            target="Zakończ",
+        ),
+        context,
+    )
+
+    assert expected is not None
+    assert expected.require_browser_change is True
+    assert expected.baseline_browser_signature is not None
+
+    changed_page = create_page(value="changed")
+    result = OutcomeVerifier().verify_browser(
+        expected,
+        changed_page,
+    )
+
+    assert result.verified is True
+
+
+def test_browser_click_verification_rejects_unchanged_page():
+    context = create_context()
+    baseline_page = create_page()
+    context.set_value("browser_page", baseline_page)
+
+    expected = ExpectationResolver().resolve(
+        AgentAction(
+            name="browser_click",
+            description="Click the button.",
+            target="Zakończ",
+        ),
+        context,
+    )
+
+    assert expected is not None
+
+    result = OutcomeVerifier().verify_browser(
+        expected,
+        baseline_page,
+    )
+
+    assert result.verified is False
+    assert result.metadata is not None
+    assert result.metadata["browser_page_changed"] is False
+
+
+def test_browser_click_verification_captures_baseline_before_execution():
+    class BrowserExecutor:
+        def supports(self, action: AgentAction) -> bool:
+            return action.name == "browser_click"
+
+        def execute(
+            self,
+            action: AgentAction,
+            context: ExecutionContext,
+        ) -> ExecutionResult:
+            context.set_value(
+                "browser_page",
+                BrowserPage(
+                    url="https://example.com/form",
+                    title="Success",
+                    text="Done",
+                    elements=(),
+                ),
+            )
+            return ExecutionResult(
+                action_name=action.name,
+                success=True,
+                message="Browser clicked.",
+                metadata={
+                    "browser_operation": "click",
+                    "executed": True,
+                },
+            )
+
+    baseline = create_page()
+    context = create_context()
+    context.set_value("browser_page", baseline)
+
+    loop = VerificationLoop(
+        execution_engine=ExecutionEngine(
+            ExecutorRegistry(
+                executors=(BrowserExecutor(),)
+            )
+        ),
+        environment=None,
+        perception_engine=PerceptionEngine(),
+        expectation_resolver=ExpectationResolver(),
+        outcome_verifier=OutcomeVerifier(),
+    )
+
+    result = loop.run(
+        AgentAction(
+            name="browser_click",
+            description="Click the button.",
+            target="Zakończ",
+        ),
+        context,
+    )
+
+    assert result.success is True
+    assert len(result.attempts) == 1
+    assert result.last_attempt is not None
+    assert result.last_attempt.verification_result is not None
+    assert result.last_attempt.verification_result.verified is True
+    assert result.last_attempt.verification_result.reason == (
+        "Browser page matches expected outcome."
+    )
