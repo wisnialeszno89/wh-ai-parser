@@ -23,6 +23,9 @@ from app.agent.runtime.execution_context import (
 from app.agent.perception.screen_scene import (
     ScreenScene,
 )
+from app.agent.adapters.browser_adapter import (
+    BrowserPage,
+)
 
 from app.agent.reasoning.reasoning_task_planner import (
     ReasoningTaskPlanner,
@@ -166,6 +169,7 @@ class AgentOrchestrator:
         self,
         request: AgentRequest,
         initial_scene: ScreenScene | None = None,
+        browser_page: BrowserPage | None = None,
         offer_workflow: dict[str, object] | None = None,
         application_knowledge: dict[str, object] | None = None,
         external_knowledge: KnowledgeContext | None = None,
@@ -292,6 +296,7 @@ class AgentOrchestrator:
                     else str(request.mode)
                 ),
                 scene=initial_scene,
+                browser_page=browser_page,
                 offer_workflow=offer_workflow,
                 application_knowledge=(
                     application_knowledge
