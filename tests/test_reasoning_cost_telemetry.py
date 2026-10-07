@@ -159,6 +159,6 @@ def test_navimind_usage_is_preserved_on_semantic_reasoning_proposal():
     assert reasoner.last_usage.input_tokens == 1_000
     assert reasoner.last_usage.cached_input_tokens == 400
     assert reasoner.last_usage.estimated_cost_usd == pytest.approx(
-        0.00068
+        0.00044
     )
     assert proposal.metadata["reasoning_usage"]["output_tokens"] == 100
