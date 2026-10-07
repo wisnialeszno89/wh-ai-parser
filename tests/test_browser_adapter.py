@@ -167,3 +167,38 @@ def test_browser_page_and_elements_are_model_safe_payloads():
     assert payload["title"] == page.title
     assert payload["elements"][0]["label"] == "Dalej"
     assert "metadata" not in payload["elements"][0]
+
+def test_browser_adapter_dry_run_still_validates_url_and_target():
+    provider = FakeBrowserProvider()
+    adapter = BrowserAdapter(
+        provider=provider,
+        allowed_domains=("example.com",),
+        dry_run=True,
+    )
+
+    with pytest.raises(PermissionError):
+        adapter.open("https://evil.example.net")
+
+    unknown = BrowserElement(
+        label="Niepewny",
+        interaction_capability="UNKNOWN",
+        confidence=0.9,
+    )
+    with pytest.raises(PermissionError):
+        adapter.click(unknown)
+
+
+def test_browser_adapter_rejects_zero_confidence_interaction():
+    adapter = BrowserAdapter(
+        provider=FakeBrowserProvider(),
+        dry_run=False,
+    )
+
+    target = BrowserElement(
+        label="Dalej",
+        interaction_capability="CLICKABLE",
+        confidence=0.0,
+    )
+
+    with pytest.raises(PermissionError):
+        adapter.click(target)
