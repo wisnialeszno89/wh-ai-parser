@@ -695,6 +695,21 @@ class AgentRuntime:
                 context=context,
             )
 
+            control_loop_requires_manual_review = bool(
+                getattr(
+                    control_loop_result,
+                    "requires_manual_review",
+                    False,
+                )
+            )
+            control_loop_success = getattr(
+                control_loop_result,
+                "success",
+                None,
+            )
+            if control_loop_success is None:
+                control_loop_success = not control_loop_requires_manual_review
+
             self._remember_experience(
                 kind="runtime_execution",
                 application=(
@@ -706,10 +721,10 @@ class AgentRuntime:
                 workflow_id=None,
                 outcome=(
                     "manual_review"
-                    if control_loop_result.requires_manual_review
+                    if control_loop_requires_manual_review
                     else (
                         "success"
-                        if control_loop_result.success
+                        if control_loop_success
                         else "failure"
                     )
                 ),
@@ -718,8 +733,10 @@ class AgentRuntime:
                     f"'{context.intent.value}'."
                 ),
                 metadata={
-                    "executed_actions": (
-                        control_loop_result.executed_actions
+                    "executed_actions": getattr(
+                        control_loop_result,
+                        "executed_actions",
+                        0,
                     ),
                     "failed_actions": getattr(
                         control_loop_result,
@@ -736,7 +753,7 @@ class AgentRuntime:
                 control_loop_result=control_loop_result,
                 requires_manual_review=(
                     context.requires_manual_review
-                    or control_loop_result.requires_manual_review
+                    or control_loop_requires_manual_review
                 ),
                 executed=True,
             )
