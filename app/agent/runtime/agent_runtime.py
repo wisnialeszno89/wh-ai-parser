@@ -49,6 +49,10 @@ from app.agent.runtime.autonomous_run_result import (
     AutonomousRunResult,
 )
 from app.agent.runtime.reasoning_budget import ReasoningBudget
+from app.agent.runtime.reasoning_usage import (
+    ReasoningCostTracker,
+    ReasoningUsage,
+)
 from app.agent.runtime.browser_action_risk_policy import (
     BrowserActionRiskPolicy,
 )
@@ -943,6 +947,17 @@ class AgentRuntime:
             {},
         )
 
+        task_planner_usage = getattr(
+            task_planner,
+            "last_usage",
+            None,
+        )
+        if isinstance(task_planner_usage, ReasoningUsage):
+            context.set_value(
+                "reasoning_usage",
+                task_planner_usage.to_payload(),
+            )
+
         confirmation_token = request.metadata.get(
             "confirmation_token"
         )
@@ -1326,6 +1341,7 @@ class AgentRuntime:
         if max_steps < 1:
             raise ValueError("max_steps must be at least 1.")
         reasoning_budget = ReasoningBudget(max_reasoning_calls)
+        reasoning_cost_tracker = ReasoningCostTracker()
 
         session_id = request.session_id or f"autonomous-{uuid4().hex}"
         autonomous_request = AgentRequest(
@@ -1350,6 +1366,21 @@ class AgentRuntime:
                 reasoning_budget=reasoning_budget,
             )
             results.append(result)
+
+            raw_reasoning_usage = result.context.get_value(
+                "reasoning_usage"
+            )
+            if isinstance(raw_reasoning_usage, dict):
+                try:
+                    reasoning_cost_tracker.record(
+                        ReasoningUsage.from_payload(
+                            raw_reasoning_usage
+                        )
+                    )
+                except ValueError:
+                    # Telemetry must never block the agent. The hard
+                    # reasoning-call budget remains the safety/cost guard.
+                    pass
 
             resolved_external_knowledge = result.context.get_value(
                 "external_knowledge"
@@ -1429,4 +1460,5 @@ class AgentRuntime:
             stopped=stopped,
             reason=reason,
             reasoning_calls=reasoning_budget.calls,
+            reasoning_cost=reasoning_cost_tracker.summary(),
         )

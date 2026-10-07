@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 
 from app.agent.runtime.agent_runtime_result import AgentRuntimeResult
+from app.agent.runtime.reasoning_usage import ReasoningCostSummary
 
 
 @dataclass(frozen=True)
@@ -15,6 +16,7 @@ class AutonomousRunResult:
     stopped: bool
     reason: str
     reasoning_calls: int = 0
+    reasoning_cost: ReasoningCostSummary = ReasoningCostSummary()
 
     @property
     def executed_actions(self) -> int:

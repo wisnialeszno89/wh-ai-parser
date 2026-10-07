@@ -9,6 +9,7 @@ from app.agent.reasoning.reasoning_action_policy import NAVIMIND_ALLOWED_ACTIONS
 from app.agent.reasoning.task_planning_context import TaskPlanningContext
 from app.agent.reasoning.task_reasoner import TaskReasoner
 from app.agent.runtime.reasoning_budget import ReasoningBudget
+from app.agent.runtime.reasoning_usage import ReasoningUsage
 
 
 class ReasoningTaskPlanner:
@@ -58,6 +59,7 @@ class ReasoningTaskPlanner:
         )
         self.last_failure_reason: str | None = None
         self.last_proposal = None
+        self.last_usage: ReasoningUsage | None = None
 
     def plan(
         self,
@@ -66,6 +68,7 @@ class ReasoningTaskPlanner:
         reasoning_budget: ReasoningBudget | None = None,
     ) -> ActionPlan | None:
         self.last_failure_reason = None
+        self.last_usage = None
 
         if (
             reasoning_budget is not None
@@ -76,6 +79,14 @@ class ReasoningTaskPlanner:
 
         proposal = self.reasoner.reason(context)
         self.last_proposal = proposal
+
+        provider_usage = getattr(
+            self.reasoner,
+            "last_usage",
+            None,
+        )
+        if isinstance(provider_usage, ReasoningUsage):
+            self.last_usage = provider_usage
 
         reasoner_error = getattr(
             self.reasoner,

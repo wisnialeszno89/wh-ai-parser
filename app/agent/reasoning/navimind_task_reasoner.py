@@ -18,6 +18,7 @@ from app.agent.reasoning.reasoning_action_policy import (
 from app.agent.reasoning.reasoning_proposal import ReasoningProposal
 from app.agent.reasoning.task_planning_context import TaskPlanningContext
 from app.agent.reasoning.task_reasoner import TaskReasoner
+from app.agent.runtime.reasoning_usage import ReasoningUsage
 
 
 @dataclass(frozen=True)
@@ -69,12 +70,14 @@ class NaviMindTaskReasoner(TaskReasoner):
         )
         self.opener = opener
         self.last_error: str | None = None
+        self.last_usage: ReasoningUsage | None = None
 
     def reason(
         self,
         context: TaskPlanningContext,
     ) -> ReasoningProposal | None:
         self.last_error = None
+        self.last_usage = None
 
         knowledge_payload = {
             "version": "1",
@@ -192,6 +195,19 @@ class NaviMindTaskReasoner(TaskReasoner):
             self.last_error = "invalid_navimind_response"
             return None
 
+        usage_payload = payload.get("usage")
+        if usage_payload is not None:
+            if not isinstance(usage_payload, dict):
+                self.last_error = "invalid_navimind_usage"
+                return None
+            try:
+                self.last_usage = ReasoningUsage.from_payload(
+                    usage_payload
+                )
+            except ValueError as exc:
+                self.last_error = str(exc)
+                return None
+
         version = str(
             payload.get("version", "1")
         ).strip()
@@ -277,6 +293,11 @@ class NaviMindTaskReasoner(TaskReasoner):
             if isinstance(payload.get("metadata"), dict)
             else {}
         )
+
+        if self.last_usage is not None:
+            response_metadata["reasoning_usage"] = (
+                self.last_usage.to_payload()
+            )
 
         external_knowledge = None
         response_knowledge = payload.get("knowledge")
