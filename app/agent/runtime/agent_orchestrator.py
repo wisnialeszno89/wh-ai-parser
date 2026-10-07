@@ -313,7 +313,15 @@ class AgentOrchestrator:
                         application=descriptor.application
                     ) is not None
                 ),
-                world=SemanticWorldModel.from_scene(initial_scene),
+                world=(
+                    SemanticWorldModel.from_browser_page(
+                        browser_page
+                    )
+                    if browser_page is not None
+                    else SemanticWorldModel.from_scene(
+                        initial_scene
+                    )
+                ),
             )
 
             reasoned_plan = self.task_planner.plan(
