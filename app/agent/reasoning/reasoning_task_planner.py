@@ -278,10 +278,7 @@ class ReasoningTaskPlanner:
             return False
 
         if context.browser_page is not None:
-            return bool(
-                context.world is not None
-                and context.world.find_entities(target)
-            ) or any(
+            return any(
                 isinstance(element.label, str)
                 and element.label.strip().casefold() == normalized
                 for element in context.browser_page.elements
