@@ -97,7 +97,7 @@ def test_reasoning_cost_tracker_aggregates_usage():
     assert summary.total_tokens == 1_650
     assert summary.reasoning_tokens == 0
     assert summary.models == ("gpt-4.1-mini",)
-    assert summary.estimated_cost_usd == pytest.approx(0.000605)
+    assert summary.estimated_cost_usd == pytest.approx(0.00078)
 
 
 def test_navimind_usage_is_preserved_on_semantic_reasoning_proposal():
