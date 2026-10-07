@@ -46,6 +46,18 @@ class ScopeProvider:
 
     def write_text(self, target, value):
         self.writes.append((target.label, value))
+        self.page = replace(
+            self.page,
+            elements=tuple(
+                replace(
+                    element,
+                    current_value=value,
+                )
+                if element.label == target.label
+                else element
+                for element in self.page.elements
+            ),
+        )
         return self.page
 
     def select_option(self, target, value):
