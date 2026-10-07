@@ -203,3 +203,22 @@ def test_browser_adapter_rejects_zero_confidence_interaction():
 
     with pytest.raises(PermissionError):
         adapter.click(target)
+
+
+
+def test_browser_adapter_rejects_disallowed_resulting_page():
+    provider = FakeBrowserProvider(
+        page=BrowserPage(
+            url="https://evil.example.net/redirected",
+            title="Unexpected",
+            text="Blocked destination",
+        )
+    )
+    adapter = BrowserAdapter(
+        provider=provider,
+        allowed_domains=("example.com",),
+        dry_run=False,
+    )
+
+    with pytest.raises(PermissionError):
+        adapter.open("https://example.com/start")

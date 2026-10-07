@@ -1,31 +1,17 @@
-from app.agent.perception.screen_scene import (
-    ScreenScene,
-)
+from __future__ import annotations
 
-from app.agent.verification.expected_outcome import (
-    ExpectedOutcome,
-)
+from urllib.parse import urlsplit, urlunsplit
 
-from app.agent.verification.verification_result import (
-    VerificationResult,
-)
+from app.agent.adapters.browser_adapter import BrowserPage
+from app.agent.perception.screen_scene import ScreenScene
+from app.agent.verification.expected_outcome import ExpectedOutcome
+from app.agent.verification.verification_result import VerificationResult
 
 
 class OutcomeVerifier:
     """
-    Verifies whether the perceived environment matches
-    an expected outcome after an action.
-
-    Current verification rules are intentionally simple
-    and deterministic.
-
-    Supported checks:
-
-    - active application
-    - active window title
-    - expected element existence
-    - expected element disappearance
-    - expected element current value
+    Verifies expected post-action state against a semantic desktop scene
+    or a provider-neutral BrowserPage snapshot.
     """
 
     def verify(
@@ -33,7 +19,6 @@ class OutcomeVerifier:
         expected: ExpectedOutcome,
         scene: ScreenScene,
     ) -> VerificationResult:
-
         state = scene.observation.state
 
         if expected.require_scene_change:
@@ -57,67 +42,35 @@ class OutcomeVerifier:
                         "after the GUI action."
                     ),
                     confidence=0.95,
-                    metadata={
-                        "scene_changed": False,
-                    },
+                    metadata={"scene_changed": False},
                 )
 
-
-        if (
-            expected.expected_active_application
-            is not None
-        ):
-
+        if expected.expected_active_application is not None:
             if (
                 state.active_application
                 != expected.expected_active_application
             ):
-
                 return VerificationResult(
                     verified=False,
-                    reason=(
-                        "Active application does not "
-                        "match expectation."
-                    ),
+                    reason="Active application does not match expectation.",
                     confidence=1.0,
                     metadata={
-                        "expected": (
-                            expected.expected_active_application
-                        ),
-                        "actual": (
-                            state.active_application
-                        ),
+                        "expected": expected.expected_active_application,
+                        "actual": state.active_application,
                     },
                 )
 
-
-        if (
-            expected.expected_window_title
-            is not None
-        ):
-
-            if (
-                state.active_window_title
-                != expected.expected_window_title
-            ):
-
+        if expected.expected_window_title is not None:
+            if state.active_window_title != expected.expected_window_title:
                 return VerificationResult(
                     verified=False,
-                    reason=(
-                        "Active window title does not "
-                        "match expectation."
-                    ),
+                    reason="Active window title does not match expectation.",
                     confidence=1.0,
                     metadata={
-                        "expected": (
-                            expected.expected_window_title
-                        ),
-                        "actual": (
-                            state.active_window_title
-                        ),
+                        "expected": expected.expected_window_title,
+                        "actual": state.active_window_title,
                     },
                 )
-
 
         if expected.expected_semantic_elements:
             semantic_result = self._verify_semantic_elements(
@@ -127,43 +80,22 @@ class OutcomeVerifier:
             if semantic_result is not None:
                 return semantic_result
 
-        if (
-            expected.expected_element_label
-            is not None
-        ):
-
-            found = scene.find_by_label(
-                expected.expected_element_label
-            )
-
+        if expected.expected_element_label is not None:
+            found = scene.find_by_label(expected.expected_element_label)
             exists = bool(found)
 
-
-            if (
-                expected.element_should_exist
-                and not exists
-            ):
-
+            if expected.element_should_exist and not exists:
                 return VerificationResult(
                     verified=False,
-                    reason=(
-                        "Expected element was not found."
-                    ),
+                    reason="Expected element was not found.",
                     confidence=0.9,
                     metadata={
-                        "expected_label": (
-                            expected.expected_element_label
-                        ),
+                        "expected_label": expected.expected_element_label,
                         "found": False,
                     },
                 )
 
-
-            if (
-                not expected.element_should_exist
-                and exists
-            ):
-
+            if not expected.element_should_exist and exists:
                 return VerificationResult(
                     verified=False,
                     reason=(
@@ -172,30 +104,23 @@ class OutcomeVerifier:
                     ),
                     confidence=0.9,
                     metadata={
-                        "expected_label": (
-                            expected.expected_element_label
-                        ),
+                        "expected_label": expected.expected_element_label,
                         "found": True,
                     },
                 )
 
-
         if (
-            expected.expected_element_current_value
-            is not None
-            and expected.expected_element_label
-            is not None
+            expected.expected_element_current_value is not None
+            and expected.expected_element_label is not None
         ):
-            found = scene.find_by_label(
-                expected.expected_element_label
-            )
+            found = scene.find_by_label(expected.expected_element_label)
 
             if not found:
                 return VerificationResult(
                     verified=False,
                     reason=(
-                        "Expected value could not be checked "
-                        "because the target element was not found."
+                        "Expected value could not be checked because "
+                        "the target element was not found."
                     ),
                     confidence=0.9,
                 )
@@ -211,9 +136,7 @@ class OutcomeVerifier:
                     ),
                     confidence=0.95,
                     metadata={
-                        "expected_label": (
-                            expected.expected_element_label
-                        ),
+                        "expected_label": expected.expected_element_label,
                         "expected_value": (
                             expected.expected_element_current_value
                         ),
@@ -221,68 +144,171 @@ class OutcomeVerifier:
                     },
                 )
 
-
-        if (
-            expected.expected_element_kind
-            is not None
-        ):
-
-            elements = scene.elements_of_kind(
-                expected.expected_element_kind
-            )
-
+        if expected.expected_element_kind is not None:
+            elements = scene.elements_of_kind(expected.expected_element_kind)
             exists = bool(elements)
 
-
-            if (
-                expected.element_should_exist
-                and not exists
-            ):
-
+            if expected.element_should_exist and not exists:
                 return VerificationResult(
                     verified=False,
-                    reason=(
-                        "Expected element kind was not found."
-                    ),
+                    reason="Expected element kind was not found.",
                     confidence=0.9,
                     metadata={
-                        "expected_kind": (
-                            expected.expected_element_kind
-                        ),
+                        "expected_kind": expected.expected_element_kind,
                         "found": False,
                     },
                 )
 
-
-            if (
-                not expected.element_should_exist
-                and exists
-            ):
-
+            if not expected.element_should_exist and exists:
                 return VerificationResult(
                     verified=False,
                     reason=(
-                        "Element kind was expected to "
-                        "disappear but is still present."
+                        "Element kind was expected to disappear "
+                        "but is still present."
                     ),
                     confidence=0.9,
                     metadata={
-                        "expected_kind": (
-                            expected.expected_element_kind
-                        ),
+                        "expected_kind": expected.expected_element_kind,
                         "found": True,
                     },
                 )
 
-
         return VerificationResult(
             verified=True,
-            reason=(
-                "Environment matches expected outcome."
-            ),
+            reason="Environment matches expected outcome.",
             confidence=1.0,
         )
 
+    def verify_browser(
+        self,
+        expected: ExpectedOutcome,
+        page: BrowserPage | None,
+    ) -> VerificationResult:
+        """
+        Verify a browser action against the fresh semantic BrowserPage
+        returned by BrowserAdapter after execution.
+        """
+        if not isinstance(page, BrowserPage):
+            return VerificationResult(
+                verified=False,
+                reason="Browser verification has no fresh BrowserPage.",
+                confidence=1.0,
+            )
+
+        if expected.expected_browser_url is not None:
+            actual_url = self._normalize_url(page.url)
+            expected_url = self._normalize_url(expected.expected_browser_url)
+
+            if actual_url != expected_url:
+                return VerificationResult(
+                    verified=False,
+                    reason="Browser URL does not match expectation.",
+                    confidence=0.95,
+                    metadata={
+                        "expected_url": expected.expected_browser_url,
+                        "actual_url": page.url,
+                    },
+                )
+
+        if expected.expected_browser_title is not None:
+            if page.title != expected.expected_browser_title:
+                return VerificationResult(
+                    verified=False,
+                    reason="Browser page title does not match expectation.",
+                    confidence=0.95,
+                    metadata={
+                        "expected_title": expected.expected_browser_title,
+                        "actual_title": page.title,
+                    },
+                )
+
+        if (
+            expected.expected_browser_element_label is not None
+            or expected.expected_browser_element_current_value is not None
+        ):
+            label = expected.expected_browser_element_label
+
+            candidates = [
+                element
+                for element in page.elements
+                if (
+                    label is None
+                    or element.label.strip().casefold()
+                    == label.strip().casefold()
+                )
+            ]
+
+            if not candidates:
+                return VerificationResult(
+                    verified=False,
+                    reason=(
+                        "Expected browser semantic element was not found."
+                    ),
+                    confidence=0.95,
+                    metadata={
+                        "expected_label": label,
+                        "found": False,
+                    },
+                )
+
+            if len(candidates) > 1:
+                return VerificationResult(
+                    verified=False,
+                    reason=(
+                        "Expected browser semantic element is ambiguous."
+                    ),
+                    confidence=0.95,
+                    metadata={
+                        "expected_label": label,
+                        "candidate_count": len(candidates),
+                    },
+                )
+
+            element = candidates[0]
+
+            if (
+                expected.expected_browser_element_current_value
+                is not None
+            ):
+                actual_value = element.current_value
+
+                if actual_value != (
+                    expected.expected_browser_element_current_value
+                ):
+                    return VerificationResult(
+                        verified=False,
+                        reason=(
+                            "Browser semantic field does not contain "
+                            "the expected value."
+                        ),
+                        confidence=0.95,
+                        metadata={
+                            "expected_label": label,
+                            "expected_value": (
+                                expected.expected_browser_element_current_value
+                            ),
+                            "actual_value": actual_value,
+                        },
+                    )
+
+        return VerificationResult(
+            verified=True,
+            reason="Browser page matches expected outcome.",
+            confidence=1.0,
+        )
+
+    @staticmethod
+    def _normalize_url(value: str) -> str:
+        parsed = urlsplit(value.strip())
+        return urlunsplit(
+            (
+                parsed.scheme.casefold(),
+                parsed.netloc.casefold(),
+                parsed.path or "/",
+                parsed.query,
+                parsed.fragment,
+            )
+        )
 
     @staticmethod
     def _verify_semantic_elements(
@@ -302,15 +328,13 @@ class OutcomeVerifier:
                 if (
                     (
                         not isinstance(kind, str)
-                        or element.kind.casefold()
-                        == kind.casefold()
+                        or element.kind.casefold() == kind.casefold()
                     )
                     and (
                         not isinstance(label, str)
                         or (
                             isinstance(element.label, str)
-                            and element.label.casefold()
-                            == label.casefold()
+                            and element.label.casefold() == label.casefold()
                         )
                     )
                 )
@@ -319,13 +343,9 @@ class OutcomeVerifier:
             if not candidates:
                 return VerificationResult(
                     verified=False,
-                    reason=(
-                        "Expected semantic element was not found."
-                    ),
+                    reason="Expected semantic element was not found.",
                     confidence=0.95,
-                    metadata={
-                        "requirement": dict(requirement),
-                    },
+                    metadata={"requirement": dict(requirement)},
                 )
 
             state_keys = (
@@ -343,10 +363,7 @@ class OutcomeVerifier:
                     if key not in requirement:
                         continue
 
-                    expected_value = requirement.get(key)
-                    actual_value = metadata.get(key)
-
-                    if actual_value != expected_value:
+                    if metadata.get(key) != requirement.get(key):
                         state_matches = False
                         break
 
@@ -386,21 +403,16 @@ class OutcomeVerifier:
 
     @staticmethod
     def _current_value(element) -> str | None:
-        metadata = element.metadata or {}
-
-        value = metadata.get("current_value")
+        value = (element.metadata or {}).get("current_value")
         if isinstance(value, str):
             return value.strip() or None
-
         return None
-
 
     @staticmethod
     def _scene_signature(
         scene: ScreenScene,
     ) -> tuple[tuple[object, ...], ...]:
         signature = []
-
         for element in scene.elements:
             metadata = element.metadata or {}
             signature.append(
@@ -419,9 +431,4 @@ class OutcomeVerifier:
                 )
             )
 
-        return tuple(
-            sorted(
-                signature,
-                key=lambda item: repr(item),
-            )
-        )
+        return tuple(sorted(signature, key=lambda item: repr(item)))

@@ -1,36 +1,13 @@
 from app.agent.agent_action import AgentAction
 
-from app.agent.environment.environment_adapter import (
-    EnvironmentAdapter,
-)
-
-from app.agent.execution.execution_engine import (
-    ExecutionEngine,
-)
-
-from app.agent.runtime.execution_attempt import (
-    ExecutionAttempt,
-)
-
-from app.agent.runtime.execution_context import (
-    ExecutionContext,
-)
-
-from app.agent.runtime.execution_loop_result import (
-    ExecutionLoopResult,
-)
-
-from app.agent.perception.perception_engine import (
-    PerceptionEngine,
-)
-
-from app.agent.verification.expectation_resolver import (
-    ExpectationResolver,
-)
-
-from app.agent.verification.outcome_verifier import (
-    OutcomeVerifier,
-)
+from app.agent.environment.environment_adapter import EnvironmentAdapter
+from app.agent.execution.execution_engine import ExecutionEngine
+from app.agent.runtime.execution_attempt import ExecutionAttempt
+from app.agent.runtime.execution_context import ExecutionContext
+from app.agent.runtime.execution_loop_result import ExecutionLoopResult
+from app.agent.perception.perception_engine import PerceptionEngine
+from app.agent.verification.expectation_resolver import ExpectationResolver
+from app.agent.verification.outcome_verifier import OutcomeVerifier
 
 
 class VerificationLoop:
@@ -47,11 +24,8 @@ class VerificationLoop:
         outcome_verifier: OutcomeVerifier,
         max_attempts: int = 2,
     ) -> None:
-
         if max_attempts < 1:
-            raise ValueError(
-                "max_attempts must be at least 1"
-            )
+            raise ValueError("max_attempts must be at least 1")
 
         self.execution_engine = execution_engine
         self.environment = environment
@@ -65,69 +39,46 @@ class VerificationLoop:
         action: AgentAction,
         context: ExecutionContext,
     ) -> ExecutionLoopResult:
-        """
-        Execute and verify one semantic action.
-        """
-
         attempts = []
 
-        for attempt_number in range(
-            1,
-            self.max_attempts + 1,
-        ):
+        for attempt_number in range(1, self.max_attempts + 1):
+            execution_result = self.execution_engine.execute(action, context)
 
-            execution_result = (
-                self.execution_engine.execute(
-                    action,
-                    context,
-                )
-            )
-
-            expected_outcome = (
-                self.expectation_resolver.resolve(
-                    action,
-                    context,
-                )
+            expected_outcome = self.expectation_resolver.resolve(
+                action,
+                context,
             )
 
             verification_result = None
 
-            if (
-                execution_result.success
-                and expected_outcome is not None
-            ):
+            if execution_result.success and expected_outcome is not None:
                 execution_was_performed = (
                     execution_result.metadata or {}
                 ).get("executed")
 
-                # A DRY_RUN action may legitimately report success while
-                # explicitly stating that no hardware interaction occurred.
-                # In that case the real environment cannot prove the expected
-                # post-action state, so verification must not manufacture a
-                # failure from the unchanged dry-run scene.
                 if execution_was_performed is not False:
-                    observation = (
-                        self.environment.observe()
-                    )
+                    browser_operation = (
+                        execution_result.metadata or {}
+                    ).get("browser_operation")
 
-                    context.update_observation(
-                        observation
-                    )
-
-                    scene = (
-                        self.perception_engine.perceive(
-                            observation
+                    if browser_operation:
+                        verification_result = (
+                            self.outcome_verifier.verify_browser(
+                                expected_outcome,
+                                context.get_value("browser_page"),
+                            )
                         )
-                    )
+                    else:
+                        observation = self.environment.observe()
+                        context.update_observation(observation)
 
-                    context.update_scene(scene)
+                        scene = self.perception_engine.perceive(observation)
+                        context.update_scene(scene)
 
-                    verification_result = (
-                        self.outcome_verifier.verify(
+                        verification_result = self.outcome_verifier.verify(
                             expected_outcome,
                             scene,
                         )
-                    )
 
             attempt = ExecutionAttempt(
                 action=action,
@@ -136,7 +87,6 @@ class VerificationLoop:
                 verification_result=verification_result,
                 attempt_number=attempt_number,
             )
-
             attempts.append(attempt)
 
             if not execution_result.success:
