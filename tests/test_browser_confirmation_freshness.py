@@ -148,6 +148,26 @@ def test_confirmation_is_invalidated_when_browser_context_changes():
     )
     assert provider.clicks == []
 
+    # A mismatched browser context must not consume the token. Restore the
+    # original state and verify the same approval can still resume safely.
+    provider.page = make_page()
+
+    approved = runtime.run(
+        AgentRequest(
+            message="Zatwierdź moje zamówienie.",
+            session_id="freshness-session",
+            metadata={
+                "target_application": "Browser",
+                "confirmation_token": token,
+            },
+        )
+    )
+
+    assert approved.requires_manual_review is False
+    assert approved.control_loop_result is not None
+    assert approved.control_loop_result.success is True
+    assert provider.clicks == ["Zatwierdź zamówienie"]
+
 
 def test_unchanged_browser_context_can_consume_confirmation_once():
     provider = FreshnessProvider(page=make_page())
