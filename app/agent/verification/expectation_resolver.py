@@ -1,12 +1,8 @@
 from app.agent.agent_action import AgentAction
 
-from app.agent.runtime.execution_context import (
-    ExecutionContext,
-)
+from app.agent.runtime.execution_context import ExecutionContext
 
-from app.agent.verification.expected_outcome import (
-    ExpectedOutcome,
-)
+from app.agent.verification.expected_outcome import ExpectedOutcome
 
 
 class ExpectationResolver:
@@ -15,12 +11,6 @@ class ExpectationResolver:
 
     The resolver intentionally returns None when an action
     does not require environment verification.
-
-    This keeps semantic and abstract actions independent from
-    GUI-specific expectations.
-
-    Environment-specific implementations may later extend or
-    replace these expectations.
     """
 
     def resolve(
@@ -28,89 +18,59 @@ class ExpectationResolver:
         action: AgentAction,
         context: ExecutionContext,
     ) -> ExpectedOutcome | None:
-
-        expectation = self._resolve_from_context(
-            action,
-            context,
-        )
-
+        expectation = self._resolve_from_context(action, context)
         if expectation is not None:
             return expectation
 
-        return self._resolve_default(
-            action,
-            context,
-        )
+        browser_expectation = self._resolve_browser_default(action)
+        if browser_expectation is not None:
+            return browser_expectation
+
+        return self._resolve_default(action, context)
 
     def _resolve_from_context(
         self,
         action: AgentAction,
         context: ExecutionContext,
     ) -> ExpectedOutcome | None:
-        """
-        Resolve an explicitly registered expectation from
-        the execution context.
+        expectations = context.get_value("expected_outcomes")
 
-        The context allows environment-specific executors or
-        future planners to provide precise expectations without
-        coupling this resolver to a specific application.
-        """
-
-        expectations = context.get_value(
-            "expected_outcomes"
-        )
-
-        if not isinstance(
-            expectations,
-            dict,
-        ):
+        if not isinstance(expectations, dict):
             return None
 
-        expectation = expectations.get(
-            action.name
-        )
-
-        if isinstance(
-            expectation,
-            ExpectedOutcome,
-        ):
+        expectation = expectations.get(action.name)
+        if isinstance(expectation, ExpectedOutcome):
             return expectation
 
         return None
 
-    def _resolve_default(
-        self,
+    @staticmethod
+    def _resolve_browser_default(
         action: AgentAction,
-        context: ExecutionContext,
     ) -> ExpectedOutcome | None:
         """
-        Resolve built-in expectations for generic actions.
+        Resolve deterministic verification for browser actions.
 
-        GUI clicks receive a conservative default expectation:
-        the semantic screen scene must change after the click.
-        Text entry receives a stronger semantic verification:
-        the targeted field should expose the requested value after
-        execution.
+        Navigation is verified against the resulting URL. Text entry and
+        select operations are verified against the resulting semantic field
+        value.
 
-        Abstract and other actions remain unverified by default.
+        Click and back deliberately have no generic default post-state.
+        A caller may supply an explicit ExpectedOutcome when one is required.
         """
+        if action.name == "browser_navigate":
+            if not isinstance(action.value, str) or not action.value.strip():
+                return None
 
-        if context.current_scene is None:
-            return None
-
-        if action.name == "click_screen_element":
             return ExpectedOutcome(
                 description=(
-                    "The semantic screen scene should change "
-                    "after the GUI click."
+                    "The browser should be at the requested URL "
+                    "after navigation."
                 ),
-                require_scene_change=True,
-                baseline_scene_signature=(
-                    self._scene_signature(context.current_scene)
-                ),
+                expected_browser_url=action.value.strip(),
             )
 
-        if action.name == "write_text":
+        if action.name in {"browser_write_text", "browser_select_option"}:
             target = (
                 action.target.strip()
                 if isinstance(action.target, str)
@@ -121,6 +81,47 @@ class ExpectationResolver:
                 if isinstance(action.value, str)
                 else None
             )
+            if not target or not value:
+                return None
+
+            return ExpectedOutcome(
+                description=(
+                    "The targeted browser field should expose "
+                    "the requested value after execution."
+                ),
+                expected_browser_element_label=target,
+                expected_browser_element_current_value=value,
+            )
+
+        return None
+
+    def _resolve_default(
+        self,
+        action: AgentAction,
+        context: ExecutionContext,
+    ) -> ExpectedOutcome | None:
+        if context.current_scene is None:
+            return None
+
+        if action.name == "click_screen_element":
+            return ExpectedOutcome(
+                description=(
+                    "The semantic screen scene should change "
+                    "after the GUI click."
+                ),
+                require_scene_change=True,
+                baseline_scene_signature=self._scene_signature(
+                    context.current_scene
+                ),
+            )
+
+        if action.name == "write_text":
+            target = (
+                action.target.strip()
+                if isinstance(action.target, str)
+                else None
+            )
+            value = action.value if isinstance(action.value, str) else None
 
             if not target or not value:
                 return None
@@ -142,7 +143,6 @@ class ExpectationResolver:
         scene,
     ) -> tuple[tuple[object, ...], ...]:
         signature = []
-
         for element in scene.elements:
             metadata = element.metadata or {}
             signature.append(
@@ -161,9 +161,4 @@ class ExpectationResolver:
                 )
             )
 
-        return tuple(
-            sorted(
-                signature,
-                key=lambda item: repr(item),
-            )
-        )
+        return tuple(sorted(signature, key=lambda item: repr(item)))
