@@ -553,6 +553,12 @@ class AgentRuntime:
             autonomous=autonomous,
         )
 
+        if browser_page is not None:
+            context.set_value(
+                "browser_page",
+                browser_page,
+            )
+
         application_knowledge = getattr(
             self.orchestrator,
             "application_knowledge",
