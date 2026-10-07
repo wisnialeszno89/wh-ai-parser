@@ -1,4 +1,6 @@
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
+
+import pytest
 
 from app.agent.adapters.browser_adapter import (
     BrowserAdapter,
@@ -17,7 +19,15 @@ from app.agent.runtime.browser_agent_control_loop import (
 
 
 @dataclass
-class FreshnessProvider:
+class Clock:
+    now: float = 100.0
+
+    def __call__(self):
+        return self.now
+
+
+@dataclass
+class ExpiryProvider:
     page: BrowserPage
 
     def __post_init__(self):
@@ -30,17 +40,11 @@ class FreshnessProvider:
         return self.page
 
     def open(self, url):
-        self.page = replace(self.page, url=url)
         return self.page
 
     def click(self, target):
         self.clicks.append(target.label)
-        return replace(
-            self.page,
-            title="Submitted",
-            text="Zamówienie zatwierdzone.",
-            elements=(),
-        )
+        return self.page
 
     def write_text(self, target, value):
         return self.page
@@ -52,8 +56,12 @@ class FreshnessProvider:
         return self.page
 
 
-class ConfirmationReasoner(TaskReasoner):
+class CountingReasoner(TaskReasoner):
+    def __init__(self):
+        self.calls = 0
+
     def reason(self, context):
+        self.calls += 1
         return ReasoningProposal(
             actions=(
                 ReasoningAction(
@@ -63,15 +71,15 @@ class ConfirmationReasoner(TaskReasoner):
                     requires_confirmation=True,
                 ),
             ),
-            rationale="Controlled freshness test.",
+            rationale="Confirmation expiry test.",
             confidence=0.99,
         )
 
 
-def make_page(*, title="Checkout"):
+def make_page():
     return BrowserPage(
         url="https://example.com/checkout",
-        title=title,
+        title="Checkout",
         text="Formularz zamówienia.",
         elements=(
             BrowserElement(
@@ -90,7 +98,8 @@ def make_page(*, title="Checkout"):
     )
 
 
-def make_runtime(provider):
+def make_runtime(reasoner, clock):
+    provider = ExpiryProvider(page=make_page())
     adapter = BrowserAdapter(
         provider=provider,
         allowed_domains=("example.com",),
@@ -98,7 +107,7 @@ def make_runtime(provider):
     )
     runtime = AgentRuntime(
         orchestrator=AgentOrchestrator(
-            task_reasoner=ConfirmationReasoner(),
+            task_reasoner=reasoner,
             require_task_reasoning=True,
         ),
         control_loop=create_browser_agent_control_loop(
@@ -106,32 +115,36 @@ def make_runtime(provider):
         ),
         browser_adapter=adapter,
         browser_context_enabled=True,
+        confirmation_ttl_seconds=10.0,
+        confirmation_clock=clock,
     )
-    return runtime
+    return runtime, provider
 
 
-def test_confirmation_is_invalidated_when_browser_context_changes():
-    provider = FreshnessProvider(page=make_page())
-    runtime = make_runtime(provider)
+def test_expired_confirmation_fails_before_reasoning_and_execution():
+    clock = Clock()
+    reasoner = CountingReasoner()
+    runtime, provider = make_runtime(reasoner, clock)
 
     blocked = runtime.run(
         AgentRequest(
             message="Zatwierdź moje zamówienie.",
-            session_id="freshness-session",
+            session_id="expiry-session",
             metadata={"target_application": "Browser"},
         )
     )
 
     assert blocked.confirmation_request is not None
     token = blocked.confirmation_request.token
+    assert reasoner.calls == 1
     assert provider.clicks == []
 
-    provider.page = make_page(title="Checkout — changed")
+    clock.now = 110.0
 
-    stale = runtime.run(
+    expired = runtime.run(
         AgentRequest(
             message="Zatwierdź moje zamówienie.",
-            session_id="freshness-session",
+            session_id="expiry-session",
             metadata={
                 "target_application": "Browser",
                 "confirmation_token": token,
@@ -139,64 +152,20 @@ def test_confirmation_is_invalidated_when_browser_context_changes():
         )
     )
 
-    assert stale.requires_manual_review is True
-    assert stale.executed is False
-    assert stale.control_loop_result is None
+    assert expired.requires_manual_review is True
+    assert expired.executed is False
+    assert expired.control_loop_result is None
     assert (
-        stale.context.get_value("task_reasoning_failure")
-        == "confirmation_browser_context_changed"
+        expired.context.get_value("task_reasoning_failure")
+        == "invalid_or_expired_confirmation_token"
     )
+    assert reasoner.calls == 1
     assert provider.clicks == []
 
-    # A mismatched browser context must not consume the token. Restore the
-    # original state and verify the same approval can still resume safely.
-    provider.page = make_page()
 
-    approved = runtime.run(
-        AgentRequest(
-            message="Zatwierdź moje zamówienie.",
-            session_id="freshness-session",
-            metadata={
-                "target_application": "Browser",
-                "confirmation_token": token,
-            },
-        )
-    )
-
-    assert approved.requires_manual_review is False
-    assert approved.control_loop_result is not None
-    assert approved.control_loop_result.success is True
-    assert provider.clicks == ["Zatwierdź zamówienie"]
-
-
-def test_unchanged_browser_context_can_consume_confirmation_once():
-    provider = FreshnessProvider(page=make_page())
-    runtime = make_runtime(provider)
-
-    blocked = runtime.run(
-        AgentRequest(
-            message="Zatwierdź moje zamówienie.",
-            session_id="freshness-success",
-            metadata={"target_application": "Browser"},
-        )
-    )
-
-    assert blocked.confirmation_request is not None
-
-    approved = runtime.run(
-        AgentRequest(
-            message="Zatwierdź moje zamówienie.",
-            session_id="freshness-success",
-            metadata={
-                "target_application": "Browser",
-                "confirmation_token": (
-                    blocked.confirmation_request.token
-                ),
-            },
-        )
-    )
-
-    assert approved.requires_manual_review is False
-    assert approved.control_loop_result is not None
-    assert approved.control_loop_result.success is True
-    assert provider.clicks == ["Zatwierdź zamówienie"]
+def test_confirmation_ttl_rejects_non_positive_configuration():
+    with pytest.raises(
+        ValueError,
+        match="confirmation_ttl_seconds must be greater than zero.",
+    ):
+        AgentRuntime(confirmation_ttl_seconds=0)

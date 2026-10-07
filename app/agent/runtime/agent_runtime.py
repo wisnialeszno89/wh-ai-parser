@@ -1,3 +1,4 @@
+import time
 from uuid import uuid4
 
 from app.agent.agent_request import AgentRequest
@@ -113,6 +114,8 @@ class AgentRuntime:
         learned_parameter_resolver=None,
         browser_adapter: BrowserAdapter | None = None,
         browser_context_enabled: bool = False,
+        confirmation_ttl_seconds: float = 300.0,
+        confirmation_clock=None,
     ) -> None:
 
         self.orchestrator = (
@@ -126,12 +129,23 @@ class AgentRuntime:
         self.browser_adapter = browser_adapter
         self.browser_context_enabled = browser_context_enabled
 
+        if confirmation_ttl_seconds <= 0:
+            raise ValueError(
+                "confirmation_ttl_seconds must be greater than zero."
+            )
+        self._confirmation_ttl_seconds = confirmation_ttl_seconds
+        self._confirmation_clock = (
+            confirmation_clock
+            if confirmation_clock is not None
+            else time.monotonic
+        )
+
         # One-time confirmation grants live only in this runtime process.
         # The token is opaque and is bound to an exact semantic action and
         # session, so an approval cannot be replayed for another action.
         self._pending_confirmations: dict[
             str,
-            tuple[str, str, str, str],
+            tuple[str, str, str, str, float],
         ] = {}
 
         self.session_store = (
@@ -363,6 +377,41 @@ class AgentRuntime:
                 )
             raise
 
+    def _preflight_confirmation_token(
+        self,
+        request: AgentRequest,
+    ) -> str | None:
+        """Reject malformed, unknown, expired or cross-session tokens cheaply.
+
+        These checks are intentionally performed before semantic reasoning so
+        an invalid confirmation cannot trigger an unnecessary model call.
+        """
+
+        token = request.metadata.get("confirmation_token")
+
+        if token is None:
+            return None
+
+        if not isinstance(token, str) or not token.strip():
+            return "invalid_confirmation_token"
+
+        normalized_token = token.strip()
+        pending = self._pending_confirmations.get(normalized_token)
+
+        if pending is None:
+            return "invalid_or_expired_confirmation_token"
+
+        session_id, _, _, _, expires_at = pending
+
+        if self._confirmation_clock() >= expires_at:
+            self._pending_confirmations.pop(normalized_token, None)
+            return "invalid_or_expired_confirmation_token"
+
+        if request.session_id != session_id:
+            return "confirmation_token_session_mismatch"
+
+        return None
+
     def _consume_confirmation_token(
         self,
         request: AgentRequest,
@@ -395,7 +444,19 @@ class AgentRuntime:
             )
             return False
 
-        session_id, original_goal, action_key, context_key = pending
+        session_id, original_goal, action_key, context_key, expires_at = pending
+
+        if self._confirmation_clock() >= expires_at:
+            self._pending_confirmations.pop(
+                token.strip(),
+                None,
+            )
+            context.requires_manual_review = True
+            context.set_value(
+                "task_reasoning_failure",
+                "invalid_or_expired_confirmation_token",
+            )
+            return False
 
         if request.session_id != session_id:
             context.requires_manual_review = True
@@ -424,11 +485,6 @@ class AgentRuntime:
                 "confirmation_token_action_mismatch",
             )
             return False
-
-        self._pending_confirmations.pop(
-            token.strip(),
-            None,
-        )
 
         current_page = context.get_value(
             "browser_page"
@@ -544,6 +600,8 @@ class AgentRuntime:
                 current_page,
                 action,
             ),
+            self._confirmation_clock()
+            + self._confirmation_ttl_seconds,
         )
 
         context.set_value(
@@ -566,6 +624,33 @@ class AgentRuntime:
         session = None
         offer_workflow_result = None
         planning_offer_workflow = None
+
+        # Cheap confirmation checks happen before session bookkeeping,
+        # browser observation and semantic reasoning. Invalid or expired
+        # tokens must not spend a model call.
+        confirmation_failure = self._preflight_confirmation_token(
+            request
+        )
+        if confirmation_failure is not None:
+            context = AgentExecutionContext(
+                request=request,
+                intent=AgentIntent.COMPUTER_USE,
+                plan=None,
+                capability=None,
+                skill=None,
+                requires_manual_review=True,
+            )
+            context.set_value(
+                "task_reasoning_failure",
+                confirmation_failure,
+            )
+            return AgentRuntimeResult(
+                intent=context.intent,
+                context=context,
+                execution_report=None,
+                requires_manual_review=True,
+                executed=False,
+            )
 
         # A confirmation token resumes the exact task that produced it.
         # Do not let a follow-up message silently replace that task goal
