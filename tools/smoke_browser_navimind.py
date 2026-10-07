@@ -64,21 +64,16 @@ def main() -> int:
                 "task_reasoning_failure"
             ),
         )
+        browser_page = result.context.get_value(
+            "browser_page",
+        )
         print(
             "browser_url:",
-            (
-                result.context.browser_page.url
-                if result.context.browser_page is not None
-                else None
-            ),
+            getattr(browser_page, "url", None),
         )
         print(
             "browser_title:",
-            (
-                result.context.browser_page.title
-                if result.context.browser_page is not None
-                else None
-            ),
+            getattr(browser_page, "title", None),
         )
         print(
             "planned_action:",
