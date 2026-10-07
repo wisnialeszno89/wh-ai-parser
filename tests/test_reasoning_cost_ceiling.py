@@ -42,6 +42,9 @@ class CostLimitedReasoner(TaskReasoner):
 
 
 class FakeControlLoop:
+    def observe_scene(self):
+        return None
+
     def run(self, *, plan, context):
         return SimpleNamespace(
             success=True,
