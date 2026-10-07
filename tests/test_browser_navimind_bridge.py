@@ -166,6 +166,34 @@ def test_reasoning_planner_accepts_browser_target_from_browser_world():
     assert plan.steps[0].action.requires_environment_observation is False
 
 
+def test_reasoning_planner_rejects_non_positive_action_confidence():
+    class BrowserReasoner(TaskReasoner):
+        def reason(self, context):
+            return ReasoningProposal(
+                actions=(
+                    ReasoningAction(
+                        name="browser_navigate",
+                        description="Navigate to the requested page.",
+                        value="https://example.com",
+                    ),
+                ),
+                rationale="Missing model confidence must fail closed.",
+                confidence=0.0,
+            )
+
+    page = create_browser_page()
+    planner = ReasoningTaskPlanner(BrowserReasoner())
+    context = TaskPlanningContext(
+        request_message="Otwórz stronę",
+        intent="computer_use",
+        browser_page=page,
+        world=WorldState.from_browser_page(page),
+    )
+
+    assert planner.plan(context=context) is None
+    assert planner.last_failure_reason == "non_positive_confidence"
+
+
 def test_reasoning_planner_rejects_browser_action_without_browser_context():
     class BrowserReasoner(TaskReasoner):
         def reason(self, context):
