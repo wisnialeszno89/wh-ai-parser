@@ -178,3 +178,93 @@ def test_real_playwright_confirmation_boundary_blocks_physical_click(monkeypatch
         provider.close()
         server.shutdown()
         server.server_close()
+
+
+def test_real_playwright_confirmation_can_resume_and_verify_after_approval(monkeypatch):
+    if os.getenv("AGENT_BROWSER_LIVE_CONFIRM", "0").strip() != "1":
+        pytest.skip(
+            "Set AGENT_BROWSER_LIVE_CONFIRM=1 to run the real Playwright confirmation smoke."
+        )
+
+    monkeypatch.setenv("AGENT_BROWSER_ENABLED", "1")
+    monkeypatch.setenv("AGENT_BROWSER_DRY_RUN", "0")
+    monkeypatch.setenv("AGENT_BROWSER_HEADLESS", "1")
+    monkeypatch.setenv("AGENT_BROWSER_ALLOWED_DOMAINS", "127.0.0.1")
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), FixtureHandler)
+    thread = Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+
+    fixture_url = f"http://127.0.0.1:{server.server_port}/"
+    reasoner = ConfirmationReasoner(
+        fixture_url=fixture_url,
+    )
+    provider = RecordingPlaywrightBrowserProvider(
+        browser_type="chromium",
+        headless=True,
+    )
+    adapter = BrowserAdapter(
+        provider=provider,
+        allowed_domains=("127.0.0.1",),
+        dry_run=False,
+    )
+    runtime = AgentRuntime(
+        orchestrator=AgentOrchestrator(
+            task_reasoner=reasoner,
+            require_task_reasoning=True,
+        ),
+        control_loop=create_browser_agent_control_loop(
+            browser_adapter=adapter,
+        ),
+        browser_adapter=adapter,
+        browser_context_enabled=True,
+    )
+
+    try:
+        blocked = runtime.run_autonomous(
+            AgentRequest(
+                message="Otwórz stronę testową i zatwierdź zamówienie.",
+                session_id="live-confirmation-session",
+                metadata={"target_application": "Browser"},
+            ),
+            max_steps=5,
+        )
+
+        assert blocked.success is False
+        assert blocked.completed is False
+        assert blocked.requires_manual_review is True
+        assert blocked.stopped is True
+
+        confirmation = blocked.step_results[-1].confirmation_request
+        assert confirmation is not None
+        assert confirmation.action_name == "browser_click"
+        assert confirmation.target == "Zatwierdź zamówienie"
+        assert provider.click_calls == 0
+
+        approved = runtime.run(
+            AgentRequest(
+                message="Otwórz stronę testową i zatwierdź zamówienie.",
+                session_id="live-confirmation-session",
+                metadata={
+                    "target_application": "Browser",
+                    "confirmation_token": confirmation.token,
+                },
+            )
+        )
+
+        assert approved.success if hasattr(approved, "success") else True
+        assert approved.requires_manual_review is False
+        assert approved.executed is True
+        assert approved.control_loop_result is not None
+        assert approved.control_loop_result.success is True
+        assert approved.control_loop_result.executed_actions == 1
+        assert provider.click_calls == 1
+
+        page = provider.current_page()
+        assert page.title == "Browser Confirmation Fixture — SUBMITTED"
+        assert "Zamówienie zostało zatwierdzone." in page.text
+        assert page.elements == ()
+    finally:
+        provider.close()
+        server.shutdown()
+        server.server_close()
