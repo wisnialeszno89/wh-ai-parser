@@ -10,6 +10,7 @@ from app.agent.agent_request import AgentRequest
 from app.agent.bridge.world_state import WorldState
 from app.agent.execution.browser_action_executor import BrowserActionExecutor
 from app.agent.execution.execution_engine import ExecutionEngine
+from app.agent.execution.execution_result import ExecutionResult
 from app.agent.execution.executor_registry import ExecutorRegistry
 from app.agent.reasoning.reasoning_action import ReasoningAction
 from app.agent.reasoning.reasoning_proposal import ReasoningProposal
@@ -322,10 +323,7 @@ def test_verification_loop_stops_after_repeated_browser_verification_failure():
         def execute(self, action, context):
             self.calls += 1
             context.set_value("browser_page", self.page)
-            return __import__(
-                "app.agent.execution.execution_result",
-                fromlist=["ExecutionResult"],
-            ).ExecutionResult(
+            return ExecutionResult(
                 action_name=action.name,
                 success=True,
                 message="Browser click completed.",
