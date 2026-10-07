@@ -97,7 +97,6 @@ expands the local action allowlist or execution permissions.
 The current stage adds the contract, validation and transport only. No web
 research is executed yet.
 
-
 ### Agent experience memory
 
 The runtime now keeps a durable, model-safe memory of execution outcomes.
@@ -106,16 +105,17 @@ and compact diagnostics, while raw user requests and machine-specific runtime
 identifiers are excluded. Recent experiences can be supplied to task
 reasoning as prior context.
 
-
 ## Universal desktop adapters
 
 The Universal Agent now has a semantic application-adapter contract and a
-deterministic adapter registry. The first concrete adapter is the filesystem:
-it can list, read, write, copy, move and test paths inside explicitly allowed
-roots. Writes require explicit overwrite permission when a destination
-already exists, and deletion is not part of this first adapter.
+deterministic adapter registry. The current registry includes filesystem,
+Word, Excel, email-draft and browser adapters.
 
-The default workspace is configured by `AGENT_FILESYSTEM_ROOT`. The adapter
-layer is separate from GUI perception and execution, so later Word, Excel,
-browser and email adapters can reuse the same semantic registry without
+The browser adapter exposes semantic navigation and interactions while keeping
+provider-specific selectors, coordinates and runtime identifiers local. Browser
+providers remain replaceable implementation details. The default browser
+adapter is unconfigured and unavailable until a concrete provider is injected.
+
+The adapter layer is separate from GUI perception and execution, so later
+desktop-specific controls can reuse the same semantic registry without
 becoming WindowHub-specific.
