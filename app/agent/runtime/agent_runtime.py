@@ -53,6 +53,7 @@ from app.agent.runtime.browser_action_risk_policy import (
 from app.agent.runtime.confirmation import (
     ConfirmationRequest,
     action_confirmation_key,
+    browser_confirmation_context_key,
 )
 from app.agent.planning.action_plan import ActionPlan
 from app.agent.planning.action_step import ActionStep
@@ -130,7 +131,7 @@ class AgentRuntime:
         # session, so an approval cannot be replayed for another action.
         self._pending_confirmations: dict[
             str,
-            tuple[str, str, str],
+            tuple[str, str, str, str],
         ] = {}
 
         self.session_store = (
@@ -394,7 +395,7 @@ class AgentRuntime:
             )
             return False
 
-        session_id, original_goal, action_key = pending
+        session_id, original_goal, action_key, context_key = pending
 
         if request.session_id != session_id:
             context.requires_manual_review = True
@@ -421,6 +422,37 @@ class AgentRuntime:
             context.set_value(
                 "task_reasoning_failure",
                 "confirmation_token_action_mismatch",
+            )
+            return False
+
+        self._pending_confirmations.pop(
+            token.strip(),
+            None,
+        )
+
+        current_page = context.get_value(
+            "browser_page"
+        )
+
+        if not isinstance(current_page, BrowserPage):
+            context.requires_manual_review = True
+            context.set_value(
+                "task_reasoning_failure",
+                "confirmation_browser_context_missing",
+            )
+            return False
+
+        if (
+            browser_confirmation_context_key(
+                current_page,
+                matching_action,
+            )
+            != context_key
+        ):
+            context.requires_manual_review = True
+            context.set_value(
+                "task_reasoning_failure",
+                "confirmation_browser_context_changed",
             )
             return False
 
@@ -498,10 +530,20 @@ class AgentRuntime:
             value=action.value,
         )
 
+        current_page = context.get_value(
+            "browser_page"
+        )
+        if not isinstance(current_page, BrowserPage):
+            return None
+
         self._pending_confirmations[token] = (
             session_id,
             request.message,
             action_confirmation_key(action),
+            browser_confirmation_context_key(
+                current_page,
+                action,
+            ),
         )
 
         context.set_value(
