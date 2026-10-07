@@ -14,6 +14,7 @@ class AutonomousRunResult:
     requires_manual_review: bool
     stopped: bool
     reason: str
+    reasoning_calls: int = 0
 
     @property
     def executed_actions(self) -> int:
