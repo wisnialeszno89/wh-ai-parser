@@ -127,7 +127,7 @@ class AgentRuntime:
         # session, so an approval cannot be replayed for another action.
         self._pending_confirmations: dict[
             str,
-            tuple[str, str],
+            tuple[str, str, str],
         ] = {}
 
         self.session_store = (
@@ -391,7 +391,7 @@ class AgentRuntime:
             )
             return False
 
-        session_id, action_key = pending
+        session_id, original_goal, action_key = pending
 
         if request.session_id != session_id:
             context.requires_manual_review = True
@@ -492,6 +492,7 @@ class AgentRuntime:
 
         self._pending_confirmations[token] = (
             session_id,
+            request.message,
             action_confirmation_key(action),
         )
 
@@ -515,6 +516,28 @@ class AgentRuntime:
         session = None
         offer_workflow_result = None
         planning_offer_workflow = None
+
+        # A confirmation token resumes the exact task that produced it.
+        # Do not let a follow-up message silently replace that task goal
+        # before the reasoning pass that validates the confirmed action.
+        confirmation_token = request.metadata.get(
+            "confirmation_token"
+        )
+        if isinstance(confirmation_token, str):
+            pending = self._pending_confirmations.get(
+                confirmation_token.strip()
+            )
+            if (
+                pending is not None
+                and request.session_id == pending[0]
+            ):
+                request = AgentRequest(
+                    message=pending[1],
+                    session_id=request.session_id,
+                    salesman_id=request.salesman_id,
+                    metadata=dict(request.metadata),
+                    mode=request.mode,
+                )
 
         if request.session_id is not None:
             session = self.session_store.get_or_create(
