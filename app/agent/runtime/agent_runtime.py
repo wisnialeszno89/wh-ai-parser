@@ -47,6 +47,10 @@ from app.agent.runtime.execution_context import (
 from app.agent.runtime.autonomous_run_result import (
     AutonomousRunResult,
 )
+from app.agent.runtime.confirmation import (
+    ConfirmationRequest,
+    action_confirmation_key,
+)
 from app.agent.planning.action_plan import ActionPlan
 from app.agent.planning.action_step import ActionStep
 from app.agent.reasoning.knowledge_context import KnowledgeContext
@@ -117,6 +121,14 @@ class AgentRuntime:
         self.learned_parameter_resolver = learned_parameter_resolver
         self.browser_adapter = browser_adapter
         self.browser_context_enabled = browser_context_enabled
+
+        # One-time confirmation grants live only in this runtime process.
+        # The token is opaque and is bound to an exact semantic action and
+        # session, so an approval cannot be replayed for another action.
+        self._pending_confirmations: dict[
+            str,
+            tuple[str, str],
+        ] = {}
 
         self.session_store = (
             session_store
@@ -346,6 +358,130 @@ class AgentRuntime:
                     autonomous=autonomous,
                 )
             raise
+
+    def _consume_confirmation_token(
+        self,
+        request: AgentRequest,
+        context,
+    ) -> bool:
+        token = request.metadata.get(
+            "confirmation_token"
+        )
+
+        if token is None:
+            return False
+
+        if not isinstance(token, str) or not token.strip():
+            context.requires_manual_review = True
+            context.set_value(
+                "task_reasoning_failure",
+                "invalid_confirmation_token",
+            )
+            return False
+
+        pending = self._pending_confirmations.pop(
+            token.strip(),
+            None,
+        )
+
+        if pending is None:
+            context.requires_manual_review = True
+            context.set_value(
+                "task_reasoning_failure",
+                "invalid_or_expired_confirmation_token",
+            )
+            return False
+
+        session_id, action_key = pending
+
+        if request.session_id != session_id:
+            context.requires_manual_review = True
+            context.set_value(
+                "task_reasoning_failure",
+                "confirmation_token_session_mismatch",
+            )
+            return False
+
+        plan = context.plan
+        if (
+            plan is None
+            or not plan.steps
+            or action_confirmation_key(
+                plan.steps[0].action
+            ) != action_key
+        ):
+            context.requires_manual_review = True
+            context.set_value(
+                "task_reasoning_failure",
+                "confirmation_token_action_mismatch",
+            )
+            return False
+
+        context.set_value(
+            "confirmed_action_key",
+            action_key,
+        )
+        return True
+
+    def _create_confirmation_request(
+        self,
+        request: AgentRequest,
+        context,
+        control_loop_result,
+    ) -> ConfirmationRequest | None:
+        decisions = getattr(
+            control_loop_result,
+            "decisions",
+            (),
+        )
+
+        if not decisions:
+            return None
+
+        decision = decisions[-1]
+        metadata = getattr(
+            decision,
+            "metadata",
+            {},
+        )
+
+        if (
+            not isinstance(metadata, dict)
+            or metadata.get("reason_code")
+            != "confirmation_required"
+        ):
+            return None
+
+        plan = context.plan
+        if plan is None or not plan.steps:
+            return None
+
+        session_id = request.session_id
+        if not isinstance(session_id, str) or not session_id.strip():
+            return None
+
+        token = uuid4().hex
+        action = plan.steps[0].action
+        confirmation = ConfirmationRequest(
+            token=token,
+            session_id=session_id,
+            action_name=action.name,
+            description=action.description,
+            target=action.target,
+            value=action.value,
+        )
+
+        self._pending_confirmations[token] = (
+            session_id,
+            action_confirmation_key(action),
+        )
+
+        context.set_value(
+            "confirmation_request",
+            confirmation.to_payload(),
+        )
+
+        return confirmation
 
     def run(
         self,
@@ -670,6 +806,20 @@ class AgentRuntime:
             )
 
         if self.control_loop is not None:
+            if self._consume_confirmation_token(
+                request,
+                context,
+            ) is False and request.metadata.get(
+                "confirmation_token"
+            ) is not None:
+                return AgentRuntimeResult(
+                    intent=context.intent,
+                    context=context,
+                    execution_report=None,
+                    requires_manual_review=True,
+                    executed=False,
+                )
+
             # Autonomous mode intentionally executes exactly one semantic
             # action per reasoning cycle. The next cycle observes the
             # resulting UI and reasons again instead of trusting a long
@@ -752,6 +902,14 @@ class AgentRuntime:
                 },
             )
 
+            confirmation_request = (
+                self._create_confirmation_request(
+                    request,
+                    context,
+                    control_loop_result,
+                )
+            )
+
             return AgentRuntimeResult(
                 intent=context.intent,
                 context=context,
@@ -762,6 +920,7 @@ class AgentRuntime:
                     or control_loop_requires_manual_review
                 ),
                 executed=True,
+                confirmation_request=confirmation_request,
             )
 
         execution_report = self.plan_executor.execute(
