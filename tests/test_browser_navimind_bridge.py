@@ -4,6 +4,7 @@ from app.agent.adapters.browser_adapter import (
     BrowserElement,
     BrowserPage,
 )
+from app.agent.bridge.world_state import WorldState
 from app.agent.agent_request import AgentRequest
 from app.agent.reasoning.navimind_task_reasoner import (
     NaviMindTaskReasoner,
@@ -150,10 +151,7 @@ def test_reasoning_planner_accepts_browser_target_from_browser_world():
         request_message="Przejdź dalej",
         intent="computer_use",
         browser_page=create_browser_page(),
-        world=__import__(
-            "app.agent.bridge.world_state",
-            fromlist=["WorldState"],
-        ).WorldState.from_browser_page(
+        world=WorldState.from_browser_page(
             create_browser_page()
         ),
     )
@@ -201,10 +199,7 @@ def test_browser_task_context_payload_does_not_embed_provider_metadata():
         request_message="Przeczytaj stronę",
         intent="computer_use",
         browser_page=page,
-        world=__import__(
-            "app.agent.bridge.world_state",
-            fromlist=["WorldState"],
-        ).WorldState.from_browser_page(page),
+        world=WorldState.from_browser_page(page),
     )
 
     payload = context.to_payload()
