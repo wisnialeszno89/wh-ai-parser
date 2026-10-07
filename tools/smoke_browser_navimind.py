@@ -1,6 +1,14 @@
 from __future__ import annotations
 
 import os
+import sys
+from pathlib import Path
+
+# Allow direct execution via python tools/<script>.py from the repository root.
+# Python otherwise puts tools/ rather than the repository root on sys.path.
+REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
+if str(REPOSITORY_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPOSITORY_ROOT))
 
 from app.agent.agent_request import AgentRequest
 from app.agent.runtime.browser_agent_runtime import (
