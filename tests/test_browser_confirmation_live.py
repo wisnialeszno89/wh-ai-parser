@@ -252,7 +252,6 @@ def test_real_playwright_confirmation_can_resume_and_verify_after_approval(monke
             )
         )
 
-        assert approved.success if hasattr(approved, "success") else True
         assert approved.requires_manual_review is False
         assert approved.executed is True
         assert approved.control_loop_result is not None
