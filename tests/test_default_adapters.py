@@ -1,4 +1,3 @@
-from app.agent.adapters.browser_adapter import BrowserAdapter
 from app.agent.adapters.default_adapters import create_default_adapter_registry
 from app.agent.adapters.email_draft_adapter import EmailDraftAdapter
 from app.agent.adapters.excel_workbook_adapter import ExcelWorkbookAdapter
