@@ -19,7 +19,14 @@ from app.runtime.execution.vision.models.tracked_object import (
 
 
 class FakeObservation:
-    pass
+    metadata = {
+        "window_rect": Rect(
+            x=0,
+            y=0,
+            width=1920,
+            height=1080,
+        ),
+    }
 
 
 def test_robot_gui_executor_semantic_target_full_dry_run():
@@ -166,6 +173,7 @@ def test_robot_gui_executor_uses_guarded_uia_when_tracker_is_not_stable():
             "provider_element_id": "uia:runtime-1",
             "name": "NOWA OFERTA",
             "uia_runtime_id": "10-20-30",
+            "tracked_object_id": "TO-UNSTABLE-0001",
             "uia_control_type": "button",
             "uia_enabled": True,
             "uia_visible": True,
