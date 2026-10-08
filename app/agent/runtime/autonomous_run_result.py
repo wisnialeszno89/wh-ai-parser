@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from app.agent.runtime.agent_runtime_result import AgentRuntimeResult
 from app.agent.runtime.reasoning_usage import ReasoningCostSummary
 from app.agent.runtime.task_execution_metrics import TaskExecutionMetrics
+from app.agent.runtime.task_quality_metrics import TaskQualityMetrics
 
 
 @dataclass(frozen=True)
@@ -19,6 +20,7 @@ class AutonomousRunResult:
     reasoning_calls: int = 0
     reasoning_cost: ReasoningCostSummary = ReasoningCostSummary()
     execution_metrics: TaskExecutionMetrics = TaskExecutionMetrics()
+    quality_metrics: TaskQualityMetrics = TaskQualityMetrics()
 
     @property
     def executed_actions(self) -> int:
