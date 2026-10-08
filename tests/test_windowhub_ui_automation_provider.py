@@ -585,3 +585,45 @@ def test_ui_automation_provider_includes_windowhub_owned_foreground_dialog():
     labels = {element.label for element in elements}
     assert "Dodaj" in labels
     assert "Dalej >" in labels
+
+
+def test_target_resolver_prefers_unique_nested_tab_on_label_collision():
+    button = ScreenElement(
+        kind="button",
+        label="W?a?ciwo?ci",
+        metadata={
+            "source": "windowhub_ui_automation",
+            "uia_tab_scope": None,
+        },
+    )
+
+    nested_tab = ScreenElement(
+        kind="tabitem",
+        label="W?a?ciwo?ci",
+        metadata={
+            "source": "windowhub_ui_automation",
+            "uia_tab_scope": "nested",
+            "uia_selected": True,
+        },
+    )
+
+    scene = __import__(
+        "app.agent.perception.screen_scene",
+        fromlist=["ScreenScene"],
+    ).ScreenScene(
+        observation=None,
+        elements=(button, nested_tab),
+        metadata={
+            "active_document": "Dokument5",
+        },
+    )
+
+    resolution = TargetResolver().resolve(
+        scene,
+        "W?a?ciwo?ci",
+    )
+
+    assert resolution.resolved is True
+    assert resolution.element is nested_tab
+    assert resolution.score == 1.0
+    assert "nested UIA tab" in resolution.reason
