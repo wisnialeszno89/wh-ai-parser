@@ -103,9 +103,13 @@ class TaskPlanningContext:
 
             metadata = element.metadata or {}
             current_value = metadata.get("current_value")
+            selected = metadata.get("uia_selected")
 
             if isinstance(current_value, str):
                 item["current_value"] = current_value
+
+            if isinstance(selected, bool):
+                item["selected"] = selected
 
             elements.append(item)
 

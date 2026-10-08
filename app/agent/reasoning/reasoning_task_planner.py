@@ -1,3 +1,5 @@
+import re
+
 from app.agent.agent_intent import AgentIntent
 from app.agent.planning.action_plan import ActionPlan
 from app.agent.planning.action_step import ActionStep
@@ -167,15 +169,31 @@ class ReasoningTaskPlanner:
             ):
                 return None
 
-            if (
-                action.target is not None
-                and not self._matches_visible_semantic_target(
+            if action.target is not None:
+                explicit_targets = (
+                    self._explicit_requested_scene_targets(
+                        context,
+                    )
+                )
+
+                if (
+                    len(explicit_targets) == 1
+                    and (
+                        action.target.strip().casefold()
+                        != explicit_targets[0]
+                    )
+                ):
+                    self.last_failure_reason = (
+                        "target_does_not_match_explicit_request"
+                    )
+                    return None
+
+                if not self._matches_visible_semantic_target(
                     action.target,
                     context,
-                )
-            ):
-                self.last_failure_reason = "target_not_visible_in_scene"
-                return None
+                ):
+                    self.last_failure_reason = "target_not_visible_in_scene"
+                    return None
 
             if self._is_forbidden_offer_continuation_action(
                 action,
@@ -290,6 +308,52 @@ class ReasoningTaskPlanner:
             term in normalized
             for term in cls._FORBIDDEN_LOW_LEVEL_TERMS
         )
+
+    @staticmethod
+    def _explicit_requested_scene_targets(
+        context: TaskPlanningContext,
+    ) -> tuple[str, ...]:
+        """
+        Return visible semantic labels explicitly named in the request.
+
+        The complete visible label must occur as a standalone phrase.
+        This prevents a different visible control, such as an active
+        document tab, from replacing an explicitly requested target.
+        """
+        if context.scene is None:
+            return ()
+
+        request = context.request_message.casefold()
+        candidates = set()
+
+        for element in context.scene.elements:
+            label = getattr(element, "label", None)
+
+            if not isinstance(label, str):
+                continue
+
+            label = label.strip()
+
+            if len(label) < 3:
+                continue
+
+            normalized_label = label.casefold()
+
+            pattern = (
+                r"(?<!\w)"
+                + re.escape(normalized_label)
+                + r"(?!\w)"
+            )
+
+            if re.search(
+                pattern,
+                request,
+                flags=re.UNICODE,
+            ):
+                candidates.add(normalized_label)
+
+        return tuple(sorted(candidates))
+
 
     @staticmethod
     def _matches_visible_semantic_target(

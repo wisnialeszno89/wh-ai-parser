@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from typing import Callable
 
@@ -360,6 +360,8 @@ class WindowsUIAutomationProvider(PerceptionProvider):
             self._current_value(item)
         )
 
+        selected = self._selected_state(item)
+
         metadata = {
             "source": "windows_ui_automation",
             "provider_element_id": element_id,
@@ -371,6 +373,7 @@ class WindowsUIAutomationProvider(PerceptionProvider):
             "uia_visible": visible,
             "uia_runtime_id": runtime_id,
             "current_value": current_value,
+            "uia_selected": selected,
             "window_handle": (
                 window_handle
                 if window_handle > 0
@@ -602,6 +605,21 @@ class WindowsUIAutomationProvider(PerceptionProvider):
                 pass
 
         return None
+
+    @staticmethod
+    def _selected_state(item) -> bool | None:
+        try:
+            value = getattr(item, "is_selected", None)
+        except Exception:
+            return None
+
+        if not callable(value):
+            return None
+
+        try:
+            return bool(value())
+        except Exception:
+            return None
 
     @staticmethod
     def _runtime_id(item) -> str | None:

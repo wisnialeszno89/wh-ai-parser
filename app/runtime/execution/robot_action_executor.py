@@ -569,7 +569,6 @@ class RobotActionExecutor:
             if normalized_type in {
                 "radiobutton",
                 "listitem",
-                "tabitem",
                 "treeitem",
             }:
                 is_selected = getattr(target, "is_selected", None)
@@ -644,6 +643,7 @@ class RobotActionExecutor:
                 "splitbutton",
                 "menuitem",
                 "hyperlink",
+                "tabitem",
             }:
                 click = getattr(target, "click", None)
                 if callable(click):
