@@ -135,3 +135,89 @@ def test_robot_gui_executor_semantic_target_full_dry_run():
     assert result.metadata["control_type"] == "BUTTON"
 
     assert "hardware not touched" in result.message
+
+
+
+def test_robot_gui_executor_uses_guarded_uia_when_tracker_is_not_stable():
+    from types import SimpleNamespace
+
+    from app.agent.perception.interaction_capability import (
+        InteractionCapability,
+    )
+
+    bounds = Rect(
+        x=40,
+        y=30,
+        width=160,
+        height=36,
+    )
+
+    element = ScreenElement(
+        kind="button",
+        label="NOWA OFERTA",
+        x=bounds.x,
+        y=bounds.y,
+        width=bounds.width,
+        height=bounds.height,
+        confidence=0.99,
+        interaction_capability=InteractionCapability.CLICKABLE,
+        metadata={
+            "source": "windowhub_ui_automation",
+            "provider_element_id": "uia:runtime-1",
+            "name": "NOWA OFERTA",
+            "uia_runtime_id": "10-20-30",
+            "uia_control_type": "button",
+            "uia_enabled": True,
+            "uia_visible": True,
+            "interaction_capability": "clickable",
+            "interaction_capability_confidence": 0.99,
+        },
+    )
+
+    scene = ScreenScene(
+        observation=None,
+        elements=(element,),
+    )
+
+    context = ExecutionContext(
+        request=AgentRequest(
+            message="Przygotuj nową ofertę.",
+            session_id="uia-fallback-test",
+        )
+    )
+    context.update_scene(scene)
+
+    unstable_tracked_object = SimpleNamespace(
+        id="TO-UNSTABLE-0001",
+        consecutive_observations=1,
+    )
+    context.set_value(
+        "robot_tracked_objects",
+        (unstable_tracked_object,),
+    )
+
+    executor = RobotGUIExecutor(
+        robot_action_executor=RobotActionExecutor(
+            mouse=RobotMouse(
+                mode=RobotMouseMode.DRY_RUN,
+            ),
+        ),
+    )
+
+    result = executor.execute(
+        action=AgentAction(
+            name="click_screen_element",
+            description="Kliknij przycisk 'NOWA OFERTA'.",
+            target="NOWA OFERTA",
+        ),
+        context=context,
+    )
+
+    assert result.success is True
+    assert result.requires_manual_review is False
+    assert result.metadata is not None
+    assert (
+        result.metadata["execution_path"]
+        == "uia_fallback_unstable_tracker"
+    )
+    assert result.metadata["target_id"] == "uia:runtime-1"
