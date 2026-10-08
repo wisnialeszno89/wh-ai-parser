@@ -154,6 +154,6 @@ def test_quality_metrics_payload_is_stable():
 def test_windowhub_quality_benchmark_reasoning_cost_uses_summary_payload_contract():
     source = Path("tools/live_windowhub_quality_benchmark.py").read_text(encoding="utf-8")
     assert 'cost.provider' not in source
-    assert 'cost.model' not in source
+    assert 'print(f"model={cost.model!r}")' not in source
     assert 'cost.calls' in source
     assert 'cost.models' in source
