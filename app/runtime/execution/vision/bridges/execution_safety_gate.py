@@ -89,7 +89,7 @@ class ExecutionSafetyGate:
         tracked-object identity.
 
         UIA-only execution is intentionally narrower than the normal
-        tracked-object path: it requires WindowHub UIA provenance,
+        tracked-object path: it requires approved Windows UIA provenance,
         an enabled/visible interactive control, positive clickable
         capability confidence, and (for LIVE execution) a matching
         foreground window handle.
@@ -98,7 +98,10 @@ class ExecutionSafetyGate:
         if not isinstance(metadata, dict):
             return False
 
-        if metadata.get("source") != "windowhub_ui_automation":
+        if metadata.get("source") not in {
+    "windowhub_ui_automation",
+    "windows_ui_automation",
+}:
             return False
 
         if metadata.get("uia_enabled") is not True:

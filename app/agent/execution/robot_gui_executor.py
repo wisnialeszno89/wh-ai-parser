@@ -84,11 +84,9 @@ class RobotGUIExecutor(ActionExecutor):
                 action_name=action.name,
                 success=False,
                 message=resolution.reason,
-                # Ambiguous/missing semantic targets are recoverable execution
-                # failures. The control loop may retry, replan, or skip an
-                # explicitly optional action. Safety-gate failures remain
-                # manual-review conditions later in this executor.
-                requires_manual_review=False,
+                # An unresolved semantic target is outside the trusted
+                # execution boundary. Do not guess or fall back to hardware.
+                requires_manual_review=True,
                 metadata={
                     "target": target,
                     "resolution_score": resolution.score,
@@ -111,7 +109,7 @@ class RobotGUIExecutor(ActionExecutor):
                         "Resolved screen element has no tracked object id "
                         "and is not a guarded UIA target"
                     ),
-                    requires_manual_review=False,
+                    requires_manual_review=True,
                     metadata={
                         "target": target,
                         "resolution_score": resolution.score,
@@ -363,7 +361,10 @@ class RobotGUIExecutor(ActionExecutor):
         metadata = element.metadata or {}
 
         return (
-            metadata.get("source") == "windowhub_ui_automation"
+            metadata.get("source") in {
+    "windowhub_ui_automation",
+    "windows_ui_automation",
+}
             and metadata.get("uia_enabled") is True
             and metadata.get("uia_visible") is True
             and isinstance(
