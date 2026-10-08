@@ -1,4 +1,4 @@
-﻿from dataclasses import dataclass
+from dataclasses import dataclass
 from enum import Enum
 
 from app.runtime.execution.action_policy import ActionPolicy
@@ -495,8 +495,10 @@ class RobotActionExecutor:
         control_type = metadata.get("uia_control_type")
 
         try:
-            from pywinauto import Desktop
+            from app.agent.platform.windows_com import ensure_windows_sta
+            ensure_windows_sta()
 
+            from pywinauto import Desktop
             window = Desktop(backend="uia").window(
                 handle=handle
             ).wrapper_object()

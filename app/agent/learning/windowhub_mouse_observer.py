@@ -109,8 +109,12 @@ class WindowHubMouseObserver(HumanActionObserver):
             if hwnd <= 0:
                 return None
 
-            from pywinauto import Desktop
+            from app.agent.platform.windows_com import ensure_windows_sta
 
+            ensure_windows_sta()
+
+
+            from pywinauto import Desktop
             item = (
                 Desktop(backend="uia")
                 .window(handle=hwnd)
