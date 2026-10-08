@@ -1493,8 +1493,16 @@ class AgentRuntime:
 
             control_result = step_result.control_loop_result
             if control_result is not None:
-                executed_actions += control_result.executed_actions
-                failed_actions += control_result.failed_actions
+                executed_actions += getattr(
+                    control_result,
+                    "executed_actions",
+                    0,
+                )
+                failed_actions += getattr(
+                    control_result,
+                    "failed_actions",
+                    0,
+                )
 
         successful_actions = max(
             executed_actions - failed_actions,
