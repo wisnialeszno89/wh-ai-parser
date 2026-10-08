@@ -93,7 +93,7 @@ def test_autonomous_run_exposes_operational_task_metrics():
 def test_task_execution_metrics_rejects_inconsistent_action_counts():
     with pytest.raises(
         ValueError,
-        match="successful_actions \+ failed_actions cannot exceed executed_actions",
+        match=r"successful_actions \+ failed_actions cannot exceed executed_actions",
     ):
         TaskExecutionMetrics(
             executed_actions=1,
