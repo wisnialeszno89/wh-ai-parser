@@ -170,7 +170,8 @@ class RobotGUIExecutor(ActionExecutor):
         # is simultaneously strong, prefer the guarded UIA path instead of
         # failing solely because the visual tracker is still warming up.
         if (
-            self._is_guarded_uia_target(element)
+            target_id is not None
+            and self._is_guarded_uia_target(element)
             and (
                 tracked_object is None
                 or self._tracked_object_is_unstable(tracked_object)
