@@ -54,6 +54,7 @@ from app.agent.runtime.reasoning_usage import (
     ReasoningUsage,
 )
 from app.agent.runtime.task_execution_metrics import TaskExecutionMetrics
+from app.agent.runtime.task_quality_metrics import quality_metrics_from_results
 from app.agent.runtime.browser_action_risk_policy import (
     BrowserActionRiskPolicy,
 )
@@ -1518,6 +1519,14 @@ class AgentRuntime:
             confirmations_requested=confirmations_requested,
         )
 
+        quality_metrics = quality_metrics_from_results(
+            completed=completed,
+            success=success,
+            requires_manual_review=requires_manual_review,
+            stopped=stopped,
+            step_results=results,
+        )
+
         return AutonomousRunResult(
             session_id=session_id,
             step_results=tuple(results),
@@ -1529,4 +1538,5 @@ class AgentRuntime:
             reasoning_calls=reasoning_budget.calls,
             reasoning_cost=reasoning_cost_tracker.summary(),
             execution_metrics=execution_metrics,
+            quality_metrics=quality_metrics,
         )
