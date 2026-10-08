@@ -7,6 +7,7 @@ def test_quality_metrics_defaults_are_stable():
     assert metrics.verification_success_rate == 0.0
 
 
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -147,3 +148,12 @@ def test_quality_metrics_payload_is_stable():
     assert payload["verification_success_rate"] == 1.0
     assert payload["first_pass_success_rate"] == 1.0
     assert payload["quality_state"] == "completed"
+
+
+
+def test_windowhub_quality_benchmark_reasoning_cost_uses_summary_payload_contract():
+    source = Path("tools/live_windowhub_quality_benchmark.py").read_text(encoding="utf-8")
+    assert 'cost.provider' not in source
+    assert 'cost.model' not in source
+    assert 'cost.calls' in source
+    assert 'cost.models' in source
