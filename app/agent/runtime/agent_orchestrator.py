@@ -32,6 +32,9 @@ from app.agent.reasoning.reasoning_task_planner import (
     ReasoningTaskPlanner,
 )
 from app.agent.reasoning.knowledge_context import KnowledgeContext
+from app.agent.knowledge.computer_foundation import (
+    build_local_knowledge,
+)
 
 from app.agent.reasoning.task_planning_context import (
     TaskPlanningContext,
@@ -280,6 +283,12 @@ class AgentOrchestrator:
                     for match in matches
                 )
 
+            local_knowledge = build_local_knowledge(
+                application_knowledge
+                if application_knowledge is not None
+                else self.application_knowledge
+            )
+
             task_context = TaskPlanningContext(
                 request_message=request.message,
                 intent=intent.value,
@@ -300,11 +309,7 @@ class AgentOrchestrator:
                 scene=initial_scene,
                 browser_page=browser_page,
                 offer_workflow=offer_workflow,
-                application_knowledge=(
-                    application_knowledge
-                    if application_knowledge is not None
-                    else self.application_knowledge
-                ),
+                application_knowledge=local_knowledge,
                 external_knowledge=external_knowledge,
                 experience=experience,
                 learned_workflows=learned_workflows,
