@@ -53,6 +53,7 @@ from app.agent.runtime.reasoning_usage import (
     ReasoningCostTracker,
     ReasoningUsage,
 )
+from app.agent.runtime.task_execution_metrics import TaskExecutionMetrics
 from app.agent.runtime.browser_action_risk_policy import (
     BrowserActionRiskPolicy,
 )
@@ -1367,6 +1368,7 @@ class AgentRuntime:
         requires_manual_review = False
         stopped = False
         reason = "step_limit_reached"
+        run_started_at = time.monotonic()
 
         for _ in range(max_steps):
             result = self.run(
@@ -1476,6 +1478,46 @@ class AgentRuntime:
         else:
             stopped = True
 
+        elapsed_seconds = max(
+            time.monotonic() - run_started_at,
+            0.0,
+        )
+
+        executed_actions = 0
+        failed_actions = 0
+        confirmations_requested = 0
+
+        for step_result in results:
+            if step_result.confirmation_request is not None:
+                confirmations_requested += 1
+
+            control_result = step_result.control_loop_result
+            if control_result is not None:
+                executed_actions += getattr(
+                    control_result,
+                    "executed_actions",
+                    0,
+                )
+                failed_actions += getattr(
+                    control_result,
+                    "failed_actions",
+                    0,
+                )
+
+        successful_actions = max(
+            executed_actions - failed_actions,
+            0,
+        )
+
+        execution_metrics = TaskExecutionMetrics(
+            elapsed_seconds=elapsed_seconds,
+            cycles=len(results),
+            executed_actions=executed_actions,
+            successful_actions=successful_actions,
+            failed_actions=failed_actions,
+            confirmations_requested=confirmations_requested,
+        )
+
         return AutonomousRunResult(
             session_id=session_id,
             step_results=tuple(results),
@@ -1486,4 +1528,5 @@ class AgentRuntime:
             reason=reason,
             reasoning_calls=reasoning_budget.calls,
             reasoning_cost=reasoning_cost_tracker.summary(),
+            execution_metrics=execution_metrics,
         )
