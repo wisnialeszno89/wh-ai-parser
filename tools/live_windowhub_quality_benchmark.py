@@ -270,14 +270,14 @@ def _print_summary(autonomous, final_state) -> None:
 
     print()
     print("=== REASONING COST ===")
-    print(f"provider={cost.provider!r}")
-    print(f"model={cost.model!r}")
+    print(f"calls={cost.calls}")
     print(f"input_tokens={cost.input_tokens}")
     print(f"cached_input_tokens={cost.cached_input_tokens}")
     print(f"output_tokens={cost.output_tokens}")
     print(f"total_tokens={cost.total_tokens}")
     print(f"reasoning_tokens={cost.reasoning_tokens}")
     print(f"estimated_cost_usd={cost.estimated_cost_usd}")
+    print(f"models={list(cost.models)!r}")
 
     print()
     print("=== EXECUTION METRICS ===")
