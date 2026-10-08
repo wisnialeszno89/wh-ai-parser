@@ -193,10 +193,10 @@ def quality_metrics_from_results(
         )
     elif requires_manual_review:
         quality_state = "manual_review"
-    elif stopped:
-        quality_state = "stopped"
     elif failed_steps > 0:
         quality_state = "failed"
+    elif stopped:
+        quality_state = "stopped"
     else:
         quality_state = "incomplete"
 
