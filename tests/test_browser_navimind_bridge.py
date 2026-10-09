@@ -236,3 +236,152 @@ def test_browser_task_context_payload_does_not_embed_provider_metadata():
     assert "provider" not in serialized
     assert "locator_value" not in serialized
     assert "strategy" not in serialized
+
+# Generic Windows runtime wiring tests live in this existing CI-covered module.
+import pytest
+
+import app.agent.runtime.windows_desktop_agent_runtime as windows_runtime_factory
+from app.agent.environment.environment_observation import EnvironmentObservation
+from app.agent.environment.environment_state import EnvironmentState
+from app.agent.perception.interaction_capability import InteractionCapability
+from app.agent.perception.screen_element import ScreenElement
+from app.agent.perception.screen_scene import ScreenScene
+
+
+def test_generic_windows_runtime_selects_navimind_before_openai(monkeypatch):
+    monkeypatch.setenv(
+        "NAVIMIND_AGENT_URL",
+        "https://navimind.example/api/agent/task",
+    )
+    monkeypatch.setenv("NAVIMIND_AGENT_SECRET", "synthetic-shared-secret")
+    monkeypatch.setenv("AGENT_TASK_REASONING", "1")
+    monkeypatch.setenv("OPENAI_API_KEY", "synthetic-openai-key")
+    monkeypatch.delenv("AGENT_PLAN_REASONING", raising=False)
+    captured = {}
+
+    monkeypatch.setattr(
+        windows_runtime_factory,
+        "create_windows_desktop_agent_control_loop",
+        lambda *, plan_reasoner=None: captured.setdefault("plan_reasoner", plan_reasoner) or object(),
+    )
+
+    runtime = windows_runtime_factory.create_windows_desktop_agent_runtime()
+    selected = runtime.orchestrator.task_planner.reasoner
+
+    assert isinstance(selected, NaviMindTaskReasoner)
+    assert selected.config.secret == "synthetic-shared-secret"
+    assert runtime.orchestrator.require_task_reasoning is True
+    assert captured["plan_reasoner"] is None
+
+
+def test_generic_windows_runtime_fails_closed_without_navi_mind_secret(monkeypatch):
+    monkeypatch.setenv(
+        "NAVIMIND_AGENT_URL",
+        "https://navimind.example/api/agent/task",
+    )
+    monkeypatch.delenv("NAVIMIND_AGENT_SECRET", raising=False)
+    # Even an explicitly available OpenAI provider is not a silent fallback.
+    monkeypatch.setenv("AGENT_TASK_REASONING", "1")
+    monkeypatch.setenv("OPENAI_API_KEY", "synthetic-openai-key")
+
+    with pytest.raises(RuntimeError, match="NAVIMIND_AGENT_SECRET is required"):
+        windows_runtime_factory.create_windows_desktop_agent_runtime()
+
+
+def test_generic_windows_runtime_requires_explicit_task_reasoner(monkeypatch):
+    monkeypatch.delenv("NAVIMIND_AGENT_URL", raising=False)
+    monkeypatch.delenv("NAVIMIND_AGENT_SECRET", raising=False)
+    monkeypatch.delenv("AGENT_TASK_REASONING", raising=False)
+
+    with pytest.raises(RuntimeError, match="No task reasoner is configured"):
+        windows_runtime_factory.create_windows_desktop_agent_runtime()
+
+
+def test_generic_windows_navi_mind_contract_uses_fake_transport_only():
+    captured = {}
+
+    def fake_transport(request, timeout):
+        captured["headers"] = dict(request.header_items())
+        captured["timeout"] = timeout
+        body = json.loads(request.data.decode("utf-8"))
+        captured["body"] = body
+        return Response(
+            {
+                "version": "1",
+                "task_id": body["task_id"],
+                "status": "continue",
+                "rationale": "Use the synthetic visible target.",
+                "confidence": 0.96,
+                "action": {
+                    "name": "click_screen_element",
+                    "description": "Click the synthetic visible button.",
+                    "target": "Continue",
+                    "value": None,
+                },
+                "requires_manual_review": False,
+            }
+        )
+
+    scene = ScreenScene(
+        observation=EnvironmentObservation(
+            state=EnvironmentState(
+                active_application="Synthetic Test App",
+                active_window_title="Synthetic Test Window",
+                screen_width=800,
+                screen_height=600,
+            ),
+            metadata={"synthetic_fixture": True},
+        ),
+        elements=(
+            ScreenElement(
+                kind="button",
+                label="Continue",
+                confidence=0.99,
+                interaction_capability=InteractionCapability.CLICKABLE,
+                metadata={
+                    "automation_id": "synthetic-only-id",
+                    "runtime_id": "must-not-leave-local-runtime",
+                },
+            ),
+        ),
+    )
+    context = TaskPlanningContext(
+        request_message="Synthetic contract test only.",
+        intent="computer_use",
+        session_id="synthetic-session",
+        capability_name="COMPUTER_USE",
+        capability_description="Synthetic desktop capability.",
+        skill_name="ComputerUseSkill",
+        scene=scene,
+    )
+    reasoner = NaviMindTaskReasoner(
+        config=NaviMindTaskReasonerConfig(
+            url="https://navimind.example/api/agent/task",
+            secret="synthetic-shared-secret",
+            timeout_seconds=7,
+        ),
+        opener=fake_transport,
+    )
+
+    proposal = reasoner.reason(context)
+
+    assert proposal is not None
+    assert proposal.actions[0].target == "Continue"
+    assert captured["timeout"] == 7
+    assert captured["headers"]["X-navimind-agent-secret"] == "synthetic-shared-secret"
+    serialized = json.dumps(captured["body"])
+    assert "synthetic-only-id" not in serialized
+    assert "must-not-leave-local-runtime" not in serialized
+    assert "synthetic-shared-secret" not in serialized
+
+
+def test_generic_windows_navi_mind_rejects_remote_http(monkeypatch):
+    monkeypatch.setenv("NAVIMIND_AGENT_SECRET", "synthetic-shared-secret")
+    monkeypatch.setenv(
+        "NAVIMIND_AGENT_URL",
+        "http://navimind.example/api/agent/task",
+    )
+
+    with pytest.raises(RuntimeError, match="must use HTTPS"):
+        NaviMindTaskReasonerConfig.from_environment()
+
