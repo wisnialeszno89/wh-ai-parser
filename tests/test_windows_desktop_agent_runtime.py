@@ -51,7 +51,7 @@ def _fake_control_loop_factory(monkeypatch):
 
     monkeypatch.setattr(
         runtime_factory,
-        "create_windows_desktop_agent_control_loop",
+        "_create_windows_desktop_control_loop",
         factory,
     )
     return captured
