@@ -22,10 +22,13 @@ The agent reads local sources, grounds facts with provenance, asks about critica
 
 - PR #57 Computer Foundation merged.
 - PR #58 Universal Windows Computer Core merged.
-- Live controlled E2E clicked the visible `Testing` tab, observed the resulting state and completed.
+- Live Windows E2E succeeded for one real generic semantic action: click visible `Testing`, observe the result and complete.
 - NaviMind `POST /api/agent/task` route exists.
 - Local filesystem adapter has explicitly allowed roots.
-- Local adapter registry and initial document/Office/browser adapter concepts exist; availability of a semantic adapter does not by itself prove the complete end-to-end workflow works.
+- Local Excel `.xlsx` adapter supports workbook inspection, range reads/writes, appending rows and creating sheets; it does not by itself implement natural-language annual X/Y aggregation.
+- The generic Windows core factory and hosted NaviMind task reasoner exist separately. The generic Windows entry point still needs explicit task-reasoner wiring; tracked by #67.
+- A legacy PDF script `app/ai/analyze_pdf.py` hard-codes a local filename and `TU_API_KEY`; it must not be treated as a production service. Replacement tracked by #66.
+- NaviMind endpoint hardening is proposed in [PR #20](https://github.com/wisnialeszno89/navimind/pull/20). GitHub Actions TypeScript check passed on the latest draft commit, but route behavior tests and host preview confirmation remain required.
 - The PDF-to-WindowHub offer path and Excel annual-X/Y path are not yet fully verified.
 
 ## End-to-end contract
@@ -52,45 +55,56 @@ Each iteration follows:
 - #61 Typed quote facts and deterministic source-backed validation
 - #62 Resumable task state and verified multi-step WindowHub draft workflow
 - #63 Deterministic Excel/CSV annual X-Y aggregation with verified output
+- #66 Replace the legacy PDF script with a tested local ingestion service
+- #67 Wire `NaviMindTaskReasoner` into the generic Windows desktop entry point
 
 ### navimind
 - #17 Epic: harden NaviMind desktop-agent bridge for production task orchestration
 - #18 Secure `/api/agent/task` and add contract parity tests
 - #19 Security/deployment checklist
+- #22 Automated route tests for endpoint auth and bounded task contract
 
 ## Milestones
 
 ### M1 — Contract + endpoint security
+- Review and test [NaviMind PR #20](https://github.com/wisnialeszno89/navimind/pull/20).
 - Share a JSON Schema/fixture defining request and response in both repos.
 - Protect deployed endpoint, bounded payload, bounded world/evidence arrays, request timeout and reasoning budget.
 - Ensure one-action continue / zero-action done / manual_review contract.
 - CI compares action policy against local allowlist.
 
-### M2 — Local document intake
+### M2 — Wire the hosted reasoning provider
+- Select `NaviMindTaskReasoner` deterministically from configured `NAVIMIND_AGENT_URL`.
+- Send `NAVIMIND_AGENT_SECRET` in the request header only.
+- Fail closed when the hosted reasoner is required but unavailable; no silent fallback that would hide a broken deployment.
+- Verify a fake-transport contract test and an authenticated hosted smoke test.
+
+### M3 — Local document intake
 - PDF text/page parser with strict size/page/text caps.
 - Detect scans/empty extraction and report OCR needed explicitly.
 - Preserve page provenance through the whole reasoning context.
+- Replace unsafe/hard-coded legacy analysis script (#66).
 - Later extend to DOCX/XLSX/CSV and OCR only when justified.
 
-### M3 — Quote facts and validation
+### M4 — Quote facts and validation
 - Derive the actual WindowHub required fields and workflow from existing code / confirmed live screens.
 - Build typed fact model, unit normalization, conflict detection, required-field validation.
 - Use existing authoritative prices/rules; never infer price from model prose.
 - Block GUI execution while required facts are unresolved.
 
-### M4 — WindowHub draft
+### M5 — WindowHub draft
 - Dry-run state-machine workflow with per-step postconditions.
 - A controlled live run creates/fills a test draft only.
 - Explicit approval before final quote submission or sending externally.
 - Independently verify final values.
 
-### M5 — Excel annual X/Y
+### M6 — Excel annual X/Y
 - Approved input folder + explicit X/Y/date/aggregation mapping.
 - Deterministic XLSX/CSV reading, monthly merge and annual calculation.
 - New output workbook by default, reopened and validated.
 - UI automation only where needed for the open application.
 
-### M6 — Broaden desktop capability
+### M7 — Broaden desktop capability
 - Keyboard commands, select, navigation, scroll, drag/drop and visual fallback added one capability at a time with test+policy+verification.
 - Improve telemetry so E2E records actual semantic target, executor path, executed flag and verification evidence.
 - Never equate successful dispatch/click with successful task completion.
@@ -122,6 +136,7 @@ Each iteration follows:
 
 Do not call the workflow complete until:
 - Contract parity and endpoint auth tests pass.
+- Hosted reasoner wiring is proved via a real (authenticated) round-trip.
 - PDF fact extraction includes accurate source page evidence.
 - Missing/conflicting quote facts lead to review.
 - Simulated WindowHub task finishes with verified end state.
