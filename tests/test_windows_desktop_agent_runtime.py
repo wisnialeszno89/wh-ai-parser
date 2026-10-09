@@ -137,7 +137,7 @@ def test_openai_task_reasoner_is_an_explicit_alternative(monkeypatch):
     sentinel = FakeTaskReasoner()
     monkeypatch.setattr(
         runtime_factory,
-        "OpenAITaskReasoner",
+        "_openai_task_reasoner",
         lambda: sentinel,
     )
 
