@@ -261,7 +261,7 @@ def test_generic_windows_runtime_selects_navimind_before_openai(monkeypatch):
 
     monkeypatch.setattr(
         windows_runtime_factory,
-        "create_windows_desktop_agent_control_loop",
+        "_create_windows_desktop_control_loop",
         lambda *, plan_reasoner=None: captured.setdefault("plan_reasoner", plan_reasoner) or object(),
     )
 
