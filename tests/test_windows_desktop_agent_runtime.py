@@ -91,6 +91,34 @@ def test_navi_mind_configuration_fails_closed_without_secret(monkeypatch):
         runtime_factory.create_windows_desktop_agent_runtime()
 
 
+def test_navi_mind_rejects_remote_http_and_embedded_url_credentials(monkeypatch):
+    monkeypatch.setenv("NAVIMIND_AGENT_SECRET", "synthetic-shared-secret")
+    monkeypatch.setenv(
+        "NAVIMIND_AGENT_URL",
+        "http://navimind.example/api/agent/task",
+    )
+    with pytest.raises(RuntimeError, match="must use HTTPS"):
+        NaviMindTaskReasonerConfig.from_environment()
+
+    monkeypatch.setenv(
+        "NAVIMIND_AGENT_URL",
+        "https://user:password@navimind.example/api/agent/task",
+    )
+    with pytest.raises(RuntimeError, match="must not contain embedded credentials"):
+        NaviMindTaskReasonerConfig.from_environment()
+
+
+def test_navi_mind_allows_localhost_http_only_with_a_secret(monkeypatch):
+    monkeypatch.setenv(
+        "NAVIMIND_AGENT_URL",
+        "http://localhost:3000/api/agent/task",
+    )
+    monkeypatch.setenv("NAVIMIND_AGENT_SECRET", "local-synthetic-secret")
+    config = NaviMindTaskReasonerConfig.from_environment()
+    assert config.url == "http://localhost:3000/api/agent/task"
+    assert config.secret == "local-synthetic-secret"
+
+
 def test_generic_windows_runtime_requires_an_explicit_provider(monkeypatch):
     monkeypatch.delenv("NAVIMIND_AGENT_URL", raising=False)
     monkeypatch.delenv("NAVIMIND_AGENT_SECRET", raising=False)
