@@ -22,7 +22,7 @@ class ExpectationResolver:
         if expectation is not None:
             return expectation
 
-        browser_expectation = self._resolve_browser_default(action)
+        browser_expectation = self._resolve_browser_default(action, context)
         if browser_expectation is not None:
             return browser_expectation
 
@@ -47,6 +47,7 @@ class ExpectationResolver:
     @staticmethod
     def _resolve_browser_default(
         action: AgentAction,
+        context: ExecutionContext,
     ) -> ExpectedOutcome | None:
         """
         Resolve deterministic verification for browser actions.
@@ -55,8 +56,9 @@ class ExpectationResolver:
         select operations are verified against the resulting semantic field
         value.
 
-        Click and back deliberately have no generic default post-state.
-        A caller may supply an explicit ExpectedOutcome when one is required.
+        Click and back use a conservative generic change expectation when a
+        current BrowserPage is available. A caller may still supply an
+        explicit ExpectedOutcome through context for a stronger postcondition.
         """
         if action.name == "browser_navigate":
             if not isinstance(action.value, str) or not action.value.strip():
@@ -68,6 +70,22 @@ class ExpectationResolver:
                     "after navigation."
                 ),
                 expected_browser_url=action.value.strip(),
+            )
+
+        if action.name in {"browser_click", "browser_back"}:
+            page = context.get_value("browser_page")
+            if page is None:
+                return None
+
+            return ExpectedOutcome(
+                description=(
+                    "The browser semantic page should change after the "
+                    "browser interaction."
+                ),
+                require_browser_change=True,
+                baseline_browser_signature=(
+                    ExpectationResolver._browser_page_signature(page)
+                ),
             )
 
         if action.name in {"browser_write_text", "browser_select_option"}:
@@ -162,3 +180,23 @@ class ExpectationResolver:
             )
 
         return tuple(sorted(signature, key=lambda item: repr(item)))
+
+    @staticmethod
+    def _browser_page_signature(page) -> tuple[object, ...]:
+        elements = []
+        for element in getattr(page, "elements", ()):
+            elements.append(
+                (
+                    element.label,
+                    element.kind,
+                    element.interaction_capability,
+                    element.current_value,
+                )
+            )
+
+        return (
+            getattr(page, "url", None),
+            getattr(page, "title", None),
+            getattr(page, "text", None),
+            tuple(elements),
+        )

@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="pl">
+<head>
+  <meta charset="utf-8">
+  <title>Browser Confirmation Fixture</title>
+</head>
+<body>
+  <main>
+    <h1>Kontrolowany test granicy potwierdzenia</h1>
+    <p id="status">Oczekuje na potwierdzenie.</p>
+    <button id="submit" type="button">Zatwierdź zamówienie</button>
+  </main>
+
+  <script>
+    document.getElementById("submit").addEventListener("click", () => {
+      document.title = "Browser Confirmation Fixture — SUBMITTED";
+      document.getElementById("status").textContent =
+        "Zamówienie zostało zatwierdzone.";
+      document.getElementById("submit").remove();
+    });
+  </script>
+</body>
+</html>

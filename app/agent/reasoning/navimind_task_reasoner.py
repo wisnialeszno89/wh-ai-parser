@@ -1,8 +1,10 @@
 import json
+import math
 import os
 from dataclasses import dataclass
 from typing import Any
 from urllib.error import HTTPError, URLError
+from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
 from uuid import uuid4
 
@@ -18,6 +20,7 @@ from app.agent.reasoning.reasoning_action_policy import (
 from app.agent.reasoning.reasoning_proposal import ReasoningProposal
 from app.agent.reasoning.task_planning_context import TaskPlanningContext
 from app.agent.reasoning.task_reasoner import TaskReasoner
+from app.agent.runtime.reasoning_usage import ReasoningUsage
 
 
 @dataclass(frozen=True)
@@ -38,13 +41,52 @@ class NaviMindTaskReasonerConfig:
                 "NAVIMIND_AGENT_URL is not configured."
             )
 
+        parsed_url = urlsplit(url)
+        if parsed_url.scheme not in {"http", "https"} or not parsed_url.hostname:
+            raise RuntimeError(
+                "NAVIMIND_AGENT_URL must be a valid HTTP(S) URL."
+            )
+        if parsed_url.username is not None or parsed_url.password is not None:
+            raise RuntimeError(
+                "NAVIMIND_AGENT_URL must not contain embedded credentials."
+            )
+        if parsed_url.scheme != "https" and parsed_url.hostname not in {
+            "localhost",
+            "127.0.0.1",
+            "::1",
+        }:
+            raise RuntimeError(
+                "NAVIMIND_AGENT_URL must use HTTPS outside localhost."
+            )
+
         secret = os.getenv("NAVIMIND_AGENT_SECRET")
+        normalized_secret = (
+            secret.strip()
+            if isinstance(secret, str) and secret.strip()
+            else None
+        )
+        if normalized_secret is None:
+            raise RuntimeError(
+                "NAVIMIND_AGENT_SECRET is required when NaviMind reasoning is enabled."
+            )
+
+        try:
+            timeout_seconds = float(
+                os.getenv("NAVIMIND_AGENT_TIMEOUT_SECONDS", "45")
+            )
+        except ValueError as exc:
+            raise RuntimeError(
+                "NAVIMIND_AGENT_TIMEOUT_SECONDS must be a positive number."
+            ) from exc
+        if not math.isfinite(timeout_seconds) or timeout_seconds <= 0:
+            raise RuntimeError(
+                "NAVIMIND_AGENT_TIMEOUT_SECONDS must be a positive number."
+            )
+
         return cls(
             url=url,
-            secret=secret.strip() if isinstance(secret, str) and secret.strip() else None,
-            timeout_seconds=float(
-                os.getenv("NAVIMIND_AGENT_TIMEOUT_SECONDS", "45")
-            ),
+            secret=normalized_secret,
+            timeout_seconds=timeout_seconds,
         )
 
 
@@ -69,12 +111,14 @@ class NaviMindTaskReasoner(TaskReasoner):
         )
         self.opener = opener
         self.last_error: str | None = None
+        self.last_usage: ReasoningUsage | None = None
 
     def reason(
         self,
         context: TaskPlanningContext,
     ) -> ReasoningProposal | None:
         self.last_error = None
+        self.last_usage = None
 
         knowledge_payload = {
             "version": "1",
@@ -108,7 +152,11 @@ class NaviMindTaskReasoner(TaskReasoner):
                 if context.skill_name is not None
                 else None
             ),
-            world=WorldState.from_scene(context.scene),
+            world=(
+                WorldState.from_browser_page(context.browser_page)
+                if context.browser_page is not None
+                else WorldState.from_scene(context.scene)
+            ),
             offer_workflow=context.offer_workflow,
             knowledge=knowledge_payload,
             experience=context.experience,
@@ -187,6 +235,19 @@ class NaviMindTaskReasoner(TaskReasoner):
         if not isinstance(payload, dict):
             self.last_error = "invalid_navimind_response"
             return None
+
+        usage_payload = payload.get("usage")
+        if usage_payload is not None:
+            if not isinstance(usage_payload, dict):
+                self.last_error = "invalid_navimind_usage"
+                return None
+            try:
+                self.last_usage = ReasoningUsage.from_payload(
+                    usage_payload
+                )
+            except ValueError as exc:
+                self.last_error = str(exc)
+                return None
 
         version = str(
             payload.get("version", "1")
@@ -273,6 +334,11 @@ class NaviMindTaskReasoner(TaskReasoner):
             if isinstance(payload.get("metadata"), dict)
             else {}
         )
+
+        if self.last_usage is not None:
+            response_metadata["reasoning_usage"] = (
+                self.last_usage.to_payload()
+            )
 
         external_knowledge = None
         response_knowledge = payload.get("knowledge")

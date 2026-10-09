@@ -90,6 +90,27 @@ def test_browser_adapter_allows_domain_and_https_navigation():
     assert provider.opened == ["https://app.example.com/login"]
 
 
+def test_browser_adapter_allows_initial_about_blank_observation_only():
+    provider = FakeBrowserProvider(
+        page=BrowserPage(
+            url="about:blank",
+            title="",
+            text="",
+        )
+    )
+    adapter = BrowserAdapter(
+        provider=provider,
+        allowed_domains=("example.com",),
+        dry_run=True,
+    )
+
+    page = adapter.read()
+    assert page.url == "about:blank"
+
+    with pytest.raises(ValueError):
+        adapter.open("about:blank")
+
+
 def test_browser_adapter_rejects_disallowed_or_unsafe_urls():
     adapter = BrowserAdapter(
         provider=FakeBrowserProvider(),

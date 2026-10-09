@@ -111,3 +111,35 @@ def test_semantic_open_new_offer_request_plans_uia_click():
     assert action.name == "click_screen_element"
     assert action.target == "NOWA OFERTA"
 
+
+
+def test_explicit_browser_target_application_plans_computer_use_shell():
+    planner = AgentPlanner()
+
+    plan = planner.plan(
+        AgentRequest(
+            message="Wpisz imię klienta",
+            metadata={
+                "target_application": "Browser",
+            },
+        )
+    )
+
+    assert plan.intent == AgentIntent.COMPUTER_USE
+    assert plan.requires_manual_review is True
+    assert plan.steps == ()
+
+
+def test_explicit_browser_target_application_routes_to_computer_use():
+    planner = AgentPlanner()
+
+    intent = planner.detect_intent(
+        AgentRequest(
+            message="Wpisz imię klienta",
+            metadata={
+                "target_application": "Browser",
+            },
+        )
+    )
+
+    assert intent == AgentIntent.COMPUTER_USE

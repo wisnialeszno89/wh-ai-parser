@@ -1,6 +1,8 @@
+import time
 from uuid import uuid4
 
 from app.agent.agent_request import AgentRequest
+from app.agent.adapters.browser_adapter import BrowserAdapter, BrowserPage
 from app.agent.session.agent_session_store import AgentSessionStore
 
 from app.agent.agent_intent import AgentIntent
@@ -45,6 +47,21 @@ from app.agent.runtime.execution_context import (
 )
 from app.agent.runtime.autonomous_run_result import (
     AutonomousRunResult,
+)
+from app.agent.runtime.reasoning_budget import ReasoningBudget
+from app.agent.runtime.reasoning_usage import (
+    ReasoningCostTracker,
+    ReasoningUsage,
+)
+from app.agent.runtime.task_execution_metrics import TaskExecutionMetrics
+from app.agent.runtime.task_quality_metrics import quality_metrics_from_results
+from app.agent.runtime.browser_action_risk_policy import (
+    BrowserActionRiskPolicy,
+)
+from app.agent.runtime.confirmation import (
+    ConfirmationRequest,
+    action_confirmation_key,
+    browser_confirmation_context_key,
 )
 from app.agent.planning.action_plan import ActionPlan
 from app.agent.planning.action_step import ActionStep
@@ -102,6 +119,10 @@ class AgentRuntime:
         session_store: AgentSessionStore | None = None,
         control_loop: AgentControlLoop | None = None,
         learned_parameter_resolver=None,
+        browser_adapter: BrowserAdapter | None = None,
+        browser_context_enabled: bool = False,
+        confirmation_ttl_seconds: float = 300.0,
+        confirmation_clock=None,
     ) -> None:
 
         self.orchestrator = (
@@ -112,6 +133,27 @@ class AgentRuntime:
 
         self.control_loop = control_loop
         self.learned_parameter_resolver = learned_parameter_resolver
+        self.browser_adapter = browser_adapter
+        self.browser_context_enabled = browser_context_enabled
+
+        if confirmation_ttl_seconds <= 0:
+            raise ValueError(
+                "confirmation_ttl_seconds must be greater than zero."
+            )
+        self._confirmation_ttl_seconds = confirmation_ttl_seconds
+        self._confirmation_clock = (
+            confirmation_clock
+            if confirmation_clock is not None
+            else time.monotonic
+        )
+
+        # One-time confirmation grants live only in this runtime process.
+        # The token is opaque and is bound to an exact semantic action and
+        # session, so an approval cannot be replayed for another action.
+        self._pending_confirmations: dict[
+            str,
+            tuple[str, str, str, str, float],
+        ] = {}
 
         self.session_store = (
             session_store
@@ -122,7 +164,9 @@ class AgentRuntime:
         if plan_executor is not None:
             self.plan_executor = plan_executor
         else:
-            registry = create_default_executor_registry()
+            registry = create_default_executor_registry(
+                browser_adapter=browser_adapter,
+            )
 
             engine = ExecutionEngine(
                 registry=registry
@@ -280,6 +324,8 @@ class AgentRuntime:
         initial_scene=None,
         offer_workflow=None,
         autonomous: bool = False,
+        browser_page: BrowserPage | None = None,
+        reasoning_budget: ReasoningBudget | None = None,
     ):
         external_knowledge = None
         raw_external_knowledge = request.metadata.get(
@@ -299,9 +345,11 @@ class AgentRuntime:
                 return self.orchestrator.prepare(
                     request,
                     initial_scene=initial_scene,
+                    browser_page=browser_page,
                     offer_workflow=offer_workflow,
                     external_knowledge=external_knowledge,
                     autonomous=autonomous,
+                    reasoning_budget=reasoning_budget,
                 )
             except TypeError as exc:
                 if "autonomous" not in str(exc):
@@ -309,8 +357,10 @@ class AgentRuntime:
                 return self.orchestrator.prepare(
                     request,
                     initial_scene=initial_scene,
+                    browser_page=browser_page,
                     offer_workflow=offer_workflow,
                     external_knowledge=external_knowledge,
+                    reasoning_budget=reasoning_budget,
                 )
         except TypeError as exc:
             if "offer_workflow" in str(exc):
@@ -337,11 +387,246 @@ class AgentRuntime:
                 )
             raise
 
+    def _preflight_confirmation_token(
+        self,
+        request: AgentRequest,
+    ) -> str | None:
+        """Reject malformed, unknown, expired or cross-session tokens cheaply.
+
+        These checks are intentionally performed before semantic reasoning so
+        an invalid confirmation cannot trigger an unnecessary model call.
+        """
+
+        token = request.metadata.get("confirmation_token")
+
+        if token is None:
+            return None
+
+        if not isinstance(token, str) or not token.strip():
+            return "invalid_confirmation_token"
+
+        normalized_token = token.strip()
+        pending = self._pending_confirmations.get(normalized_token)
+
+        if pending is None:
+            return "invalid_or_expired_confirmation_token"
+
+        session_id, _, _, _, expires_at = pending
+
+        if self._confirmation_clock() >= expires_at:
+            self._pending_confirmations.pop(normalized_token, None)
+            return "invalid_or_expired_confirmation_token"
+
+        if request.session_id != session_id:
+            return "confirmation_token_session_mismatch"
+
+        return None
+
+    def _consume_confirmation_token(
+        self,
+        request: AgentRequest,
+        context,
+    ) -> bool:
+        token = request.metadata.get(
+            "confirmation_token"
+        )
+
+        if token is None:
+            return False
+
+        if not isinstance(token, str) or not token.strip():
+            context.requires_manual_review = True
+            context.set_value(
+                "task_reasoning_failure",
+                "invalid_confirmation_token",
+            )
+            return False
+
+        pending = self._pending_confirmations.get(
+            token.strip()
+        )
+
+        if pending is None:
+            context.requires_manual_review = True
+            context.set_value(
+                "task_reasoning_failure",
+                "invalid_or_expired_confirmation_token",
+            )
+            return False
+
+        session_id, original_goal, action_key, context_key, expires_at = pending
+
+        if self._confirmation_clock() >= expires_at:
+            self._pending_confirmations.pop(
+                token.strip(),
+                None,
+            )
+            context.requires_manual_review = True
+            context.set_value(
+                "task_reasoning_failure",
+                "invalid_or_expired_confirmation_token",
+            )
+            return False
+
+        if request.session_id != session_id:
+            context.requires_manual_review = True
+            context.set_value(
+                "task_reasoning_failure",
+                "confirmation_token_session_mismatch",
+            )
+            return False
+
+        plan = context.plan
+        matching_action = None
+
+        if plan is not None:
+            for step in plan.steps:
+                if (
+                    action_confirmation_key(step.action)
+                    == action_key
+                ):
+                    matching_action = step.action
+                    break
+
+        if matching_action is None:
+            context.requires_manual_review = True
+            context.set_value(
+                "task_reasoning_failure",
+                "confirmation_token_action_mismatch",
+            )
+            return False
+
+        current_page = context.get_value(
+            "browser_page"
+        )
+
+        if not isinstance(current_page, BrowserPage):
+            context.requires_manual_review = True
+            context.set_value(
+                "task_reasoning_failure",
+                "confirmation_browser_context_missing",
+            )
+            return False
+
+        if (
+            browser_confirmation_context_key(
+                current_page,
+                matching_action,
+            )
+            != context_key
+        ):
+            context.requires_manual_review = True
+            context.set_value(
+                "task_reasoning_failure",
+                "confirmation_browser_context_changed",
+            )
+            return False
+
+        self._pending_confirmations.pop(
+            token.strip(),
+            None,
+        )
+
+        context.set_value(
+            "confirmed_action_key",
+            action_key,
+        )
+        return True
+
+    def _create_confirmation_request(
+        self,
+        request: AgentRequest,
+        context,
+        control_loop_result,
+    ) -> ConfirmationRequest | None:
+        decisions = getattr(
+            control_loop_result,
+            "decisions",
+            (),
+        )
+
+        if not decisions:
+            return None
+
+        decision = decisions[-1]
+        metadata = getattr(
+            decision,
+            "metadata",
+            {},
+        )
+
+        if (
+            not isinstance(metadata, dict)
+            or metadata.get("reason_code")
+            != "confirmation_required"
+        ):
+            return None
+
+        plan = context.plan
+        if plan is None or not plan.steps:
+            return None
+
+        session_id = request.session_id
+        if not isinstance(session_id, str) or not session_id.strip():
+            return None
+
+        action = next(
+            (
+                step.action
+                for step in plan.steps
+                if (
+                    step.action.requires_confirmation
+                    or BrowserActionRiskPolicy.requires_confirmation(
+                        step.action
+                    )
+                )
+            ),
+            None,
+        )
+        if action is None:
+            return None
+
+        token = uuid4().hex
+        confirmation = ConfirmationRequest(
+            token=token,
+            session_id=session_id,
+            action_name=action.name,
+            description=action.description,
+            target=action.target,
+            value=action.value,
+        )
+
+        current_page = context.get_value(
+            "browser_page"
+        )
+        if not isinstance(current_page, BrowserPage):
+            return None
+
+        self._pending_confirmations[token] = (
+            session_id,
+            request.message,
+            action_confirmation_key(action),
+            browser_confirmation_context_key(
+                current_page,
+                action,
+            ),
+            self._confirmation_clock()
+            + self._confirmation_ttl_seconds,
+        )
+
+        context.set_value(
+            "confirmation_request",
+            confirmation.to_payload(),
+        )
+
+        return confirmation
+
     def run(
         self,
         request: AgentRequest,
         *,
         autonomous: bool = False,
+        reasoning_budget: ReasoningBudget | None = None,
     ) -> AgentRuntimeResult:
         """
         Execute one complete agent cycle.
@@ -350,6 +635,85 @@ class AgentRuntime:
         session = None
         offer_workflow_result = None
         planning_offer_workflow = None
+
+        # Cheap confirmation checks happen before session bookkeeping,
+        # browser observation and semantic reasoning. Invalid or expired
+        # tokens must not spend a model call.
+        confirmation_failure = self._preflight_confirmation_token(
+            request
+        )
+        if confirmation_failure is not None:
+            context = AgentExecutionContext(
+                request=request,
+                intent=AgentIntent.COMPUTER_USE,
+                plan=None,
+                capability=None,
+                skill=None,
+                requires_manual_review=True,
+            )
+            context.set_value(
+                "task_reasoning_failure",
+                confirmation_failure,
+            )
+            return AgentRuntimeResult(
+                intent=context.intent,
+                context=context,
+                execution_report=None,
+                requires_manual_review=True,
+                executed=False,
+            )
+
+        task_planner = getattr(
+            self.orchestrator,
+            "task_planner",
+            None,
+        )
+        if (
+            reasoning_budget is not None
+            and task_planner is not None
+            and reasoning_budget.exhausted
+        ):
+            context = AgentExecutionContext(
+                request=request,
+                intent=AgentIntent.COMPUTER_USE,
+                plan=None,
+                capability=None,
+                skill=None,
+                requires_manual_review=True,
+            )
+            context.set_value(
+                "task_reasoning_failure",
+                "reasoning_budget_exhausted",
+            )
+            return AgentRuntimeResult(
+                intent=context.intent,
+                context=context,
+                execution_report=None,
+                requires_manual_review=True,
+                executed=False,
+            )
+
+        # A confirmation token resumes the exact task that produced it.
+        # Do not let a follow-up message silently replace that task goal
+        # before the reasoning pass that validates the confirmed action.
+        confirmation_token = request.metadata.get(
+            "confirmation_token"
+        )
+        if isinstance(confirmation_token, str):
+            pending = self._pending_confirmations.get(
+                confirmation_token.strip()
+            )
+            if (
+                pending is not None
+                and request.session_id == pending[0]
+            ):
+                request = AgentRequest(
+                    message=pending[1],
+                    session_id=request.session_id,
+                    salesman_id=request.salesman_id,
+                    metadata=dict(request.metadata),
+                    mode=request.mode,
+                )
 
         if request.session_id is not None:
             session = self.session_store.get_or_create(
@@ -376,6 +740,66 @@ class AgentRuntime:
         # Observe first, then compute workflow context and finally
         # prepare the action plan exactly once.
         initial_scene = None
+        browser_page = None
+
+        browser_requested = (
+            self.browser_context_enabled
+            or (
+                request.metadata.get("target_application")
+                and str(
+                    request.metadata.get(
+                        "target_application"
+                    )
+                ).strip().casefold()
+                == "browser"
+            )
+        )
+
+        if browser_requested:
+            if self.browser_adapter is None:
+                context = self._prepare_context(
+                    request,
+                    initial_scene=None,
+                    browser_page=None,
+                    offer_workflow=None,
+                    autonomous=autonomous,
+                    reasoning_budget=reasoning_budget,
+                )
+                context.requires_manual_review = True
+                context.set_value(
+                    "browser_observation_error",
+                    "browser_adapter_unavailable",
+                )
+                return AgentRuntimeResult(
+                    intent=context.intent,
+                    context=context,
+                    execution_report=None,
+                    requires_manual_review=True,
+                    executed=False,
+                )
+
+            try:
+                browser_page = self.browser_adapter.read()
+            except Exception as exc:
+                context = self._prepare_context(
+                    request,
+                    initial_scene=None,
+                    browser_page=None,
+                    offer_workflow=None,
+                    autonomous=autonomous,
+                )
+                context.requires_manual_review = True
+                context.set_value(
+                    "browser_observation_error",
+                    str(exc),
+                )
+                return AgentRuntimeResult(
+                    intent=context.intent,
+                    context=context,
+                    execution_report=None,
+                    requires_manual_review=True,
+                    executed=False,
+                )
 
         if self.control_loop is not None:
             try:
@@ -479,9 +903,17 @@ class AgentRuntime:
         context = self._prepare_context(
             request,
             initial_scene=initial_scene,
+            browser_page=browser_page,
             offer_workflow=planning_offer_workflow,
             autonomous=autonomous,
+            reasoning_budget=reasoning_budget,
         )
+
+        if browser_page is not None:
+            context.set_value(
+                "browser_page",
+                browser_page,
+            )
 
         application_knowledge = getattr(
             self.orchestrator,
@@ -516,6 +948,56 @@ class AgentRuntime:
             "metadata",
             {},
         )
+
+        task_planner_usage = getattr(
+            task_planner,
+            "last_usage",
+            None,
+        )
+        if isinstance(task_planner_usage, ReasoningUsage):
+            context.set_value(
+                "reasoning_usage",
+                task_planner_usage.to_payload(),
+            )
+
+        confirmation_token = request.metadata.get(
+            "confirmation_token"
+        )
+
+        if confirmation_token is not None:
+            if (
+                not isinstance(confirmation_token, str)
+                or not confirmation_token.strip()
+            ):
+                context.requires_manual_review = True
+                context.set_value(
+                    "task_reasoning_failure",
+                    "invalid_confirmation_token",
+                )
+                return AgentRuntimeResult(
+                    intent=context.intent,
+                    context=context,
+                    execution_report=None,
+                    requires_manual_review=True,
+                    executed=False,
+                )
+
+            if (
+                confirmation_token.strip()
+                not in self._pending_confirmations
+            ):
+                context.requires_manual_review = True
+                context.set_value(
+                    "task_reasoning_failure",
+                    "invalid_or_expired_confirmation_token",
+                )
+                return AgentRuntimeResult(
+                    intent=context.intent,
+                    context=context,
+                    execution_report=None,
+                    requires_manual_review=True,
+                    executed=False,
+                )
 
         if isinstance(proposal_metadata, dict):
             resolved_external_knowledge = proposal_metadata.get(
@@ -594,6 +1076,75 @@ class AgentRuntime:
             )
 
         if self.control_loop is not None:
+            confirmation_token_present = (
+                request.metadata.get("confirmation_token") is not None
+            )
+
+            confirmation_consumed = self._consume_confirmation_token(
+                request,
+                context,
+            )
+
+            if (
+                not confirmation_consumed
+                and confirmation_token_present
+            ):
+                return AgentRuntimeResult(
+                    intent=context.intent,
+                    context=context,
+                    execution_report=None,
+                    requires_manual_review=True,
+                    executed=False,
+                )
+
+            if confirmation_consumed:
+                confirmed_key = context.get_value(
+                    "confirmed_action_key"
+                )
+                if not isinstance(confirmed_key, str):
+                    context.requires_manual_review = True
+                    context.set_value(
+                        "task_reasoning_failure",
+                        "confirmation_scope_missing",
+                    )
+                    return AgentRuntimeResult(
+                        intent=context.intent,
+                        context=context,
+                        execution_report=None,
+                        requires_manual_review=True,
+                        executed=False,
+                    )
+
+                confirmed_steps = tuple(
+                    step
+                    for step in context.plan.steps
+                    if action_confirmation_key(step.action)
+                    == confirmed_key
+                )
+
+                if len(confirmed_steps) != 1:
+                    context.requires_manual_review = True
+                    context.set_value(
+                        "task_reasoning_failure",
+                        "confirmation_scope_ambiguous",
+                    )
+                    return AgentRuntimeResult(
+                        intent=context.intent,
+                        context=context,
+                        execution_report=None,
+                        requires_manual_review=True,
+                        executed=False,
+                    )
+
+                confirmed_step = confirmed_steps[0]
+                context.plan = ActionPlan(
+                    intent=context.plan.intent,
+                    steps=(confirmed_step,),
+                    confidence=context.plan.confidence,
+                    requires_manual_review=False,
+                    completed=False,
+                )
+
             # Autonomous mode intentionally executes exactly one semantic
             # action per reasoning cycle. The next cycle observes the
             # resulting UI and reasons again instead of trusting a long
@@ -625,6 +1176,21 @@ class AgentRuntime:
                 context=context,
             )
 
+            control_loop_requires_manual_review = bool(
+                getattr(
+                    control_loop_result,
+                    "requires_manual_review",
+                    False,
+                )
+            )
+            control_loop_success = getattr(
+                control_loop_result,
+                "success",
+                None,
+            )
+            if control_loop_success is None:
+                control_loop_success = not control_loop_requires_manual_review
+
             self._remember_experience(
                 kind="runtime_execution",
                 application=(
@@ -636,10 +1202,10 @@ class AgentRuntime:
                 workflow_id=None,
                 outcome=(
                     "manual_review"
-                    if control_loop_result.requires_manual_review
+                    if control_loop_requires_manual_review
                     else (
                         "success"
-                        if control_loop_result.success
+                        if control_loop_success
                         else "failure"
                     )
                 ),
@@ -648,8 +1214,10 @@ class AgentRuntime:
                     f"'{context.intent.value}'."
                 ),
                 metadata={
-                    "executed_actions": (
-                        control_loop_result.executed_actions
+                    "executed_actions": getattr(
+                        control_loop_result,
+                        "executed_actions",
+                        0,
                     ),
                     "failed_actions": getattr(
                         control_loop_result,
@@ -659,6 +1227,14 @@ class AgentRuntime:
                 },
             )
 
+            confirmation_request = (
+                self._create_confirmation_request(
+                    request,
+                    context,
+                    control_loop_result,
+                )
+            )
+
             return AgentRuntimeResult(
                 intent=context.intent,
                 context=context,
@@ -666,9 +1242,10 @@ class AgentRuntime:
                 control_loop_result=control_loop_result,
                 requires_manual_review=(
                     context.requires_manual_review
-                    or control_loop_result.requires_manual_review
+                    or control_loop_requires_manual_review
                 ),
                 executed=True,
+                confirmation_request=confirmation_request,
             )
 
         execution_report = self.plan_executor.execute(
@@ -751,6 +1328,8 @@ class AgentRuntime:
         request: AgentRequest,
         *,
         max_steps: int = 30,
+        max_reasoning_calls: int = 8,
+        max_estimated_reasoning_cost_usd: float | None = None,
     ) -> AutonomousRunResult:
         """
         Run one user goal as a closed-loop autonomous session.
@@ -764,6 +1343,16 @@ class AgentRuntime:
         """
         if max_steps < 1:
             raise ValueError("max_steps must be at least 1.")
+        if (
+            max_estimated_reasoning_cost_usd is not None
+            and max_estimated_reasoning_cost_usd <= 0
+        ):
+            raise ValueError(
+                "max_estimated_reasoning_cost_usd must be greater than 0."
+            )
+
+        reasoning_budget = ReasoningBudget(max_reasoning_calls)
+        reasoning_cost_tracker = ReasoningCostTracker()
 
         session_id = request.session_id or f"autonomous-{uuid4().hex}"
         autonomous_request = AgentRequest(
@@ -780,13 +1369,30 @@ class AgentRuntime:
         requires_manual_review = False
         stopped = False
         reason = "step_limit_reached"
+        run_started_at = time.monotonic()
 
         for _ in range(max_steps):
             result = self.run(
                 autonomous_request,
                 autonomous=True,
+                reasoning_budget=reasoning_budget,
             )
             results.append(result)
+
+            raw_reasoning_usage = result.context.get_value(
+                "reasoning_usage"
+            )
+            if isinstance(raw_reasoning_usage, dict):
+                try:
+                    reasoning_cost_tracker.record(
+                        ReasoningUsage.from_payload(
+                            raw_reasoning_usage
+                        )
+                    )
+                except ValueError:
+                    # Telemetry must never block the agent. The hard
+                    # reasoning-call budget remains the safety/cost guard.
+                    pass
 
             resolved_external_knowledge = result.context.get_value(
                 "external_knowledge"
@@ -813,6 +1419,17 @@ class AgentRuntime:
 
             control = result.control_loop_result
             if control is None:
+                if (
+                    result.context.get_value(
+                        "task_reasoning_failure"
+                    )
+                    == "reasoning_budget_exhausted"
+                ):
+                    requires_manual_review = True
+                    stopped = True
+                    reason = "reasoning_budget_exhausted"
+                    break
+
                 requires_manual_review = True
                 stopped = True
                 reason = str(
@@ -843,8 +1460,72 @@ class AgentRuntime:
                 stopped = True
                 reason = "no_action_executed_without_completion"
                 break
+
+            if (
+                max_estimated_reasoning_cost_usd is not None
+                and (
+                    reasoning_cost_tracker.summary().estimated_cost_usd
+                    is not None
+                )
+                and (
+                    reasoning_cost_tracker.summary().estimated_cost_usd
+                    >= max_estimated_reasoning_cost_usd
+                )
+            ):
+                requires_manual_review = True
+                stopped = True
+                reason = "reasoning_cost_limit_reached"
+                break
         else:
             stopped = True
+
+        elapsed_seconds = max(
+            time.monotonic() - run_started_at,
+            0.0,
+        )
+
+        executed_actions = 0
+        failed_actions = 0
+        confirmations_requested = 0
+
+        for step_result in results:
+            if step_result.confirmation_request is not None:
+                confirmations_requested += 1
+
+            control_result = step_result.control_loop_result
+            if control_result is not None:
+                executed_actions += getattr(
+                    control_result,
+                    "executed_actions",
+                    0,
+                )
+                failed_actions += getattr(
+                    control_result,
+                    "failed_actions",
+                    0,
+                )
+
+        successful_actions = max(
+            executed_actions - failed_actions,
+            0,
+        )
+
+        execution_metrics = TaskExecutionMetrics(
+            elapsed_seconds=elapsed_seconds,
+            cycles=len(results),
+            executed_actions=executed_actions,
+            successful_actions=successful_actions,
+            failed_actions=failed_actions,
+            confirmations_requested=confirmations_requested,
+        )
+
+        quality_metrics = quality_metrics_from_results(
+            completed=completed,
+            success=success,
+            requires_manual_review=requires_manual_review,
+            stopped=stopped,
+            step_results=results,
+        )
 
         return AutonomousRunResult(
             session_id=session_id,
@@ -854,4 +1535,8 @@ class AgentRuntime:
             requires_manual_review=requires_manual_review,
             stopped=stopped,
             reason=reason,
+            reasoning_calls=reasoning_budget.calls,
+            reasoning_cost=reasoning_cost_tracker.summary(),
+            execution_metrics=execution_metrics,
+            quality_metrics=quality_metrics,
         )

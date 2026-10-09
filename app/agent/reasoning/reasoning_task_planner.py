@@ -1,23 +1,17 @@
+import re
+
 from app.agent.agent_intent import AgentIntent
 from app.agent.planning.action_plan import ActionPlan
 from app.agent.planning.action_step import ActionStep
 from app.agent.agent_action import AgentAction
 
-from app.agent.planning.agent_action_normalizer import (
-    AgentActionNormalizer,
-)
-from app.agent.reasoning.reasoning_action import (
-    ReasoningAction,
-)
-from app.agent.reasoning.reasoning_action_policy import (
-    NAVIMIND_ALLOWED_ACTIONS,
-)
-from app.agent.reasoning.task_planning_context import (
-    TaskPlanningContext,
-)
-from app.agent.reasoning.task_reasoner import (
-    TaskReasoner,
-)
+from app.agent.planning.agent_action_normalizer import AgentActionNormalizer
+from app.agent.reasoning.reasoning_action import ReasoningAction
+from app.agent.reasoning.reasoning_action_policy import NAVIMIND_ALLOWED_ACTIONS
+from app.agent.reasoning.task_planning_context import TaskPlanningContext
+from app.agent.reasoning.task_reasoner import TaskReasoner
+from app.agent.runtime.reasoning_budget import ReasoningBudget
+from app.agent.runtime.reasoning_usage import ReasoningUsage
 
 
 class ReasoningTaskPlanner:
@@ -43,6 +37,17 @@ class ReasoningTaskPlanner:
         "tracked_object_id",
     )
 
+    _BROWSER_ACTIONS = frozenset(
+        {
+            "browser_navigate",
+            "browser_read",
+            "browser_click",
+            "browser_write_text",
+            "browser_select_option",
+            "browser_back",
+        }
+    )
+
     def __init__(
         self,
         reasoner: TaskReasoner,
@@ -56,16 +61,34 @@ class ReasoningTaskPlanner:
         )
         self.last_failure_reason: str | None = None
         self.last_proposal = None
+        self.last_usage: ReasoningUsage | None = None
 
     def plan(
         self,
         *,
         context: TaskPlanningContext,
+        reasoning_budget: ReasoningBudget | None = None,
     ) -> ActionPlan | None:
         self.last_failure_reason = None
+        self.last_usage = None
+
+        if (
+            reasoning_budget is not None
+            and not reasoning_budget.consume()
+        ):
+            self.last_failure_reason = "reasoning_budget_exhausted"
+            return None
 
         proposal = self.reasoner.reason(context)
         self.last_proposal = proposal
+
+        provider_usage = getattr(
+            self.reasoner,
+            "last_usage",
+            None,
+        )
+        if isinstance(provider_usage, ReasoningUsage):
+            self.last_usage = provider_usage
 
         reasoner_error = getattr(
             self.reasoner,
@@ -87,15 +110,15 @@ class ReasoningTaskPlanner:
             return None
 
         if proposal.requires_manual_review:
-            self.last_failure_reason = (
-                "provider_requested_manual_review"
-            )
+            self.last_failure_reason = "provider_requested_manual_review"
             return None
 
         if not 0.0 <= proposal.confidence <= 1.0:
-            self.last_failure_reason = (
-                "invalid_confidence"
-            )
+            self.last_failure_reason = "invalid_confidence"
+            return None
+
+        if status == "continue" and proposal.confidence <= 0.0:
+            self.last_failure_reason = "non_positive_confidence"
             return None
 
         if status == "done":
@@ -112,21 +135,14 @@ class ReasoningTaskPlanner:
             )
 
         if not proposal.actions:
-            self.last_failure_reason = (
-                "proposal_contains_no_actions"
-            )
+            self.last_failure_reason = "proposal_contains_no_actions"
             return None
 
         actions = []
 
         for action in proposal.actions:
-            if (
-                action.name.strip()
-                not in NAVIMIND_ALLOWED_ACTIONS
-            ):
-                self.last_failure_reason = (
-                    "action_not_allowed"
-                )
+            if action.name.strip() not in NAVIMIND_ALLOWED_ACTIONS:
+                self.last_failure_reason = "action_not_allowed"
                 return None
 
             if self._is_low_level(action.name):
@@ -147,52 +163,58 @@ class ReasoningTaskPlanner:
                 self.last_failure_reason = "low_level_or_technical_target"
                 return None
 
-            if (
-                action.target is not None
-                and context.scene is not None
-                and not self._matches_visible_semantic_target(
-                    action.target,
-                    context.scene,
-                )
+            if not self._validate_action_shape(
+                action,
+                browser_context=context.browser_page is not None,
             ):
-                self.last_failure_reason = "target_not_visible_in_scene"
                 return None
+
+            if action.target is not None:
+                explicit_targets = (
+                    self._explicit_requested_scene_targets(
+                        context,
+                    )
+                )
+
+                if (
+                    len(explicit_targets) == 1
+                    and (
+                        action.target.strip().casefold()
+                        != explicit_targets[0]
+                    )
+                ):
+                    self.last_failure_reason = (
+                        "target_does_not_match_explicit_request"
+                    )
+                    return None
+
+                if not self._matches_visible_semantic_target(
+                    action.target,
+                    context,
+                ):
+                    self.last_failure_reason = "target_not_visible_in_scene"
+                    return None
 
             if self._is_forbidden_offer_continuation_action(
                 action,
                 context,
             ):
-                self.last_failure_reason = "forbidden_offer_continuation_action"
-                return None
-
-            if (
-                action.name.strip().casefold()
-                in {"write_text", "type_text"}
-                and (
-                    not isinstance(action.target, str)
-                    or not action.target.strip()
-                    or not isinstance(action.value, str)
-                    or not action.value
+                self.last_failure_reason = (
+                    "forbidden_offer_continuation_action"
                 )
-            ):
-                self.last_failure_reason = "write_text_missing_target_or_value"
                 return None
 
             normalized_action = self.action_normalizer.normalize(
                 AgentAction(
                     name=action.name,
                     description=action.description,
-                    requires_confirmation=(
-                        action.requires_confirmation
-                    ),
+                    requires_confirmation=action.requires_confirmation,
                     target=action.target,
                     value=action.value,
                 )
             )
 
-            actions.append(
-                normalized_action
-            )
+            actions.append(normalized_action)
 
         return ActionPlan(
             intent=AgentIntent(context.intent),
@@ -201,15 +223,58 @@ class ReasoningTaskPlanner:
                     index=index,
                     action=action,
                 )
-                for index, action in enumerate(
-                    actions,
-                    start=1,
-                )
+                for index, action in enumerate(actions, start=1)
             ),
             confidence=proposal.confidence,
             requires_manual_review=False,
         )
 
+    def _validate_action_shape(
+        self,
+        action: ReasoningAction,
+        *,
+        browser_context: bool,
+    ) -> bool:
+        name = action.name.strip().casefold()
+
+        if name == "browser_navigate":
+            if not isinstance(action.value, str) or not action.value.strip():
+                self.last_failure_reason = "browser_navigate_missing_url"
+                return False
+
+        elif name in {
+            "browser_write_text",
+            "browser_select_option",
+        }:
+            if (
+                not isinstance(action.target, str)
+                or not action.target.strip()
+                or not isinstance(action.value, str)
+                or not action.value
+            ):
+                self.last_failure_reason = (
+                    "browser_action_missing_target_or_value"
+                )
+                return False
+
+        elif name == "browser_click":
+            if (
+                not isinstance(action.target, str)
+                or not action.target.strip()
+            ):
+                self.last_failure_reason = "browser_click_missing_target"
+                return False
+
+        elif name in {"browser_read", "browser_back"}:
+            if action.target is not None or action.value is not None:
+                self.last_failure_reason = "browser_action_has_unexpected_arguments"
+                return False
+
+        if name in self._BROWSER_ACTIONS and not browser_context:
+            self.last_failure_reason = "browser_context_missing"
+            return False
+
+        return True
 
     @staticmethod
     def _is_forbidden_offer_continuation_action(
@@ -234,37 +299,84 @@ class ReasoningTaskPlanner:
             else ""
         )
 
-        return target in {
-            "nowa oferta",
-            "nowa_oferta",
-        }
+        return target in {"nowa oferta", "nowa_oferta"}
 
     @classmethod
-    def _is_low_level(
-        cls,
-        value: str,
-    ) -> bool:
+    def _is_low_level(cls, value: str) -> bool:
         normalized = value.strip().casefold()
-
         return any(
             term in normalized
             for term in cls._FORBIDDEN_LOW_LEVEL_TERMS
         )
 
+    @staticmethod
+    def _explicit_requested_scene_targets(
+        context: TaskPlanningContext,
+    ) -> tuple[str, ...]:
+        """
+        Return visible semantic labels explicitly named in the request.
+
+        The complete visible label must occur as a standalone phrase.
+        This prevents a different visible control, such as an active
+        document tab, from replacing an explicitly requested target.
+        """
+        if context.scene is None:
+            return ()
+
+        request = context.request_message.casefold()
+        candidates = set()
+
+        for element in context.scene.elements:
+            label = getattr(element, "label", None)
+
+            if not isinstance(label, str):
+                continue
+
+            label = label.strip()
+
+            if len(label) < 3:
+                continue
+
+            normalized_label = label.casefold()
+
+            pattern = (
+                r"(?<!\w)"
+                + re.escape(normalized_label)
+                + r"(?!\w)"
+            )
+
+            if re.search(
+                pattern,
+                request,
+                flags=re.UNICODE,
+            ):
+                candidates.add(normalized_label)
+
+        return tuple(sorted(candidates))
+
 
     @staticmethod
     def _matches_visible_semantic_target(
         target: str,
-        scene,
+        context: TaskPlanningContext,
     ) -> bool:
         normalized = target.strip().casefold()
 
         if not normalized:
             return False
 
-        for element in scene.elements:
-            values = [element.label]
+        if context.browser_page is not None:
+            return any(
+                isinstance(element.label, str)
+                and element.label.strip().casefold() == normalized
+                for element in context.browser_page.elements
+            )
 
+        if context.scene is None:
+            return True
+
+        for element in context.scene.elements:
+            values = [element.label]
             metadata = element.metadata or {}
             values.extend(
                 metadata.get(key)
@@ -280,18 +392,15 @@ class ReasoningTaskPlanner:
             for value in values:
                 if (
                     isinstance(value, str)
-                    and value.strip().casefold()
-                    == normalized
+                    and value.strip().casefold() == normalized
                 ):
                     return True
 
         return False
 
-
     @staticmethod
     def _is_technical_target(value: str) -> bool:
         normalized = value.strip().casefold()
-
         if not normalized:
             return False
 
