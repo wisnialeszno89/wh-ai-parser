@@ -1,4 +1,5 @@
 import json
+import math
 import os
 from dataclasses import dataclass
 from typing import Any
@@ -77,7 +78,7 @@ class NaviMindTaskReasonerConfig:
             raise RuntimeError(
                 "NAVIMIND_AGENT_TIMEOUT_SECONDS must be a positive number."
             ) from exc
-        if timeout_seconds <= 0:
+        if not math.isfinite(timeout_seconds) or timeout_seconds <= 0:
             raise RuntimeError(
                 "NAVIMIND_AGENT_TIMEOUT_SECONDS must be a positive number."
             )
