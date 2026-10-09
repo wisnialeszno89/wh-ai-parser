@@ -5,12 +5,6 @@ import os
 from app.agent.reasoning.navimind_task_reasoner import (
     NaviMindTaskReasoner,
 )
-from app.agent.reasoning.openai_task_reasoner import (
-    OpenAITaskReasoner,
-)
-from app.agent.reasoning.openai_plan_reasoner import (
-    OpenAIPlanReasoner,
-)
 from app.agent.reasoning.plan_reasoner import PlanReasoner
 from app.agent.reasoning.task_reasoner import TaskReasoner
 from app.agent.runtime.agent_orchestrator import AgentOrchestrator
@@ -18,6 +12,19 @@ from app.agent.runtime.agent_runtime import AgentRuntime
 from app.agent.runtime.windows_desktop_agent_control_loop import (
     create_windows_desktop_agent_control_loop,
 )
+
+
+def _openai_task_reasoner() -> TaskReasoner:
+    # Keep optional OpenAI/Pydantic dependencies lazy for NaviMind-only installs.
+    from app.agent.reasoning.openai_task_reasoner import OpenAITaskReasoner
+
+    return OpenAITaskReasoner()
+
+
+def _openai_plan_reasoner() -> PlanReasoner:
+    from app.agent.reasoning.openai_plan_reasoner import OpenAIPlanReasoner
+
+    return OpenAIPlanReasoner()
 
 
 def _configured_task_reasoner() -> TaskReasoner:
@@ -33,7 +40,7 @@ def _configured_task_reasoner() -> TaskReasoner:
         return NaviMindTaskReasoner()
 
     if os.getenv("AGENT_TASK_REASONING", "").strip() == "1":
-        return OpenAITaskReasoner()
+        return _openai_task_reasoner()
 
     raise RuntimeError(
         "No task reasoner is configured. Set NAVIMIND_AGENT_URL and "
@@ -67,7 +74,7 @@ def create_windows_desktop_agent_runtime(
         selected_plan_reasoner is None
         and os.getenv("AGENT_PLAN_REASONING", "").strip() == "1"
     ):
-        selected_plan_reasoner = OpenAIPlanReasoner()
+        selected_plan_reasoner = _openai_plan_reasoner()
 
     return AgentRuntime(
         orchestrator=AgentOrchestrator(
