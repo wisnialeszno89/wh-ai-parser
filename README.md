@@ -123,45 +123,45 @@ becoming WindowHub-specific.
 ## Generic Windows desktop runtime with NaviMind
 
 The supported generic Windows runtime entry point is
-\`create_windows_desktop_agent_runtime()\` in
-\`app/agent/runtime/windows_desktop_agent_runtime.py\`. It wires the selected
-\`TaskReasoner\` into \`AgentOrchestrator(require_task_reasoning=True)\` and uses
+`create_windows_desktop_agent_runtime()` in
+`app/agent/runtime/windows_desktop_agent_runtime.py`. It wires the selected
+`TaskReasoner` into `AgentOrchestrator(require_task_reasoning=True)` and uses
 the existing Windows control loop, local semantic target validation, execution
 safety gate and verification path.
 
-Configure the hosted bridge in the local \`.env\` file (never commit real values):
+Configure the hosted bridge in the local `.env` file (never commit real values):
 
-\`\`\`dotenv
+```dotenv
 NAVIMIND_AGENT_URL=https://your-deployment.example/api/agent/task
-NAVIMIND_AGENT_SECRET=<same high-entropy secret configured on NaviMind>
+NAVIMIND_AGENT_SECRET=replace-with-the-same-high-entropy-secret
 NAVIMIND_AGENT_TIMEOUT_SECONDS=45
 COMPUTER_REAL=0
-\`\`\`
+```
 
-NaviMind is selected whenever \`NAVIMIND_AGENT_URL\` is present. Its secret is
+NaviMind is selected whenever `NAVIMIND_AGENT_URL` is present. Its secret is
 required; production endpoints must use HTTPS. HTTP is allowed only for
 localhost development. If NaviMind is configured but authentication or the
 remote call fails, task reasoning stops for manual review; the runtime does
 not silently switch to OpenAI. The explicit OpenAI task-reasoning alternative
-is \`AGENT_TASK_REASONING=1\` with \`OPENAI_API_KEY\`, and is selected only when
+is `AGENT_TASK_REASONING=1` with `OPENAI_API_KEY`, and is selected only when
 the NaviMind URL is absent. Verification-driven OpenAI replanning is separately
-opt-in through \`AGENT_PLAN_REASONING=1\`.
+opt-in through `AGENT_PLAN_REASONING=1`.
 
 Run a provider-only outbound contract smoke test. It sends synthetic semantic
 state and does not observe, click, type into, or otherwise control the desktop:
 
-\`\`\`powershell
+```powershell
 python tools/smoke_windows_desktop_navimind.py
-\`\`\`
+```
 
 Start the generic Windows agent with a natural-language goal:
 
-\`\`\`powershell
+```powershell
 python tools/run_windows_desktop_agent.py --goal "Click the visible Testing tab"
-\`\`\`
+```
 
 Physical GUI execution remains disabled by default. Only set
-\`COMPUTER_REAL=1\` for an explicitly scoped live test. Even in live mode,
+`COMPUTER_REAL=1` for an explicitly scoped live test. Even in live mode,
 NaviMind proposes semantic actions only; local target validation, execution
 policy and post-action verification remain authoritative.
 
