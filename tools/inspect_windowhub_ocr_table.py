@@ -226,10 +226,34 @@ def main() -> int:
     reconstruction = metadata.get("windowhub_ocr_table_reconstruction")
     payload = reconstruction.to_payload() if reconstruction is not None else None
 
+    # Keep the raw OCR detections from the LP and quantity/article columns
+    # for diagnosis. Coordinates/confidence are observations, not actions.
+    table_region_detections = []
+    for element in elements:
+        try:
+            x = int(element.x)
+            y = int(element.y)
+            width = int(element.width)
+            height = int(element.height)
+            confidence = float(element.confidence)
+            center_y = y + height / 2
+        except (AttributeError, TypeError, ValueError):
+            continue
+        if 90 <= x <= 400 and 190 <= center_y <= 370:
+            table_region_detections.append({
+                "text": str(element.label),
+                "x": x,
+                "y": y,
+                "width": width,
+                "height": height,
+                "confidence": round(confidence, 4),
+            })
+
     summary = {
         "window_title": title,
         "window_focused": focused,
         "ocr_status": metadata.get("windowhub_ocr_status"),
+        "table_region_ocr_detections": table_region_detections,
         "ocr_element_count": metadata.get("windowhub_ocr_element_count", len(elements)),
         "table_status": metadata.get("windowhub_ocr_table_status", "not_available"),
         "table_error_type": metadata.get("windowhub_ocr_table_error"),
