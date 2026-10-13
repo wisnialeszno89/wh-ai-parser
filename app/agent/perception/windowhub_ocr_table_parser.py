@@ -150,48 +150,44 @@ def parse_windowhub_ocr_table(
         key=lambda item: (float(item["y"]), -float(item["confidence"]))
     )
 
-    # Stable row centers are determined from the gross-total column first.
+    # Build row anchors in a column-aware way. Gross-total detections are
+    # primary anchors. Each unit-price detection is assigned to its nearest
+    # primary row when within tolerance, so it cannot steal another row's unit.
     unique_anchors: list[dict[str, object]] = []
     for anchor in total_price_anchors:
-        anchor_y = float(anchor["y"])
-        duplicate = next(
-            (
-                row for row in unique_anchors
-                if abs(anchor_y - float(row["y"])) < 5.0
-            ),
+        y = float(anchor["y"])
+        existing = next(
+            (item for item in unique_anchors if abs(y - float(item["y"])) < 5.0),
             None,
         )
-        if duplicate is None:
+        if existing is None:
             unique_anchors.append(dict(anchor))
-        elif float(anchor["confidence"]) > float(duplicate["confidence"]):
-            duplicate.update(anchor)
+        elif float(anchor["confidence"]) > float(existing["confidence"]):
+            existing.update(anchor)
 
-    # Unit-price OCR is primarily field evidence; use it as a row anchor only
-    # when no total-price row accounts for that Y coordinate. This conservative
-    # rule prevents normal inter-column vertical drift from adding/removing rows.
     unique_unit_anchors: list[dict[str, object]] = []
     for anchor in unit_price_anchors:
-        anchor_y = float(anchor["y"])
-        duplicate = next(
-            (
-                row for row in unique_unit_anchors
-                if abs(anchor_y - float(row["y"])) < 5.0
-            ),
+        y = float(anchor["y"])
+        existing = next(
+            (item for item in unique_unit_anchors if abs(y - float(item["y"])) < 5.0),
             None,
         )
-        if duplicate is None:
+        if existing is None:
             unique_unit_anchors.append(dict(anchor))
-        elif float(anchor["confidence"]) > float(duplicate["confidence"]):
-            duplicate.update(anchor)
+        elif float(anchor["confidence"]) > float(existing["confidence"]):
+            existing.update(anchor)
 
-    for anchor in unique_unit_anchors:
-        anchor_y = float(anchor["y"])
+    # Unit-price-only detections are new row anchors only when no total row is
+    # close enough. Nearby unit-price detections are not dropped: they stay as
+    # field evidence and are matched below using the unit column's Y geometry.
+    unique_anchors.extend(
+        dict(anchor)
+        for anchor in unique_unit_anchors
         if not any(
-            abs(anchor_y - float(total["y"])) <= row_tolerance
+            abs(float(anchor["y"]) - float(total["y"])) <= row_tolerance
             for total in unique_anchors
-        ):
-            unique_anchors.append(dict(anchor))
-
+        )
+    )
     unique_anchors.sort(key=lambda item: float(item["y"]))
 
     if not unique_anchors:
