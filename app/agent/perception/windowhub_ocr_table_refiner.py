@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import re
 from dataclasses import dataclass, replace
 from typing import Any, Callable, Iterable
@@ -66,6 +67,8 @@ def _result_items(result: Any) -> list[tuple[str, float]]:
             confidence = float(scores[index]) if scores is not None and index < len(scores) else 0.0
         except (TypeError, ValueError, IndexError):
             confidence = 0.0
+        if not math.isfinite(confidence) or not 0.0 <= confidence <= 1.0:
+            continue
         output.append((str(text).strip(), confidence))
     return output
 
@@ -289,7 +292,13 @@ def refine_windowhub_ocr_table_lp(
                 points = np.asarray(boxes[index], dtype=float).reshape(-1, 2)
             except (TypeError, ValueError, IndexError):
                 continue
-            if confidence < min_confidence or not points.size or not np.isfinite(points).all():
+            if (
+                not math.isfinite(confidence)
+                or not 0.0 <= confidence <= 1.0
+                or confidence < min_confidence
+                or not points.size
+                or not np.isfinite(points).all()
+            ):
                 continue
             center_x = float(np.mean(points[:, 0]))
             center_y = float(np.mean(points[:, 1]))
