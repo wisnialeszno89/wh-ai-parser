@@ -14,37 +14,103 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 
-def _wait_for_window_foreground(window_handle: int, timeout_seconds: float = 45.0) -> bool:
-    """Wait for the user to focus the target WindowHub window; never set focus."""
-    if window_handle <= 0:
-        return False
+def _format_hwnd(value: int) -> str:
+    """Format a Windows handle for unambiguous diagnostic output."""
+    return f"0x{value:X}" if value > 0 else "0x0"
 
-    user32 = ctypes.WinDLL("user32", use_last_error=True)
+
+def _window_title(user32: object, window_handle: int) -> str:
+    """Read a window title for diagnostics without changing window state."""
+    if window_handle <= 0:
+        return ""
+    try:
+        get_length = user32.GetWindowTextLengthW
+        get_length.argtypes = (wintypes.HWND,)
+        get_length.restype = ctypes.c_int
+        get_text = user32.GetWindowTextW
+        get_text.argtypes = (wintypes.HWND, wintypes.LPWSTR, ctypes.c_int)
+        get_text.restype = ctypes.c_int
+        length = max(0, int(get_length(wintypes.HWND(window_handle))))
+        buffer = ctypes.create_unicode_buffer(min(length + 1, 2048))
+        get_text(wintypes.HWND(window_handle), buffer, len(buffer))
+        return buffer.value
+    except Exception as exc:
+        return f"<title read failed: {type(exc).__name__}: {exc}>"
+
+
+def _foreground_snapshot(user32: object) -> tuple[int, int, str]:
+    """Return foreground HWND, root-owner HWND and foreground title."""
     get_foreground = user32.GetForegroundWindow
     get_foreground.restype = wintypes.HWND
     get_ancestor = user32.GetAncestor
     get_ancestor.argtypes = (wintypes.HWND, wintypes.UINT)
     get_ancestor.restype = wintypes.HWND
+    foreground_handle = int(get_foreground() or 0)
+    root_owner_handle = (
+        int(get_ancestor(wintypes.HWND(foreground_handle), 3) or 0)
+        if foreground_handle > 0
+        else 0
+    )
+    return (
+        foreground_handle,
+        root_owner_handle,
+        _window_title(user32, foreground_handle),
+    )
 
+
+def _wait_for_window_foreground(window_handle: int, timeout_seconds: float = 45.0) -> bool:
+    """Wait for the user to focus the target WindowHub window; never set focus."""
+    if window_handle <= 0:
+        print("[FOCUS] Target WindowHub HWND is missing or invalid.")
+        return False
+
+    user32 = ctypes.WinDLL("user32", use_last_error=True)
     from app.agent.environment.window_focus import is_target_window_focused
 
     deadline = time.monotonic() + timeout_seconds
+    next_report = time.monotonic()
+    last_snapshot = (0, 0, "")
+    last_error = None
     while time.monotonic() < deadline:
         try:
-            foreground_handle = int(get_foreground() or 0)
-            root_owner_handle = (
-                int(get_ancestor(wintypes.HWND(foreground_handle), 3) or 0)
-                if foreground_handle > 0
-                else 0
-            )
+            last_snapshot = _foreground_snapshot(user32)
+            foreground_handle, root_owner_handle, _ = last_snapshot
             if is_target_window_focused(
                 window_handle, foreground_handle, root_owner_handle
             ):
+                print(
+                    "[FOCUS] Confirmed target: "
+                    f"target={_format_hwnd(window_handle)}, "
+                    f"foreground={_format_hwnd(foreground_handle)}, "
+                    f"root_owner={_format_hwnd(root_owner_handle)}, "
+                    f"title={last_snapshot[2]!r}"
+                )
                 return True
-        except Exception:
-            # Keep waiting if a transient Win32 query fails.
-            pass
+            last_error = None
+        except Exception as exc:
+            last_error = f"{type(exc).__name__}: {exc}"
+
+        now = time.monotonic()
+        if now >= next_report:
+            print(
+                "[FOCUS] Waiting: "
+                f"target={_format_hwnd(window_handle)}, "
+                f"foreground={_format_hwnd(last_snapshot[0])}, "
+                f"root_owner={_format_hwnd(last_snapshot[1])}, "
+                f"title={last_snapshot[2]!r}"
+                + (f", win32_error={last_error}" if last_error else "")
+            )
+            next_report = now + 5.0
         time.sleep(0.25)
+
+    print(
+        "[FOCUS] Timeout snapshot: "
+        f"target={_format_hwnd(window_handle)}, "
+        f"foreground={_format_hwnd(last_snapshot[0])}, "
+        f"root_owner={_format_hwnd(last_snapshot[1])}, "
+        f"title={last_snapshot[2]!r}"
+        + (f", win32_error={last_error}" if last_error else "")
+    )
     return False
 
 
@@ -80,6 +146,27 @@ def main() -> int:
     print(f"window_title={title!r}")
     print(f"window_focused={focused}")
     print(f"screenshot_source={observation.metadata.get('source')!r}")
+    for key in (
+        "window_handle",
+        "foreground_window_handle",
+        "foreground_root_owner_handle",
+    ):
+        value = observation.metadata.get(key)
+        try:
+            value = int(value)
+        except (TypeError, ValueError):
+            value = 0
+        print(f"{key}={_format_hwnd(value)}")
+    try:
+        initial_user32 = ctypes.WinDLL("user32", use_last_error=True)
+        foreground_handle, root_owner_handle, foreground_title = _foreground_snapshot(
+            initial_user32
+        )
+        print(f"foreground_window_title={foreground_title!r}")
+        print(f"foreground_hwnd_verified={_format_hwnd(foreground_handle)}")
+        print(f"foreground_root_owner_verified={_format_hwnd(root_owner_handle)}")
+    except Exception as exc:
+        print(f"foreground_diagnostics_error={type(exc).__name__}: {exc}")
 
     if not focused:
         if "OFR/" not in title.upper():
