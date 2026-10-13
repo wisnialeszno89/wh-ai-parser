@@ -12,6 +12,7 @@ from app.agent.environment.environment_observation import (
 from app.agent.environment.environment_state import (
     EnvironmentState,
 )
+from app.agent.environment.window_focus import is_target_window_focused
 from app.runtime.execution.window.window_rect import (
     WindowRect,
 )
