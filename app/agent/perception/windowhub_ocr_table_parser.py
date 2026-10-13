@@ -111,7 +111,7 @@ def parse_windowhub_ocr_table(
             continue
         items.append({"x": x, "y": center_y, "text": text, "confidence": confidence})
 
-    anchors: list[dict[str, object]] = []
+    lp_by_row: list[list[dict[str, object]]] = []
     for item in items:
         x = float(item["x"])
         y = float(item["y"])
@@ -123,42 +123,54 @@ def parse_windowhub_ocr_table(
         ):
             value = int(text)
             if value > 0:
-                anchors.append({**item, "lp": value})
-    anchors.sort(key=lambda item: float(item["y"]))
+                lp_by_row.append({**item, "lp": value})
+    lp_by_row.sort(key=lambda item: float(item["y"]))
 
+    # Price detections anchor physical table rows. LP is metadata attached to a
+    # row only when a digit is seen at that row's vertical position. This keeps
+    # rows whose LP OCR is missing instead of merging them into the next row.
+    price_anchors = [
+        {**item, "lp": None}
+        for item in items
+        if total_x_min <= float(item["x"]) < total_x_max
+        and min_center_y <= float(item["y"]) <= max_center_y
+        and _parse_money(str(item["text"])) is not None
+    ]
+    price_anchors.sort(
+        key=lambda item: (float(item["y"]), -float(item["confidence"]))
+    )
     unique_anchors: list[dict[str, object]] = []
-    for anchor in anchors:
-        duplicate = any(
-            anchor["lp"] == previous["lp"]
-            and abs(float(anchor["y"]) - float(previous["y"])) < 5
+    for anchor in price_anchors:
+        if not any(
+            abs(float(anchor["y"]) - float(previous["y"])) < 5
             for previous in unique_anchors
-        )
-        if not duplicate:
+        ):
             unique_anchors.append(anchor)
-
-    if not unique_anchors:
-        fallback_anchors = [
-            {**item, "lp": None}
-            for item in items
-            if total_x_min <= float(item["x"]) < total_x_max
-            and min_center_y <= float(item["y"]) <= max_center_y
-            and _parse_money(str(item["text"])) is not None
-        ]
-        fallback_anchors.sort(
-            key=lambda item: (float(item["y"]), -float(item["confidence"]))
-        )
-        deduplicated: list[dict[str, object]] = []
-        for anchor in fallback_anchors:
-            if not any(abs(float(anchor["y"]) - float(prev["y"])) < 5 for prev in deduplicated):
-                deduplicated.append(anchor)
-        unique_anchors = deduplicated
 
     if not unique_anchors:
         return ()
 
+    for anchor in unique_anchors:
+        row_y = float(anchor["y"])
+        candidates = [
+            item for item in lp_by_row
+            if abs(float(item["y"]) - row_y) <= row_tolerance
+        ]
+        candidates.sort(
+            key=lambda item: (
+                -float(item["confidence"]),
+                abs(float(item["y"]) - row_y),
+            )
+        )
+        if candidates:
+            anchor["lp"] = int(candidates[0]["lp"])
+            anchor["lp_source"] = "ocr"
+        else:
+            anchor["lp"] = None
+            anchor["lp_source"] = "price_column_row_order"
+
     for row_index, anchor in enumerate(unique_anchors, start=1):
         anchor["row_index"] = row_index
-        anchor["lp_source"] = "ocr" if anchor.get("lp") is not None else "price_column_row_order"
 
     assigned: list[list[dict[str, object]]] = [[] for _ in unique_anchors]
     for item in items:
