@@ -150,42 +150,66 @@ def parse_windowhub_ocr_table(
         key=lambda item: (float(item["y"]), -float(item["confidence"]))
     )
 
-    # Use gross-total column detections as the stable row anchors. Deduplicate
-    # only near-identical detections while preserving confidence and source.
+    # Deduplicate total-column detections first so they remain the preferred
+    # row centers when both price columns have OCR output.
     unique_anchors: list[dict[str, object]] = []
     for anchor in total_price_anchors:
-        y = float(anchor["y"])
-        matched = next(
-            (existing for existing in unique_anchors if abs(y - float(existing["y"])) < 5.0),
-            None,
-        )
-        if matched is None:
-            unique_anchors.append(dict(anchor))
-        elif float(anchor["confidence"]) > float(matched["confidence"]):
-            matched.update(anchor)
+        if not any(
+            abs(float(anchor["y"]) - float(previous["y"])) < 5
+            for previous in unique_anchors
+        ):
+            unique_anchors.append(anchor)
 
-    # Use unit-price detections as fallback row anchors only when a total-price
-    # anchor does not exist within tolerance. Unit-price detections themselves
-    # are retained as field evidence even when their Y coordinate drifts.
+    # Remove duplicate unit-price detections from the same physical row.
     unique_unit_anchors: list[dict[str, object]] = []
     for anchor in unit_price_anchors:
-        y = float(anchor["y"])
-        matched = next(
-            (existing for existing in unique_unit_anchors if abs(y - float(existing["y"])) < 5.0),
-            None,
-        )
-        if matched is None:
-            unique_unit_anchors.append(dict(anchor))
-        elif float(anchor["confidence"]) > float(matched["confidence"]):
-            matched.update(anchor)
+        if not any(
+            abs(float(anchor["y"]) - float(previous["y"])) < 5
+            for previous in unique_unit_anchors
+        ):
+            unique_unit_anchors.append(anchor)
+
+    # A unit-price token within row_tolerance of a total anchor normally belongs
+    # to that existing row. Exception: independent non-price columns may cluster
+    # closer to the unit-price token, proving it is the best available anchor
+    # for a separate row whose total-price OCR is missing.
+    def _support_column(x: float) -> str | None:
+        if 0 <= x < anchor_x_max:
+            return "lp"
+        if article_x_min <= x < article_x_max:
+            return "article"
+        if dimensions_x_min <= x < dimensions_x_max:
+            return "dimensions"
+        return None
 
     for anchor in unique_unit_anchors:
-        y = float(anchor["y"])
-        if not any(
-            abs(y - float(total["y"])) <= row_tolerance
-            for total in unique_anchors
-        ):
-            unique_anchors.append(dict(anchor))
+        candidate_y = float(anchor["y"])
+        nearby_anchors = [
+            previous for previous in unique_anchors
+            if abs(candidate_y - float(previous["y"])) <= row_tolerance
+        ]
+        if not nearby_anchors:
+            unique_anchors.append(anchor)
+            continue
+
+        supporting_columns: set[str] = set()
+        for item in items:
+            column = _support_column(float(item["x"]))
+            if column is None:
+                continue
+            item_y = float(item["y"])
+            candidate_distance = abs(item_y - candidate_y)
+            if candidate_distance > row_tolerance:
+                continue
+            nearest_existing_distance = min(
+                abs(item_y - float(previous["y"]))
+                for previous in unique_anchors
+            )
+            if candidate_distance + 1.0 < nearest_existing_distance:
+                supporting_columns.add(column)
+
+        if len(supporting_columns) >= 2:
+            unique_anchors.append(anchor)
 
     unique_anchors.sort(key=lambda item: float(item["y"]))
 
@@ -256,41 +280,14 @@ def parse_windowhub_ocr_table(
         anchor["row_index"] = row_index
 
     assigned: list[list[dict[str, object]]] = [[] for _ in unique_anchors]
-
-    # Assign price tokens using their own column's row matching. Gross-total
-    # anchors take precedence; unit-price detections match to the closest row
-    # within tolerance, and can never replace the primary row center.
     for item in items:
         y = float(item["y"])
-        x = float(item["x"])
-        eligible = [
-            index for index, anchor in enumerate(unique_anchors)
-            if abs(y - float(anchor["y"])) <= row_tolerance
-        ]
-        if not eligible:
-            continue
-
-        if total_x_min <= x < total_x_max:
-            price_anchors = [
-                index for index, anchor in enumerate(unique_anchors)
-                if abs(y - float(anchor["y"])) < 0.01
-                and str(anchor.get("anchor_source", "")) == "gross_total"
-            ]
-            target_index = min(
-                price_anchors or eligible,
-                key=lambda index: abs(y - float(unique_anchors[index]["y"])),
-            )
-        elif unit_x_min <= x < unit_x_max:
-            target_index = min(
-                eligible,
-                key=lambda index: abs(y - float(unique_anchors[index]["y"])),
-            )
-        else:
-            target_index = min(
-                eligible,
-                key=lambda index: abs(y - float(unique_anchors[index]["y"])),
-            )
-        assigned[target_index].append(item)
+        nearest_index = min(
+            range(len(unique_anchors)),
+            key=lambda index: abs(y - float(unique_anchors[index]["y"])),
+        )
+        if abs(y - float(unique_anchors[nearest_index]["y"])) <= row_tolerance:
+            assigned[nearest_index].append(item)
 
     rows: list[WindowHubOCRTableRow] = []
     for anchor, row_items in zip(unique_anchors, assigned):
