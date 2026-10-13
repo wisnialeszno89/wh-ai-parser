@@ -88,3 +88,12 @@ def test_never_overwrites_fields_already_present():
     assert rows[0].gross_unit == "1045.18"
     assert reports == ()
     assert engine.calls == 0
+
+def test_rejects_nonfinite_quantity_confidence():
+    engine = FakeEngine([response(["1 Okno"], [float("nan")]), response(["1 Okno"], [float("nan")])])
+    rows, reports = refine_windowhub_ocr_table_rows([row()], np.zeros((400, 700, 3), dtype=np.uint8), engine)
+    assert rows[0].quantity is None
+    assert "quantity" in rows[0].missing_fields
+    assert not reports[0].accepted
+    assert reports[0].reason == "no_valid_candidate"
+
