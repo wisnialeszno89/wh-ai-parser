@@ -318,26 +318,51 @@ def refine_windowhub_ocr_table_lp(
         if abs(input_rows[nearest].center_y - candidate[3]) <= row_tolerance:
             detections_by_row[nearest].append(candidate)
 
+    # First collect the best per-row candidate, then check uniqueness across
+    # the whole table. Two rows must not both receive the same LP simply
+    # because the OCR engine confidently misread one of them.
+    row_candidate_info: dict[int, tuple[set[int], tuple[str, ...], float]] = {}
+    proposals_by_value: dict[int, list[int]] = {}
+    fixed_lp_values = {row.lp for row in input_rows if row.lp is not None}
+    for index, row in enumerate(input_rows):
+        if row.lp is not None:
+            continue
+        row_candidates = detections_by_row[index]
+        distinct_values = {item[0] for item in row_candidates}
+        sources = tuple(sorted({item[2] for item in row_candidates}))
+        confidence = max((item[1] for item in row_candidates), default=0.0)
+        row_candidate_info[index] = (distinct_values, sources, confidence)
+        if len(distinct_values) == 1:
+            candidate_value = next(iter(distinct_values))
+            proposals_by_value.setdefault(candidate_value, []).append(index)
+
     refined_rows: list[WindowHubOCRTableRow] = []
     reports: list[WindowHubOCRFieldRefinement] = []
     for index, row in enumerate(input_rows):
         if row.lp is not None:
             refined_rows.append(row)
             continue
-        row_candidates = detections_by_row[index]
-        distinct_values = {item[0] for item in row_candidates}
-        sources = tuple(sorted({item[2] for item in row_candidates}))
-        confidence = max((item[1] for item in row_candidates), default=0.0)
-        if len(distinct_values) == 1:
-            value = next(iter(distinct_values))
-            updated = replace(row, lp=value, lp_source="ocr_column")
-            accepted, reason = True, "unique_valid_candidate"
-        elif len(distinct_values) > 1:
+
+        distinct_values, sources, confidence = row_candidate_info[index]
+        if len(distinct_values) > 1:
             value, updated = None, row
             accepted, reason = False, "conflicting_candidates"
-        else:
+        elif not distinct_values:
             value, updated = None, row
             accepted, reason = False, "no_valid_candidate"
+        else:
+            candidate_value = next(iter(distinct_values))
+            value = candidate_value
+            if candidate_value in fixed_lp_values:
+                updated = row
+                accepted, reason = False, "duplicate_lp_existing_row"
+            elif len(proposals_by_value[candidate_value]) > 1:
+                updated = row
+                accepted, reason = False, "duplicate_lp_across_rows"
+            else:
+                updated = replace(row, lp=candidate_value, lp_source="ocr_column")
+                accepted, reason = True, "unique_valid_candidate"
+
         fields = {
             "lp": updated.lp, "quantity": updated.quantity, "article": updated.article,
             "gross_total": updated.gross_total, "gross_unit": updated.gross_unit,
