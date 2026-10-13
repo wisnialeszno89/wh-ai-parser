@@ -150,8 +150,8 @@ def parse_windowhub_ocr_table(
         key=lambda item: (float(item["y"]), -float(item["confidence"]))
     )
 
-    # Deduplicate total-column detections first so they remain the preferred
-    # row centers when both price columns have OCR output.
+    # Deduplicate total-price detections first; these remain the stable
+    # primary row centers wherever this column provides a usable OCR value.
     unique_anchors: list[dict[str, object]] = []
     for anchor in total_price_anchors:
         if not any(
@@ -160,7 +160,10 @@ def parse_windowhub_ocr_table(
         ):
             unique_anchors.append(anchor)
 
-    # Remove duplicate unit-price detections from the same physical row.
+    # Deduplicate unit-price detections independently. A unit-price token near
+    # any total-price anchor is normally assigned to that row; only consider it
+    # a separate row when two independent non-price columns corroborate the
+    # candidate center AND it is not better explained by another total anchor.
     unique_unit_anchors: list[dict[str, object]] = []
     for anchor in unit_price_anchors:
         if not any(
@@ -169,9 +172,6 @@ def parse_windowhub_ocr_table(
         ):
             unique_unit_anchors.append(anchor)
 
-    # Fuse the two price columns using monotonic row matching. A unit-price
-    # token that has a nearby total-price anchor is attached to that anchor
-    # unless independent detections corroborate a distinct physical row.
     def _support_column(x: float) -> str | None:
         if 0 <= x < anchor_x_max:
             return "lp"
@@ -183,11 +183,11 @@ def parse_windowhub_ocr_table(
 
     for anchor in unique_unit_anchors:
         candidate_y = float(anchor["y"])
-        nearby = [
-            existing for existing in unique_anchors
-            if abs(candidate_y - float(existing["y"])) <= row_tolerance
-        ]
-        if not nearby:
+        nearest_total_distance = min(
+            (abs(candidate_y - float(existing["y"])) for existing in unique_anchors),
+            default=float("inf"),
+        )
+        if nearest_total_distance > row_tolerance:
             unique_anchors.append(anchor)
             continue
 
@@ -200,11 +200,15 @@ def parse_windowhub_ocr_table(
             candidate_distance = abs(item_y - candidate_y)
             if candidate_distance > row_tolerance:
                 continue
-            existing_distance = min(
+
+            distances_to_totals = [
                 abs(item_y - float(existing["y"]))
                 for existing in unique_anchors
-            )
-            if candidate_distance + 1.0 < existing_distance:
+            ]
+            nearest_existing_distance = min(distances_to_totals, default=float("inf"))
+            # If an observation is itself a gross-total price anchor, it cannot
+            # corroborate the new unit-price row; it is already accounted for.
+            if candidate_distance + 1.0 < nearest_existing_distance:
                 supporting_columns.add(column)
 
         if len(supporting_columns) >= 2:
