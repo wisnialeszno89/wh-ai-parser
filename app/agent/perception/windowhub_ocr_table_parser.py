@@ -160,6 +160,15 @@ def parse_windowhub_ocr_table(
         ):
             unique_anchors.append(anchor)
 
+    # Remove duplicate unit-price detections from the same physical row.
+    unique_unit_anchors: list[dict[str, object]] = []
+    for anchor in unit_price_anchors:
+        if not any(
+            abs(float(anchor["y"]) - float(previous["y"])) < 5
+            for previous in unique_unit_anchors
+        ):
+            unique_unit_anchors.append(anchor)
+
     # Fuse the two price columns using monotonic row matching. A unit-price
     # token that has a nearby total-price anchor is attached to that anchor
     # unless independent detections corroborate a distinct physical row.
