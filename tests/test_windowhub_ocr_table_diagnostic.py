@@ -1,0 +1,51 @@
+from types import SimpleNamespace
+
+from tools.inspect_windowhub_ocr_table import (
+    _classify_table_region_detections,
+)
+
+
+def detection(text, x, center_y=220.0, *, confidence=0.99):
+    return SimpleNamespace(
+        label=text,
+        x=x,
+        y=center_y - 4,
+        width=max(8, len(text) * 7),
+        height=8,
+        confidence=confidence,
+    )
+
+
+def test_diagnostic_preserves_raw_detections_for_each_table_column():
+    elements = [
+        detection("4", 120),
+        detection("2 Okno", 210),
+        detection("1045,18", 420),
+        detection("522,59", 530),
+        detection("1320x1345", 1120),
+        detection("irrelevant UI label", 800),
+        detection("outside vertical table region", 420, 390),
+    ]
+
+    result = _classify_table_region_detections(elements)
+
+    assert [item["text"] for item in result["lp_column_ocr_detections"]] == ["4"]
+    assert [item["text"] for item in result["quantity_article_ocr_detections"]] == ["2 Okno"]
+    assert [item["text"] for item in result["gross_total_ocr_detections"]] == ["1045,18"]
+    assert [item["text"] for item in result["gross_unit_ocr_detections"]] == ["522,59"]
+    assert [item["text"] for item in result["dimensions_ocr_detections"]] == ["1320x1345"]
+    assert len(result["table_region_ocr_detections"]) == 5
+
+
+def test_diagnostic_skips_malformed_and_invalid_detections():
+    elements = [
+        object(),
+        SimpleNamespace(label="invalid", x=None, y=200, width=20, height=8, confidence=0.9),
+        detection("low area", 420, 380),
+        detection("outside x", 700, 220),
+    ]
+
+    result = _classify_table_region_detections(elements)
+
+    assert result["table_region_ocr_detections"] == []
+    assert result["gross_total_ocr_detections"] == []
