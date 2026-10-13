@@ -88,3 +88,19 @@ def test_rejects_nonfinite_lp_confidence():
     assert not reports[0].accepted
     assert reports[0].reason == "no_valid_candidate"
 
+
+
+def test_recovers_lp_for_last_row_near_parser_vertical_limit():
+    rows = (row(10, 345.0),)
+    engine = BoxEngine([
+        result([("21", 0.999, 345.0)]),
+        result([("21", 0.999, 345.0)]),
+    ])
+    refined, reports = refine_windowhub_ocr_table_lp(
+        rows, np.zeros((400, 200, 3), dtype=np.uint8), engine
+    )
+    assert refined[0].lp == 21
+    assert refined[0].lp_source == "ocr_column"
+    assert "lp" not in refined[0].missing_fields
+    assert reports[0].accepted
+    assert reports[0].reason == "unique_valid_candidate"
