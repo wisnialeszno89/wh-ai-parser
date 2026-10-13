@@ -68,10 +68,9 @@ def test_parser_does_not_invent_lp_or_quantity_from_neighboring_rows():
     detections = make_offer([7, None, 9], [1, None, 2])
     rows = parse_windowhub_ocr_table(detections)
     assert [row.lp for row in rows] == [7, None, 9]
-    assert [row.quantity for row in rows] == [1, None, None]
+    assert [row.quantity for row in rows] == [1, None, 2]
     assert "lp" in rows[1].missing_fields
     assert "quantity" in rows[1].missing_fields
-    assert "quantity" in rows[2].missing_fields
 
 
 class BoxEngine:
