@@ -160,19 +160,9 @@ def parse_windowhub_ocr_table(
         ):
             unique_anchors.append(anchor)
 
-    # Remove duplicate unit-price detections from the same physical row.
-    unique_unit_anchors: list[dict[str, object]] = []
-    for anchor in unit_price_anchors:
-        if not any(
-            abs(float(anchor["y"]) - float(previous["y"])) < 5
-            for previous in unique_unit_anchors
-        ):
-            unique_unit_anchors.append(anchor)
-
-    # A unit-price token within row_tolerance of a total anchor normally belongs
-    # to that existing row. Exception: independent non-price columns may cluster
-    # closer to the unit-price token, proving it is the best available anchor
-    # for a separate row whose total-price OCR is missing.
+    # Fuse the two price columns using monotonic row matching. A unit-price
+    # token that has a nearby total-price anchor is attached to that anchor
+    # unless independent detections corroborate a distinct physical row.
     def _support_column(x: float) -> str | None:
         if 0 <= x < anchor_x_max:
             return "lp"
@@ -184,11 +174,11 @@ def parse_windowhub_ocr_table(
 
     for anchor in unique_unit_anchors:
         candidate_y = float(anchor["y"])
-        nearby_anchors = [
-            previous for previous in unique_anchors
-            if abs(candidate_y - float(previous["y"])) <= row_tolerance
+        nearby = [
+            existing for existing in unique_anchors
+            if abs(candidate_y - float(existing["y"])) <= row_tolerance
         ]
-        if not nearby_anchors:
+        if not nearby:
             unique_anchors.append(anchor)
             continue
 
@@ -201,11 +191,11 @@ def parse_windowhub_ocr_table(
             candidate_distance = abs(item_y - candidate_y)
             if candidate_distance > row_tolerance:
                 continue
-            nearest_existing_distance = min(
-                abs(item_y - float(previous["y"]))
-                for previous in unique_anchors
+            existing_distance = min(
+                abs(item_y - float(existing["y"]))
+                for existing in unique_anchors
             )
-            if candidate_distance + 1.0 < nearest_existing_distance:
+            if candidate_distance + 1.0 < existing_distance:
                 supporting_columns.add(column)
 
         if len(supporting_columns) >= 2:
