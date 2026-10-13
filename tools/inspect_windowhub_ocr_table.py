@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import os
-import sys
 
 
 def main() -> int:
@@ -11,8 +10,7 @@ def main() -> int:
         print("ABORTED: this diagnostic requires Windows.")
         return 2
 
-    # Import the repository only after the platform guard so this file can be
-    # inspected or syntax-checked elsewhere without importing Windows modules.
+    # Import Windows-specific repository modules only after the platform guard.
     from app.agent.environment.windowhub_environment_adapter import (
         WindowHubEnvironmentAdapter,
     )
@@ -26,7 +24,10 @@ def main() -> int:
     try:
         observation = WindowHubEnvironmentAdapter().observe()
     except Exception as exc:
-        print(f"ABORTED: could not capture WindowHub observation: {type(exc).__name__}: {exc}")
+        print(
+            "ABORTED: could not capture WindowHub observation: "
+            f"{type(exc).__name__}: {exc}"
+        )
         return 3
 
     title = str(getattr(observation.state, "active_window_title", "") or "")
@@ -48,11 +49,13 @@ def main() -> int:
         print("Open the intended offer table, keep it in the foreground, and rerun.")
         return 5
 
-    provider = WindowHubOCRProvider()
     try:
-        elements = provider.perceive(observation)
+        elements = WindowHubOCRProvider().perceive(observation)
     except Exception as exc:
-        print(f"ABORTED: OCR provider failed unexpectedly: {type(exc).__name__}: {exc}")
+        print(
+            f"ABORTED: OCR provider failed unexpectedly: "
+            f"{type(exc).__name__}: {exc}"
+        )
         return 6
 
     metadata = observation.metadata
@@ -86,8 +89,9 @@ def main() -> int:
     print()
     print(json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True))
 
-    table_status = summary["table_status"]
-    if table_status == "error":
+    if summary["ocr_status"] == "error":
+        return 9
+    if summary["table_status"] == "error":
         return 7
     if summary["table_row_count"] <= 0:
         return 8
