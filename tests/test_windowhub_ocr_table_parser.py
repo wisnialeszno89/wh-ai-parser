@@ -113,6 +113,63 @@ def test_keeps_missing_total_row_when_unit_price_is_near_previous_row():
     ]
 
 
+
+def test_does_not_create_extra_row_from_vertical_drift_across_price_columns():
+    # The unit prices for two distinct rows land only three pixels apart.
+    # Row anchors and the other columns make it safe to assign them separately.
+    items = [
+        element("1 Okno", 210, 223.0),
+        element("1000,00", 420, 223.0),
+        element("800,00", 530, 227.0),
+        element("1200x1350", 1120, 223.0),
+        element("1", 120, 223.0),
+
+        element("1 Okno", 210, 237.0),
+        element("995,00", 420, 237.0),
+        element("795,00", 530, 230.0),
+        element("1300x1350", 1120, 237.0),
+        element("2", 120, 237.0),
+
+        element("1 Okno", 210, 251.0),
+        element("1010,00", 420, 251.0),
+        element("810,00", 530, 255.0),
+        element("1400x1350", 1120, 251.0),
+        element("3", 120, 251.0),
+    ]
+
+    rows = parse_windowhub_ocr_table(items)
+
+    assert len(rows) == 3
+    assert [row.lp for row in rows] == [1, 2, 3]
+    assert [row.gross_total for row in rows] == [
+        "1000.00", "995.00", "1010.00"
+    ]
+    assert [row.gross_unit for row in rows] == [
+        "800.00", "795.00", "810.00"
+    ]
+
+
+def test_ambiguous_unit_price_between_rows_is_not_guessed():
+    items = [
+        element("1 Okno", 210, 223.0),
+        element("1000,00", 420, 223.0),
+        element("1200x1350", 1120, 223.0),
+        element("1", 120, 223.0),
+        element("1 Okno", 210, 237.0),
+        element("995,00", 420, 237.0),
+        element("1300x1350", 1120, 237.0),
+        element("2", 120, 237.0),
+        # Exactly halfway between the two row anchors, with no other unit
+        # price token to establish which row it belongs to.
+        element("795,00", 530, 230.0),
+    ]
+
+    rows = parse_windowhub_ocr_table(items)
+
+    assert len(rows) == 2
+    assert [row.gross_unit for row in rows] == [None, None]
+
+
 def test_prefers_total_price_anchor_when_both_price_columns_are_detected():
     items = [
         element("1 Okno", 210, 223.0),
