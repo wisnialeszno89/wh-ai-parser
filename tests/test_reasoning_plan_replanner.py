@@ -9,6 +9,8 @@ from app.agent.environment.environment_state import (
     EnvironmentState,
 )
 from app.agent.perception.screen_scene import ScreenScene
+from app.agent.perception.windowhub_ocr_table_parser import WindowHubOCRTableRow
+from app.agent.perception.windowhub_ocr_table_pipeline import WindowHubOCRTableReconstruction
 from app.agent.planning.action_plan import ActionPlan
 from app.agent.planning.action_step import ActionStep
 from app.agent.reasoning.plan_reasoner import PlanReasoner
@@ -300,3 +302,73 @@ def test_reasoning_replanner_rejects_invalid_confidence():
     )
 
     assert result is None
+
+def test_reasoning_replanner_preserves_incomplete_ocr_table_after_verification_failure():
+    row = WindowHubOCRTableRow(
+        row_index=1,
+        lp=None,
+        lp_source="price_column_row_order",
+        quantity=None,
+        article="Okno",
+        gross_total="1045.18",
+        gross_unit="522.59",
+        dimensions="1320 x 1345",
+        center_y=223.9,
+        missing_fields=("lp", "quantity"),
+    )
+    reconstruction = WindowHubOCRTableReconstruction(
+        rows=(row,),
+        field_refinements=(),
+        lp_refinements=(),
+    )
+    base_context = create_context()
+    scene = ScreenScene(
+        observation=base_context.last_observation,
+        elements=(),
+        metadata={
+            "windowhub_ocr_table_reconstruction": reconstruction,
+        },
+    )
+    context = ExecutionContext(
+        request=base_context.request,
+        last_observation=base_context.last_observation,
+        current_scene=scene,
+    )
+    reasoner = RecordingReasoner(
+        proposal=ReasoningProposal(
+            actions=(
+                ReasoningAction(
+                    name="recover_action",
+                    description="Continue using the observed offer state.",
+                ),
+            ),
+            rationale="Retain observed fields and do not guess missing values.",
+            confidence=0.8,
+        )
+    )
+    replanner = ReasoningPlanReplanner(reasoner)
+    plan = create_plan()
+
+    result = replanner.replan(
+        plan=plan,
+        failed_step=plan.steps[0],
+        execution_result=create_execution_result(),
+        context=context,
+    )
+
+    assert result is not None
+    assert len(reasoner.contexts) == 1
+    payload = reasoner.contexts[0].to_payload()
+    table = payload["scene"]["metadata"]["structured_data"]["windowhub_ocr_table"]
+    serialized_row = table["rows"][0]
+
+    assert table["status"] == "partial"
+    assert serialized_row["complete"] is False
+    assert serialized_row["lp"] is None
+    assert serialized_row["quantity"] is None
+    assert serialized_row["missing_fields"] == ["lp", "quantity"]
+    assert "center_y" not in serialized_row
+    assert "coordinates" not in payload["scene"]["metadata"]
+    import json
+    json.dumps(payload, ensure_ascii=False)
+
