@@ -10,25 +10,27 @@ class FakeEngine:
     def __init__(self, responses):
         self.responses = list(responses)
         self.calls = 0
+        self.image_shapes = []
 
     def __call__(self, image):
         self.calls += 1
+        self.image_shapes.append(image.shape[:2])
         if not self.responses:
             raise AssertionError("FakeEngine received an unexpected call")
         texts, scores = self.responses.pop(0)
         return SimpleNamespace(txts=texts, scores=scores)
 
 
-def row(*, quantity=None, unit="1045.18"):
+def row(*, row_index=1, center_y=220.0, quantity=None, unit="1045.18"):
     missing = []
     if quantity is None:
         missing.append("quantity")
     if unit is None:
         missing.append("gross_unit")
     return WindowHubOCRTableRow(
-        row_index=1, lp=None, lp_source="price_column_row_order",
+        row_index=row_index, lp=None, lp_source="price_column_row_order",
         quantity=quantity, article="Okno", gross_total="1045.18",
-        gross_unit=unit, dimensions="1320 x 1345", center_y=220.0,
+        gross_unit=unit, dimensions="1320 x 1345", center_y=center_y,
         missing_fields=tuple(missing),
     )
 
@@ -44,6 +46,32 @@ def test_recovers_quantity_when_article_matches_in_both_variants():
     assert "quantity" not in rows[0].missing_fields
     assert reports[0].accepted
     assert reports[0].candidate_value == 1
+
+
+def test_recovers_split_quantity_and_article_in_row_local_bands():
+    # Some OCR results split the quantity digit and article into separate
+    # tokens. Each variant may combine them only inside the same row crop.
+    split = response(["1", "Okno"], [0.93, 0.96])
+    engine = FakeEngine([split, split, split, split, split, split])
+    rows, reports = refine_windowhub_ocr_table_rows(
+        [
+            row(row_index=1, center_y=220.0),
+            row(row_index=2, center_y=240.0),
+            row(row_index=3, center_y=280.0),
+        ],
+        np.zeros((400, 700, 3), dtype=np.uint8),
+        engine,
+    )
+
+    assert [item.quantity for item in rows] == [1, 1, 1]
+    assert [report.accepted for report in reports] == [True, True, True]
+    # Row bands are split at neighbouring-row midpoints; wider gaps allow
+    # larger crop bands without pulling a neighbouring row into the same crop.
+    assert engine.image_shapes == [
+        (80, 760), (80, 760),
+        (120, 760), (120, 760),
+        (160, 760), (160, 760),
+    ]
 
 
 def test_rejects_false_quantity_when_article_does_not_match():
