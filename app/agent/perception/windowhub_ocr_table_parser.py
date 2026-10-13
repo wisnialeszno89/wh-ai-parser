@@ -150,81 +150,46 @@ def parse_windowhub_ocr_table(
         key=lambda item: (float(item["y"]), -float(item["confidence"]))
     )
 
-    # Total-price detections are the primary row anchors. Keep the rows and
-    # centers stable when both price columns are visible; small vertical drift
-    # in unit-price OCR should never create another row by itself.
+    # Total-price detections are the primary row anchors. Deduplicate close
+    # detections in this column, preferring the higher-confidence observation.
     unique_anchors: list[dict[str, object]] = []
     for anchor in total_price_anchors:
-        if not any(
-            abs(float(anchor["y"]) - float(previous["y"])) < 5
-            for previous in unique_anchors
-        ):
+        match_index = next(
+            (
+                index for index, previous in enumerate(unique_anchors)
+                if abs(float(anchor["y"]) - float(previous["y"])) < 5
+            ),
+            None,
+        )
+        if match_index is None:
             unique_anchors.append(anchor)
+        elif float(anchor["confidence"]) > float(unique_anchors[match_index]["confidence"]):
+            unique_anchors[match_index] = anchor
 
-    # Deduplicate unit prices before deciding whether one can represent a
-    # missing-total row.
+    # A unit-price-only row is added only when its Y position is not already
+    # covered by the gross-total column. We deliberately avoid splitting nearby
+    # rows based on other columns: that can misassign a price under OCR drift.
     unique_unit_anchors: list[dict[str, object]] = []
     for anchor in unit_price_anchors:
-        if not any(
-            abs(float(anchor["y"]) - float(previous["y"])) < 5
-            for previous in unique_unit_anchors
-        ):
+        match_index = next(
+            (
+                index for index, previous in enumerate(unique_unit_anchors)
+                if abs(float(anchor["y"]) - float(previous["y"])) < 5
+            ),
+            None,
+        )
+        if match_index is None:
             unique_unit_anchors.append(anchor)
+        elif float(anchor["confidence"]) > float(unique_unit_anchors[match_index]["confidence"]):
+            unique_unit_anchors[match_index] = anchor
 
-    def _support_column(x: float) -> str | None:
-        if 0 <= x < anchor_x_max:
-            return "lp"
-        if article_x_min <= x < article_x_max:
-            return "article"
-        if dimensions_x_min <= x < dimensions_x_max:
-            return "dimensions"
-        return None
-
-    # Assign each non-price detection to the nearest existing total-price row.
-    # This prevents a token from being counted as support for multiple rows.
-    total_centers = [float(anchor["y"]) for anchor in unique_anchors]
     for anchor in unique_unit_anchors:
         candidate_y = float(anchor["y"])
-        nearest_total_distance = min(
-            (abs(candidate_y - center) for center in total_centers),
-            default=float("inf"),
-        )
-        if nearest_total_distance > row_tolerance:
+        if not any(
+            abs(candidate_y - float(total_anchor["y"])) <= row_tolerance
+            for total_anchor in unique_anchors
+        ):
             unique_anchors.append(anchor)
-            total_centers.append(candidate_y)
-            continue
-
-        # If the token is only a few pixels from an existing total anchor,
-        # prefer that total anchor: these are two detections of the same row
-        # unless the evidence is strong enough to prove otherwise.
-        if nearest_total_distance < 5.0:
-            continue
-
-        # A unit price near a total anchor is presumed to belong to that row.
-        # Retain it as a separate physical row only if distinct evidence from
-        # at least two independent structural columns is clearly closer to it.
-        supporting_columns: set[str] = set()
-        for item in items:
-            column = _support_column(float(item["x"]))
-            if column is None:
-                continue
-            item_y = float(item["y"])
-            candidate_distance = abs(item_y - candidate_y)
-            if candidate_distance > row_tolerance:
-                continue
-            nearest_total = min(
-                (abs(item_y - center) for center in total_centers),
-                default=float("inf"),
-            )
-            if candidate_distance + 1.0 < nearest_total:
-                supporting_columns.add(column)
-
-        # Very close price anchors are commonly column alignment drift. Use a
-        # missing-total fallback only when the candidate is not just a shifted
-        # duplicate of an existing primary row.
-        if len(supporting_columns) >= 2 and nearest_total_distance >= 5.0:
-            unique_anchors.append(anchor)
-            total_centers.append(candidate_y)
 
     unique_anchors.sort(key=lambda item: float(item["y"]))
 
