@@ -254,6 +254,14 @@ def main() -> int:
         "window_focused": focused,
         "ocr_status": metadata.get("windowhub_ocr_status"),
         "table_region_ocr_detections": table_region_detections,
+        "lp_column_ocr_detections": [
+            item for item in table_region_detections
+            if 90 <= item["x"] < 180
+        ],
+        "quantity_article_ocr_detections": [
+            item for item in table_region_detections
+            if 185 <= item["x"] < 380
+        ],
         "ocr_element_count": metadata.get("windowhub_ocr_element_count", len(elements)),
         "table_status": metadata.get("windowhub_ocr_table_status", "not_available"),
         "table_error_type": metadata.get("windowhub_ocr_table_error"),
