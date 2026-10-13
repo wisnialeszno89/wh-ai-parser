@@ -33,6 +33,7 @@ jobs:
             tests/test_windowhub_ocr_table_refiner.py \
             tests/test_windowhub_ocr_table_lp_refiner.py \
             tests/test_windowhub_ocr_table_pipeline.py \
+            tests/test_windowhub_ocr_table_multioffer_regression.py \
             tests/test_windowhub_ocr_table_runtime_integration.py \
             tests/test_windowhub_ocr_table_task_context.py \
             tests/test_windowhub_environment_adapter_focus.py \
