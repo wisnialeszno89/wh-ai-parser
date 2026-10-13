@@ -131,6 +131,10 @@ class TaskPlanningContext:
                 table_payload = serializer()
             except Exception:
                 table_payload = None
-            if isinstance(table_payload, dict):
+            world_metadata = getattr(self.world, "metadata", {}) or {}
+            table_already_in_world = isinstance(
+                world_metadata.get("windowhub_ocr_table"), dict
+            )
+            if isinstance(table_payload, dict) and not table_already_in_world:
                 payload["structured_data"] = {"windowhub_ocr_table": table_payload}
         return payload
