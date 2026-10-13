@@ -1,14 +1,34 @@
 from __future__ import annotations
 
+import ctypes
 import json
 import os
 import sys
+import time
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
+
+
+def _wait_for_window_foreground(window_handle: int, timeout_seconds: float = 45.0) -> bool:
+    """Wait for the user to focus the target WindowHub window; never set focus."""
+    if window_handle <= 0:
+        return False
+
+    user32 = ctypes.WinDLL("user32", use_last_error=True)
+    deadline = time.monotonic() + timeout_seconds
+    while time.monotonic() < deadline:
+        try:
+            foreground_handle = int(user32.GetForegroundWindow())
+        except Exception:
+            foreground_handle = 0
+        if foreground_handle == window_handle:
+            return True
+        time.sleep(0.25)
+    return False
 
 
 def main() -> int:
@@ -28,8 +48,9 @@ def main() -> int:
     print("No focus changes, clicks, typing, or other GUI actions will be performed.")
     print()
 
+    environment = WindowHubEnvironmentAdapter()
     try:
-        observation = WindowHubEnvironmentAdapter().observe()
+        observation = environment.observe()
     except Exception as exc:
         print(
             "ABORTED: could not capture WindowHub observation: "
@@ -44,11 +65,43 @@ def main() -> int:
     print(f"screenshot_source={observation.metadata.get('source')!r}")
 
     if not focused:
+        if "OFR/" not in title.upper():
+            print()
+            print("ABORTED: the detected WindowHub title does not identify an OFR/ offer.")
+            print("Open the intended offer table and rerun.")
+            return 5
+
+        window_handle = observation.metadata.get("window_handle")
+        try:
+            window_handle = int(window_handle)
+        except (TypeError, ValueError):
+            window_handle = 0
+
         print()
-        print("ABORTED: WindowHub is not the foreground window.")
-        print("Bring the intended WindowHub OFR table to the foreground and rerun.")
-        print("This diagnostic will not activate or focus a window for you.")
-        return 4
+        print("WindowHub is not currently the foreground window.")
+        print("Click the intended WindowHub offer now; waiting up to 45 seconds.")
+        print("This tool will not activate or focus the window for you.")
+        if not _wait_for_window_foreground(window_handle):
+            print("ABORTED: WindowHub did not become the foreground window in time.")
+            return 4
+
+        # Capture a fresh frame after the user has focused the exact target HWND.
+        try:
+            observation = environment.observe()
+        except Exception as exc:
+            print(
+                "ABORTED: could not recapture focused WindowHub: "
+                f"{type(exc).__name__}: {exc}"
+            )
+            return 3
+
+        title = str(getattr(observation.state, "active_window_title", "") or "")
+        focused = observation.metadata.get("window_focused") is True
+        print(f"window_title={title!r}")
+        print(f"window_focused={focused}")
+        if not focused:
+            print("ABORTED: the fresh observation still does not confirm WindowHub focus.")
+            return 4
 
     if "OFR/" not in title.upper():
         print()
