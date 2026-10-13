@@ -126,26 +126,52 @@ def parse_windowhub_ocr_table(
                 lp_by_row.append({**item, "lp": value})
     lp_by_row.sort(key=lambda item: float(item["y"]))
 
-    # Price detections anchor physical table rows. LP is metadata attached to a
-    # row only when a digit is seen at that row's vertical position. This keeps
-    # rows whose LP OCR is missing instead of merging them into the next row.
-    price_anchors = [
-        {**item, "lp": None}
+    # Price detections anchor physical table rows. Prefer the gross-total
+    # column when present, but use the unit-price column as a fallback so a
+    # missing total-price OCR token does not erase an otherwise visible row.
+    total_price_anchors = [
+        {**item, "lp": None, "anchor_source": "gross_total"}
         for item in items
         if total_x_min <= float(item["x"]) < total_x_max
         and min_center_y <= float(item["y"]) <= max_center_y
         and _parse_money(str(item["text"])) is not None
     ]
-    price_anchors.sort(
+    unit_price_anchors = [
+        {**item, "lp": None, "anchor_source": "gross_unit"}
+        for item in items
+        if unit_x_min <= float(item["x"]) < unit_x_max
+        and min_center_y <= float(item["y"]) <= max_center_y
+        and _parse_money(str(item["text"])) is not None
+    ]
+    total_price_anchors.sort(
         key=lambda item: (float(item["y"]), -float(item["confidence"]))
     )
+    unit_price_anchors.sort(
+        key=lambda item: (float(item["y"]), -float(item["confidence"]))
+    )
+
+    # Deduplicate total-column detections first so they remain the preferred
+    # row centers when both price columns have OCR output.
     unique_anchors: list[dict[str, object]] = []
-    for anchor in price_anchors:
+    for anchor in total_price_anchors:
         if not any(
             abs(float(anchor["y"]) - float(previous["y"])) < 5
             for previous in unique_anchors
         ):
             unique_anchors.append(anchor)
+
+    # Unit-price detections become anchors only when no total-price anchor is
+    # close enough to represent the same row. If two rows are too close to
+    # distinguish safely, the existing anchor wins rather than duplicating it.
+    for anchor in unit_price_anchors:
+        if any(
+            abs(float(anchor["y"]) - float(previous["y"])) <= row_tolerance
+            for previous in unique_anchors
+        ):
+            continue
+        unique_anchors.append(anchor)
+
+    unique_anchors.sort(key=lambda item: float(item["y"]))
 
     if not unique_anchors:
         return ()
