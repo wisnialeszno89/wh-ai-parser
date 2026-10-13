@@ -257,14 +257,41 @@ def parse_windowhub_ocr_table(
         anchor["row_index"] = row_index
 
     assigned: list[list[dict[str, object]]] = [[] for _ in unique_anchors]
+
+    # Match each OCR field within its own column rather than assigning every
+    # token to the nearest row center globally. The total-price column defines
+    # row centers; unit prices may have a different systematic vertical offset.
     for item in items:
+        x = float(item["x"])
         y = float(item["y"])
-        nearest_index = min(
-            range(len(unique_anchors)),
-            key=lambda index: abs(y - float(unique_anchors[index]["y"])),
-        )
-        if abs(y - float(unique_anchors[nearest_index]["y"])) <= row_tolerance:
-            assigned[nearest_index].append(item)
+        if total_x_min <= x < total_x_max:
+            preferred_source = "gross_total"
+        elif unit_x_min <= x < unit_x_max:
+            preferred_source = "gross_unit"
+        else:
+            preferred_source = None
+
+        eligible = [
+            index for index, anchor in enumerate(unique_anchors)
+            if abs(y - float(anchor["y"])) <= row_tolerance
+        ]
+        if not eligible:
+            continue
+
+        if preferred_source == "gross_unit":
+            # Unit-price detections select the nearest row, but do not decide
+            # the row's center. This preserves the correct price even when the
+            # unit-price OCR box is shifted a few pixels vertically.
+            nearest_index = min(
+                eligible,
+                key=lambda index: abs(y - float(unique_anchors[index]["y"])),
+            )
+        else:
+            nearest_index = min(
+                eligible,
+                key=lambda index: abs(y - float(unique_anchors[index]["y"])),
+            )
+        assigned[nearest_index].append(item)
 
     rows: list[WindowHubOCRTableRow] = []
     for anchor, row_items in zip(unique_anchors, assigned):
