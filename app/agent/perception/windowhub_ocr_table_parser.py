@@ -150,46 +150,83 @@ def parse_windowhub_ocr_table(
         key=lambda item: (float(item["y"]), -float(item["confidence"]))
     )
 
-    # Total-price detections are the primary row anchors. Deduplicate close
-    # detections in this column, preferring the higher-confidence observation.
+    # Build one canonical anchor per physical row. When total and unit price
+    # detections are close, keep the total-price center and use unit price only
+    # as a possible fallback when the total column has no anchor for that row.
     unique_anchors: list[dict[str, object]] = []
     for anchor in total_price_anchors:
-        match_index = next(
-            (
-                index for index, previous in enumerate(unique_anchors)
-                if abs(float(anchor["y"]) - float(previous["y"])) < 5
-            ),
-            None,
-        )
-        if match_index is None:
+        matching = [
+            previous for previous in unique_anchors
+            if abs(float(anchor["y"]) - float(previous["y"])) < 5
+        ]
+        if not matching:
             unique_anchors.append(anchor)
-        elif float(anchor["confidence"]) > float(unique_anchors[match_index]["confidence"]):
-            unique_anchors[match_index] = anchor
+        else:
+            best = max(matching, key=lambda item: float(item["confidence"]))
+            if float(anchor["confidence"]) > float(best["confidence"]):
+                best.update(anchor)
 
-    # A unit-price-only row is added only when its Y position is not already
-    # covered by the gross-total column. We deliberately avoid splitting nearby
-    # rows based on other columns: that can misassign a price under OCR drift.
     unique_unit_anchors: list[dict[str, object]] = []
     for anchor in unit_price_anchors:
-        match_index = next(
-            (
-                index for index, previous in enumerate(unique_unit_anchors)
-                if abs(float(anchor["y"]) - float(previous["y"])) < 5
-            ),
-            None,
-        )
-        if match_index is None:
+        matching = [
+            previous for previous in unique_unit_anchors
+            if abs(float(anchor["y"]) - float(previous["y"])) < 5
+        ]
+        if not matching:
             unique_unit_anchors.append(anchor)
-        elif float(anchor["confidence"]) > float(unique_unit_anchors[match_index]["confidence"]):
-            unique_unit_anchors[match_index] = anchor
+        else:
+            best = max(matching, key=lambda item: float(item["confidence"]))
+            if float(anchor["confidence"]) > float(best["confidence"]):
+                best.update(anchor)
+
+    def _structural_columns_near(center_y: float) -> set[str]:
+        """Return independent columns with detections closest to a candidate row."""
+        columns: dict[str, list[float]] = {
+            "lp": [],
+            "article": [],
+            "dimensions": [],
+        }
+        for item in items:
+            x = float(item["x"])
+            if 0 <= x < anchor_x_max:
+                column = "lp"
+            elif article_x_min <= x < article_x_max:
+                column = "article"
+            elif dimensions_x_min <= x < dimensions_x_max:
+                column = "dimensions"
+            else:
+                continue
+            if abs(float(item["y"]) - center_y) <= row_tolerance:
+                columns[column].append(float(item["y"]))
+        return {
+            name for name, ys in columns.items()
+            if ys and min(abs(y - center_y) for y in ys) <= 3.0
+        }
 
     for anchor in unique_unit_anchors:
-        candidate_y = float(anchor["y"])
-        if not any(
-            abs(candidate_y - float(total_anchor["y"])) <= row_tolerance
-            for total_anchor in unique_anchors
-        ):
+        unit_y = float(anchor["y"])
+        nearby_totals = [
+            total for total in unique_anchors
+            if abs(unit_y - float(total["y"])) <= row_tolerance
+        ]
+        if not nearby_totals:
             unique_anchors.append(anchor)
+            continue
+
+        # Distinguish a missing-total row from ordinary vertical OCR drift:
+        # only keep an overlapping unit-price anchor when independent structural
+        # columns corroborate a separate row center.
+        support = _structural_columns_near(unit_y)
+        if len(support) < 2:
+            continue
+
+        nearest_total = min(
+            nearby_totals,
+            key=lambda total: abs(unit_y - float(total["y"])),
+        )
+        if abs(unit_y - float(nearest_total["y"])) < 5.0:
+            continue
+        unique_anchors.append(anchor)
 
     unique_anchors.sort(key=lambda item: float(item["y"]))
 
