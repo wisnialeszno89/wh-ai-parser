@@ -10,6 +10,11 @@ from app.agent.reasoning.knowledge_context import (
     KnowledgeSource,
 )
 from app.agent.reasoning.task_planning_context import TaskPlanningContext
+from app.agent.environment.environment_observation import EnvironmentObservation
+from app.agent.environment.environment_state import EnvironmentState
+from app.agent.perception.screen_scene import ScreenScene
+from app.agent.perception.windowhub_ocr_table_parser import WindowHubOCRTableRow
+from app.agent.perception.windowhub_ocr_table_pipeline import WindowHubOCRTableReconstruction
 
 
 class _Response:
@@ -406,3 +411,71 @@ def test_navimind_reasoner_captures_returned_external_knowledge():
     assert isinstance(external, dict)
     assert external["status"] == "complete"
     assert external["facts"][0]["fact_id"] == "synth-fact-1"
+
+def test_navimind_reasoner_sends_structured_windowhub_table_in_world_metadata():
+    captured = {}
+
+    def opener(request, timeout):
+        body = json.loads(request.data.decode("utf-8"))
+        captured["body"] = body
+        return _Response(
+            {
+                "version": "1",
+                "task_id": body["task_id"],
+                "status": "done",
+                "rationale": "The observed table data is sufficient.",
+                "confidence": 0.98,
+                "action": None,
+            }
+        )
+
+    row = WindowHubOCRTableRow(
+        row_index=1,
+        lp=4,
+        lp_source="ocr",
+        quantity=2,
+        article="Okno",
+        gross_total="1045.18",
+        gross_unit="522.59",
+        dimensions="1320 x 1345",
+        center_y=223.9,
+        missing_fields=(),
+    )
+    reconstruction = WindowHubOCRTableReconstruction((row,), (), ())
+    observation = EnvironmentObservation(
+        state=EnvironmentState(
+            active_application="WindowHub",
+            active_window_title="Okna - OFR/4170-",
+        ),
+        metadata={
+            "windowhub_ocr_table_reconstruction": reconstruction,
+        },
+    )
+    # The pipeline attaches reconstruction to observation metadata. The
+    # WorldState bridge must preserve it even if scene metadata is empty.
+    scene = ScreenScene(observation=observation, elements=(), metadata={})
+
+    reasoner = NaviMindTaskReasoner(
+        config=NaviMindTaskReasonerConfig(
+            url="http://localhost:3000/api/agent/task",
+        ),
+        opener=opener,
+    )
+    proposal = reasoner.reason(
+        TaskPlanningContext(
+            request_message="Odczytaj pozycje oferty",
+            intent="computer_use",
+            scene=scene,
+        )
+    )
+
+    assert proposal is not None
+    world = captured["body"]["world"]
+    table = world["metadata"]["windowhub_ocr_table"]
+    assert table["row_count"] == 1
+    assert table["rows"][0]["lp"] == 4
+    assert table["rows"][0]["gross_total"] == "1045.18"
+    assert "center_y" not in table["rows"][0]
+    assert world["visible_elements"] == []
+    json.dumps(captured["body"], ensure_ascii=False)
+
