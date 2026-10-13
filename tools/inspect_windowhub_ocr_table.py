@@ -114,6 +114,56 @@ def _wait_for_window_foreground(window_handle: int, timeout_seconds: float = 45.
     return False
 
 
+
+def _classify_table_region_detections(elements: object) -> dict[str, list[dict[str, object]]]:
+    """Keep raw OCR observations for each relevant OFR table column."""
+    detections: list[dict[str, object]] = []
+    for element in elements:
+        try:
+            x = int(element.x)
+            y = int(element.y)
+            width = int(element.width)
+            height = int(element.height)
+            confidence = float(element.confidence)
+            center_y = y + height / 2
+        except (AttributeError, TypeError, ValueError):
+            continue
+
+        in_table_columns = (
+            90 <= x < 600
+            or 1090 <= x < 1260
+        )
+        if not in_table_columns or not 190 <= center_y <= 370:
+            continue
+        detections.append({
+            "text": str(element.label),
+            "x": x,
+            "y": y,
+            "width": width,
+            "height": height,
+            "confidence": round(confidence, 4),
+        })
+
+    return {
+        "table_region_ocr_detections": detections,
+        "lp_column_ocr_detections": [
+            item for item in detections if 90 <= item["x"] < 180
+        ],
+        "quantity_article_ocr_detections": [
+            item for item in detections if 185 <= item["x"] < 380
+        ],
+        "gross_total_ocr_detections": [
+            item for item in detections if 380 <= item["x"] < 500
+        ],
+        "gross_unit_ocr_detections": [
+            item for item in detections if 500 <= item["x"] < 600
+        ],
+        "dimensions_ocr_detections": [
+            item for item in detections if 1090 <= item["x"] < 1260
+        ],
+    }
+
+
 def main() -> int:
     """Run a read-only OCR/table observation on the already focused WindowHub."""
     if os.name != "nt":
@@ -226,42 +276,14 @@ def main() -> int:
     reconstruction = metadata.get("windowhub_ocr_table_reconstruction")
     payload = reconstruction.to_payload() if reconstruction is not None else None
 
-    # Keep the raw OCR detections from the LP and quantity/article columns
-    # for diagnosis. Coordinates/confidence are observations, not actions.
-    table_region_detections = []
-    for element in elements:
-        try:
-            x = int(element.x)
-            y = int(element.y)
-            width = int(element.width)
-            height = int(element.height)
-            confidence = float(element.confidence)
-            center_y = y + height / 2
-        except (AttributeError, TypeError, ValueError):
-            continue
-        if 90 <= x <= 400 and 190 <= center_y <= 370:
-            table_region_detections.append({
-                "text": str(element.label),
-                "x": x,
-                "y": y,
-                "width": width,
-                "height": height,
-                "confidence": round(confidence, 4),
-            })
+    # Coordinates/confidence are observations for diagnosis, not actions.
+    table_detections = _classify_table_region_detections(elements)
 
     summary = {
         "window_title": title,
         "window_focused": focused,
         "ocr_status": metadata.get("windowhub_ocr_status"),
-        "table_region_ocr_detections": table_region_detections,
-        "lp_column_ocr_detections": [
-            item for item in table_region_detections
-            if 90 <= item["x"] < 180
-        ],
-        "quantity_article_ocr_detections": [
-            item for item in table_region_detections
-            if 185 <= item["x"] < 380
-        ],
+        **table_detections,
         "ocr_element_count": metadata.get("windowhub_ocr_element_count", len(elements)),
         "table_status": metadata.get("windowhub_ocr_table_status", "not_available"),
         "table_error_type": metadata.get("windowhub_ocr_table_error"),
