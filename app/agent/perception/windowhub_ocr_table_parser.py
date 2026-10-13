@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from functools import lru_cache
 from typing import Iterable
 
 
@@ -69,6 +70,115 @@ def _parse_dimensions(text: str) -> str | None:
     if not match:
         return None
     return f"{match.group(1)} x {match.group(2)}"
+
+
+
+def _assign_unit_price_detections(
+    anchors: list[dict[str, object]],
+    detections: list[dict[str, object]],
+    tolerance: float,
+) -> list[dict[str, object] | None]:
+    """Assign unit-price OCR detections to rows with order-preserving matching.
+
+    A single unit-price token may fill at most one row, and a row may receive
+    at most one token from this column. When several equally good assignments
+    exist, the ambiguous token is left unresolved rather than forced onto the
+    first row.
+    """
+    assigned: list[dict[str, object] | None] = [None] * len(anchors)
+    if not anchors or not detections:
+        return assigned
+
+    row_order = sorted(
+        range(len(anchors)), key=lambda index: float(anchors[index]["y"])
+    )
+    ordered_detections = sorted(
+        detections,
+        key=lambda item: (float(item["y"]), -float(item["confidence"])),
+    )
+
+    def quality(score: tuple[int, float, float]) -> tuple[int, float, float]:
+        matched, distance_sum, confidence_sum = score
+        return (-matched, round(distance_sum, 6), -round(confidence_sum, 6))
+
+    @lru_cache(maxsize=None)
+    def solve(
+        row_position: int, detection_position: int
+    ) -> tuple[
+        tuple[int, float, float],
+        dict[int, set[int | None]],
+    ]:
+        if detection_position >= len(ordered_detections):
+            return (0, 0.0, 0.0), {}
+        if row_position >= len(row_order):
+            return (
+                (0, 0.0, 0.0),
+                {index: {None} for index in range(
+                    detection_position, len(ordered_detections)
+                )},
+            )
+
+        candidates: list[
+            tuple[tuple[int, float, float], dict[int, set[int | None]]]
+        ] = []
+
+        # A row may have no usable unit-price token.
+        candidates.append(solve(row_position + 1, detection_position))
+
+        # A detection may be OCR noise or a duplicate and remain unused.
+        skipped_score, skipped_options = solve(
+            row_position, detection_position + 1
+        )
+        skipped_options = {
+            index: set(values) for index, values in skipped_options.items()
+        }
+        skipped_options[detection_position] = {None}
+        candidates.append((skipped_score, skipped_options))
+
+        row_index = row_order[row_position]
+        detection = ordered_detections[detection_position]
+        distance = abs(
+            float(anchors[row_index]["y"]) - float(detection["y"])
+        )
+        if distance <= tolerance:
+            matched_score, matched_options = solve(
+                row_position + 1, detection_position + 1
+            )
+            matched_options = {
+                index: set(values) for index, values in matched_options.items()
+            }
+            matched_options[detection_position] = {row_index}
+            candidates.append(
+                (
+                    (
+                        matched_score[0] + 1,
+                        matched_score[1] + distance,
+                        matched_score[2] + float(detection["confidence"]),
+                    ),
+                    matched_options,
+                )
+            )
+
+        best_quality = min(quality(score) for score, _ in candidates)
+        best_score = next(
+            score for score, _ in candidates if quality(score) == best_quality
+        )
+        possible: dict[int, set[int | None]] = {}
+        for score, options in candidates:
+            if quality(score) != best_quality:
+                continue
+            for index, values in options.items():
+                possible.setdefault(index, set()).update(values)
+        return best_score, possible
+
+    _, possible_assignments = solve(0, 0)
+    for detection_index, row_options in possible_assignments.items():
+        if len(row_options) != 1:
+            continue
+        row_index = next(iter(row_options))
+        if row_index is not None:
+            assigned[row_index] = ordered_detections[detection_index]
+    return assigned
 
 
 def parse_windowhub_ocr_table(
@@ -280,7 +390,27 @@ def parse_windowhub_ocr_table(
         anchor["row_index"] = row_index
 
     assigned: list[list[dict[str, object]]] = [[] for _ in unique_anchors]
+    unit_price_items = [
+        item
+        for item in items
+        if unit_x_min <= float(item["x"]) < unit_x_max
+        and _parse_money(str(item["text"])) is not None
+    ]
+    unit_items_by_row = _assign_unit_price_detections(
+        unique_anchors, unit_price_items, row_tolerance
+    )
+    for row_index, unit_item in enumerate(unit_items_by_row):
+        if unit_item is not None:
+            assigned[row_index].append(unit_item)
+
     for item in items:
+        x = float(item["x"])
+        if (
+            unit_x_min <= x < unit_x_max
+            and _parse_money(str(item["text"])) is not None
+        ):
+            # This column is assigned separately with one-to-one row matching.
+            continue
         y = float(item["y"])
         nearest_index = min(
             range(len(unique_anchors)),
