@@ -76,3 +76,15 @@ def test_does_not_overwrite_existing_lp_or_call_engine():
     refined, reports = refine_windowhub_ocr_table_lp((row(2, 238.2, lp=2),), np.zeros((400, 200, 3), dtype=np.uint8), engine)
     assert refined[0].lp == 2
     assert reports == ()
+
+def test_rejects_nonfinite_lp_confidence():
+    invalid = SimpleNamespace(txts=["2"], scores=[float("nan")], boxes=[box_for_y(238.2)])
+    engine = BoxEngine([invalid, invalid])
+    refined, reports = refine_windowhub_ocr_table_lp(
+        (row(2, 238.2),), np.zeros((400, 200, 3), dtype=np.uint8), engine
+    )
+    assert refined[0].lp is None
+    assert "lp" in refined[0].missing_fields
+    assert not reports[0].accepted
+    assert reports[0].reason == "no_valid_candidate"
+
