@@ -164,8 +164,23 @@ def _classify_table_region_detections(elements: object) -> dict[str, list[dict[s
     }
 
 
+def _configure_console_output(streams=None) -> None:
+    """Avoid crashes when PowerShell pipes native output through a legacy code page."""
+    targets = streams if streams is not None else (sys.stdout, sys.stderr)
+    for stream in targets:
+        reconfigure = getattr(stream, "reconfigure", None)
+        if not callable(reconfigure):
+            continue
+        try:
+            reconfigure(errors="backslashreplace")
+        except (OSError, ValueError):
+            # Keep diagnostics best-effort when the stream disallows reconfiguration.
+            continue
+
+
 def main() -> int:
     """Run a read-only OCR/table observation on the already focused WindowHub."""
+    _configure_console_output()
     if os.name != "nt":
         print("ABORTED: this diagnostic requires Windows.")
         return 2
