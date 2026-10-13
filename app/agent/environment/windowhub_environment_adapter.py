@@ -1,4 +1,6 @@
 import ctypes
+from ctypes import wintypes
+
 import pygetwindow as gw
 
 from app.agent.environment.environment_adapter import (
@@ -95,8 +97,14 @@ class WindowHubEnvironmentAdapter(EnvironmentAdapter):
                     if window_handle > 0
                     else None
                 ),
-                "window_focused": (
-                    foreground_window_handle == window_handle
+                # Some WindowHub-owned dialogs become the foreground HWND;
+                # accept them only when their root owner is the located main window.
+                "window_focused": bool(
+                    window_handle > 0
+                    and (
+                        foreground_window_handle == window_handle
+                        or foreground_root_owner_handle == window_handle
+                    )
                 ),
                 "foreground_window_handle": (
                     foreground_window_handle
@@ -114,9 +122,10 @@ class WindowHubEnvironmentAdapter(EnvironmentAdapter):
     @staticmethod
     def _foreground_window_handle() -> int:
         try:
-            return int(
-                ctypes.windll.user32.GetForegroundWindow()
-            )
+            user32 = ctypes.WinDLL("user32", use_last_error=True)
+            get_foreground = user32.GetForegroundWindow
+            get_foreground.restype = wintypes.HWND
+            return int(get_foreground() or 0)
         except Exception:
             return 0
 
@@ -126,12 +135,11 @@ class WindowHubEnvironmentAdapter(EnvironmentAdapter):
             return 0
 
         try:
-            return int(
-                ctypes.windll.user32.GetAncestor(
-                    int(window_handle),
-                    3,
-                )
-            )
+            user32 = ctypes.WinDLL("user32", use_last_error=True)
+            get_ancestor = user32.GetAncestor
+            get_ancestor.argtypes = (wintypes.HWND, wintypes.UINT)
+            get_ancestor.restype = wintypes.HWND
+            return int(get_ancestor(wintypes.HWND(window_handle), 3) or 0)
         except Exception:
             return 0
 
