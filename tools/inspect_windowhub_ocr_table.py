@@ -26,20 +26,21 @@ def _wait_for_window_foreground(window_handle: int, timeout_seconds: float = 45.
     get_ancestor.argtypes = (wintypes.HWND, wintypes.UINT)
     get_ancestor.restype = wintypes.HWND
 
+    from app.agent.environment.window_focus import is_target_window_focused
+
     deadline = time.monotonic() + timeout_seconds
     while time.monotonic() < deadline:
         try:
             foreground_handle = int(get_foreground() or 0)
-            if foreground_handle == window_handle:
+            root_owner_handle = (
+                int(get_ancestor(wintypes.HWND(foreground_handle), 3) or 0)
+                if foreground_handle > 0
+                else 0
+            )
+            if is_target_window_focused(
+                window_handle, foreground_handle, root_owner_handle
+            ):
                 return True
-            # A modal/owned WindowHub dialog may be foreground while its root
-            # owner remains the intended WindowHub top-level window.
-            if foreground_handle > 0:
-                root_owner_handle = int(
-                    get_ancestor(wintypes.HWND(foreground_handle), 3) or 0
-                )
-                if root_owner_handle == window_handle:
-                    return True
         except Exception:
             # Keep waiting if a transient Win32 query fails.
             pass
