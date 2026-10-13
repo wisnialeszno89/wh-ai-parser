@@ -160,16 +160,56 @@ def parse_windowhub_ocr_table(
         ):
             unique_anchors.append(anchor)
 
-    # Unit-price detections become anchors only when no total-price anchor is
-    # close enough to represent the same row. If two rows are too close to
-    # distinguish safely, the existing anchor wins rather than duplicating it.
+    # Remove duplicate unit-price detections from the same physical row.
+    unique_unit_anchors: list[dict[str, object]] = []
     for anchor in unit_price_anchors:
-        if any(
-            abs(float(anchor["y"]) - float(previous["y"])) <= row_tolerance
-            for previous in unique_anchors
+        if not any(
+            abs(float(anchor["y"]) - float(previous["y"])) < 5
+            for previous in unique_unit_anchors
         ):
+            unique_unit_anchors.append(anchor)
+
+    # A unit-price token within row_tolerance of a total anchor normally belongs
+    # to that existing row. Exception: independent non-price columns may cluster
+    # closer to the unit-price token, proving it is the best available anchor
+    # for a separate row whose total-price OCR is missing.
+    def _support_column(x: float) -> str | None:
+        if 0 <= x < anchor_x_max:
+            return "lp"
+        if article_x_min <= x < article_x_max:
+            return "article"
+        if dimensions_x_min <= x < dimensions_x_max:
+            return "dimensions"
+        return None
+
+    for anchor in unique_unit_anchors:
+        candidate_y = float(anchor["y"])
+        nearby_anchors = [
+            previous for previous in unique_anchors
+            if abs(candidate_y - float(previous["y"])) <= row_tolerance
+        ]
+        if not nearby_anchors:
+            unique_anchors.append(anchor)
             continue
-        unique_anchors.append(anchor)
+
+        supporting_columns: set[str] = set()
+        for item in items:
+            column = _support_column(float(item["x"]))
+            if column is None:
+                continue
+            item_y = float(item["y"])
+            candidate_distance = abs(item_y - candidate_y)
+            if candidate_distance > row_tolerance:
+                continue
+            nearest_existing_distance = min(
+                abs(item_y - float(previous["y"]))
+                for previous in unique_anchors
+            )
+            if candidate_distance + 1.0 < nearest_existing_distance:
+                supporting_columns.add(column)
+
+        if len(supporting_columns) >= 2:
+            unique_anchors.append(anchor)
 
     unique_anchors.sort(key=lambda item: float(item["y"]))
 
