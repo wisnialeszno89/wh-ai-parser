@@ -150,7 +150,9 @@ def parse_windowhub_ocr_table(
         key=lambda item: (float(item["y"]), -float(item["confidence"]))
     )
 
-    # Total-price detections are the primary row anchors.
+    # Total-price detections are the primary row anchors. Keep the rows and
+    # centers stable when both price columns are visible; small vertical drift
+    # in unit-price OCR should never create another row by itself.
     unique_anchors: list[dict[str, object]] = []
     for anchor in total_price_anchors:
         if not any(
@@ -159,10 +161,8 @@ def parse_windowhub_ocr_table(
         ):
             unique_anchors.append(anchor)
 
-    # Deduplicate unit-price detections. A nearby total-price anchor wins,
-    # preserving the original row center even when price columns drift
-    # vertically. Only promote a nearby unit price to a separate row when at
-    # least two independent structural columns align clearly to its center.
+    # Deduplicate unit prices before deciding whether one can represent a
+    # missing-total row.
     unique_unit_anchors: list[dict[str, object]] = []
     for anchor in unit_price_anchors:
         if not any(
@@ -180,36 +180,45 @@ def parse_windowhub_ocr_table(
             return "dimensions"
         return None
 
+    # Assign each non-price detection to the nearest existing total-price row.
+    # This prevents a token from being counted as support for multiple rows.
+    total_centers = [float(anchor["y"]) for anchor in unique_anchors]
     for anchor in unique_unit_anchors:
         candidate_y = float(anchor["y"])
-        nearby_total = [
-            existing for existing in unique_anchors
-            if abs(candidate_y - float(existing["y"])) <= row_tolerance
-        ]
-        if not nearby_total:
+        nearest_total_distance = min(
+            (abs(candidate_y - center) for center in total_centers),
+            default=float("inf"),
+        )
+        if nearest_total_distance > row_tolerance:
             unique_anchors.append(anchor)
+            total_centers.append(candidate_y)
             continue
 
-        # When total anchors are close together, do not split the price columns
-        # unless distinct structural evidence is present near this candidate.
-        corroborating_columns: set[str] = set()
+        # A unit price near a total anchor is presumed to belong to that row.
+        # Retain it as a separate physical row only if distinct evidence from
+        # at least two independent structural columns is clearly closer to it.
+        supporting_columns: set[str] = set()
         for item in items:
             column = _support_column(float(item["x"]))
             if column is None:
                 continue
             item_y = float(item["y"])
-            if abs(item_y - candidate_y) > row_tolerance:
+            candidate_distance = abs(item_y - candidate_y)
+            if candidate_distance > row_tolerance:
                 continue
             nearest_total = min(
-                abs(item_y - float(existing["y"]))
-                for existing in unique_anchors
+                (abs(item_y - center) for center in total_centers),
+                default=float("inf"),
             )
-            candidate_distance = abs(item_y - candidate_y)
             if candidate_distance + 1.0 < nearest_total:
-                corroborating_columns.add(column)
+                supporting_columns.add(column)
 
-        if len(corroborating_columns) >= 2:
+        # Very close price anchors are commonly column alignment drift. Use a
+        # missing-total fallback only when the candidate is not just a shifted
+        # duplicate of an existing primary row.
+        if len(supporting_columns) >= 2 and nearest_total_distance >= 5.0:
             unique_anchors.append(anchor)
+            total_centers.append(candidate_y)
 
     unique_anchors.sort(key=lambda item: float(item["y"]))
 
