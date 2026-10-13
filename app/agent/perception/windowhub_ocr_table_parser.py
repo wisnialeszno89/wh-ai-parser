@@ -150,24 +150,65 @@ def parse_windowhub_ocr_table(
     if not unique_anchors:
         return ()
 
-    for anchor in unique_anchors:
-        row_y = float(anchor["y"])
-        candidates = [
-            item for item in lp_by_row
-            if abs(float(item["y"]) - row_y) <= row_tolerance
+    # Assign each LP detection to one physical row only. Independently querying
+    # every row can otherwise attach one halfway-positioned digit to two rows.
+    lp_candidates_by_anchor: list[list[dict[str, object]]] = [
+        [] for _ in unique_anchors
+    ]
+    ambiguous_anchor_indices: set[int] = set()
+    assignment_margin = 1.0
+
+    for lp_item in lp_by_row:
+        lp_y = float(lp_item["y"])
+        distances = [
+            abs(lp_y - float(anchor["y"])) for anchor in unique_anchors
         ]
-        candidates.sort(
-            key=lambda item: (
-                -float(item["confidence"]),
-                abs(float(item["y"]) - row_y),
-            )
-        )
-        if candidates:
-            anchor["lp"] = int(candidates[0]["lp"])
+        eligible = [
+            (index, distance)
+            for index, distance in enumerate(distances)
+            if distance <= row_tolerance
+        ]
+        if not eligible:
+            continue
+
+        best_distance = min(distance for _, distance in eligible)
+        near_best = [
+            index
+            for index, distance in eligible
+            if distance - best_distance <= assignment_margin
+        ]
+        if len(near_best) != 1:
+            # A digit close to the boundary between rows is not safe evidence
+            # for either row; leave every affected assignment unresolved.
+            ambiguous_anchor_indices.update(near_best)
+            continue
+        lp_candidates_by_anchor[near_best[0]].append(lp_item)
+
+    for index, anchor in enumerate(unique_anchors):
+        candidates = lp_candidates_by_anchor[index]
+        values = {int(item["lp"]) for item in candidates}
+        if index in ambiguous_anchor_indices or len(values) != 1:
+            anchor["lp"] = None
+            anchor["lp_source"] = "price_column_row_order"
+        elif values:
+            anchor["lp"] = next(iter(values))
             anchor["lp_source"] = "ocr"
         else:
             anchor["lp"] = None
             anchor["lp_source"] = "price_column_row_order"
+
+    # LP position numbers should identify distinct rows. If OCR produces a
+    # duplicate, do not let both values look authoritative downstream.
+    lp_rows_by_value: dict[int, list[int]] = {}
+    for index, anchor in enumerate(unique_anchors):
+        value = anchor.get("lp")
+        if value is not None:
+            lp_rows_by_value.setdefault(int(value), []).append(index)
+    for duplicate_indices in lp_rows_by_value.values():
+        if len(duplicate_indices) > 1:
+            for index in duplicate_indices:
+                unique_anchors[index]["lp"] = None
+                unique_anchors[index]["lp_source"] = "price_column_row_order"
 
     for row_index, anchor in enumerate(unique_anchors, start=1):
         anchor["row_index"] = row_index
