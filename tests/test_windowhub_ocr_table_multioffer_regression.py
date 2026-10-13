@@ -64,6 +64,39 @@ def test_multiple_offers_parse_independently_without_cross_offer_state():
         assert all(row.dimensions is not None for row in rows)
 
 
+def test_one_lp_detection_between_two_rows_is_not_duplicated():
+    detections = make_offer([None, None], [1, 1], start_y=223, step=11)
+    # One LP token lies exactly between the two price-row anchors. It must not
+    # independently attach to both rows.
+    detections.append(element("6", 120, 228.5))
+
+    rows = parse_windowhub_ocr_table(detections)
+
+    assert len(rows) == 2
+    assert [row.lp for row in rows] == [None, None]
+    assert all("lp" in row.missing_fields for row in rows)
+
+
+def test_duplicate_lp_values_are_rejected_for_all_affected_rows():
+    rows = parse_windowhub_ocr_table(make_offer([6, 6], [1, 2]))
+
+    assert len(rows) == 2
+    assert [row.lp for row in rows] == [None, None]
+    assert all("lp" in row.missing_fields for row in rows)
+    assert all(row.lp_source == "price_column_row_order" for row in rows)
+
+
+def test_conflicting_lp_candidates_for_one_physical_row_remain_missing():
+    detections = make_offer([None], [1])
+    detections.extend([element("6", 120, 223), element("8", 120, 223)])
+
+    rows = parse_windowhub_ocr_table(detections)
+
+    assert len(rows) == 1
+    assert rows[0].lp is None
+    assert "lp" in rows[0].missing_fields
+
+
 def test_parser_does_not_invent_lp_or_quantity_from_neighboring_rows():
     detections = make_offer([7, None, 9], [1, None, 2])
     rows = parse_windowhub_ocr_table(detections)
