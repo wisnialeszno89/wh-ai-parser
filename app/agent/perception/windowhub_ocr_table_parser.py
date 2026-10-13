@@ -1,0 +1,236 @@
+"""Conservative reconstruction of WindowHub table rows from OCR elements."""
+
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass, field
+from typing import Iterable
+
+
+@dataclass(frozen=True)
+class WindowHubOCRTableRow:
+    row_index: int
+    lp: int | None
+    lp_source: str
+    quantity: int | None
+    article: str | None
+    gross_total: str | None
+    gross_unit: str | None
+    dimensions: str | None
+    center_y: float = field(repr=False)
+    missing_fields: tuple[str, ...] = ()
+
+    @property
+    def complete(self) -> bool:
+        return not self.missing_fields
+
+    def to_payload(self) -> dict[str, object]:
+        """Return model-safe table data without screen coordinates."""
+        return {
+            "row_index": self.row_index,
+            "lp": self.lp,
+            "lp_source": self.lp_source,
+            "quantity": self.quantity,
+            "article": self.article,
+            "gross_total": self.gross_total,
+            "gross_unit": self.gross_unit,
+            "dimensions": self.dimensions,
+            "complete": self.complete,
+            "missing_fields": list(self.missing_fields),
+        }
+
+
+def _center_y(element: object) -> float:
+    return float(getattr(element, "y", 0)) + float(getattr(element, "height", 0)) / 2
+
+
+def _confidence(element: object) -> float:
+    try:
+        value = float(getattr(element, "confidence", 1.0))
+    except (TypeError, ValueError):
+        return 0.0
+    return value if 0.0 <= value <= 1.0 else 0.0
+
+
+def _parse_money(text: str) -> str | None:
+    value = re.sub(r"\s+", "", text)
+    if re.fullmatch(r"\d{1,3}(?:\.\d{3})+,\d{2}", value):
+        value = value.replace(".", "").replace(",", ".")
+    elif re.fullmatch(r"\d+,\d{2}", value):
+        value = value.replace(",", ".")
+    if re.fullmatch(r"\d+\.\d{2}", value):
+        return value
+    return None
+
+
+def _parse_dimensions(text: str) -> str | None:
+    value = re.sub(r"\s+", "", text)
+    match = re.search(r"(?<!\d)(\d{2,4})[xX×](\d{2,4})(?!\d)", value)
+    if not match:
+        return None
+    return f"{match.group(1)} x {match.group(2)}"
+
+
+def parse_windowhub_ocr_table(
+    ocr_elements: Iterable[object],
+    *,
+    anchor_x_max: float = 180,
+    article_x_min: float = 185,
+    article_x_max: float = 380,
+    total_x_min: float = 380,
+    total_x_max: float = 500,
+    unit_x_min: float = 500,
+    unit_x_max: float = 600,
+    dimensions_x_min: float = 1090,
+    dimensions_x_max: float = 1260,
+    min_center_y: float = 200,
+    max_center_y: float = 350,
+    row_tolerance: float = 7.5,
+    min_confidence: float = 0.35,
+) -> tuple[WindowHubOCRTableRow, ...]:
+    """Parse text detections in a known table region.
+
+    Coordinates are screenshot-local. If LP anchors are unavailable, prices
+    define row order but never become invented LP values.
+    """
+    items: list[dict[str, object]] = []
+    for element in ocr_elements:
+        raw_label = getattr(element, "label", None)
+        if raw_label is None:
+            continue
+        text = str(raw_label).strip()
+        confidence = _confidence(element)
+        if not text or confidence < min_confidence:
+            continue
+        try:
+            x = float(getattr(element, "x"))
+            center_y = _center_y(element)
+        except (TypeError, ValueError, AttributeError):
+            continue
+        if not (x >= 0 and center_y >= 0):
+            continue
+        items.append({"x": x, "y": center_y, "text": text, "confidence": confidence})
+
+    anchors: list[dict[str, object]] = []
+    for item in items:
+        x = float(item["x"])
+        y = float(item["y"])
+        text = str(item["text"])
+        if (
+            x < anchor_x_max
+            and min_center_y <= y <= max_center_y
+            and re.fullmatch(r"\d{1,3}", text)
+        ):
+            value = int(text)
+            if value > 0:
+                anchors.append({**item, "lp": value})
+    anchors.sort(key=lambda item: float(item["y"]))
+
+    unique_anchors: list[dict[str, object]] = []
+    for anchor in anchors:
+        duplicate = any(
+            anchor["lp"] == previous["lp"]
+            and abs(float(anchor["y"]) - float(previous["y"])) < 5
+            for previous in unique_anchors
+        )
+        if not duplicate:
+            unique_anchors.append(anchor)
+
+    if not unique_anchors:
+        fallback_anchors = [
+            {**item, "lp": None}
+            for item in items
+            if total_x_min <= float(item["x"]) < total_x_max
+            and min_center_y <= float(item["y"]) <= max_center_y
+            and _parse_money(str(item["text"])) is not None
+        ]
+        fallback_anchors.sort(
+            key=lambda item: (float(item["y"]), -float(item["confidence"]))
+        )
+        deduplicated: list[dict[str, object]] = []
+        for anchor in fallback_anchors:
+            if not any(abs(float(anchor["y"]) - float(prev["y"])) < 5 for prev in deduplicated):
+                deduplicated.append(anchor)
+        unique_anchors = deduplicated
+
+    if not unique_anchors:
+        return ()
+
+    for row_index, anchor in enumerate(unique_anchors, start=1):
+        anchor["row_index"] = row_index
+        anchor["lp_source"] = "ocr" if anchor.get("lp") is not None else "price_column_row_order"
+
+    assigned: list[list[dict[str, object]]] = [[] for _ in unique_anchors]
+    for item in items:
+        y = float(item["y"])
+        nearest_index = min(
+            range(len(unique_anchors)),
+            key=lambda index: abs(y - float(unique_anchors[index]["y"])),
+        )
+        if abs(y - float(unique_anchors[nearest_index]["y"])) <= row_tolerance:
+            assigned[nearest_index].append(item)
+
+    rows: list[WindowHubOCRTableRow] = []
+    for anchor, row_items in zip(unique_anchors, assigned):
+        quantities: set[int] = set()
+        articles: list[str] = []
+        totals: list[tuple[float, str]] = []
+        units: list[tuple[float, str]] = []
+        dimensions: list[tuple[float, str]] = []
+
+        for item in row_items:
+            x = float(item["x"])
+            text = str(item["text"])
+            if article_x_min <= x < article_x_max:
+                match = re.fullmatch(r"\s*(\d+)\s*(.*?)\s*", text)
+                if match:
+                    quantity_text, suffix = match.group(1), match.group(2).strip()
+                    if int(quantity_text) > 0:
+                        quantities.add(int(quantity_text))
+                    if suffix:
+                        articles.append(suffix)
+                else:
+                    articles.append(text)
+            elif total_x_min <= x < total_x_max:
+                money = _parse_money(text)
+                if money is not None:
+                    totals.append((x, money))
+            elif unit_x_min <= x < unit_x_max:
+                money = _parse_money(text)
+                if money is not None:
+                    units.append((x, money))
+            elif dimensions_x_min <= x < dimensions_x_max:
+                parsed = _parse_dimensions(text)
+                if parsed is not None:
+                    dimensions.append((x, parsed))
+
+        quantity = next(iter(quantities)) if len(quantities) == 1 else None
+        article = " ".join(dict.fromkeys(articles)) or None
+        total = min(totals)[1] if totals else None
+        unit = min(units)[1] if units else None
+        dimension = min(dimensions)[1] if dimensions else None
+        lp = int(anchor["lp"]) if anchor.get("lp") is not None else None
+        fields = {
+            "lp": lp,
+            "quantity": quantity,
+            "article": article,
+            "gross_total": total,
+            "gross_unit": unit,
+            "dimensions": dimension,
+        }
+        missing = tuple(name for name, value in fields.items() if value is None)
+        rows.append(
+            WindowHubOCRTableRow(
+                row_index=int(anchor["row_index"]),
+                lp=lp,
+                lp_source=str(anchor["lp_source"]),
+                quantity=quantity,
+                article=article,
+                gross_total=total,
+                gross_unit=unit,
+                dimensions=dimension,
+                center_y=float(anchor["y"]),
+                missing_fields=missing,
+            )
+        )
+    return tuple(rows)
