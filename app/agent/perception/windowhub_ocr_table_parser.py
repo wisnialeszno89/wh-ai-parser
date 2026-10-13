@@ -150,8 +150,7 @@ def parse_windowhub_ocr_table(
         key=lambda item: (float(item["y"]), -float(item["confidence"]))
     )
 
-    # Total-price detections are the primary row anchors. Keep their centers
-    # stable when the unit-price column has small OCR vertical drift.
+    # Total-price detections are the primary row anchors.
     unique_anchors: list[dict[str, object]] = []
     for anchor in total_price_anchors:
         if not any(
@@ -160,8 +159,10 @@ def parse_windowhub_ocr_table(
         ):
             unique_anchors.append(anchor)
 
-    # Deduplicate unit-price candidates. Use one only when no total-price anchor
-    # explains it, or independent non-price columns corroborate a distinct row.
+    # Deduplicate unit-price detections. A nearby total-price anchor wins,
+    # preserving the original row center even when price columns drift
+    # vertically. Only promote a nearby unit price to a separate row when at
+    # least two independent structural columns align clearly to its center.
     unique_unit_anchors: list[dict[str, object]] = []
     for anchor in unit_price_anchors:
         if not any(
@@ -181,15 +182,17 @@ def parse_windowhub_ocr_table(
 
     for anchor in unique_unit_anchors:
         candidate_y = float(anchor["y"])
-        nearest_total_distance = min(
-            (abs(candidate_y - float(existing["y"])) for existing in unique_anchors),
-            default=float("inf"),
-        )
-        if nearest_total_distance > row_tolerance:
+        nearby_total = [
+            existing for existing in unique_anchors
+            if abs(candidate_y - float(existing["y"])) <= row_tolerance
+        ]
+        if not nearby_total:
             unique_anchors.append(anchor)
             continue
 
-        supporting_columns: set[str] = set()
+        # When total anchors are close together, do not split the price columns
+        # unless distinct structural evidence is present near this candidate.
+        corroborating_columns: set[str] = set()
         for item in items:
             column = _support_column(float(item["x"]))
             if column is None:
@@ -197,20 +200,15 @@ def parse_windowhub_ocr_table(
             item_y = float(item["y"])
             if abs(item_y - candidate_y) > row_tolerance:
                 continue
-            # Only count an observation as evidence for the candidate row when
-            # its center is clearly nearer this unit-price token than any
-            # already established total-price row.
-            candidate_distance = abs(item_y - candidate_y)
-            nearest_existing_distance = min(
+            nearest_total = min(
                 abs(item_y - float(existing["y"]))
                 for existing in unique_anchors
             )
-            if candidate_distance + 1.0 < nearest_existing_distance:
-                supporting_columns.add(column)
+            candidate_distance = abs(item_y - candidate_y)
+            if candidate_distance + 1.0 < nearest_total:
+                corroborating_columns.add(column)
 
-        # The stricter separation margin protects ordinary adjacent rows from
-        # being split solely because their price OCR boxes have different Y.
-        if len(supporting_columns) >= 2 and nearest_total_distance >= 5.0:
+        if len(corroborating_columns) >= 2:
             unique_anchors.append(anchor)
 
     unique_anchors.sort(key=lambda item: float(item["y"]))
