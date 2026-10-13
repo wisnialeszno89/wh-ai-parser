@@ -98,11 +98,12 @@ def _quantity_candidates(
 ) -> list[tuple[int, float, str]]:
     expected = _normalize_article(expected_article)
     candidates: list[tuple[int, float, str]] = []
+    standalone_quantities: list[tuple[int, float, str]] = []
+    matching_articles: list[tuple[float, str]] = []
     if not expected:
         return candidates
+
     for source, items in variants:
-        separate_quantities: list[tuple[int, float]] = []
-        matching_articles: list[tuple[float, str]] = []
         for text, confidence in items:
             if confidence < min_confidence:
                 continue
@@ -113,13 +114,24 @@ def _quantity_candidates(
                 if quantity > 0 and _normalize_article(article) == expected:
                     candidates.append((quantity, confidence, source))
                 elif not article and quantity > 0:
-                    separate_quantities.append((quantity, confidence))
+                    standalone_quantities.append((quantity, confidence, source))
             if _normalize_article(text) == expected:
-                matching_articles.append((confidence, text))
-        if separate_quantities and matching_articles:
-            for quantity, quantity_confidence in separate_quantities:
-                for article_confidence, _ in matching_articles:
-                    candidates.append((quantity, min(quantity_confidence, article_confidence), source))
+                matching_articles.append((confidence, source))
+
+    # Both preprocessing variants are run on the same row-bounded crop.
+    # A digit found in one variant can therefore be corroborated by the
+    # expected article found in the other variant; requiring both tokens to
+    # appear in the same OCR output needlessly loses valid quantity evidence.
+    for quantity, quantity_confidence, quantity_source in standalone_quantities:
+        for article_confidence, article_source in matching_articles:
+            source = (
+                quantity_source
+                if quantity_source == article_source
+                else f"{quantity_source}+{article_source}"
+            )
+            candidates.append(
+                (quantity, min(quantity_confidence, article_confidence), source)
+            )
     return candidates
 
 
