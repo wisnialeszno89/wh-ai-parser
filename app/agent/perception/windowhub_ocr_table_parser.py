@@ -257,19 +257,12 @@ def parse_windowhub_ocr_table(
 
     assigned: list[list[dict[str, object]]] = [[] for _ in unique_anchors]
 
-    # Match each OCR field within its own column rather than assigning every
-    # token to the nearest row center globally. The total-price column defines
-    # row centers; unit prices may have a different systematic vertical offset.
+    # Assign price tokens using their own column's row matching. Gross-total
+    # anchors take precedence; unit-price detections match to the closest row
+    # within tolerance, and can never replace the primary row center.
     for item in items:
-        x = float(item["x"])
         y = float(item["y"])
-        if total_x_min <= x < total_x_max:
-            preferred_source = "gross_total"
-        elif unit_x_min <= x < unit_x_max:
-            preferred_source = "gross_unit"
-        else:
-            preferred_source = None
-
+        x = float(item["x"])
         eligible = [
             index for index, anchor in enumerate(unique_anchors)
             if abs(y - float(anchor["y"])) <= row_tolerance
@@ -277,20 +270,27 @@ def parse_windowhub_ocr_table(
         if not eligible:
             continue
 
-        if preferred_source == "gross_unit":
-            # Unit-price detections select the nearest row, but do not decide
-            # the row's center. This preserves the correct price even when the
-            # unit-price OCR box is shifted a few pixels vertically.
-            nearest_index = min(
+        if total_x_min <= x < total_x_max:
+            price_anchors = [
+                index for index, anchor in enumerate(unique_anchors)
+                if abs(y - float(anchor["y"])) < 0.01
+                and str(anchor.get("anchor_source", "")) == "gross_total"
+            ]
+            target_index = min(
+                price_anchors or eligible,
+                key=lambda index: abs(y - float(unique_anchors[index]["y"])),
+            )
+        elif unit_x_min <= x < unit_x_max:
+            target_index = min(
                 eligible,
                 key=lambda index: abs(y - float(unique_anchors[index]["y"])),
             )
         else:
-            nearest_index = min(
+            target_index = min(
                 eligible,
                 key=lambda index: abs(y - float(unique_anchors[index]["y"])),
             )
-        assigned[nearest_index].append(item)
+        assigned[target_index].append(item)
 
     rows: list[WindowHubOCRTableRow] = []
     for anchor, row_items in zip(unique_anchors, assigned):
