@@ -84,11 +84,9 @@ class RobotGUIExecutor(ActionExecutor):
                 action_name=action.name,
                 success=False,
                 message=resolution.reason,
-                # Ambiguous/missing semantic targets are recoverable execution
-                # failures. The control loop may retry, replan, or skip an
-                # explicitly optional action. Safety-gate failures remain
-                # manual-review conditions later in this executor.
-                requires_manual_review=False,
+                # An unresolved semantic target is outside the trusted
+                # execution boundary. Do not guess or fall back to hardware.
+                requires_manual_review=True,
                 metadata={
                     "target": target,
                     "resolution_score": resolution.score,
@@ -103,7 +101,7 @@ class RobotGUIExecutor(ActionExecutor):
             target_id = None
 
         if target_id is None:
-            if not self._is_uia_only_target(element):
+            if not self._is_guarded_uia_target(element):
                 return ExecutionResult(
                     action_name=action.name,
                     success=False,
@@ -111,7 +109,7 @@ class RobotGUIExecutor(ActionExecutor):
                         "Resolved screen element has no tracked object id "
                         "and is not a guarded UIA target"
                     ),
-                    requires_manual_review=False,
+                    requires_manual_review=True,
                     metadata={
                         "target": target,
                         "resolution_score": resolution.score,
@@ -163,6 +161,59 @@ class RobotGUIExecutor(ActionExecutor):
             context,
             target_id,
         )
+
+        # A fused target may carry a visual tracked-object id even when that
+        # tracker has not reached the stability threshold required by the
+        # physical tracked-object safety gate. When independent UIA evidence
+        # is simultaneously strong, prefer the guarded UIA path instead of
+        # failing solely because the visual tracker is still warming up.
+        if (
+            self._is_guarded_uia_target(element)
+            and (
+                tracked_object is None
+                or self._tracked_object_is_unstable(tracked_object)
+            )
+        ):
+            screen_origin = self._screen_origin(context)
+            window_handle = self._window_handle(context)
+
+            interaction = (
+                InteractionAction.WRITE
+                if action.name == "write_text"
+                else InteractionAction.CLICK
+            )
+
+            result = self.robot_action_executor.execute_uia_screen_element(
+                screen_element=element,
+                action=interaction,
+                text_value=action.value,
+                screen_origin=screen_origin,
+                window_handle=window_handle,
+            )
+
+            return ExecutionResult(
+                action_name=action.name,
+                success=result.success,
+                message=result.reason,
+                requires_manual_review=not result.success,
+                metadata={
+                    "target": target,
+                    "target_id": result.target_id,
+                    "resolution_score": resolution.score,
+                    "point": result.point,
+                    "screen_origin": screen_origin,
+                    "window_handle": window_handle,
+                    "executed": result.executed,
+                    "execution_path": "uia_fallback_unstable_tracker",
+                    "control_type": element.kind,
+                    "interaction_capability": (
+                        element.interaction_capability.value
+                    ),
+                    "interaction_capability_confidence": (
+                        self._interaction_capability_confidence(element)
+                    ),
+                },
+            )
 
         if tracked_object is None:
             return ExecutionResult(
@@ -306,11 +357,14 @@ class RobotGUIExecutor(ActionExecutor):
         return handle if handle > 0 else None
 
     @staticmethod
-    def _is_uia_only_target(element) -> bool:
+    def _is_guarded_uia_target(element) -> bool:
         metadata = element.metadata or {}
 
         return (
-            metadata.get("source") == "windowhub_ui_automation"
+            metadata.get("source") in {
+    "windowhub_ui_automation",
+    "windows_ui_automation",
+}
             and metadata.get("uia_enabled") is True
             and metadata.get("uia_visible") is True
             and isinstance(
@@ -318,6 +372,15 @@ class RobotGUIExecutor(ActionExecutor):
                 str,
             )
         )
+
+    @staticmethod
+    def _tracked_object_is_unstable(tracked_object) -> bool:
+        try:
+            return int(
+                getattr(tracked_object, "consecutive_observations", 0)
+            ) < 2
+        except (TypeError, ValueError):
+            return True
 
     @staticmethod
     def _resolve_target(

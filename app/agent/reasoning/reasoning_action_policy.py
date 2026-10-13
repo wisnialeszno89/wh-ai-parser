@@ -20,6 +20,15 @@ NAVIMIND_ALLOWED_ACTIONS = frozenset(
         "write_text",
         "type_text",
         "open_new_offer",
+
+        # Semantic browser actions. These are enabled only now that the
+        # BrowserActionExecutor + BrowserAdapter vertical is implemented.
+        "browser_navigate",
+        "browser_read",
+        "browser_click",
+        "browser_write_text",
+        "browser_select_option",
+        "browser_back",
     }
 )
 
