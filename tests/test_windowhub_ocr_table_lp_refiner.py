@@ -104,3 +104,36 @@ def test_recovers_lp_for_last_row_near_parser_vertical_limit():
     assert "lp" not in refined[0].missing_fields
     assert reports[0].accepted
     assert reports[0].reason == "unique_valid_candidate"
+
+
+def test_rejects_duplicate_lp_candidates_across_rows():
+    rows = (row(3, 238.2), row(4, 251.8))
+    engine = BoxEngine([
+        result([("6", 0.999, 238.2), ("6", 0.999, 251.8)]),
+        result([("6", 0.999, 238.2), ("6", 0.999, 251.8)]),
+    ])
+    refined, reports = refine_windowhub_ocr_table_lp(
+        rows, np.zeros((400, 200, 3), dtype=np.uint8), engine
+    )
+    assert [item.lp for item in refined] == [None, None]
+    assert all("lp" in item.missing_fields for item in refined)
+    assert [report.candidate_value for report in reports] == [6, 6]
+    assert all(not report.accepted for report in reports)
+    assert all(report.reason == "duplicate_lp_across_rows" for report in reports)
+
+
+def test_rejects_lp_candidate_matching_an_existing_row_lp():
+    rows = (row(1, 223.9, lp=6), row(2, 238.2))
+    engine = BoxEngine([
+        result([("6", 0.999, 238.2)]),
+        result([("6", 0.999, 238.2)]),
+    ])
+    refined, reports = refine_windowhub_ocr_table_lp(
+        rows, np.zeros((400, 200, 3), dtype=np.uint8), engine
+    )
+    assert refined[0].lp == 6
+    assert refined[1].lp is None
+    assert "lp" in refined[1].missing_fields
+    assert reports[0].candidate_value == 6
+    assert not reports[0].accepted
+    assert reports[0].reason == "duplicate_lp_existing_row"
