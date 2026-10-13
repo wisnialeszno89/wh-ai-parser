@@ -74,6 +74,39 @@ def test_recovers_split_quantity_and_article_in_row_local_bands():
     ]
 
 
+def test_combines_quantity_and_article_across_row_crop_variants():
+    # The color pass sees only the quantity; Otsu sees only the article.
+    # They are still evidence from the same isolated row crop.
+    engine = FakeEngine([
+        response(["1"], [0.93]),
+        response(["Okno"], [0.96]),
+    ])
+    rows, reports = refine_windowhub_ocr_table_rows(
+        [row()], np.zeros((400, 700, 3), dtype=np.uint8), engine
+    )
+    assert rows[0].quantity == 1
+    assert "quantity" not in rows[0].missing_fields
+    assert reports[0].accepted
+    assert reports[0].candidate_value == 1
+    assert reports[0].sources == ("color+otsu",)
+
+
+def test_conflicting_standalone_quantities_across_variants_remain_unresolved():
+    # Article evidence supports the row, but the two variants disagree on the
+    # isolated quantity digit. Do not choose the more confident guess.
+    engine = FakeEngine([
+        response(["1"], [0.93]),
+        response(["2", "Okno"], [0.99, 0.96]),
+    ])
+    rows, reports = refine_windowhub_ocr_table_rows(
+        [row()], np.zeros((400, 700, 3), dtype=np.uint8), engine
+    )
+    assert rows[0].quantity is None
+    assert "quantity" in rows[0].missing_fields
+    assert not reports[0].accepted
+    assert reports[0].reason == "conflicting_candidates"
+
+
 def test_rejects_false_quantity_when_article_does_not_match():
     engine = FakeEngine([response(["10kno"], [0.92]), response(["10kno"], [0.92])])
     rows, reports = refine_windowhub_ocr_table_rows([row()], np.zeros((400, 700, 3), dtype=np.uint8), engine)
