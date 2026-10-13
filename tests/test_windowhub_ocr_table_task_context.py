@@ -48,3 +48,30 @@ def test_payload_omits_table_when_reconstruction_cannot_be_serialized():
     scene.metadata["windowhub_ocr_table_reconstruction"] = object()
     payload = TaskPlanningContext(request_message="Odczytaj ofertę", intent="computer_use", scene=scene).to_payload()
     assert "structured_data" not in payload["scene"]
+
+def test_replanning_payload_keeps_structured_table_data():
+    from app.agent.perception.screen_scene_snapshot import ScreenSceneSnapshot
+    from app.agent.reasoning.replanning_context import ReplanningContext
+
+    scene = make_scene()
+    context = ReplanningContext(
+        request_message="Odczytaj ofertę",
+        intent="computer_use",
+        active_plan=(),
+        failed_action_name="read_table",
+        failed_action_description="Read the OFR table",
+        attempt_number=1,
+        execution_success=False,
+        execution_message="Test failure",
+        verification_verified=False,
+        verification_reason="Outcome not verified",
+        verification_confidence=0.0,
+        scene=ScreenSceneSnapshot.from_scene(scene),
+    )
+
+    payload = context.to_payload()
+    table = payload["scene"]["metadata"]["structured_data"]["windowhub_ocr_table"]
+    assert table["rows"][0]["lp"] == 1
+    assert table["rows"][0]["dimensions"] == "1320 x 1345"
+    json.dumps(payload, ensure_ascii=False)
+
