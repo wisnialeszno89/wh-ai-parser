@@ -166,6 +166,48 @@ def _normalize_image(screenshot_or_image: Any) -> np.ndarray:
     return image
 
 
+def _row_crop_bounds(
+    rows: tuple[WindowHubOCRTableRow, ...],
+    row: WindowHubOCRTableRow,
+    *,
+    image_height: int,
+    row_half_height: int,
+) -> tuple[int, int]:
+    """Return a vertical row band bounded by midpoints to adjacent table rows.
+
+    A fixed crop centered on the price can clip quantity/article text when OCR
+    boxes for different columns have different vertical centers. Expanding to
+    the neighbouring-row midpoints captures the whole row without including
+    the next row's center. Outer rows use their nearest row gap as a guide.
+    """
+    center = float(row.center_y)
+    centers = sorted({
+        float(other.center_y)
+        for other in rows
+        if float(other.center_y) != center
+    })
+    previous = max((value for value in centers if value < center), default=None)
+    following = min((value for value in centers if value > center), default=None)
+
+    if previous is not None:
+        y0 = math.floor((previous + center) / 2)
+    else:
+        outer_gap = (following - center) / 2 if following is not None else 0
+        y0 = math.floor(center - max(row_half_height, outer_gap))
+
+    if following is not None:
+        y1 = math.ceil((center + following) / 2)
+    else:
+        outer_gap = (center - previous) / 2 if previous is not None else 0
+        y1 = math.ceil(center + max(row_half_height, outer_gap))
+
+    if image_height <= 0:
+        return 0, 0
+    y0 = max(0, min(image_height - 1, y0))
+    y1 = max(y0 + 1, min(image_height, y1))
+    return y0, y1
+
+
 def refine_windowhub_ocr_table_rows(
     rows: Iterable[WindowHubOCRTableRow],
     screenshot_or_image: Any,
@@ -192,9 +234,12 @@ def refine_windowhub_ocr_table_rows(
     for row in input_rows:
         quantity = row.quantity
         gross_unit = row.gross_unit
-        center_y = int(round(row.center_y))
-        y0 = max(0, center_y - row_half_height)
-        y1 = min(height, center_y + row_half_height)
+        y0, y1 = _row_crop_bounds(
+            input_rows,
+            row,
+            image_height=height,
+            row_half_height=row_half_height,
+        )
         if quantity is None and row.article:
             x0 = max(0, article_x_min)
             x1 = min(width, article_x_max)
