@@ -152,10 +152,10 @@ def _classify_table_region_detections(elements: object) -> dict[str, list[dict[s
         "quantity_article_ocr_detections": [
             item for item in detections if 185 <= item["x"] < 380
         ],
-        "gross_total_ocr_detections": [
+        "net_total_ocr_detections": [
             item for item in detections if 380 <= item["x"] < 500
         ],
-        "gross_unit_ocr_detections": [
+        "unit_value_ocr_detections": [
             item for item in detections if 500 <= item["x"] < 600
         ],
         "dimensions_ocr_detections": [

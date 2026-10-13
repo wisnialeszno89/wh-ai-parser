@@ -32,8 +32,8 @@ def test_diagnostic_preserves_raw_detections_for_each_table_column():
 
     assert [item["text"] for item in result["lp_column_ocr_detections"]] == ["4"]
     assert [item["text"] for item in result["quantity_article_ocr_detections"]] == ["2 Okno"]
-    assert [item["text"] for item in result["gross_total_ocr_detections"]] == ["1045,18"]
-    assert [item["text"] for item in result["gross_unit_ocr_detections"]] == ["522,59"]
+    assert [item["text"] for item in result["net_total_ocr_detections"]] == ["1045,18"]
+    assert [item["text"] for item in result["unit_value_ocr_detections"]] == ["522,59"]
     assert [item["text"] for item in result["dimensions_ocr_detections"]] == ["1320x1345"]
     assert len(result["table_region_ocr_detections"]) == 5
 
@@ -49,7 +49,7 @@ def test_diagnostic_skips_malformed_and_invalid_detections():
     result = _classify_table_region_detections(elements)
 
     assert result["table_region_ocr_detections"] == []
-    assert result["gross_total_ocr_detections"] == []
+    assert result["net_total_ocr_detections"] == []
 
 def test_console_output_uses_backslash_replacement_for_legacy_code_pages():
     class Stream:

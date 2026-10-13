@@ -236,7 +236,7 @@ def refine_windowhub_ocr_table_rows(
 ) -> tuple[tuple[WindowHubOCRTableRow, ...], tuple[WindowHubOCRFieldRefinement, ...]]:
     """Recover missing quantity/unit-price fields; do not overwrite existing values."""
     input_rows = tuple(rows)
-    if not input_rows or all(row.quantity is not None and row.gross_unit is not None for row in input_rows):
+    if not input_rows or all(row.quantity is not None and row.unit_value is not None for row in input_rows):
         return input_rows, ()
     image = _normalize_image(screenshot_or_image)
     height, width = image.shape[:2]
@@ -245,7 +245,7 @@ def refine_windowhub_ocr_table_rows(
 
     for row in input_rows:
         quantity = row.quantity
-        gross_unit = row.gross_unit
+        unit_value = row.unit_value
         y0, y1 = _row_crop_bounds(
             input_rows,
             row,
@@ -266,7 +266,7 @@ def refine_windowhub_ocr_table_rows(
                 candidate_value=value, accepted=accepted, confidence=confidence,
                 sources=sources, reason=reason,
             ))
-        if gross_unit is None:
+        if unit_value is None:
             x0 = max(0, unit_x_min)
             x1 = min(width, unit_x_max)
             variants = _read_variants(engine, image[y0:y1, x0:x1], scale=scale)
@@ -274,20 +274,20 @@ def refine_windowhub_ocr_table_rows(
             value, confidence, sources, reason = _resolve_candidates(candidates)
             accepted = value is not None
             if accepted:
-                gross_unit = str(value)
+                unit_value = str(value)
             reports.append(WindowHubOCRFieldRefinement(
-                row_index=row.row_index, field="gross_unit", previous_value=row.gross_unit,
+                row_index=row.row_index, field="unit_value", previous_value=row.unit_value,
                 candidate_value=value, accepted=accepted, confidence=confidence,
                 sources=sources, reason=reason,
             ))
         fields = {
             "lp": row.lp, "quantity": quantity, "article": row.article,
-            "gross_total": row.gross_total, "gross_unit": gross_unit,
+            "net_total": row.net_total, "unit_value": unit_value,
             "dimensions": row.dimensions,
         }
         missing_fields = tuple(name for name, value in fields.items() if value is None)
         refined_rows.append(replace(
-            row, quantity=quantity, gross_unit=gross_unit, missing_fields=missing_fields
+            row, quantity=quantity, unit_value=unit_value, missing_fields=missing_fields
         ))
     return tuple(refined_rows), tuple(reports)
 
@@ -422,7 +422,7 @@ def refine_windowhub_ocr_table_lp(
 
         fields = {
             "lp": updated.lp, "quantity": updated.quantity, "article": updated.article,
-            "gross_total": updated.gross_total, "gross_unit": updated.gross_unit,
+            "net_total": updated.net_total, "unit_value": updated.unit_value,
             "dimensions": updated.dimensions,
         }
         missing_fields = tuple(name for name, field_value in fields.items() if field_value is None)

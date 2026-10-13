@@ -15,8 +15,8 @@ class WindowHubOCRTableRow:
     lp_source: str
     quantity: int | None
     article: str | None
-    gross_total: str | None
-    gross_unit: str | None
+    net_total: str | None
+    unit_value: str | None
     dimensions: str | None
     center_y: float = field(repr=False)
     missing_fields: tuple[str, ...] = ()
@@ -33,8 +33,8 @@ class WindowHubOCRTableRow:
             "lp_source": self.lp_source,
             "quantity": self.quantity,
             "article": self.article,
-            "gross_total": self.gross_total,
-            "gross_unit": self.gross_unit,
+            "net_total": self.net_total,
+            "unit_value": self.unit_value,
             "dimensions": self.dimensions,
             "complete": self.complete,
             "missing_fields": list(self.missing_fields),
@@ -236,18 +236,18 @@ def parse_windowhub_ocr_table(
                 lp_by_row.append({**item, "lp": value})
     lp_by_row.sort(key=lambda item: float(item["y"]))
 
-    # Price detections anchor physical table rows. Prefer the gross-total
+    # Price detections anchor physical table rows. Prefer the net-total
     # column when present, but use the unit-price column as a fallback so a
     # missing total-price OCR token does not erase an otherwise visible row.
     total_price_anchors = [
-        {**item, "lp": None, "anchor_source": "gross_total"}
+        {**item, "lp": None, "anchor_source": "net_total"}
         for item in items
         if total_x_min <= float(item["x"]) < total_x_max
         and min_center_y <= float(item["y"]) <= max_center_y
         and _parse_money(str(item["text"])) is not None
     ]
     unit_price_anchors = [
-        {**item, "lp": None, "anchor_source": "gross_unit"}
+        {**item, "lp": None, "anchor_source": "unit_value"}
         for item in items
         if unit_x_min <= float(item["x"]) < unit_x_max
         and min_center_y <= float(item["y"]) <= max_center_y
@@ -463,8 +463,8 @@ def parse_windowhub_ocr_table(
             "lp": lp,
             "quantity": quantity,
             "article": article,
-            "gross_total": total,
-            "gross_unit": unit,
+            "net_total": total,
+            "unit_value": unit,
             "dimensions": dimension,
         }
         missing = tuple(name for name, value in fields.items() if value is None)
@@ -475,8 +475,8 @@ def parse_windowhub_ocr_table(
                 lp_source=str(anchor["lp_source"]),
                 quantity=quantity,
                 article=article,
-                gross_total=total,
-                gross_unit=unit,
+                net_total=total,
+                unit_value=unit,
                 dimensions=dimension,
                 center_y=float(anchor["y"]),
                 missing_fields=missing,

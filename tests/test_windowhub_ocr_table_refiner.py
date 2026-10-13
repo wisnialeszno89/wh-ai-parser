@@ -26,11 +26,11 @@ def row(*, row_index=1, center_y=220.0, quantity=None, unit="1045.18"):
     if quantity is None:
         missing.append("quantity")
     if unit is None:
-        missing.append("gross_unit")
+        missing.append("unit_value")
     return WindowHubOCRTableRow(
         row_index=row_index, lp=None, lp_source="price_column_row_order",
-        quantity=quantity, article="Okno", gross_total="1045.18",
-        gross_unit=unit, dimensions="1320 x 1345", center_y=center_y,
+        quantity=quantity, article="Okno", net_total="1045.18",
+        unit_value=unit, dimensions="1320 x 1345", center_y=center_y,
         missing_fields=tuple(missing),
     )
 
@@ -127,8 +127,8 @@ def test_accepts_valid_color_candidate_when_otsu_has_article_typo():
 def test_recovers_missing_unit_price_from_otsu_result():
     engine = FakeEngine([response([], []), response(["793,35"], [0.996])])
     rows, reports = refine_windowhub_ocr_table_rows([row(quantity=1, unit=None)], np.zeros((400, 700, 3), dtype=np.uint8), engine)
-    assert rows[0].gross_unit == "793.35"
-    assert "gross_unit" not in rows[0].missing_fields
+    assert rows[0].unit_value == "793.35"
+    assert "unit_value" not in rows[0].missing_fields
     assert reports[0].accepted
     assert reports[0].confidence >= 0.99
 
@@ -136,8 +136,8 @@ def test_recovers_missing_unit_price_from_otsu_result():
 def test_conflicting_unit_prices_remain_unresolved():
     engine = FakeEngine([response(["793,35"], [0.96]), response(["793,36"], [0.99])])
     rows, reports = refine_windowhub_ocr_table_rows([row(quantity=1, unit=None)], np.zeros((400, 700, 3), dtype=np.uint8), engine)
-    assert rows[0].gross_unit is None
-    assert "gross_unit" in rows[0].missing_fields
+    assert rows[0].unit_value is None
+    assert "unit_value" in rows[0].missing_fields
     assert not reports[0].accepted
     assert reports[0].reason == "conflicting_candidates"
 
@@ -146,7 +146,7 @@ def test_never_overwrites_fields_already_present():
     engine = FakeEngine([])
     rows, reports = refine_windowhub_ocr_table_rows([row(quantity=1, unit="1045.18")], np.zeros((400, 700, 3), dtype=np.uint8), engine)
     assert rows[0].quantity == 1
-    assert rows[0].gross_unit == "1045.18"
+    assert rows[0].unit_value == "1045.18"
     assert reports == ()
     assert engine.calls == 0
 

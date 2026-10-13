@@ -26,13 +26,13 @@ def test_parses_lp_quantity_article_prices_and_dimensions():
     assert row.lp == 1
     assert row.quantity == 1
     assert row.article == "Okno"
-    assert row.gross_total == "1234.56"
-    assert row.gross_unit == "793.35"
+    assert row.net_total == "1234.56"
+    assert row.unit_value == "793.35"
     assert row.dimensions == "1320 x 1345"
     assert row.complete
 
 
-def test_uses_unit_price_anchor_when_gross_total_ocr_is_missing():
+def test_uses_unit_price_anchor_when_net_total_ocr_is_missing():
     items = [
         element("1 Okno", 210, 223.9),
         element("793,35", 530, 223.9),
@@ -44,10 +44,10 @@ def test_uses_unit_price_anchor_when_gross_total_ocr_is_missing():
 
     assert len(rows) == 1
     assert rows[0].lp == 4
-    assert rows[0].gross_total is None
-    assert rows[0].gross_unit == "793.35"
+    assert rows[0].net_total is None
+    assert rows[0].unit_value == "793.35"
     assert rows[0].dimensions == "1320 x 1345"
-    assert "gross_total" in rows[0].missing_fields
+    assert "net_total" in rows[0].missing_fields
 
 
 def test_unit_price_anchor_adds_row_when_only_that_rows_total_is_missing():
@@ -72,8 +72,8 @@ def test_unit_price_anchor_adds_row_when_only_that_rows_total_is_missing():
 
     assert len(rows) == 3
     assert [row.lp for row in rows] == [1, 2, 3]
-    assert [row.gross_total for row in rows] == ["1000.00", None, "1010.00"]
-    assert [row.gross_unit for row in rows] == ["800.00", "795.00", "810.00"]
+    assert [row.net_total for row in rows] == ["1000.00", None, "1010.00"]
+    assert [row.unit_value for row in rows] == ["800.00", "795.00", "810.00"]
     assert [row.row_index for row in rows] == [1, 2, 3]
 
 
@@ -105,8 +105,8 @@ def test_keeps_missing_total_row_when_unit_price_is_near_previous_row():
 
     assert len(rows) == 3
     assert [row.lp for row in rows] == [1, 2, 3]
-    assert [row.gross_total for row in rows] == ["1000.00", None, "1010.00"]
-    assert [row.gross_unit for row in rows] == ["800.00", "795.00", "810.00"]
+    assert [row.net_total for row in rows] == ["1000.00", None, "1010.00"]
+    assert [row.unit_value for row in rows] == ["800.00", "795.00", "810.00"]
     assert [row.article for row in rows] == ["Okno", "Okno", "Okno"]
     assert [row.dimensions for row in rows] == [
         "1200 x 1350", "1300 x 1350", "1400 x 1350"
@@ -141,10 +141,10 @@ def test_does_not_create_extra_row_from_vertical_drift_across_price_columns():
 
     assert len(rows) == 3
     assert [row.lp for row in rows] == [1, 2, 3]
-    assert [row.gross_total for row in rows] == [
+    assert [row.net_total for row in rows] == [
         "1000.00", "995.00", "1010.00"
     ]
-    assert [row.gross_unit for row in rows] == [
+    assert [row.unit_value for row in rows] == [
         "800.00", "795.00", "810.00"
     ]
 
@@ -167,7 +167,7 @@ def test_ambiguous_unit_price_between_rows_is_not_guessed():
     rows = parse_windowhub_ocr_table(items)
 
     assert len(rows) == 2
-    assert [row.gross_unit for row in rows] == [None, None]
+    assert [row.unit_value for row in rows] == [None, None]
 
 
 def test_prefers_total_price_anchor_when_both_price_columns_are_detected():
@@ -184,8 +184,8 @@ def test_prefers_total_price_anchor_when_both_price_columns_are_detected():
 
     assert len(rows) == 1
     assert rows[0].center_y == 223.0
-    assert rows[0].gross_total == "1000.00"
-    assert rows[0].gross_unit == "800.00"
+    assert rows[0].net_total == "1000.00"
+    assert rows[0].unit_value == "800.00"
 
 
 def test_falls_back_to_price_anchor_without_guessing_lp():
@@ -231,3 +231,11 @@ def test_dimension_parser_accepts_multiplication_symbol():
 
 def test_empty_input_returns_no_rows():
     assert parse_windowhub_ocr_table([]) == ()
+
+def test_payload_uses_screen_column_semantics_not_gross_labels():
+    rows = parse_windowhub_ocr_table(make_row(1, 223.9))
+    payload = rows[0].to_payload()
+    assert payload["net_total"] == "1234.56"
+    assert payload["unit_value"] == "793.35"
+    assert "gross_total" not in payload
+    assert "gross_unit" not in payload
