@@ -243,7 +243,7 @@ def refine_windowhub_ocr_table_lp(
     lp_x_min: int = 100,
     lp_x_max: int = 160,
     lp_y_min: int = 202,
-    lp_y_max: int = 340,
+    lp_y_max: int = 360,
     min_confidence: float = 0.85,
     scale: int = 5,
     padding: int = 25,
