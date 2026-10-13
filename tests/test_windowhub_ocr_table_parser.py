@@ -145,6 +145,27 @@ def test_does_not_create_extra_row_from_vertical_drift_across_price_columns():
     assert [row.gross_unit for row in rows] == ["800.00", "795.00", "810.00"]
 
 
+def test_unit_price_anchor_without_nearby_total_is_added_as_row():
+    items = [
+        element("1 Okno", 210, 223.0),
+        element("1000,00", 420, 223.0),
+        element("800,00", 530, 223.0),
+        element("1200x1350", 1120, 223.0),
+        element("1", 120, 223.0),
+        element("1 Okno", 210, 237.0),
+        element("795,00", 530, 237.0),
+        element("1300x1350", 1120, 237.0),
+        element("2", 120, 237.0),
+    ]
+
+    rows = parse_windowhub_ocr_table(items)
+
+    assert len(rows) == 2
+    assert [row.lp for row in rows] == [1, 2]
+    assert [row.gross_total for row in rows] == ["1000.00", None]
+    assert [row.gross_unit for row in rows] == ["800.00", "795.00"]
+
+
 def test_prefers_total_price_anchor_when_both_price_columns_are_detected():
     items = [
         element("1 Okno", 210, 223.0),
