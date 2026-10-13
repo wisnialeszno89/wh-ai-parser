@@ -2,6 +2,7 @@ from types import SimpleNamespace
 
 from tools.inspect_windowhub_ocr_table import (
     _classify_table_region_detections,
+    _configure_console_output,
 )
 
 
@@ -49,3 +50,20 @@ def test_diagnostic_skips_malformed_and_invalid_detections():
 
     assert result["table_region_ocr_detections"] == []
     assert result["gross_total_ocr_detections"] == []
+
+def test_console_output_uses_backslash_replacement_for_legacy_code_pages():
+    class Stream:
+        def __init__(self):
+            self.options = []
+
+        def reconfigure(self, **kwargs):
+            self.options.append(kwargs)
+
+    stdout = Stream()
+    stderr = Stream()
+
+    _configure_console_output((stdout, stderr))
+
+    assert stdout.options == [{"errors": "backslashreplace"}]
+    assert stderr.options == [{"errors": "backslashreplace"}]
+
