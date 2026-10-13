@@ -77,6 +77,33 @@ def test_unit_price_anchor_adds_row_when_only_that_rows_total_is_missing():
     assert [row.row_index for row in rows] == [1, 2, 3]
 
 
+def test_unit_price_vertical_drift_is_assigned_to_nearest_total_row():
+    items = [
+        element("1 Okno", 210, 223.0),
+        element("1000,00", 420, 223.0),
+        element("800,00", 530, 227.0),
+        element("1200x1350", 1120, 223.0),
+        element("1", 120, 223.0),
+        element("1 Okno", 210, 237.0),
+        element("995,00", 420, 237.0),
+        element("795,00", 530, 230.0),
+        element("1300x1350", 1120, 237.0),
+        element("2", 120, 237.0),
+        element("1 Okno", 210, 251.0),
+        element("1010,00", 420, 251.0),
+        element("810,00", 530, 255.0),
+        element("1400x1350", 1120, 251.0),
+        element("3", 120, 251.0),
+    ]
+
+    rows = parse_windowhub_ocr_table(items)
+
+    assert len(rows) == 3
+    assert [row.lp for row in rows] == [1, 2, 3]
+    assert [row.gross_total for row in rows] == ["1000.00", "995.00", "1010.00"]
+    assert [row.gross_unit for row in rows] == ["800.00", "795.00", "810.00"]
+
+
 def test_keeps_missing_total_row_when_unit_price_is_near_previous_row():
     # The middle row has no total-price OCR. Its unit-price detection is shifted
     # upward and falls within row_tolerance of the previous total anchor, while
