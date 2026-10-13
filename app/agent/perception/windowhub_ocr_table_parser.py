@@ -194,6 +194,12 @@ def parse_windowhub_ocr_table(
             total_centers.append(candidate_y)
             continue
 
+        # If the token is only a few pixels from an existing total anchor,
+        # prefer that total anchor: these are two detections of the same row
+        # unless the evidence is strong enough to prove otherwise.
+        if nearest_total_distance < 5.0:
+            continue
+
         # A unit price near a total anchor is presumed to belong to that row.
         # Retain it as a separate physical row only if distinct evidence from
         # at least two independent structural columns is clearly closer to it.
