@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ctypes
+from ctypes import wintypes
 import json
 import os
 import sys
@@ -19,14 +20,29 @@ def _wait_for_window_foreground(window_handle: int, timeout_seconds: float = 45.
         return False
 
     user32 = ctypes.WinDLL("user32", use_last_error=True)
+    get_foreground = user32.GetForegroundWindow
+    get_foreground.restype = wintypes.HWND
+    get_ancestor = user32.GetAncestor
+    get_ancestor.argtypes = (wintypes.HWND, wintypes.UINT)
+    get_ancestor.restype = wintypes.HWND
+
     deadline = time.monotonic() + timeout_seconds
     while time.monotonic() < deadline:
         try:
-            foreground_handle = int(user32.GetForegroundWindow())
+            foreground_handle = int(get_foreground() or 0)
+            if foreground_handle == window_handle:
+                return True
+            # A modal/owned WindowHub dialog may be foreground while its root
+            # owner remains the intended WindowHub top-level window.
+            if foreground_handle > 0:
+                root_owner_handle = int(
+                    get_ancestor(wintypes.HWND(foreground_handle), 3) or 0
+                )
+                if root_owner_handle == window_handle:
+                    return True
         except Exception:
-            foreground_handle = 0
-        if foreground_handle == window_handle:
-            return True
+            # Keep waiting if a transient Win32 query fails.
+            pass
         time.sleep(0.25)
     return False
 
