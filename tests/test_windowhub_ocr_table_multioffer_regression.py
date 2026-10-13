@@ -71,6 +71,7 @@ def test_parser_does_not_invent_lp_or_quantity_from_neighboring_rows():
     assert [row.quantity for row in rows] == [1, None, 2]
     assert "lp" in rows[1].missing_fields
     assert "quantity" in rows[1].missing_fields
+    assert rows[2].quantity == 2
 
 
 class BoxEngine:
