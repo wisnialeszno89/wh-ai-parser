@@ -29,23 +29,23 @@ def element(label: str, x: int, y: float, confidence: float = 0.99):
 
 
 def make_offer(lp_values, quantities, *, start_y=223.0, step=14.0):
-    """Build an offer fixture; None means the source OCR missed that value."""
+    """Build one offer with explicit price/LP/quantity rows and optional missing LPs."""
     output = []
     for idx, (lp, quantity) in enumerate(zip(lp_values, quantities)):
         y = start_y + idx * step
-        if quantity is not None:
-            output.append(element(f"{quantity} Okno", 210, y))
-        else:
-            output.append(element("Okno", 210, y))
         output.extend([
             element(f"{1000 + idx},00", 420, y),
             element(f"{800 + idx},00", 530, y),
             element(f"{1200 + idx}x1350", 1120, y),
         ])
+        # Keep article detection separate from the optional quantity token so
+        # the fixture models screenshots where "Okno" is read but "1" is not.
+        output.append(element("Okno", 245, y))
+        if quantity is not None:
+            output.append(element(str(quantity), 195, y))
         if lp is not None:
             output.append(element(str(lp), 120, y))
     return output
-
 
 def test_multiple_offers_parse_independently_without_cross_offer_state():
     # Three different offers: regular sequence, missing LPs, and an LP sequence
