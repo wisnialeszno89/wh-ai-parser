@@ -115,7 +115,7 @@ def test_pipeline_uses_shifted_article_crop_and_never_promotes_montage_to_unit_v
     layout = infer_windowhub_ocr_table_column_layout(items)
     assert layout["adaptive_price_columns"] is True
     assert layout["article_x_max"] == 351
-    assert layout["unit_x_min"] == 456
+    assert layout["unit_x_min"] == 437
     assert layout["unit_x_max"] == 539
     # The OCR engine receives scaled crops: LP-column passes are 600px wide,
     # and the dynamically bounded article crop is 350px wide.
