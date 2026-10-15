@@ -151,3 +151,45 @@ def test_pipeline_passes_dimensions_column_to_local_refiner():
     assert any(report.field == "dimensions" and report.accepted for report in result.field_refinements)
     # Three padded, high-resolution passes share the configured dimension crop.
     assert engine.image_shapes.count((148, 1896)) == 3
+
+
+
+def test_pipeline_uses_header_labels_for_single_row_and_excludes_montage_price():
+    items = [
+        element("Lp", 135, 191.0),
+        element("Ilość", 179, 189.0),
+        element("Artykuł", 257, 190.0),
+        element("Wartość", 350, 190.0),
+        element("Wartość (szt.)", 419, 199.0),
+        element("Montaż", 521, 193.0),
+        element("1 Okno", 205, 224.0),
+        element("3944,33", 364, 224.0),
+        element("3944,33", 463, 224.0),
+        element("0,00", 548, 224.0),
+        element("2580 Î 2240", 975, 224.0),
+    ]
+
+    class EmptyEngine:
+        def __call__(self, image):
+            return SimpleNamespace(txts=[], scores=[], boxes=[])
+
+    engine = EmptyEngine()
+    result = reconstruct_windowhub_ocr_table_rows(
+        items, np.zeros((400, 1800, 3), dtype=np.uint8), engine
+    )
+
+    assert len(result.rows) == 1
+    row = result.rows[0]
+    assert row.lp is None
+    assert row.quantity == 1
+    assert row.article == "Okno"
+    assert row.total_value == "3944.33"
+    assert row.unit_value == "3944.33"
+    assert row.unit_value != "0.00"
+    assert row.dimensions == "2580 x 2240"
+    assert "lp" in row.missing_fields
+
+    layout = infer_windowhub_ocr_table_column_layout(items)
+    assert layout["adaptive_price_columns"] is True
+    assert layout["price_column_source"] == "header_text"
+    assert len(layout["price_column_centers"]) == 3

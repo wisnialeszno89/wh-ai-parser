@@ -279,3 +279,35 @@ def test_adapts_shifted_price_columns_ignores_montage_and_keeps_ninth_row():
     assert all(row.article == "Okno" for row in rows)
     assert rows[0].quantity == 1
     assert all(row.dimensions == f"{1200 + i} x 1350" for i, row in enumerate(rows, 1))
+
+
+
+def test_header_text_disambiguates_single_row_total_unit_and_montage_columns():
+    # Mirrors OFR/4235-: only one data row, so price-column clustering by
+    # repetition cannot work. Header labels distinguish the three amounts.
+    items = [
+        element("Lp", 135, 191.0),
+        element("Ilość", 179, 189.0),
+        element("Artykuł", 257, 190.0),
+        element("Wartość", 350, 190.0),
+        element("Wartość (szt.)", 419, 199.0),
+        element("Montaż", 521, 193.0),
+        element("1 Okno", 205, 224.0),
+        element("3944,33", 364, 224.0),
+        element("3944,33", 463, 224.0),
+        element("0,00", 548, 224.0),
+        element("2580 Î 2240", 975, 224.0),
+    ]
+
+    rows = parse_windowhub_ocr_table(items, anchor_x_max=-1)
+
+    assert len(rows) == 1
+    row = rows[0]
+    assert row.lp is None  # Missing LP evidence must remain missing.
+    assert row.quantity == 1
+    assert row.article == "Okno"
+    assert row.total_value == "3944.33"
+    assert row.unit_value == "3944.33"
+    assert row.dimensions == "2580 x 2240"
+    assert "lp" in row.missing_fields
+    assert "quantity" not in row.missing_fields

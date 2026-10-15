@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import unicodedata
 from dataclasses import dataclass, field
 from functools import lru_cache
 from typing import Iterable
@@ -103,6 +104,75 @@ def _cluster_price_column_centers(
     return [sum(cluster) / len(cluster) for cluster in clusters if len(cluster) >= 2]
 
 
+def _header_price_column_centers(
+    items: list[dict[str, object]],
+    *,
+    min_header_y: float = 155.0,
+    max_header_y: float = 212.0,
+) -> list[float]:
+    """Detect stable price columns from OCR header labels when available.
+
+    This is especially important for a short/single-row offer: repeated price
+    values alone cannot distinguish total, per-unit, and service columns when
+    each column contains only one amount. Header text remains weak geometric
+    evidence; values are still accepted only by the normal conservative parser.
+    """
+    role_values: dict[str, list[float]] = {
+        "total": [],
+        "unit": [],
+        "service": [],
+    }
+    for item in items:
+        try:
+            x = float(item["x"])
+            y = float(item["y"])
+            width = float(item.get("width", 0))
+            raw_text = str(item["text"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if not 300 <= x < 900 or not min_header_y <= y <= max_header_y:
+            continue
+
+        normalized = unicodedata.normalize("NFKD", raw_text.casefold())
+        normalized = "".join(
+            char for char in normalized if not unicodedata.combining(char)
+        )
+        center_x = x + width / 2
+        if "warto" in normalized:
+            role = "unit" if "szt" in normalized else "total"
+            role_values[role].append(center_x)
+        if "monta" in normalized:
+            role_values["service"].append(center_x)
+
+    def dominant_center(values: list[float]) -> float | None:
+        if not values:
+            return None
+        clusters: list[list[float]] = []
+        for value in sorted(values):
+            if clusters and value - sum(clusters[-1]) / len(clusters[-1]) <= 32:
+                clusters[-1].append(value)
+            else:
+                clusters.append([value])
+        best = max(clusters, key=lambda cluster: (len(cluster), -cluster[0]))
+        return sum(best) / len(best)
+
+    total_center = dominant_center(role_values["total"])
+    unit_center = dominant_center(role_values["unit"])
+    if (
+        total_center is None
+        or unit_center is None
+        or total_center >= unit_center
+        or unit_center - total_center < 35
+    ):
+        return []
+
+    centers = [total_center, unit_center]
+    service_center = dominant_center(role_values["service"])
+    if service_center is not None and service_center > unit_center + 24:
+        centers.append(service_center)
+    return centers
+
+
 def _layout_from_normalized_items(
     items: list[dict[str, object]],
     *,
@@ -115,9 +185,16 @@ def _layout_from_normalized_items(
     min_center_y: float = 200,
     max_center_y: float = 380,
 ) -> dict[str, object]:
-    centers = _cluster_price_column_centers(
-        items, min_center_y=min_center_y, max_center_y=max_center_y
-    )
+    # Header text is the strongest available column cue when the current offer
+    # has too few data rows to form repeated monetary clusters.
+    centers = _header_price_column_centers(items)
+    source = "header_text" if centers else "fixed_defaults"
+    if not centers:
+        centers = _cluster_price_column_centers(
+            items, min_center_y=min_center_y, max_center_y=max_center_y
+        )
+        if len(centers) >= 2:
+            source = "repeated_price_values"
     adaptive = len(centers) >= 2
     effective_article_x_max = article_x_max
     effective_total_x_min = total_x_min
@@ -137,6 +214,7 @@ def _layout_from_normalized_items(
         effective_unit_x_max = int(second + 42)
     return {
         "adaptive_price_columns": adaptive,
+        "price_column_source": source,
         "price_column_centers": centers,
         "article_x_max": effective_article_x_max,
         "total_x_min": effective_total_x_min,
