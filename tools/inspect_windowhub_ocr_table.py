@@ -8,6 +8,10 @@ import sys
 import time
 from pathlib import Path
 
+from app.agent.perception.windowhub_ocr_table_parser import (
+    infer_windowhub_ocr_table_column_layout,
+)
+
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
