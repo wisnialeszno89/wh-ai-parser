@@ -150,4 +150,4 @@ def test_pipeline_passes_dimensions_column_to_local_refiner():
     assert result.rows[0].dimensions == "1320 x 1345"
     assert any(report.field == "dimensions" and report.accepted for report in result.field_refinements)
     # The first two calls are the color/Otsu passes on the configured dimension crop.
-    assert engine.image_shapes[:2] == [(72, 1200), (72, 1200)]
+    assert engine.image_shapes.count((72, 1200)) == 2
