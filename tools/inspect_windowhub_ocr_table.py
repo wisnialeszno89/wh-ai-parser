@@ -18,6 +18,123 @@ from app.agent.perception.windowhub_ocr_table_parser import (
 )
 
 
+def _reasoning_handoff_audit(
+    observation: object,
+    elements: object,
+    reconstruction: object,
+) -> dict[str, object]:
+    """Audit model-safe table metadata forwarded by NaviMind's world contract."""
+    from app.agent.bridge.world_state import WorldState
+    from app.agent.perception.interaction_capability import InteractionCapability
+    from app.agent.perception.screen_scene import ScreenScene
+
+    element_tuple = tuple(elements or ())
+    scene_metadata = (
+        {"windowhub_ocr_table_reconstruction": reconstruction}
+        if reconstruction is not None
+        else {}
+    )
+    scene = ScreenScene(
+        observation=observation,
+        elements=element_tuple,
+        metadata=scene_metadata,
+    )
+
+    # This is the same WorldState serializer used by NaviMindTaskReasoner when
+    # it builds AgentTaskContract.world. The diagnostic does not send a request.
+    world_payload = WorldState.from_scene(scene).to_payload()
+    world_metadata = world_payload.get("metadata")
+    table_payload = (
+        world_metadata.get("windowhub_ocr_table")
+        if isinstance(world_metadata, dict)
+        else None
+    )
+    rows = table_payload.get("rows", []) if isinstance(table_payload, dict) else []
+    if not isinstance(rows, list):
+        rows = []
+
+    lp_values = [
+        row.get("lp")
+        for row in rows
+        if isinstance(row, dict)
+    ]
+    lp_values_valid = (
+        len(lp_values) == len(rows)
+        and all(
+            isinstance(value, int) and not isinstance(value, bool)
+            for value in lp_values
+        )
+    )
+    forbidden_geometry_keys = {
+        "x",
+        "y",
+        "width",
+        "height",
+        "center_x",
+        "center_y",
+        "bounds",
+        "ocr_bounds",
+        "window_handle",
+        "foreground_window_handle",
+        "foreground_root_owner_handle",
+        "screen_width",
+        "screen_height",
+        "screenshot",
+        "hwnd",
+    }
+
+    def contains_geometry(value: object) -> bool:
+        if isinstance(value, dict):
+            return any(
+                str(key).casefold() in forbidden_geometry_keys
+                for key in value
+            ) or any(contains_geometry(item) for item in value.values())
+        if isinstance(value, (tuple, list)):
+            return any(contains_geometry(item) for item in value)
+        return False
+
+    return {
+        "source": "WorldState.from_scene -> NaviMindTaskReasoner",
+        "table_present": isinstance(table_payload, dict),
+        "table_status": (
+            table_payload.get("status")
+            if isinstance(table_payload, dict)
+            else None
+        ),
+        "row_count": (
+            table_payload.get("row_count")
+            if isinstance(table_payload, dict)
+            else 0
+        ),
+        "complete_row_count": (
+            table_payload.get("complete_row_count")
+            if isinstance(table_payload, dict)
+            else 0
+        ),
+        "lp_values": lp_values,
+        "lp_values_unique_and_present": (
+            bool(rows)
+            and lp_values_valid
+            and len(set(lp_values)) == len(lp_values)
+        ),
+        "rows_with_missing_fields": [
+            row.get("row_index")
+            for row in rows
+            if isinstance(row, dict) and row.get("missing_fields")
+        ],
+        "coordinates_excluded": not contains_geometry(world_payload),
+        "ocr_elements_checked": len(element_tuple),
+        "ocr_elements_noninteractive": (
+            bool(element_tuple)
+            and all(
+                getattr(element, "interaction_capability", None)
+                == InteractionCapability.UNKNOWN
+                for element in element_tuple
+            )
+        ),
+    }
+
+
 def _format_hwnd(value: int) -> str:
     """Format a Windows handle for unambiguous diagnostic output."""
     return f"0x{value:X}" if value > 0 else "0x0"
@@ -597,9 +714,14 @@ def main() -> int:
                 "error": f"{type(exc).__name__}: {exc}",
             }]
 
+    reasoning_handoff_audit = _reasoning_handoff_audit(
+        observation, elements, reconstruction
+    )
+
     summary = {
         "dimensions_crop_scan": dimensions_crop_scan,
         "lp_crop_scan": lp_crop_scan,
+        "reasoning_handoff_audit": reasoning_handoff_audit,
         "table_payload_status": payload.get("status") if isinstance(payload, dict) else None,
         "window_title": title,
         "window_focused": focused,

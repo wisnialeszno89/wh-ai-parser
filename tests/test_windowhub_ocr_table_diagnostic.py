@@ -5,6 +5,7 @@ from tools.inspect_windowhub_ocr_table import (
     _configure_console_output,
     _scan_dimensions_across_row_crops,
     _scan_lp_column_across_row_crops,
+    _reasoning_handoff_audit,
 )
 
 
@@ -168,3 +169,106 @@ def test_diagnostic_scans_only_unresolved_lp_rows_without_promoting_candidates()
     }]
     # Local 20px high row crop scaled 6x with 32px vertical and 72px horizontal padding.
     assert engine.shapes[0] == (152, 552)
+
+
+def test_reasoning_handoff_audit_includes_table_and_excludes_screen_geometry():
+    from app.agent.environment.environment_observation import EnvironmentObservation
+    from app.agent.environment.environment_state import EnvironmentState
+    from app.agent.perception.interaction_capability import InteractionCapability
+    from app.agent.perception.windowhub_ocr_table_parser import WindowHubOCRTableRow
+    from app.agent.perception.windowhub_ocr_table_pipeline import WindowHubOCRTableReconstruction
+
+    row = WindowHubOCRTableRow(
+        row_index=1,
+        lp=1,
+        lp_source="ocr_column",
+        quantity=1,
+        article="Okno",
+        total_value="1045.18",
+        unit_value="1045.18",
+        dimensions="1320 x 1345",
+        center_y=223.9,
+        missing_fields=(),
+    )
+    reconstruction = WindowHubOCRTableReconstruction(
+        rows=(row,),
+        field_refinements=(),
+        lp_refinements=(),
+    )
+    observation = EnvironmentObservation(
+        state=EnvironmentState(
+            active_application="WindowHub",
+            active_window_title="Okna - OFR/4170-",
+            screen_width=1920,
+            screen_height=1080,
+        ),
+        metadata={},
+    )
+    elements = (
+        SimpleNamespace(
+            kind="text",
+            label="1 Okno",
+            interaction_capability=InteractionCapability.UNKNOWN,
+            confidence=0.99,
+            metadata={"ocr_bounds": (10, 20, 30, 8)},
+        ),
+    )
+
+    audit = _reasoning_handoff_audit(observation, elements, reconstruction)
+
+    assert audit["source"] == "WorldState.from_scene -> NaviMindTaskReasoner"
+    assert audit["table_present"] is True
+    assert audit["table_status"] == "complete"
+    assert audit["row_count"] == 1
+    assert audit["complete_row_count"] == 1
+    assert audit["lp_values"] == [1]
+    assert audit["lp_values_unique_and_present"] is True
+    assert audit["rows_with_missing_fields"] == []
+    assert audit["coordinates_excluded"] is True
+    assert audit["ocr_elements_checked"] == 1
+    assert audit["ocr_elements_noninteractive"] is True
+
+
+def test_reasoning_handoff_audit_keeps_incomplete_rows_explicit():
+    from app.agent.environment.environment_observation import EnvironmentObservation
+    from app.agent.environment.environment_state import EnvironmentState
+    from app.agent.perception.windowhub_ocr_table_parser import WindowHubOCRTableRow
+    from app.agent.perception.windowhub_ocr_table_pipeline import WindowHubOCRTableReconstruction
+
+    row = WindowHubOCRTableRow(
+        row_index=1,
+        lp=None,
+        lp_source=None,
+        quantity=1,
+        article="Okno",
+        total_value="1045.18",
+        unit_value="1045.18",
+        dimensions="1320 x 1345",
+        center_y=223.9,
+        missing_fields=("lp",),
+    )
+    reconstruction = WindowHubOCRTableReconstruction(
+        rows=(row,),
+        field_refinements=(),
+        lp_refinements=(),
+    )
+    observation = EnvironmentObservation(
+        state=EnvironmentState(
+            active_application="WindowHub",
+            active_window_title="Okna - OFR/4170-",
+        ),
+        metadata={},
+    )
+
+    audit = _reasoning_handoff_audit(observation, (), reconstruction)
+
+    assert audit["table_present"] is True
+    assert audit["table_status"] == "partial"
+    assert audit["row_count"] == 1
+    assert audit["complete_row_count"] == 0
+    assert audit["lp_values"] == [None]
+    assert audit["lp_values_unique_and_present"] is False
+    assert audit["rows_with_missing_fields"] == [1]
+    assert audit["coordinates_excluded"] is True
+    assert audit["ocr_elements_noninteractive"] is False
+
