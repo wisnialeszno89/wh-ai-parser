@@ -393,6 +393,86 @@ def refine_windowhub_ocr_table_rows(
     return tuple(refined_rows), tuple(reports)
 
 
+def _read_lp_cell_candidates(
+    rows: tuple[WindowHubOCRTableRow, ...],
+    row: WindowHubOCRTableRow,
+    image: np.ndarray,
+    engine: Callable[[np.ndarray], Any],
+    *,
+    min_confidence: float,
+) -> list[tuple[int, float, str, float]]:
+    """Read one unresolved LP cell through overlapping high-resolution crops.
+
+    The crop is bounded to the row and LP column, so a valid integer token has
+    spatial context even when the OCR engine does not return word boxes. The
+    output is still only a candidate: the caller applies per-row conflict and
+    cross-row duplicate checks before accepting it.
+    """
+    height, width = image.shape[:2]
+    y0, y1 = _row_crop_bounds(
+        rows, row, image_height=height, row_half_height=10
+    )
+    bands = ((90, 170), (100, 180))
+    candidates: list[tuple[int, float, str, float]] = []
+
+    for configured_x0, configured_x1 in bands:
+        x0, x1 = max(0, configured_x0), min(width, configured_x1)
+        if x1 <= x0:
+            continue
+        crop = image[y0:y1, x0:x1]
+        if crop.size == 0:
+            continue
+
+        enlarged = cv2.resize(
+            crop, None, fx=6, fy=6, interpolation=cv2.INTER_CUBIC
+        )
+        gray = cv2.cvtColor(enlarged, cv2.COLOR_BGR2GRAY)
+        clahe = cv2.createCLAHE(
+            clipLimit=2.0, tileGridSize=(8, 8)
+        ).apply(gray)
+        sharpened = cv2.addWeighted(
+            clahe, 1.6,
+            cv2.GaussianBlur(clahe, (0, 0), 1.0), -0.6,
+            0,
+        )
+        _, otsu = cv2.threshold(
+            sharpened, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU
+        )
+        variants = (
+            ("color", cv2.copyMakeBorder(
+                enlarged, 16, 16, 36, 36,
+                cv2.BORDER_CONSTANT, value=(255, 255, 255),
+            )),
+            ("clahe_sharpened", cv2.copyMakeBorder(
+                sharpened, 16, 16, 36, 36,
+                cv2.BORDER_CONSTANT, value=255,
+            )),
+            ("otsu_sharpened", cv2.copyMakeBorder(
+                otsu, 16, 16, 36, 36,
+                cv2.BORDER_CONSTANT, value=255,
+            )),
+        )
+
+        for variant_name, variant_image in variants:
+            source = f"cell_x{x0}_{x1}:{variant_name}"
+            try:
+                observed = _result_items(engine(variant_image))
+            except Exception:
+                # Cell refinement is best effort; a failed crop must not turn
+                # a previously valid perception pass into a hard failure.
+                continue
+            for text, confidence in observed:
+                if confidence < min_confidence or not re.fullmatch(r"\d{1,3}", text):
+                    continue
+                value = int(text)
+                if 1 <= value <= 999:
+                    candidates.append(
+                        (value, confidence, source, float(row.center_y))
+                    )
+
+    return candidates
+
+
 def refine_windowhub_ocr_table_lp(
     rows: Iterable[WindowHubOCRTableRow],
     screenshot_or_image: Any,
@@ -407,7 +487,7 @@ def refine_windowhub_ocr_table_lp(
     padding: int = 25,
     row_tolerance: float = 7.5,
 ) -> tuple[tuple[WindowHubOCRTableRow, ...], tuple[WindowHubOCRFieldRefinement, ...]]:
-    """Recover LP from full-column color/Otsu OCR; preserve existing values."""
+    """Recover LP from full-column OCR and row-local crops; preserve existing values."""
     input_rows = tuple(rows)
     if not input_rows or all(row.lp is not None for row in input_rows):
         return input_rows, ()
@@ -476,6 +556,19 @@ def refine_windowhub_ocr_table_lp(
         if abs(input_rows[nearest].center_y - candidate[3]) <= row_tolerance:
             detections_by_row[nearest].append(candidate)
 
+    # If the full-column crop produced no valid token for a row, inspect that
+    # row's LP cell with wider overlapping crops. These observations are not
+    # accepted directly; they flow through the same conflict and uniqueness
+    # checks as full-column candidates.
+    for index, row in enumerate(input_rows):
+        if row.lp is not None or detections_by_row[index]:
+            continue
+        detections_by_row[index].extend(
+            _read_lp_cell_candidates(
+                input_rows, row, image, engine, min_confidence=min_confidence
+            )
+        )
+
     # First collect the best per-row candidate, then check uniqueness across
     # the whole table. Two rows must not both receive the same LP simply
     # because the OCR engine confidently misread one of them.
@@ -518,7 +611,12 @@ def refine_windowhub_ocr_table_lp(
                 updated = row
                 accepted, reason = False, "duplicate_lp_across_rows"
             else:
-                updated = replace(row, lp=candidate_value, lp_source="ocr_column")
+                source_name = "ocr_cell" if any(
+                    source.startswith("cell_") for source in sources
+                ) else "ocr_column"
+                updated = replace(
+                    row, lp=candidate_value, lp_source=source_name
+                )
                 accepted, reason = True, "unique_valid_candidate"
 
         fields = {

@@ -64,7 +64,7 @@ def test_conflicting_lp_detections_remain_unresolved():
 
 def test_rejects_non_numeric_ocr_noise():
     noise = SimpleNamespace(txts=["一r"], scores=[0.99], boxes=[box_for_y(223.9)])
-    engine = BoxEngine([noise, noise])
+    engine = BoxEngine([noise, noise, noise, noise, noise, noise, noise, noise])
     refined, reports = refine_windowhub_ocr_table_lp((row(1, 223.9),), np.zeros((400, 200, 3), dtype=np.uint8), engine)
     assert refined[0].lp is None
     assert not reports[0].accepted
@@ -79,7 +79,7 @@ def test_does_not_overwrite_existing_lp_or_call_engine():
 
 def test_rejects_nonfinite_lp_confidence():
     invalid = SimpleNamespace(txts=["2"], scores=[float("nan")], boxes=[box_for_y(238.2)])
-    engine = BoxEngine([invalid, invalid])
+    engine = BoxEngine([invalid, invalid, invalid, invalid, invalid, invalid, invalid, invalid])
     refined, reports = refine_windowhub_ocr_table_lp(
         (row(2, 238.2),), np.zeros((400, 200, 3), dtype=np.uint8), engine
     )
@@ -168,3 +168,48 @@ def test_preserves_lp_when_candidate_duplicates_existing_row():
     assert "lp" in refined[1].missing_fields
     assert not reports[0].accepted
     assert reports[0].reason == "duplicate_lp_existing_row"
+
+
+
+def test_recovers_lp_from_high_confidence_row_local_cell_crop():
+    empty = SimpleNamespace(txts=[], scores=[], boxes=[])
+    observed_one = SimpleNamespace(txts=["1"], scores=[0.9985])
+    engine = BoxEngine([
+        empty, empty,       # legacy full-column color / Otsu attempts
+        empty, empty,       # first cell band: color / CLAHE
+        observed_one,       # first cell band: Otsu-sharpened reads LP 1
+        empty, empty, empty # second overlapping cell band
+    ])
+
+    refined, reports = refine_windowhub_ocr_table_lp(
+        (row(1, 223.9),), np.zeros((400, 200, 3), dtype=np.uint8), engine
+    )
+
+    assert refined[0].lp == 1
+    assert refined[0].lp_source == "ocr_cell"
+    assert "lp" not in refined[0].missing_fields
+    assert reports[0].accepted
+    assert reports[0].candidate_value == 1
+    assert reports[0].reason == "unique_valid_candidate"
+    assert reports[0].sources == ("cell_x90_170:otsu_sharpened",)
+
+
+def test_conflicting_row_local_lp_candidates_remain_unresolved():
+    empty = SimpleNamespace(txts=[], scores=[], boxes=[])
+    observed_one = SimpleNamespace(txts=["1"], scores=[0.9985])
+    observed_seven = SimpleNamespace(txts=["7"], scores=[0.992])
+    engine = BoxEngine([
+        empty, empty,       # legacy full-column attempts
+        empty, empty, observed_one,  # band 90..170
+        empty, empty, observed_seven # band 100..180
+    ])
+
+    refined, reports = refine_windowhub_ocr_table_lp(
+        (row(1, 223.9),), np.zeros((400, 200, 3), dtype=np.uint8), engine
+    )
+
+    assert refined[0].lp is None
+    assert "lp" in refined[0].missing_fields
+    assert not reports[0].accepted
+    assert reports[0].reason == "conflicting_candidates"
+    assert reports[0].candidate_value is None

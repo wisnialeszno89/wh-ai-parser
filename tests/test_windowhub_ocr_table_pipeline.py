@@ -64,12 +64,22 @@ def test_pipeline_keeps_all_rows_when_full_image_lp_ocr_is_partial():
 
 def test_pipeline_does_not_guess_lp_when_column_ocr_has_no_valid_digits():
     empty = SimpleNamespace(txts=[], scores=[], boxes=[])
-    engine = BoxEngine([empty, empty])
+
+    class AlwaysEmptyEngine:
+        def __init__(self):
+            self.calls = 0
+
+        def __call__(self, image):
+            self.calls += 1
+            return empty
+
+    engine = AlwaysEmptyEngine()
     result = reconstruct_windowhub_ocr_table_rows(table_elements(), np.zeros((400, 1400, 3), dtype=np.uint8), engine)
     assert len(result.rows) == 8
     assert all(row.lp is None for row in result.rows)
     assert all("lp" in row.missing_fields for row in result.rows)
     assert all(not report.accepted and report.reason == "no_valid_candidate" for report in result.lp_refinements)
+    assert engine.calls == 2 + 8 * 6  # full-column scan plus six LP-cell variants per unresolved row
 
 
 def test_pipeline_rejects_parser_override_that_could_reintroduce_partial_lp_anchors():
