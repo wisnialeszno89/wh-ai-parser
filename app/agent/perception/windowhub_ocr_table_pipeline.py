@@ -7,7 +7,11 @@ from typing import Any, Callable, Mapping
 
 import numpy as np
 
-from app.agent.perception.windowhub_ocr_table_parser import (\n    WindowHubOCRTableRow,\n    infer_windowhub_ocr_table_column_layout,\n    parse_windowhub_ocr_table,\n)
+from app.agent.perception.windowhub_ocr_table_parser import (
+    WindowHubOCRTableRow,
+    infer_windowhub_ocr_table_column_layout,
+    parse_windowhub_ocr_table,
+)
 from app.agent.perception.windowhub_ocr_table_refiner import (
     WindowHubOCRFieldRefinement,
     refine_windowhub_ocr_table_lp,
