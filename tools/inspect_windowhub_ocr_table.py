@@ -203,10 +203,11 @@ def _scan_dimensions_across_row_crops(
     screenshot_or_image: object,
     engine: object,
 ) -> list[dict[str, object]]:
-    """OCR-scan right-side table bands per row to locate unseen dimension text.
+    """High-resolution diagnostic scan for clipped/misread dimension strings.
 
-    This is diagnostic only: it reports OCR observations and never changes the UI
-    or promotes a crop result into the reconstructed table.
+    Uses overlapping horizontal crops and multiple preprocessing variants.
+    Results are observations only; this diagnostic never promotes candidates
+    into the table reconstruction or executes GUI actions.
     """
     import cv2
     import numpy as np
@@ -222,14 +223,23 @@ def _scan_dimensions_across_row_crops(
 
     image = _normalize_image(screenshot_or_image)
     height, width = image.shape[:2]
+    # Overlap the likely dimension-cell band so the first digit is not clipped
+    # by a single hard-coded left edge. The final crop is bounded by the image.
+    configured_bands = (
+        (850, 1350),
+        (900, 1300),
+        (950, 1350),
+        (1000, 1400),
+    )
     bands = [
-        (650, min(1000, width)),
-        (1000, min(1350, width)),
-        (1350, min(1700, width)),
-        (1700, width),
+        (max(0, x0), min(width, x1))
+        for x0, x1 in configured_bands
+        if min(width, x1) > max(0, x0)
     ]
-    bands = [(x0, x1) for x0, x1 in bands if x1 > x0]
     detections: list[dict[str, object]] = []
+    scale = 6
+    border_x = 48
+    border_y = 20
 
     for row in input_rows:
         y0, y1 = _row_crop_bounds(
@@ -243,13 +253,36 @@ def _scan_dimensions_across_row_crops(
             if crop.size == 0:
                 continue
             enlarged = cv2.resize(
-                crop, None, fx=4, fy=4, interpolation=cv2.INTER_CUBIC
+                crop, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC
             )
             gray = cv2.cvtColor(enlarged, cv2.COLOR_BGR2GRAY)
-            _, otsu = cv2.threshold(
-                gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU
+            clahe = cv2.createCLAHE(
+                clipLimit=2.0, tileGridSize=(8, 8)
+            ).apply(gray)
+            sharpened = cv2.addWeighted(
+                clahe, 1.6,
+                cv2.GaussianBlur(clahe, (0, 0), 1.0), -0.6,
+                0,
             )
-            for variant, variant_image in (("color", enlarged), ("otsu", otsu)):
+            _, otsu = cv2.threshold(
+                sharpened, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU
+            )
+
+            variants = (
+                ("color", cv2.copyMakeBorder(
+                    enlarged, border_y, border_y, border_x, border_x,
+                    cv2.BORDER_CONSTANT, value=(255, 255, 255),
+                )),
+                ("clahe_sharpened", cv2.copyMakeBorder(
+                    sharpened, border_y, border_y, border_x, border_x,
+                    cv2.BORDER_CONSTANT, value=255,
+                )),
+                ("otsu_sharpened", cv2.copyMakeBorder(
+                    otsu, border_y, border_y, border_x, border_x,
+                    cv2.BORDER_CONSTANT, value=255,
+                )),
+            )
+            for variant, variant_image in variants:
                 try:
                     result = engine(variant_image)
                 except Exception as exc:
@@ -258,6 +291,7 @@ def _scan_dimensions_across_row_crops(
                         "x_min": x0,
                         "x_max": x1,
                         "variant": variant,
+                        "scale": scale,
                         "error": f"{type(exc).__name__}: {exc}",
                     })
                     continue
@@ -284,6 +318,7 @@ def _scan_dimensions_across_row_crops(
                         "x_min": x0,
                         "x_max": x1,
                         "variant": variant,
+                        "scale": scale,
                         "text": str(raw_text).strip(),
                         "confidence": round(confidence, 4),
                     })
