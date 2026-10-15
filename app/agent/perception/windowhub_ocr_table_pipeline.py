@@ -66,7 +66,7 @@ def reconstruct_windowhub_ocr_table_rows(
         name: parser_kwargs[name]
         for name in (
             "article_x_min", "article_x_max", "total_x_min", "total_x_max",
-            "unit_x_min", "unit_x_max", "min_center_y", "max_center_y",
+            "unit_x_min", "unit_x_max", "dimensions_x_min", "dimensions_x_max", "min_center_y", "max_center_y",
             "min_confidence",
         )
         if name in parser_kwargs

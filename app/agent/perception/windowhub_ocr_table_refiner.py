@@ -135,6 +135,23 @@ def _quantity_candidates(
     return candidates
 
 
+
+def _parse_dimensions_candidate(text: str) -> str | None:
+    """Parse only explicit width-by-height OCR text; do not infer values."""
+    value = re.sub(r"\s+", "", text)
+    match = re.search(r"(?<!\d)(\d{2,4})[xX×](\d{2,4})(?!\d)", value)
+    return f"{match.group(1)} x {match.group(2)}" if match else None
+
+def _dimension_candidates(variants, *, min_confidence: float):
+    candidates = []
+    for source, items in variants:
+        for text, confidence in items:
+            if confidence < min_confidence:
+                continue
+            value = _parse_dimensions_candidate(text)
+            if value is not None:
+                candidates.append((value, confidence, source))
+    return candidates
 def _money_candidates(
     variants: Iterable[tuple[str, list[tuple[str, float]]]],
     *,
@@ -233,10 +250,13 @@ def refine_windowhub_ocr_table_rows(
     article_x_max: int = 380,
     unit_x_min: int = 510,
     unit_x_max: int = 600,
+    dimensions_x_min: int = 1000,
+    dimensions_x_max: int = 1700,
+    dimensions_min_confidence: float = 0.85,
 ) -> tuple[tuple[WindowHubOCRTableRow, ...], tuple[WindowHubOCRFieldRefinement, ...]]:
-    """Recover missing quantity/unit-price fields; do not overwrite existing values."""
+    """Recover missing quantity/unit-price/dimension fields without guessing."""
     input_rows = tuple(rows)
-    if not input_rows or all(row.quantity is not None and row.unit_value is not None for row in input_rows):
+    if not input_rows or all(row.quantity is not None and row.unit_value is not None and row.dimensions is not None for row in input_rows):
         return input_rows, ()
     image = _normalize_image(screenshot_or_image)
     height, width = image.shape[:2]
@@ -246,6 +266,7 @@ def refine_windowhub_ocr_table_rows(
     for row in input_rows:
         quantity = row.quantity
         unit_value = row.unit_value
+        dimensions = row.dimensions
         y0, y1 = _row_crop_bounds(
             input_rows,
             row,
@@ -280,14 +301,28 @@ def refine_windowhub_ocr_table_rows(
                 candidate_value=value, accepted=accepted, confidence=confidence,
                 sources=sources, reason=reason,
             ))
+        if dimensions is None:
+            x0 = max(0, dimensions_x_min)
+            x1 = min(width, dimensions_x_max)
+            variants = _read_variants(engine, image[y0:y1, x0:x1], scale=scale)
+            candidates = _dimension_candidates(variants, min_confidence=dimensions_min_confidence)
+            value, confidence, sources, reason = _resolve_candidates(candidates)
+            accepted = value is not None
+            if accepted:
+                dimensions = str(value)
+            reports.append(WindowHubOCRFieldRefinement(
+                row_index=row.row_index, field="dimensions", previous_value=row.dimensions,
+                candidate_value=value, accepted=accepted, confidence=confidence,
+                sources=sources, reason=reason,
+            ))
         fields = {
             "lp": row.lp, "quantity": quantity, "article": row.article,
             "total_value": row.total_value, "unit_value": unit_value,
-            "dimensions": row.dimensions,
+            "dimensions": dimensions,
         }
         missing_fields = tuple(name for name, value in fields.items() if value is None)
         refined_rows.append(replace(
-            row, quantity=quantity, unit_value=unit_value, missing_fields=missing_fields
+            row, quantity=quantity, unit_value=unit_value, dimensions=dimensions, missing_fields=missing_fields
         ))
     return tuple(refined_rows), tuple(reports)
 
