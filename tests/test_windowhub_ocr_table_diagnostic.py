@@ -76,6 +76,9 @@ def test_diagnostic_infers_shifted_price_columns_and_excludes_montage_from_unit_
         detection("0,00", 551),
         detection("Montaż brutto", 521),
         detection("1320x1345", 1280),
+        detection("1045,18", 365, 237),
+        detection("793,35", 464, 237),
+        detection("0,00", 551, 237),
     ]
 
     result = _classify_table_region_detections(elements)

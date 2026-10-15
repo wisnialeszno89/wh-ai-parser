@@ -129,7 +129,7 @@ def _layout_from_normalized_items(
         # A third or later column (for example "Montaż brutto") is separate.
         first, second = centers[0], centers[1]
         effective_article_x_max = max(
-            article_x_min + 1, int(first - 28)
+            article_x_min + 1, int(first - 38)
         )
         effective_total_x_min = int(first - 42)
         effective_total_x_max = int((first + second) / 2)

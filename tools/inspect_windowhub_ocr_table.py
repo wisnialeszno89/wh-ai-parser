@@ -160,13 +160,13 @@ def _classify_table_region_detections(elements: object) -> dict[str, list[dict[s
             else 600
         )
         other_min = unit_max if len(centers) >= 3 else 650
-        total_detections = [item for item in detections if total_min <= item["x"] < total_max]
-        unit_detections = [item for item in detections if unit_min <= item["x"] < unit_max]
+        total_detections = [item for item in detections if total_min <= item["x"] + item["width"] / 2 < total_max]
+        unit_detections = [item for item in detections if unit_min <= item["x"] + item["width"] / 2 < unit_max]
         other_detections = [
-            item for item in detections if len(centers) >= 3 and other_min <= item["x"] < 650
+            item for item in detections if len(centers) >= 3 and other_min <= item["x"] + item["width"] / 2 < 650
         ]
         article_detections = [
-            item for item in detections if 185 <= item["x"] < article_max
+            item for item in detections if 185 <= item["x"] + item["width"] / 2 < article_max
         ]
     else:
         total_detections = [item for item in detections if 380 <= item["x"] < 500]
