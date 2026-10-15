@@ -125,13 +125,29 @@ def test_pipeline_uses_shifted_article_crop_and_never_promotes_montage_to_unit_v
 
 def test_pipeline_passes_dimensions_column_to_local_refiner():
     class RecordingDimensionEngine:
+        def __init__(self):
+            self.image_shapes = []
+
         def __call__(self, image):
+            self.image_shapes.append(image.shape[:2])
             return SimpleNamespace(txts=["1320x1345"], scores=[0.97])
-    items = [element("1 Okno", 210, 224.0), element("1045,18", 365, 224.0),
-             element("793,35", 464, 224.0), element("0,00", 551, 224.0), element("1", 120, 224.0)]
+
+    items = [
+        element("1 Okno", 210, 224.0),
+        element("1045,18", 365, 224.0),
+        element("793,35", 464, 224.0),
+        element("0,00", 551, 224.0),
+        element("1", 120, 224.0),
+    ]
+    engine = RecordingDimensionEngine()
     result = reconstruct_windowhub_ocr_table_rows(
-        items, np.zeros((400, 1800, 3), dtype=np.uint8), RecordingDimensionEngine()
+        items,
+        np.zeros((400, 1800, 3), dtype=np.uint8),
+        engine,
+        parser_options={"dimensions_x_min": 1200, "dimensions_x_max": 1500},
     )
     assert len(result.rows) == 1
     assert result.rows[0].dimensions == "1320 x 1345"
     assert any(report.field == "dimensions" and report.accepted for report in result.field_refinements)
+    # The first two calls are the color/Otsu passes on the configured dimension crop.
+    assert engine.image_shapes[:2] == [(72, 1200), (72, 1200)]
