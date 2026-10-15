@@ -12,7 +12,7 @@ from app.agent.world.semantic_world_model import SemanticWorldModel
 def make_scene():
     row = WindowHubOCRTableRow(
         row_index=1, lp=1, lp_source="ocr_column", quantity=1, article="Okno",
-        net_total="1045.18", unit_value="1045.18", dimensions="1320 x 1345",
+        total_value="1045.18", unit_value="1045.18", dimensions="1320 x 1345",
         center_y=223.9, missing_fields=(),
     )
     reconstruction = WindowHubOCRTableReconstruction((row,), (), ())
@@ -32,7 +32,7 @@ def test_task_planning_scene_payload_contains_structured_table_rows():
     assert table["status"] == "complete"
     assert table["row_count"] == 1
     assert table["rows"][0]["lp"] == 1
-    assert table["rows"][0]["net_total"] == "1045.18"
+    assert table["rows"][0]["total_value"] == "1045.18"
     assert "center_y" not in table["rows"][0]
     json.dumps(payload, ensure_ascii=False)
 

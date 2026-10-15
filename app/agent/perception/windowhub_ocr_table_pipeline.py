@@ -7,7 +7,7 @@ from typing import Any, Callable, Mapping
 
 import numpy as np
 
-from app.agent.perception.windowhub_ocr_table_parser import WindowHubOCRTableRow, parse_windowhub_ocr_table
+from app.agent.perception.windowhub_ocr_table_parser import (\n    WindowHubOCRTableRow,\n    infer_windowhub_ocr_table_column_layout,\n    parse_windowhub_ocr_table,\n)
 from app.agent.perception.windowhub_ocr_table_refiner import (
     WindowHubOCRFieldRefinement,
     refine_windowhub_ocr_table_lp,
@@ -57,11 +57,27 @@ def reconstruct_windowhub_ocr_table_rows(
         raise ValueError(
             "parser_options must not override anchor_x_max; price-column anchors protect against partial LP OCR."
         )
+    ocr_elements = tuple(ocr_elements)
+    layout_options = {
+        name: parser_kwargs[name]
+        for name in (
+            "article_x_min", "article_x_max", "total_x_min", "total_x_max",
+            "unit_x_min", "unit_x_max", "min_center_y", "max_center_y",
+            "min_confidence",
+        )
+        if name in parser_kwargs
+    }
+    layout = infer_windowhub_ocr_table_column_layout(ocr_elements, **layout_options)
     rows = parse_windowhub_ocr_table(ocr_elements, anchor_x_max=-1.0, **parser_kwargs)
     image = getattr(screenshot_or_image, "image", screenshot_or_image)
     image_array = np.asarray(image)
+    field_options = dict(field_refiner_options or {})
+    field_options.setdefault("article_x_max", int(layout["article_x_max"]))
+    if layout["adaptive_price_columns"] and len(layout["price_column_centers"]) >= 2:
+        field_options.setdefault("unit_x_min", int(layout["unit_x_min"]))
+        field_options.setdefault("unit_x_max", int(layout["unit_x_max"]))
     refined_rows, field_reports = refine_windowhub_ocr_table_rows(
-        rows, image_array, engine, **dict(field_refiner_options or {})
+        rows, image_array, engine, **field_options
     )
     refined_rows, lp_reports = refine_windowhub_ocr_table_lp(
         refined_rows, image_array, engine, **dict(lp_refiner_options or {})

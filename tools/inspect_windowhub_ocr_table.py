@@ -116,7 +116,8 @@ def _wait_for_window_foreground(window_handle: int, timeout_seconds: float = 45.
 
 
 def _classify_table_region_detections(elements: object) -> dict[str, list[dict[str, object]]]:
-    """Keep raw OCR observations for each relevant OFR table column."""
+    """Keep raw OCR observations grouped by detected columns, not fixed x offsets."""
+    layout = infer_windowhub_ocr_table_column_layout(elements, max_center_y=380)
     detections: list[dict[str, object]] = []
     for element in elements:
         try:
@@ -129,10 +130,7 @@ def _classify_table_region_detections(elements: object) -> dict[str, list[dict[s
         except (AttributeError, TypeError, ValueError):
             continue
 
-        in_table_columns = (
-            90 <= x < 600
-            or 1090 <= x < 1260
-        )
+        in_table_columns = (90 <= x < 650) or (1000 <= x < 1700)
         if not in_table_columns or not 190 <= center_y <= 370:
             continue
         detections.append({
@@ -144,22 +142,44 @@ def _classify_table_region_detections(elements: object) -> dict[str, list[dict[s
             "confidence": round(confidence, 4),
         })
 
+    adaptive = bool(layout["adaptive_price_columns"])
+    centers = list(layout["price_column_centers"])
+    if adaptive and centers:
+        article_max = int(layout["article_x_max"])
+        total_min = max(0, int(centers[0] - 30))
+        total_max = (centers[0] + centers[1]) / 2 if len(centers) >= 2 else centers[0] + 55
+        unit_min = total_max
+        unit_max = (
+            (centers[1] + centers[2]) / 2
+            if len(centers) >= 3
+            else (centers[1] + 65 if len(centers) >= 2 else 600)
+        )
+        other_min = unit_max if len(centers) >= 3 else 650
+        total_detections = [item for item in detections if total_min <= item["x"] < total_max]
+        unit_detections = [item for item in detections if unit_min <= item["x"] < unit_max]
+        other_detections = [
+            item for item in detections if len(centers) >= 3 and other_min <= item["x"] < 650
+        ]
+        article_detections = [
+            item for item in detections if 185 <= item["x"] < article_max
+        ]
+    else:
+        total_detections = [item for item in detections if 380 <= item["x"] < 500]
+        unit_detections = [item for item in detections if 500 <= item["x"] < 600]
+        other_detections = []
+        article_detections = [item for item in detections if 185 <= item["x"] < 380]
+
     return {
         "table_region_ocr_detections": detections,
         "lp_column_ocr_detections": [
             item for item in detections if 90 <= item["x"] < 180
         ],
-        "quantity_article_ocr_detections": [
-            item for item in detections if 185 <= item["x"] < 380
-        ],
-        "net_total_ocr_detections": [
-            item for item in detections if 380 <= item["x"] < 500
-        ],
-        "unit_value_ocr_detections": [
-            item for item in detections if 500 <= item["x"] < 600
-        ],
+        "quantity_article_ocr_detections": article_detections,
+        "total_value_ocr_detections": total_detections,
+        "unit_value_ocr_detections": unit_detections,
+        "other_price_column_ocr_detections": other_detections,
         "dimensions_ocr_detections": [
-            item for item in detections if 1090 <= item["x"] < 1260
+            item for item in detections if 1000 <= item["x"] < 1700
         ],
     }
 

@@ -32,7 +32,7 @@ def test_diagnostic_preserves_raw_detections_for_each_table_column():
 
     assert [item["text"] for item in result["lp_column_ocr_detections"]] == ["4"]
     assert [item["text"] for item in result["quantity_article_ocr_detections"]] == ["2 Okno"]
-    assert [item["text"] for item in result["net_total_ocr_detections"]] == ["1045,18"]
+    assert [item["text"] for item in result["total_value_ocr_detections"]] == ["1045,18"]
     assert [item["text"] for item in result["unit_value_ocr_detections"]] == ["522,59"]
     assert [item["text"] for item in result["dimensions_ocr_detections"]] == ["1320x1345"]
     assert len(result["table_region_ocr_detections"]) == 5
@@ -49,7 +49,7 @@ def test_diagnostic_skips_malformed_and_invalid_detections():
     result = _classify_table_region_detections(elements)
 
     assert result["table_region_ocr_detections"] == []
-    assert result["net_total_ocr_detections"] == []
+    assert result["total_value_ocr_detections"] == []
 
 def test_console_output_uses_backslash_replacement_for_legacy_code_pages():
     class Stream:
@@ -67,3 +67,21 @@ def test_console_output_uses_backslash_replacement_for_legacy_code_pages():
     assert stdout.options == [{"errors": "backslashreplace"}]
     assert stderr.options == [{"errors": "backslashreplace"}]
 
+
+def test_diagnostic_infers_shifted_price_columns_and_excludes_montage_from_unit_value():
+    elements = [
+        detection("1 Okno", 210),
+        detection("1045,18", 365),
+        detection("793,35", 464),
+        detection("0,00", 551),
+        detection("Montaż brutto", 521),
+        detection("1320x1345", 1280),
+    ]
+
+    result = _classify_table_region_detections(elements)
+
+    assert "1045,18" in [item["text"] for item in result["total_value_ocr_detections"]]
+    assert "793,35" in [item["text"] for item in result["unit_value_ocr_detections"]]
+    assert "0,00" in [item["text"] for item in result["other_price_column_ocr_detections"]]
+    assert "1045,18" not in [item["text"] for item in result["quantity_article_ocr_detections"]]
+    assert [item["text"] for item in result["dimensions_ocr_detections"]] == ["1320x1345"]

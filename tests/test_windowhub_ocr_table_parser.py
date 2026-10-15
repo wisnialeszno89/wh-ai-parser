@@ -26,13 +26,13 @@ def test_parses_lp_quantity_article_prices_and_dimensions():
     assert row.lp == 1
     assert row.quantity == 1
     assert row.article == "Okno"
-    assert row.net_total == "1234.56"
+    assert row.total_value == "1234.56"
     assert row.unit_value == "793.35"
     assert row.dimensions == "1320 x 1345"
     assert row.complete
 
 
-def test_uses_unit_price_anchor_when_net_total_ocr_is_missing():
+def test_uses_unit_price_anchor_when_total_value_ocr_is_missing():
     items = [
         element("1 Okno", 210, 223.9),
         element("793,35", 530, 223.9),
@@ -44,10 +44,10 @@ def test_uses_unit_price_anchor_when_net_total_ocr_is_missing():
 
     assert len(rows) == 1
     assert rows[0].lp == 4
-    assert rows[0].net_total is None
+    assert rows[0].total_value is None
     assert rows[0].unit_value == "793.35"
     assert rows[0].dimensions == "1320 x 1345"
-    assert "net_total" in rows[0].missing_fields
+    assert "total_value" in rows[0].missing_fields
 
 
 def test_unit_price_anchor_adds_row_when_only_that_rows_total_is_missing():
@@ -72,7 +72,7 @@ def test_unit_price_anchor_adds_row_when_only_that_rows_total_is_missing():
 
     assert len(rows) == 3
     assert [row.lp for row in rows] == [1, 2, 3]
-    assert [row.net_total for row in rows] == ["1000.00", None, "1010.00"]
+    assert [row.total_value for row in rows] == ["1000.00", None, "1010.00"]
     assert [row.unit_value for row in rows] == ["800.00", "795.00", "810.00"]
     assert [row.row_index for row in rows] == [1, 2, 3]
 
@@ -105,7 +105,7 @@ def test_keeps_missing_total_row_when_unit_price_is_near_previous_row():
 
     assert len(rows) == 3
     assert [row.lp for row in rows] == [1, 2, 3]
-    assert [row.net_total for row in rows] == ["1000.00", None, "1010.00"]
+    assert [row.total_value for row in rows] == ["1000.00", None, "1010.00"]
     assert [row.unit_value for row in rows] == ["800.00", "795.00", "810.00"]
     assert [row.article for row in rows] == ["Okno", "Okno", "Okno"]
     assert [row.dimensions for row in rows] == [
@@ -141,7 +141,7 @@ def test_does_not_create_extra_row_from_vertical_drift_across_price_columns():
 
     assert len(rows) == 3
     assert [row.lp for row in rows] == [1, 2, 3]
-    assert [row.net_total for row in rows] == [
+    assert [row.total_value for row in rows] == [
         "1000.00", "995.00", "1010.00"
     ]
     assert [row.unit_value for row in rows] == [
@@ -184,7 +184,7 @@ def test_prefers_total_price_anchor_when_both_price_columns_are_detected():
 
     assert len(rows) == 1
     assert rows[0].center_y == 223.0
-    assert rows[0].net_total == "1000.00"
+    assert rows[0].total_value == "1000.00"
     assert rows[0].unit_value == "800.00"
 
 
@@ -235,7 +235,37 @@ def test_empty_input_returns_no_rows():
 def test_payload_uses_screen_column_semantics_not_gross_labels():
     rows = parse_windowhub_ocr_table(make_row(1, 223.9))
     payload = rows[0].to_payload()
-    assert payload["net_total"] == "1234.56"
+    assert payload["total_value"] == "1234.56"
     assert payload["unit_value"] == "793.35"
     assert "gross_total" not in payload
     assert "gross_unit" not in payload
+
+
+def test_adapts_shifted_price_columns_ignores_montage_and_keeps_ninth_row():
+    centers = (224.0, 241.0, 258.0, 276.0, 293.0, 309.0, 326.0, 344.0, 361.0)
+    items = []
+    expected_total = []
+    expected_unit = []
+    for index, center_y in enumerate(centers, start=1):
+        total = f"{1000 + index},00"
+        unit = f"{800 + index},00"
+        expected_total.append(f"{1000 + index}.00")
+        expected_unit.append(f"{800 + index}.00")
+        items.extend([
+            element("1 Okno" if index == 1 else "Okno", 210, center_y),
+            element(total, 365, center_y),
+            element(unit, 464, center_y),
+            element("0,00", 551, center_y),  # A later Montage column, not unit value.
+            element(f"{1200 + index}x1350", 1280, center_y),
+            element(str(index), 120, center_y),
+        ])
+
+    rows = parse_windowhub_ocr_table(items)
+
+    assert len(rows) == 9
+    assert [row.lp for row in rows] == list(range(1, 10))
+    assert [row.total_value for row in rows] == expected_total
+    assert [row.unit_value for row in rows] == expected_unit
+    assert all(row.article == "Okno" for row in rows)
+    assert rows[0].quantity == 1
+    assert all(row.dimensions == f"{1200 + i} x 1350" for i, row in enumerate(rows, 1))

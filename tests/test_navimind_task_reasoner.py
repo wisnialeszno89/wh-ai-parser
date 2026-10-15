@@ -435,7 +435,7 @@ def test_navimind_reasoner_sends_structured_windowhub_table_in_world_metadata():
         lp_source="ocr",
         quantity=2,
         article="Okno",
-        net_total="1045.18",
+        total_value="1045.18",
         unit_value="522.59",
         dimensions="1320 x 1345",
         center_y=223.9,
@@ -474,7 +474,7 @@ def test_navimind_reasoner_sends_structured_windowhub_table_in_world_metadata():
     table = world["metadata"]["windowhub_ocr_table"]
     assert table["row_count"] == 1
     assert table["rows"][0]["lp"] == 4
-    assert table["rows"][0]["net_total"] == "1045.18"
+    assert table["rows"][0]["total_value"] == "1045.18"
     assert "center_y" not in table["rows"][0]
     assert world["visible_elements"] == []
     json.dumps(captured["body"], ensure_ascii=False)

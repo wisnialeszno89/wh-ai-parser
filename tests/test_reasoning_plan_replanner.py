@@ -310,7 +310,7 @@ def test_reasoning_replanner_preserves_incomplete_ocr_table_after_verification_f
         lp_source="price_column_row_order",
         quantity=None,
         article="Okno",
-        net_total="1045.18",
+        total_value="1045.18",
         unit_value="522.59",
         dimensions="1320 x 1345",
         center_y=223.9,

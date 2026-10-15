@@ -34,7 +34,7 @@ def result(items):
 def row(index, center_y, lp=None):
     return WindowHubOCRTableRow(
         row_index=index, lp=lp, lp_source="price_column_row_order" if lp is None else "ocr",
-        quantity=1, article="Okno", net_total="1045.18", unit_value="1045.18",
+        quantity=1, article="Okno", total_value="1045.18", unit_value="1045.18",
         dimensions="1320 x 1345", center_y=center_y,
         missing_fields=("lp",) if lp is None else (),
     )

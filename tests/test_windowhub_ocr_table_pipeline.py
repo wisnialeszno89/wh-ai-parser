@@ -80,3 +80,35 @@ def test_pipeline_rejects_parser_override_that_could_reintroduce_partial_lp_anch
     else:
         raise AssertionError("Expected unsafe parser override to be rejected")
     assert engine.calls == 0
+
+
+def test_pipeline_uses_shifted_article_crop_and_never_promotes_montage_to_unit_value():
+    class RecordingEmptyEngine:
+        def __init__(self):
+            self.widths = []
+
+        def __call__(self, image):
+            self.widths.append(image.shape[1])
+            return SimpleNamespace(txts=[], scores=[], boxes=[])
+
+    items = []
+    for lp, center_y in ((1, 224.0), (2, 241.0)):
+        items.extend([
+            element("1 Okno" if lp == 1 else "Okno", 210, center_y),
+            element(f"{1000 + lp},00", 365, center_y),
+            element(f"{800 + lp},00", 464, center_y),
+            element("0,00", 551, center_y),
+            element("1320x1345", 1120, center_y),
+            element(str(lp), 120, center_y),
+        ])
+    engine = RecordingEmptyEngine()
+    result = reconstruct_windowhub_ocr_table_rows(
+        items, np.zeros((400, 1400, 3), dtype=np.uint8), engine
+    )
+
+    assert [row.total_value for row in result.rows] == ["1001.00", "1002.00"]
+    assert [row.unit_value for row in result.rows] == ["801.00", "802.00"]
+    assert [row.article for row in result.rows] == ["Okno", "Okno"]
+    assert result.rows[0].quantity == 1
+    assert result.rows[1].quantity is None
+    assert engine.widths == [150, 150]

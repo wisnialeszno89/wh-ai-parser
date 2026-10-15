@@ -15,7 +15,7 @@ class WindowHubOCRTableRow:
     lp_source: str
     quantity: int | None
     article: str | None
-    net_total: str | None
+    total_value: str | None
     unit_value: str | None
     dimensions: str | None
     center_y: float = field(repr=False)
@@ -33,7 +33,7 @@ class WindowHubOCRTableRow:
             "lp_source": self.lp_source,
             "quantity": self.quantity,
             "article": self.article,
-            "net_total": self.net_total,
+            "total_value": self.total_value,
             "unit_value": self.unit_value,
             "dimensions": self.dimensions,
             "complete": self.complete,
@@ -71,6 +71,115 @@ def _parse_dimensions(text: str) -> str | None:
         return None
     return f"{match.group(1)} x {match.group(2)}"
 
+
+
+
+def _cluster_price_column_centers(
+    items: list[dict[str, object]],
+    *,
+    min_center_y: float,
+    max_center_y: float,
+) -> list[float]:
+    """Find horizontally separated clusters of money-shaped OCR tokens."""
+    xs = sorted(
+        float(item["x"])
+        for item in items
+        if 300 <= float(item["x"]) < 900
+        and min_center_y <= float(item["y"]) <= max_center_y
+        and _parse_money(str(item["text"])) is not None
+    )
+    clusters: list[list[float]] = []
+    for x in xs:
+        if clusters and x - clusters[-1][-1] <= 40:
+            clusters[-1].append(x)
+        else:
+            clusters.append([x])
+    return [sum(cluster) / len(cluster) for cluster in clusters]
+
+
+def _layout_from_normalized_items(
+    items: list[dict[str, object]],
+    *,
+    article_x_min: float = 185,
+    article_x_max: float = 380,
+    total_x_min: float = 380,
+    total_x_max: float = 500,
+    unit_x_min: float = 500,
+    unit_x_max: float = 600,
+    min_center_y: float = 200,
+    max_center_y: float = 380,
+) -> dict[str, object]:
+    centers = _cluster_price_column_centers(
+        items, min_center_y=min_center_y, max_center_y=max_center_y
+    )
+    # Legacy offers have a single recognized monetary column at the usual
+    # unit-price x-position. Preserve the configured ranges in that case.
+    adaptive = len(centers) >= 2 or (
+        len(centers) == 1 and centers[0] < total_x_min
+    )
+    effective_article_x_max = article_x_max
+    effective_unit_x_min = unit_x_min
+    effective_unit_x_max = unit_x_max
+    if adaptive and centers:
+        effective_article_x_max = max(
+            article_x_min + 1, min(article_x_max, int(centers[0] - 25))
+        )
+        if len(centers) >= 2:
+            # The second left-to-right monetary column is the per-unit value.
+            # Keep the crop tight enough to exclude later columns such as
+            # "Montaż brutto", which can contain 0,00.
+            effective_unit_x_min = max(0, int(centers[1] - 25))
+            effective_unit_x_max = int(centers[1] + 65)
+    return {
+        "adaptive_price_columns": adaptive,
+        "price_column_centers": centers,
+        "article_x_max": effective_article_x_max,
+        "total_x_min": total_x_min,
+        "total_x_max": total_x_max,
+        "unit_x_min": effective_unit_x_min,
+        "unit_x_max": effective_unit_x_max,
+    }
+
+
+def infer_windowhub_ocr_table_column_layout(
+    ocr_elements: Iterable[object],
+    *,
+    article_x_min: float = 185,
+    article_x_max: float = 380,
+    total_x_min: float = 380,
+    total_x_max: float = 500,
+    unit_x_min: float = 500,
+    unit_x_max: float = 600,
+    min_center_y: float = 200,
+    max_center_y: float = 380,
+    min_confidence: float = 0.35,
+) -> dict[str, object]:
+    """Infer price columns for the parser and its local image-crop refiners."""
+    items: list[dict[str, object]] = []
+    for element in ocr_elements:
+        text = str(getattr(element, "label", "") or "").strip()
+        confidence = _confidence(element)
+        if not text or confidence < min_confidence:
+            continue
+        try:
+            x = float(getattr(element, "x"))
+            y = _center_y(element)
+        except (TypeError, ValueError, AttributeError):
+            continue
+        if x < 0 or y < 0:
+            continue
+        items.append({"x": x, "y": y, "text": text, "confidence": confidence})
+    return _layout_from_normalized_items(
+        items,
+        article_x_min=article_x_min,
+        article_x_max=article_x_max,
+        total_x_min=total_x_min,
+        total_x_max=total_x_max,
+        unit_x_min=unit_x_min,
+        unit_x_max=unit_x_max,
+        min_center_y=min_center_y,
+        max_center_y=max_center_y,
+    )
 
 
 def _assign_unit_price_detections(
@@ -191,10 +300,10 @@ def parse_windowhub_ocr_table(
     total_x_max: float = 500,
     unit_x_min: float = 500,
     unit_x_max: float = 600,
-    dimensions_x_min: float = 1090,
-    dimensions_x_max: float = 1260,
+    dimensions_x_min: float = 1000,
+    dimensions_x_max: float = 1700,
     min_center_y: float = 200,
-    max_center_y: float = 350,
+    max_center_y: float = 380,
     row_tolerance: float = 7.5,
     min_confidence: float = 0.35,
 ) -> tuple[WindowHubOCRTableRow, ...]:
@@ -221,6 +330,41 @@ def parse_windowhub_ocr_table(
             continue
         items.append({"x": x, "y": center_y, "text": text, "confidence": confidence})
 
+    layout = _layout_from_normalized_items(
+        items,
+        article_x_min=article_x_min,
+        article_x_max=article_x_max,
+        total_x_min=total_x_min,
+        total_x_max=total_x_max,
+        unit_x_min=unit_x_min,
+        unit_x_max=unit_x_max,
+        min_center_y=min_center_y,
+        max_center_y=max_center_y,
+    )
+    if layout["adaptive_price_columns"]:
+        centers = list(layout["price_column_centers"])
+        for item in items:
+            x = float(item["x"])
+            y = float(item["y"])
+            if (
+                not 300 <= x < 900
+                or not min_center_y <= y <= max_center_y
+                or _parse_money(str(item["text"])) is None
+            ):
+                continue
+            distances = [abs(x - center) for center in centers]
+            column_index = min(range(len(centers)), key=lambda i: distances[i])
+            if distances[column_index] > 45:
+                continue
+            # Normalize only money tokens into the parser's canonical column
+            # bands. Later price-like columns are deliberately ignored.
+            if column_index == 0:
+                item["x"] = total_x_min + 40
+            elif column_index == 1:
+                item["x"] = unit_x_min + 30
+            else:
+                item["x"] = max(unit_x_max + 100, 800)
+
     lp_by_row: list[list[dict[str, object]]] = []
     for item in items:
         x = float(item["x"])
@@ -240,7 +384,7 @@ def parse_windowhub_ocr_table(
     # column when present, but use the unit-price column as a fallback so a
     # missing total-price OCR token does not erase an otherwise visible row.
     total_price_anchors = [
-        {**item, "lp": None, "anchor_source": "net_total"}
+        {**item, "lp": None, "anchor_source": "total_value"}
         for item in items
         if total_x_min <= float(item["x"]) < total_x_max
         and min_center_y <= float(item["y"]) <= max_center_y
@@ -463,7 +607,7 @@ def parse_windowhub_ocr_table(
             "lp": lp,
             "quantity": quantity,
             "article": article,
-            "net_total": total,
+            "total_value": total,
             "unit_value": unit,
             "dimensions": dimension,
         }
@@ -475,7 +619,7 @@ def parse_windowhub_ocr_table(
                 lp_source=str(anchor["lp_source"]),
                 quantity=quantity,
                 article=article,
-                net_total=total,
+                total_value=total,
                 unit_value=unit,
                 dimensions=dimension,
                 center_y=float(anchor["y"]),

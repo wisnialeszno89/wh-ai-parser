@@ -60,7 +60,7 @@ def test_multiple_offers_parse_independently_without_cross_offer_state():
         assert len(rows) == len(expected_lp)
         assert [row.lp for row in rows] == expected_lp
         assert all(row.article == "Okno" for row in rows)
-        assert all(row.net_total is not None for row in rows)
+        assert all(row.total_value is not None for row in rows)
         assert all(row.dimensions is not None for row in rows)
 
 
@@ -99,7 +99,7 @@ def test_irregular_row_spacing_and_shuffled_ocr_order_are_supported():
     assert [row.lp for row in rows] == expected_lp
     assert [row.quantity for row in rows] == expected_quantity
     assert all(row.article == "Okno" for row in rows)
-    assert all(row.net_total is not None for row in rows)
+    assert all(row.total_value is not None for row in rows)
     assert all(row.dimensions is not None for row in rows)
 
 
@@ -181,7 +181,7 @@ def recovered_row(index, y, lp=None):
         lp_source="price_column_row_order" if lp is None else "ocr",
         quantity=1,
         article="Okno",
-        net_total="1000.00",
+        total_value="1000.00",
         unit_value="800.00",
         dimensions="1200 x 1350",
         center_y=y,

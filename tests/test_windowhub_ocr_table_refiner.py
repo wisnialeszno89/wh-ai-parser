@@ -29,7 +29,7 @@ def row(*, row_index=1, center_y=220.0, quantity=None, unit="1045.18"):
         missing.append("unit_value")
     return WindowHubOCRTableRow(
         row_index=row_index, lp=None, lp_source="price_column_row_order",
-        quantity=quantity, article="Okno", net_total="1045.18",
+        quantity=quantity, article="Okno", total_value="1045.18",
         unit_value=unit, dimensions="1320 x 1345", center_y=center_y,
         missing_fields=tuple(missing),
     )

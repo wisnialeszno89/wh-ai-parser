@@ -282,7 +282,7 @@ def refine_windowhub_ocr_table_rows(
             ))
         fields = {
             "lp": row.lp, "quantity": quantity, "article": row.article,
-            "net_total": row.net_total, "unit_value": unit_value,
+            "total_value": row.total_value, "unit_value": unit_value,
             "dimensions": row.dimensions,
         }
         missing_fields = tuple(name for name, value in fields.items() if value is None)
@@ -300,7 +300,7 @@ def refine_windowhub_ocr_table_lp(
     lp_x_min: int = 100,
     lp_x_max: int = 160,
     lp_y_min: int = 202,
-    lp_y_max: int = 360,
+    lp_y_max: int = 380,
     min_confidence: float = 0.85,
     scale: int = 5,
     padding: int = 25,
@@ -422,7 +422,7 @@ def refine_windowhub_ocr_table_lp(
 
         fields = {
             "lp": updated.lp, "quantity": updated.quantity, "article": updated.article,
-            "net_total": updated.net_total, "unit_value": updated.unit_value,
+            "total_value": updated.total_value, "unit_value": updated.unit_value,
             "dimensions": updated.dimensions,
         }
         missing_fields = tuple(name for name, field_value in fields.items() if field_value is None)
