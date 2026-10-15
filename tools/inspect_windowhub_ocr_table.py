@@ -8,14 +8,14 @@ import sys
 import time
 from pathlib import Path
 
-from app.agent.perception.windowhub_ocr_table_parser import (
-    infer_windowhub_ocr_table_column_layout,
-)
-
-
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
+
+
+from app.agent.perception.windowhub_ocr_table_parser import (
+    infer_windowhub_ocr_table_column_layout,
+)
 
 
 def _format_hwnd(value: int) -> str:
@@ -121,6 +121,7 @@ def _wait_for_window_foreground(window_handle: int, timeout_seconds: float = 45.
 
 def _classify_table_region_detections(elements: object) -> dict[str, list[dict[str, object]]]:
     """Keep raw OCR observations grouped by detected columns, not fixed x offsets."""
+    elements = tuple(elements)
     layout = infer_windowhub_ocr_table_column_layout(elements, max_center_y=380)
     detections: list[dict[str, object]] = []
     for element in elements:
