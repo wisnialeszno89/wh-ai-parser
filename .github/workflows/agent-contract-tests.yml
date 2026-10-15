@@ -19,7 +19,7 @@ jobs:
       - name: Install test dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install pytest python-dotenv python-docx openpyxl playwright
+          pip install pytest python-dotenv python-docx openpyxl playwright numpy opencv-python-headless
 
       - name: Run agent contract and learned-skill tests
         run: |
@@ -28,6 +28,17 @@ jobs:
             tests/test_navimind_task_reasoner.py \
             tests/test_autonomous_agent_runtime.py \
             tests/test_windowhub_ui_automation_provider.py \
+            tests/test_windowhub_ocr_provider.py \
+            tests/test_windowhub_ocr_table_parser.py \
+            tests/test_windowhub_ocr_table_refiner.py \
+            tests/test_windowhub_ocr_table_lp_refiner.py \
+            tests/test_windowhub_ocr_table_pipeline.py \
+            tests/test_windowhub_ocr_table_multioffer_regression.py \
+            tests/test_windowhub_ocr_table_runtime_integration.py \
+            tests/test_windowhub_ocr_table_task_context.py \
+            tests/test_windowhub_ocr_table_diagnostic.py \
+            tests/test_reasoning_plan_replanner.py \
+            tests/test_windowhub_environment_adapter_focus.py \
             tests/test_windowhub_tab_selection.py \
             tests/test_active_document_context.py \
             tests/test_workflow_repository.py \
