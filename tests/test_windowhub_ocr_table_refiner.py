@@ -162,7 +162,11 @@ def test_rejects_nonfinite_quantity_confidence():
 
 
 def test_recovers_missing_dimensions_from_bounded_color_crop():
-    engine = FakeEngine([response(["1320x1345"], [0.96]), response(["1320x1345"], [0.97])])
+    engine = FakeEngine([
+        response(["1320x1345"], [0.96]),
+        response(["1320 x 1345"], [0.97]),
+        response(["1320×1345"], [0.98]),
+    ])
     rows, reports = refine_windowhub_ocr_table_rows(
         [row(quantity=1, unit="1045.18", dimensions=None)], np.zeros((400, 1800, 3), dtype=np.uint8), engine
     )
@@ -170,10 +174,14 @@ def test_recovers_missing_dimensions_from_bounded_color_crop():
     assert "dimensions" not in rows[0].missing_fields
     report = next(item for item in reports if item.field == "dimensions")
     assert report.accepted and report.candidate_value == "1320 x 1345"
-    assert report.sources == ("color", "otsu")
+    assert report.sources == ("clahe_sharpened", "color", "otsu_sharpened")
 
 def test_keeps_conflicting_dimension_candidates_unresolved():
-    engine = FakeEngine([response(["1320x1345"], [0.96]), response(["1320x1350"], [0.98])])
+    engine = FakeEngine([
+        response(["1320x1345"], [0.96]),
+        response(["1320x1350"], [0.98]),
+        response(["1320x1350"], [0.97]),
+    ])
     rows, reports = refine_windowhub_ocr_table_rows(
         [row(quantity=1, unit="1045.18", dimensions=None)], np.zeros((400, 1800, 3), dtype=np.uint8), engine
     )
@@ -183,10 +191,14 @@ def test_keeps_conflicting_dimension_candidates_unresolved():
     assert not report.accepted and report.reason == "conflicting_candidates"
 
 def test_dimension_refinement_uses_independent_column_crop():
-    engine = FakeEngine([response(["1320x1345"], [0.96]), response(["1320x1345"], [0.97])])
+    engine = FakeEngine([
+        response(["1320x1345"], [0.96]),
+        response(["1320x1345"], [0.97]),
+        response(["1320x1345"], [0.98]),
+    ])
     rows, reports = refine_windowhub_ocr_table_rows(
         [row(quantity=1, unit="1045.18", dimensions=None)], np.zeros((400, 1800, 3), dtype=np.uint8), engine,
         dimensions_x_min=1200, dimensions_x_max=1500,
     )
     assert rows[0].dimensions == "1320 x 1345"
-    assert engine.image_shapes == [(72, 1200), (72, 1200)]
+    assert engine.image_shapes == [(148, 1896), (148, 1896), (148, 1896)]
