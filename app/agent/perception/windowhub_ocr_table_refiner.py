@@ -90,6 +90,68 @@ def _read_variants(
     )
 
 
+def _read_dimension_variants(
+    engine: Callable[[np.ndarray], Any],
+    crop: np.ndarray,
+    *,
+    scale: int = 6,
+) -> tuple[tuple[str, list[tuple[str, float]]], ...]:
+    """Read a wider, padded dimension-cell crop with contrast-aware variants.
+
+    WindowHub's dimension strings can be clipped when the crop starts at x=1000.
+    Use a leftward-bounded crop, enlargement, added whitespace, CLAHE/sharpening,
+    and Otsu thresholding to preserve the first digit and multiplication mark.
+    """
+    if crop.size == 0:
+        return ()
+    enlarged = cv2.resize(
+        crop, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC
+    )
+    gray = cv2.cvtColor(enlarged, cv2.COLOR_BGR2GRAY)
+    clahe = cv2.createCLAHE(
+        clipLimit=2.0, tileGridSize=(8, 8)
+    ).apply(gray)
+    sharpened = cv2.addWeighted(
+        clahe,
+        1.6,
+        cv2.GaussianBlur(clahe, (0, 0), 1.0),
+        -0.6,
+        0,
+    )
+    _, otsu = cv2.threshold(
+        sharpened, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU
+    )
+
+    border_x, border_y = 48, 20
+    variants = (
+        (
+            "color",
+            cv2.copyMakeBorder(
+                enlarged, border_y, border_y, border_x, border_x,
+                cv2.BORDER_CONSTANT, value=(255, 255, 255),
+            ),
+        ),
+        (
+            "clahe_sharpened",
+            cv2.copyMakeBorder(
+                sharpened, border_y, border_y, border_x, border_x,
+                cv2.BORDER_CONSTANT, value=255,
+            ),
+        ),
+        (
+            "otsu_sharpened",
+            cv2.copyMakeBorder(
+                otsu, border_y, border_y, border_x, border_x,
+                cv2.BORDER_CONSTANT, value=255,
+            ),
+        ),
+    )
+    return tuple(
+        (source, _result_items(engine(variant_image)))
+        for source, variant_image in variants
+    )
+
+
 def _quantity_candidates(
     variants: Iterable[tuple[str, list[tuple[str, float]]]],
     expected_article: str,
@@ -139,7 +201,7 @@ def _quantity_candidates(
 def _parse_dimensions_candidate(text: str) -> str | None:
     """Parse only explicit width-by-height OCR text; do not infer values."""
     value = re.sub(r"\s+", "", text)
-    match = re.search(r"(?<!\d)(\d{2,4})[xX×](\d{2,4})(?!\d)", value)
+    match = re.search(r"(?<!\d)(\d{2,4})[xX×Îî](\d{2,4})(?!\d)", value)
     return f"{match.group(1)} x {match.group(2)}" if match else None
 
 def _dimension_candidates(variants, *, min_confidence: float):
@@ -250,8 +312,8 @@ def refine_windowhub_ocr_table_rows(
     article_x_max: int = 380,
     unit_x_min: int = 510,
     unit_x_max: int = 600,
-    dimensions_x_min: int = 1000,
-    dimensions_x_max: int = 1700,
+    dimensions_x_min: int = 850,
+    dimensions_x_max: int = 1350,
     dimensions_min_confidence: float = 0.85,
 ) -> tuple[tuple[WindowHubOCRTableRow, ...], tuple[WindowHubOCRFieldRefinement, ...]]:
     """Recover missing quantity/unit-price/dimension fields without guessing."""
@@ -304,8 +366,12 @@ def refine_windowhub_ocr_table_rows(
         if dimensions is None:
             x0 = max(0, dimensions_x_min)
             x1 = min(width, dimensions_x_max)
-            variants = _read_variants(engine, image[y0:y1, x0:x1], scale=scale)
-            candidates = _dimension_candidates(variants, min_confidence=dimensions_min_confidence)
+            variants = _read_dimension_variants(
+                engine, image[y0:y1, x0:x1], scale=6
+            )
+            candidates = _dimension_candidates(
+                variants, min_confidence=dimensions_min_confidence
+            )
             value, confidence, sources, reason = _resolve_candidates(candidates)
             accepted = value is not None
             if accepted:
