@@ -77,8 +77,8 @@ def reconstruct_windowhub_ocr_table_rows(
     image_array = np.asarray(image)
     field_options = dict(field_refiner_options or {})
     field_options.setdefault("article_x_max", int(layout["article_x_max"]))
-    field_options.setdefault("dimensions_x_min", int(parser_kwargs.get("dimensions_x_min", 1000)))
-    field_options.setdefault("dimensions_x_max", int(parser_kwargs.get("dimensions_x_max", 1700)))
+    field_options.setdefault("dimensions_x_min", int(parser_kwargs.get("dimensions_x_min", 850)))
+    field_options.setdefault("dimensions_x_max", int(parser_kwargs.get("dimensions_x_max", 1350)))
     if layout["adaptive_price_columns"] and len(layout["price_column_centers"]) >= 2:
         field_options.setdefault("unit_x_min", int(layout["unit_x_min"]))
         field_options.setdefault("unit_x_max", int(layout["unit_x_max"]))
