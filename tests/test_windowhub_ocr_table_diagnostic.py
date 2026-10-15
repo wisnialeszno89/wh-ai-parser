@@ -4,6 +4,7 @@ from tools.inspect_windowhub_ocr_table import (
     _classify_table_region_detections,
     _configure_console_output,
     _scan_dimensions_across_row_crops,
+    _scan_lp_column_across_row_crops,
 )
 
 
@@ -128,3 +129,42 @@ def test_diagnostic_scans_overlapping_high_resolution_dimension_crops():
     assert engine.shapes[0] == (160, 3096)
     # Last image: 20 px x scale 6 and a 400 px horizontal band plus padding.
     assert engine.shapes[-1] == (160, 2496)
+
+
+
+def test_diagnostic_scans_only_unresolved_lp_rows_without_promoting_candidates():
+    import numpy as np
+
+    class FakeEngine:
+        def __init__(self):
+            self.calls = 0
+            self.shapes = []
+
+        def __call__(self, image):
+            self.calls += 1
+            self.shapes.append(image.shape[:2])
+            if self.calls == 1:
+                return SimpleNamespace(txts=["1"], scores=[0.91])
+            return SimpleNamespace(txts=[], scores=[])
+
+    rows = [
+        SimpleNamespace(row_index=1, center_y=30.0, lp=None),
+        SimpleNamespace(row_index=2, center_y=50.0, lp=2),
+    ]
+    image = np.zeros((100, 300, 3), dtype=np.uint8)
+    engine = FakeEngine()
+
+    detections = _scan_lp_column_across_row_crops(rows, image, engine)
+
+    assert engine.calls == 6  # one unresolved row x two bands x three variants
+    assert detections == [{
+        "row_index": 1,
+        "x_min": 90,
+        "x_max": 170,
+        "variant": "color",
+        "scale": 6,
+        "text": "1",
+        "confidence": 0.91,
+    }]
+    # Local 20px high row crop scaled 6x with 32px vertical and 72px horizontal padding.
+    assert engine.shapes[0] == (152, 552)

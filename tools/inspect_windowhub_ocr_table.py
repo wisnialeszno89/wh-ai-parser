@@ -325,6 +325,123 @@ def _scan_dimensions_across_row_crops(
     return detections
 
 
+def _scan_lp_column_across_row_crops(
+    rows: object,
+    screenshot_or_image: object,
+    engine: object,
+) -> list[dict[str, object]]:
+    """Inspect unresolved LP cells using overlapping, high-resolution crops.
+
+    This emits OCR observations for diagnosis only. Candidates are never
+    promoted into reconstructed rows; the LP refiner remains responsible for
+    validation, row matching, duplicate rejection, and acceptance.
+    """
+    import cv2
+    import numpy as np
+
+    from app.agent.perception.windowhub_ocr_table_refiner import (
+        _normalize_image,
+        _row_crop_bounds,
+    )
+
+    input_rows = tuple(rows or ())
+    unresolved_rows = tuple(row for row in input_rows if getattr(row, "lp", None) is None)
+    if not unresolved_rows:
+        return []
+
+    image = _normalize_image(screenshot_or_image)
+    height, width = image.shape[:2]
+    # Keep the LP cell near the crop center while overlapping neighbouring
+    # text just enough to preserve punctuation/row context for OCR.
+    configured_bands = ((90, 170), (100, 180))
+    bands = [
+        (max(0, x0), min(width, x1))
+        for x0, x1 in configured_bands
+        if min(width, x1) > max(0, x0)
+    ]
+    detections: list[dict[str, object]] = []
+    scale = 6
+    border_x, border_y = 36, 16
+
+    for row in unresolved_rows:
+        y0, y1 = _row_crop_bounds(
+            input_rows, row, image_height=height, row_half_height=10
+        )
+        for x0, x1 in bands:
+            crop = image[y0:y1, x0:x1]
+            if crop.size == 0:
+                continue
+            enlarged = cv2.resize(
+                crop, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC
+            )
+            gray = cv2.cvtColor(enlarged, cv2.COLOR_BGR2GRAY)
+            clahe = cv2.createCLAHE(
+                clipLimit=2.0, tileGridSize=(8, 8)
+            ).apply(gray)
+            sharpened = cv2.addWeighted(
+                clahe, 1.6,
+                cv2.GaussianBlur(clahe, (0, 0), 1.0), -0.6,
+                0,
+            )
+            _, otsu = cv2.threshold(
+                sharpened, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU
+            )
+            variants = (
+                ("color", cv2.copyMakeBorder(
+                    enlarged, border_y, border_y, border_x, border_x,
+                    cv2.BORDER_CONSTANT, value=(255, 255, 255),
+                )),
+                ("clahe_sharpened", cv2.copyMakeBorder(
+                    sharpened, border_y, border_y, border_x, border_x,
+                    cv2.BORDER_CONSTANT, value=255,
+                )),
+                ("otsu_sharpened", cv2.copyMakeBorder(
+                    otsu, border_y, border_y, border_x, border_x,
+                    cv2.BORDER_CONSTANT, value=255,
+                )),
+            )
+            for variant, variant_image in variants:
+                try:
+                    result = engine(variant_image)
+                except Exception as exc:
+                    detections.append({
+                        "row_index": int(row.row_index),
+                        "x_min": x0,
+                        "x_max": x1,
+                        "variant": variant,
+                        "scale": scale,
+                        "error": f"{type(exc).__name__}: {exc}",
+                    })
+                    continue
+                texts = getattr(result, "txts", None)
+                scores = getattr(result, "scores", None)
+                if texts is None:
+                    continue
+                for index, raw_text in enumerate(texts):
+                    if raw_text is None or not str(raw_text).strip():
+                        continue
+                    try:
+                        confidence = (
+                            float(scores[index])
+                            if scores is not None and index < len(scores)
+                            else 0.0
+                        )
+                    except (TypeError, ValueError, IndexError):
+                        confidence = 0.0
+                    if not np.isfinite(confidence) or not 0.0 <= confidence <= 1.0:
+                        continue
+                    detections.append({
+                        "row_index": int(row.row_index),
+                        "x_min": x0,
+                        "x_max": x1,
+                        "variant": variant,
+                        "scale": scale,
+                        "text": str(raw_text).strip(),
+                        "confidence": round(confidence, 4),
+                    })
+    return detections
+
+
 def _configure_console_output(streams=None) -> None:
     """Avoid crashes when PowerShell pipes native output through a legacy code page."""
     targets = streams if streams is not None else (sys.stdout, sys.stderr)
@@ -456,20 +573,34 @@ def main() -> int:
     # Coordinates/confidence are observations for diagnosis, not actions.
     table_detections = _classify_table_region_detections(elements)
     dimensions_crop_scan: list[dict[str, object]] = []
+    lp_crop_scan: list[dict[str, object]] = []
     if reconstruction is not None:
+        engine = provider._get_engine()
         try:
             dimensions_crop_scan = _scan_dimensions_across_row_crops(
                 reconstruction.rows,
                 metadata.get("screenshot"),
-                provider._get_engine(),
+                engine,
             )
         except Exception as exc:
             dimensions_crop_scan = [{
                 "error": f"{type(exc).__name__}: {exc}",
             }]
+        try:
+            lp_crop_scan = _scan_lp_column_across_row_crops(
+                reconstruction.rows,
+                metadata.get("screenshot"),
+                engine,
+            )
+        except Exception as exc:
+            lp_crop_scan = [{
+                "error": f"{type(exc).__name__}: {exc}",
+            }]
 
     summary = {
         "dimensions_crop_scan": dimensions_crop_scan,
+        "lp_crop_scan": lp_crop_scan,
+        "table_payload_status": payload.get("status") if isinstance(payload, dict) else None,
         "window_title": title,
         "window_focused": focused,
         "ocr_status": metadata.get("windowhub_ocr_status"),
