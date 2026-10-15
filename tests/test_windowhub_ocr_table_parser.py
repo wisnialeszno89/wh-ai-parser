@@ -229,6 +229,16 @@ def test_dimension_parser_accepts_multiplication_symbol():
     assert rows[0].dimensions == "810 x 1325"
 
 
+def test_dimension_parser_accepts_ocr_confused_multiplication_separator():
+    rows = parse_windowhub_ocr_table([
+        element("1 Okno", 210, 223.9),
+        element("100,00", 420, 223.9),
+        element("100,00", 530, 223.9),
+        element("1000Î1000", 1120, 223.9),
+    ], anchor_x_max=-1)
+    assert rows[0].dimensions == "1000 x 1000"
+
+
 def test_empty_input_returns_no_rows():
     assert parse_windowhub_ocr_table([]) == ()
 
