@@ -66,7 +66,7 @@ def _parse_money(text: str) -> str | None:
 
 def _parse_dimensions(text: str) -> str | None:
     value = re.sub(r"\s+", "", text)
-    match = re.search(r"(?<!\d)(\d{2,4})[xX×](\d{2,4})(?!\d)", value)
+    match = re.search(r"(?<!\d)(\d{2,4})[xX×Îî](\d{2,4})(?!\d)", value)
     if not match:
         return None
     return f"{match.group(1)} x {match.group(2)}"
@@ -307,8 +307,8 @@ def parse_windowhub_ocr_table(
     total_x_max: float = 500,
     unit_x_min: float = 500,
     unit_x_max: float = 600,
-    dimensions_x_min: float = 1000,
-    dimensions_x_max: float = 1700,
+    dimensions_x_min: float = 850,
+    dimensions_x_max: float = 1350,
     min_center_y: float = 200,
     max_center_y: float = 380,
     row_tolerance: float = 7.5,
