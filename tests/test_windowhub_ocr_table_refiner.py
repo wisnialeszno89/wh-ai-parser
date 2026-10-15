@@ -175,7 +175,7 @@ def test_recovers_missing_dimensions_from_bounded_color_crop():
 def test_keeps_conflicting_dimension_candidates_unresolved():
     engine = FakeEngine([response(["1320x1345"], [0.96]), response(["1320x1350"], [0.98])])
     rows, reports = refine_windowhub_ocr_table_rows(
-        [row(quantity=1, unit="1045.18")], np.zeros((400, 1800, 3), dtype=np.uint8), engine
+        [row(quantity=1, unit="1045.18", dimensions=None)], np.zeros((400, 1800, 3), dtype=np.uint8), engine
     )
     assert rows[0].dimensions is None
     assert "dimensions" in rows[0].missing_fields
@@ -185,7 +185,7 @@ def test_keeps_conflicting_dimension_candidates_unresolved():
 def test_dimension_refinement_uses_independent_column_crop():
     engine = FakeEngine([response(["1320x1345"], [0.96]), response(["1320x1345"], [0.97])])
     rows, reports = refine_windowhub_ocr_table_rows(
-        [row(quantity=1, unit="1045.18")], np.zeros((400, 1800, 3), dtype=np.uint8), engine,
+        [row(quantity=1, unit="1045.18", dimensions=None)], np.zeros((400, 1800, 3), dtype=np.uint8), engine,
         dimensions_x_min=1200, dimensions_x_max=1500,
     )
     assert rows[0].dimensions == "1320 x 1345"
