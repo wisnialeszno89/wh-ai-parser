@@ -124,6 +124,7 @@ def _classify_table_region_detections(elements: object) -> dict[str, list[dict[s
     elements = tuple(elements)
     layout = infer_windowhub_ocr_table_column_layout(elements, max_center_y=380)
     detections: list[dict[str, object]] = []
+    row_band_all_detections: list[dict[str, object]] = []
     for element in elements:
         try:
             x = int(element.x)
@@ -135,17 +136,24 @@ def _classify_table_region_detections(elements: object) -> dict[str, list[dict[s
         except (AttributeError, TypeError, ValueError):
             continue
 
-        in_table_columns = (90 <= x < 650) or (1000 <= x < 1700)
-        if not in_table_columns or not 190 <= center_y <= 370:
-            continue
-        detections.append({
+        detection = {
             "text": str(element.label),
             "x": x,
             "y": y,
             "width": width,
             "height": height,
             "confidence": round(confidence, 4),
-        })
+        }
+        # Preserve every OCR item across the physical table's vertical band.
+        # The older column filter intentionally omitted x=650..999, which can
+        # hide a real dimensions column when WindowHub layouts differ.
+        if 170 <= center_y <= 410:
+            row_band_all_detections.append(detection)
+
+        in_table_columns = (90 <= x < 650) or (1000 <= x < 1700)
+        if not in_table_columns or not 190 <= center_y <= 370:
+            continue
+        detections.append(detection)
 
     adaptive = bool(layout["adaptive_price_columns"])
     centers = list(layout["price_column_centers"])
@@ -175,6 +183,7 @@ def _classify_table_region_detections(elements: object) -> dict[str, list[dict[s
         article_detections = [item for item in detections if 185 <= item["x"] < 380]
 
     return {
+        "row_band_all_ocr_detections": row_band_all_detections,
         "table_region_ocr_detections": detections,
         "lp_column_ocr_detections": [
             item for item in detections if 90 <= item["x"] < 180
