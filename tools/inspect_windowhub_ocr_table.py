@@ -198,6 +198,98 @@ def _classify_table_region_detections(elements: object) -> dict[str, list[dict[s
     }
 
 
+def _scan_dimensions_across_row_crops(
+    rows: object,
+    screenshot_or_image: object,
+    engine: object,
+) -> list[dict[str, object]]:
+    """OCR-scan right-side table bands per row to locate unseen dimension text.
+
+    This is diagnostic only: it reports OCR observations and never changes the UI
+    or promotes a crop result into the reconstructed table.
+    """
+    import cv2
+    import numpy as np
+
+    from app.agent.perception.windowhub_ocr_table_refiner import (
+        _normalize_image,
+        _row_crop_bounds,
+    )
+
+    input_rows = tuple(rows or ())
+    if not input_rows:
+        return []
+
+    image = _normalize_image(screenshot_or_image)
+    height, width = image.shape[:2]
+    bands = [
+        (650, min(1000, width)),
+        (1000, min(1350, width)),
+        (1350, min(1700, width)),
+        (1700, width),
+    ]
+    bands = [(x0, x1) for x0, x1 in bands if x1 > x0]
+    detections: list[dict[str, object]] = []
+
+    for row in input_rows:
+        y0, y1 = _row_crop_bounds(
+            input_rows,
+            row,
+            image_height=height,
+            row_half_height=9,
+        )
+        for x0, x1 in bands:
+            crop = image[y0:y1, x0:x1]
+            if crop.size == 0:
+                continue
+            enlarged = cv2.resize(
+                crop, None, fx=4, fy=4, interpolation=cv2.INTER_CUBIC
+            )
+            gray = cv2.cvtColor(enlarged, cv2.COLOR_BGR2GRAY)
+            _, otsu = cv2.threshold(
+                gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU
+            )
+            for variant, variant_image in (("color", enlarged), ("otsu", otsu)):
+                try:
+                    result = engine(variant_image)
+                except Exception as exc:
+                    detections.append({
+                        "row_index": int(row.row_index),
+                        "x_min": x0,
+                        "x_max": x1,
+                        "variant": variant,
+                        "error": f"{type(exc).__name__}: {exc}",
+                    })
+                    continue
+
+                texts = getattr(result, "txts", None)
+                scores = getattr(result, "scores", None)
+                if texts is None:
+                    continue
+                for index, raw_text in enumerate(texts):
+                    if raw_text is None or not str(raw_text).strip():
+                        continue
+                    try:
+                        confidence = (
+                            float(scores[index])
+                            if scores is not None and index < len(scores)
+                            else 0.0
+                        )
+                    except (TypeError, ValueError, IndexError):
+                        confidence = 0.0
+                    if not np.isfinite(confidence) or not 0.0 <= confidence <= 1.0:
+                        continue
+                    detections.append({
+                        "row_index": int(row.row_index),
+                        "x_min": x0,
+                        "x_max": x1,
+                        "variant": variant,
+                        "text": str(raw_text).strip(),
+                        "confidence": round(confidence, 4),
+                    })
+    return detections
+
+
 def _configure_console_output(streams=None) -> None:
     """Avoid crashes when PowerShell pipes native output through a legacy code page."""
     targets = streams if streams is not None else (sys.stdout, sys.stderr)
@@ -312,8 +404,9 @@ def main() -> int:
         print("Open the intended offer table, keep it in the foreground, and rerun.")
         return 5
 
+    provider = WindowHubOCRProvider()
     try:
-        elements = WindowHubOCRProvider().perceive(observation)
+        elements = provider.perceive(observation)
     except Exception as exc:
         print(
             f"ABORTED: OCR provider failed unexpectedly: "
@@ -327,8 +420,21 @@ def main() -> int:
 
     # Coordinates/confidence are observations for diagnosis, not actions.
     table_detections = _classify_table_region_detections(elements)
+    dimensions_crop_scan: list[dict[str, object]] = []
+    if reconstruction is not None:
+        try:
+            dimensions_crop_scan = _scan_dimensions_across_row_crops(
+                reconstruction.rows,
+                metadata.get("screenshot"),
+                provider._get_engine(),
+            )
+        except Exception as exc:
+            dimensions_crop_scan = [{
+                "error": f"{type(exc).__name__}: {exc}",
+            }]
 
     summary = {
+        "dimensions_crop_scan": dimensions_crop_scan,
         "window_title": title,
         "window_focused": focused,
         "ocr_status": metadata.get("windowhub_ocr_status"),
