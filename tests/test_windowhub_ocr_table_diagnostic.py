@@ -3,6 +3,7 @@ from types import SimpleNamespace
 from tools.inspect_windowhub_ocr_table import (
     _classify_table_region_detections,
     _configure_console_output,
+    _scan_dimensions_across_row_crops,
 )
 
 
@@ -88,3 +89,39 @@ def test_diagnostic_infers_shifted_price_columns_and_excludes_montage_from_unit_
     assert "0,00" in [item["text"] for item in result["other_price_column_ocr_detections"]]
     assert "1045,18" not in [item["text"] for item in result["quantity_article_ocr_detections"]]
     assert [item["text"] for item in result["dimensions_ocr_detections"]] == ["1320x1345"]
+
+def test_diagnostic_scans_right_side_crop_bands_per_row():
+    import numpy as np
+
+    class FakeEngine:
+        def __init__(self):
+            self.calls = 0
+            self.shapes = []
+
+        def __call__(self, image):
+            self.calls += 1
+            self.shapes.append(image.shape[:2])
+            if self.calls == 1:
+                return SimpleNamespace(txts=["1320x1345"], scores=[0.97])
+            return SimpleNamespace(txts=[], scores=[])
+
+    rows = [
+        SimpleNamespace(row_index=1, center_y=30.0),
+        SimpleNamespace(row_index=2, center_y=50.0),
+    ]
+    image = np.zeros((100, 1936, 3), dtype=np.uint8)
+    engine = FakeEngine()
+
+    detections = _scan_dimensions_across_row_crops(rows, image, engine)
+
+    assert engine.calls == 16  # 2 rows x 4 horizontal bands x 2 variants
+    assert detections == [{
+        "row_index": 1,
+        "x_min": 650,
+        "x_max": 1000,
+        "variant": "color",
+        "text": "1320x1345",
+        "confidence": 0.97,
+    }]
+    assert engine.shapes[0] == (80, 1400)
+    assert engine.shapes[-1] == (80, 944)
