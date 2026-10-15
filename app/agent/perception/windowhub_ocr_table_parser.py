@@ -80,21 +80,27 @@ def _cluster_price_column_centers(
     min_center_y: float,
     max_center_y: float,
 ) -> list[float]:
-    """Find horizontally separated clusters of money-shaped OCR tokens."""
-    xs = sorted(
-        float(item["x"])
+    """Infer regular monetary columns from repeated price detections.
+
+    OCR coordinates refer to the left edge of each text box. Long price strings
+    can therefore have different x values, but the center of each box is a
+    stable column signal. Cluster box centers, not left edges.
+    """
+    centers = sorted(
+        float(item["x"]) + float(item.get("width", 0)) / 2
         for item in items
         if 300 <= float(item["x"]) < 900
         and min_center_y <= float(item["y"]) <= max_center_y
         and _parse_money(str(item["text"])) is not None
     )
     clusters: list[list[float]] = []
-    for x in xs:
-        if clusters and x - clusters[-1][-1] <= 40:
+    for x in centers:
+        if clusters and x - sum(clusters[-1]) / len(clusters[-1]) <= 42:
             clusters[-1].append(x)
         else:
             clusters.append([x])
-    return [sum(cluster) / len(cluster) for cluster in clusters]
+    # A single accidental monetary value must not switch the entire layout.
+    return [sum(cluster) / len(cluster) for cluster in clusters if len(cluster) >= 2]
 
 
 def _layout_from_normalized_items(
@@ -112,30 +118,29 @@ def _layout_from_normalized_items(
     centers = _cluster_price_column_centers(
         items, min_center_y=min_center_y, max_center_y=max_center_y
     )
-    # Legacy offers have a single recognized monetary column at the usual
-    # unit-price x-position. Preserve the configured ranges in that case.
-    adaptive = len(centers) >= 2 or (
-        len(centers) == 1 and centers[0] < total_x_min
-    )
+    adaptive = len(centers) >= 2
     effective_article_x_max = article_x_max
+    effective_total_x_min = total_x_min
+    effective_total_x_max = total_x_max
     effective_unit_x_min = unit_x_min
     effective_unit_x_max = unit_x_max
-    if adaptive and centers:
+    if adaptive:
+        # The first two repeated monetary columns are totals and unit values.
+        # A third or later column (for example "Montaż brutto") is separate.
+        first, second = centers[0], centers[1]
         effective_article_x_max = max(
-            article_x_min + 1, min(article_x_max, int(centers[0] - 25))
+            article_x_min + 1, int(first - 28)
         )
-        if len(centers) >= 2:
-            # The second left-to-right monetary column is the per-unit value.
-            # Keep the crop tight enough to exclude later columns such as
-            # "Montaż brutto", which can contain 0,00.
-            effective_unit_x_min = max(0, int(centers[1] - 25))
-            effective_unit_x_max = int(centers[1] + 65)
+        effective_total_x_min = int(first - 42)
+        effective_total_x_max = int((first + second) / 2)
+        effective_unit_x_min = effective_total_x_max
+        effective_unit_x_max = int(second + 42)
     return {
         "adaptive_price_columns": adaptive,
         "price_column_centers": centers,
         "article_x_max": effective_article_x_max,
-        "total_x_min": total_x_min,
-        "total_x_max": total_x_max,
+        "total_x_min": effective_total_x_min,
+        "total_x_max": effective_total_x_max,
         "unit_x_min": effective_unit_x_min,
         "unit_x_max": effective_unit_x_max,
     }
@@ -154,7 +159,7 @@ def infer_windowhub_ocr_table_column_layout(
     max_center_y: float = 380,
     min_confidence: float = 0.35,
 ) -> dict[str, object]:
-    """Infer price columns for the parser and its local image-crop refiners."""
+    """Infer repeated monetary columns and the correct image crops."""
     items: list[dict[str, object]] = []
     for element in ocr_elements:
         text = str(getattr(element, "label", "") or "").strip()
@@ -164,11 +169,12 @@ def infer_windowhub_ocr_table_column_layout(
         try:
             x = float(getattr(element, "x"))
             y = _center_y(element)
+            width = float(getattr(element, "width", 0))
         except (TypeError, ValueError, AttributeError):
             continue
         if x < 0 or y < 0:
             continue
-        items.append({"x": x, "y": y, "text": text, "confidence": confidence})
+        items.append({"x": x, "y": y, "width": width, "text": text, "confidence": confidence})
     return _layout_from_normalized_items(
         items,
         article_x_min=article_x_min,
@@ -180,6 +186,7 @@ def infer_windowhub_ocr_table_column_layout(
         min_center_y=min_center_y,
         max_center_y=max_center_y,
     )
+
 
 
 def _assign_unit_price_detections(
@@ -328,7 +335,7 @@ def parse_windowhub_ocr_table(
             continue
         if not (x >= 0 and center_y >= 0):
             continue
-        items.append({"x": x, "y": center_y, "text": text, "confidence": confidence})
+        items.append({"x": x, "y": center_y, "width": float(getattr(element, "width", 0)), "text": text, "confidence": confidence})
 
     layout = _layout_from_normalized_items(
         items,
@@ -343,8 +350,10 @@ def parse_windowhub_ocr_table(
     )
     if layout["adaptive_price_columns"]:
         centers = list(layout["price_column_centers"])
+        second_center = centers[1]
+        third_center = centers[2] if len(centers) >= 3 else None
         for item in items:
-            x = float(item["x"])
+            x = float(item["x"]) + float(item.get("width", 0)) / 2
             y = float(item["y"])
             if (
                 not 300 <= x < 900
@@ -354,10 +363,10 @@ def parse_windowhub_ocr_table(
                 continue
             distances = [abs(x - center) for center in centers]
             column_index = min(range(len(centers)), key=lambda i: distances[i])
-            if distances[column_index] > 45:
+            if distances[column_index] > 55:
                 continue
-            # Normalize only money tokens into the parser's canonical column
-            # bands. Later price-like columns are deliberately ignored.
+            # Normalize the first two detected columns to stable parser bands.
+            # Every later monetary column is intentionally excluded.
             if column_index == 0:
                 item["x"] = total_x_min + 40
             elif column_index == 1:

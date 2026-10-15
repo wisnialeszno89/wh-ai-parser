@@ -151,13 +151,13 @@ def _classify_table_region_detections(elements: object) -> dict[str, list[dict[s
     centers = list(layout["price_column_centers"])
     if adaptive and centers:
         article_max = int(layout["article_x_max"])
-        total_min = max(0, int(centers[0] - 30))
+        total_min = max(0, int(centers[0] - 42))
         total_max = (centers[0] + centers[1]) / 2 if len(centers) >= 2 else centers[0] + 55
         unit_min = total_max
         unit_max = (
-            (centers[1] + centers[2]) / 2
-            if len(centers) >= 3
-            else (centers[1] + 65 if len(centers) >= 2 else 600)
+            int(centers[1] + 42)
+            if len(centers) >= 2
+            else 600
         )
         other_min = unit_max if len(centers) >= 3 else 650
         total_detections = [item for item in detections if total_min <= item["x"] < total_max]
