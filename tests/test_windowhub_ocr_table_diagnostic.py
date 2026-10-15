@@ -90,7 +90,7 @@ def test_diagnostic_infers_shifted_price_columns_and_excludes_montage_from_unit_
     assert "1045,18" not in [item["text"] for item in result["quantity_article_ocr_detections"]]
     assert [item["text"] for item in result["dimensions_ocr_detections"]] == ["1320x1345"]
 
-def test_diagnostic_scans_right_side_crop_bands_per_row():
+def test_diagnostic_scans_overlapping_high_resolution_dimension_crops():
     import numpy as np
 
     class FakeEngine:
@@ -114,14 +114,17 @@ def test_diagnostic_scans_right_side_crop_bands_per_row():
 
     detections = _scan_dimensions_across_row_crops(rows, image, engine)
 
-    assert engine.calls == 16  # 2 rows x 4 horizontal bands x 2 variants
+    assert engine.calls == 24  # 2 rows x 4 overlapping bands x 3 variants
     assert detections == [{
         "row_index": 1,
-        "x_min": 650,
-        "x_max": 1000,
+        "x_min": 850,
+        "x_max": 1350,
         "variant": "color",
+        "scale": 6,
         "text": "1320x1345",
         "confidence": 0.97,
     }]
-    assert engine.shapes[0] == (80, 1400)
-    assert engine.shapes[-1] == (80, 944)
+    # Row band: 20 px x scale 6 plus 40 px vertical white padding.
+    assert engine.shapes[0] == (160, 3096)
+    # Last image: 20 px x scale 6 and a 400 px horizontal band plus padding.
+    assert engine.shapes[-1] == (160, 2496)
