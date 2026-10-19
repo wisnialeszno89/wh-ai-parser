@@ -32,7 +32,7 @@ class TaskAction:
     def is_submission(self) -> bool:
         text = f"{self.name} {self.target}".casefold()
         return self.submission or bool(re.search(
-            r"(?<!\w)(submit|dispatch|send|publish|wyślij|wyslij|przekaż|przekaz)(?!\w)", text
+            r"(?<!\w)(submit|dispatch|send|publish|confirm|approve|finalize|finalise|wyślij|wyslij|przekaż|przekaz|zatwierdź|zatwierdz|finalizuj)(?!\w)", text
         ))
 
     @property

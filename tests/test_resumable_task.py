@@ -210,3 +210,26 @@ def test_final_missing_fields_block_completion_even_if_verifier_claims_success()
     assert result.stop_reason == "final_state_verification_failed"
     assert "Final state not verified: height" in result.unresolved_issues
 
+@pytest.mark.parametrize(
+    "target",
+    (
+        "Wyślij ofertę",
+        "Zatwierdź ofertę",
+        "Finalizuj ofertę",
+        "Przekaż do realizacji",
+        "Confirm order",
+        "Approve quotation",
+        "Dispatch order",
+    ),
+)
+def test_submission_like_targets_require_action_bound_confirmation(target):
+    action = TaskAction(
+        action_id="submit-gate",
+        name="click_screen_element",
+        target=target,
+        scene_fingerprint="scene-current",
+    )
+
+    assert action.is_submission is True
+    assert action.confirmation_required is True
+
