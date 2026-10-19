@@ -4,9 +4,7 @@ from types import SimpleNamespace
 
 from app.agent.agent_intent import AgentIntent
 from app.agent.agent_request import AgentRequest
-from app.agent.offers.offer_facts import (
-    QuoteFact,
-    QuoteFactSource,
+from app.agent.offers.quote_facts import (
     QuoteFactValidator,
 )
 from app.agent.offers.offer_context import OfferContext
