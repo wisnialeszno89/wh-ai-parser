@@ -334,7 +334,7 @@ def _normalize_value(
             "brown": "brown",
         }
         normalized = aliases.get(normalized, normalized)
-        if normalized not in {"white", "anthracite", "black", "brown"} and not re.fullmatch(r"\\d{4}", normalized):
+        if normalized not in {"white", "anthracite", "black", "brown"} and not re.fullmatch(r"\d{4}", normalized):
             raise ValueError("Unsupported color value; use a known project color or a four-digit RAL code.")
     elif field_name == "profile":
         # Resolve profiles using the existing deterministic project catalog.
