@@ -109,6 +109,55 @@ def make_uia_element(
     )
 
 
+def test_robot_gui_executor_accepts_generic_windows_uia_source():
+    element = ScreenElement(
+        kind="button",
+        label="Zapisz",
+        x=20,
+        y=30,
+        width=110,
+        height=40,
+        confidence=0.99,
+        interaction_capability=InteractionCapability.CLICKABLE,
+        metadata={
+            "source": "windows_ui_automation",
+            "provider_element_id": "uia:9-8-7",
+            "uia_control_type": "button",
+            "uia_enabled": True,
+            "uia_visible": True,
+            "uia_runtime_id": "9-8-7",
+            "interaction_capability_confidence": 0.99,
+        },
+    )
+
+    mouse = RecordingMouse()
+
+    robot = RobotActionExecutor(
+        mode=RobotExecutionMode.DRY_RUN,
+        mouse=mouse,
+    )
+
+    executor = RobotGUIExecutor(
+        robot_action_executor=robot,
+    )
+
+    context = make_context(
+        elements=(element,),
+    )
+
+    result = executor.execute(
+        AgentAction(
+            name="click_screen_element",
+            description="Click Zapisz",
+            target="Zapisz",
+        ),
+        context,
+    )
+
+    assert result.success is True
+    assert result.metadata["execution_path"] == "uia_only"
+    assert result.metadata["target_id"] == "uia:9-8-7"
+
 def test_robot_gui_executor_clicks_uia_only_target_in_dry_run():
     mouse = RecordingMouse()
 

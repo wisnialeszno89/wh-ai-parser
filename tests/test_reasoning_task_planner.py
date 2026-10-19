@@ -1,4 +1,4 @@
-from app.agent.agent_intent import AgentIntent
+﻿from app.agent.agent_intent import AgentIntent
 from app.agent.reasoning.reasoning_action import ReasoningAction
 from app.agent.reasoning.reasoning_proposal import ReasoningProposal
 from app.agent.reasoning.reasoning_task_planner import (
@@ -35,7 +35,7 @@ class RecordingTaskReasoner(TaskReasoner):
 
 def create_context():
     return TaskPlanningContext(
-        request_message="Otwórz nową ofertę",
+        request_message="OtwĂłrz nowÄ… ofertÄ™",
         intent=AgentIntent.EXECUTE_IN_WH.value,
         capability_name="WH_WINDOW",
         capability_description=(
@@ -80,7 +80,7 @@ def test_reasoning_task_planner_builds_semantic_plan_with_target():
     payload = reasoner.contexts[0].to_payload()
 
     assert payload["request_message"] == (
-        "Otwórz nową ofertę"
+        "OtwĂłrz nowÄ… ofertÄ™"
     )
     assert "window_handle" not in str(payload)
     assert "runtime_id" not in str(payload)
@@ -164,6 +164,54 @@ def test_reasoning_task_planner_normalizes_semantic_open_new_offer():
 
 
 
+def test_reasoning_task_planner_exposes_semantic_selected_state():
+    scene = ScreenScene(
+        observation=EnvironmentObservation(
+            state=EnvironmentState(
+                active_application="VSCode",
+                active_window_title="Visual Studio Code",
+            ),
+        ),
+        elements=(
+            ScreenElement(
+                kind="tabitem",
+                label="Testing",
+                confidence=0.99,
+                interaction_capability=(
+                    InteractionCapability.CLICKABLE
+                ),
+                metadata={
+                    "source": "windows_ui_automation",
+                    "uia_selected": False,
+                    "uia_enabled": True,
+                    "uia_visible": True,
+                },
+            ),
+        ),
+    )
+
+    context = TaskPlanningContext(
+        request_message="Kliknij zak?adk? Testing",
+        intent=AgentIntent.COMPUTER_USE.value,
+        capability_name="COMPUTER_USE",
+        capability_description="Universal computer use.",
+        skill_name="ComputerUseSkill",
+        scene=scene,
+    )
+
+    payload = context.to_payload()
+
+    assert payload["scene"]["visible_elements"] == [
+        {
+            "kind": "tabitem",
+            "label": "Testing",
+            "interaction_capability": "clickable",
+            "confidence": 0.99,
+            "selected": False,
+        }
+    ]
+
+
 def test_reasoning_task_planner_exposes_semantic_initial_scene_only():
     scene = ScreenScene(
         observation=EnvironmentObservation(
@@ -195,7 +243,7 @@ def test_reasoning_task_planner_exposes_semantic_initial_scene_only():
     )
 
     context = TaskPlanningContext(
-        request_message="Otwórz nową ofertę",
+        request_message="OtwĂłrz nowÄ… ofertÄ™",
         intent=AgentIntent.EXECUTE_IN_WH.value,
         capability_name="WH_WINDOW",
         capability_description="Controlled WindowHub execution.",
@@ -347,7 +395,7 @@ def test_reasoning_task_planner_preserves_write_text_value():
                 ReasoningAction(
                     name="write_text",
                     description="Enter the requested width.",
-                    target="Szerokość",
+                    target="SzerokoĹ›Ä‡",
                     value="1230",
                 ),
             ),
@@ -357,7 +405,7 @@ def test_reasoning_task_planner_preserves_write_text_value():
     )
 
     context = TaskPlanningContext(
-        request_message="Wpisz szerokość 1230",
+        request_message="Wpisz szerokoĹ›Ä‡ 1230",
         intent=AgentIntent.CREATE_QUOTE.value,
         capability_name="WH_WINDOW",
         capability_description="Controlled WindowHub execution.",
@@ -371,7 +419,7 @@ def test_reasoning_task_planner_preserves_write_text_value():
             elements=(
                 ScreenElement(
                     kind="edit",
-                    label="Szerokość",
+                    label="SzerokoĹ›Ä‡",
                     confidence=0.99,
                     interaction_capability=(
                         InteractionCapability.CLICKABLE
@@ -387,7 +435,7 @@ def test_reasoning_task_planner_preserves_write_text_value():
 
     assert plan is not None
     assert plan.steps[0].action.name == "write_text"
-    assert plan.steps[0].action.target == "Szerokość"
+    assert plan.steps[0].action.target == "SzerokoĹ›Ä‡"
     assert plan.steps[0].action.value == "1230"
 
 
@@ -412,3 +460,72 @@ def test_reasoning_task_planner_rejects_action_outside_semantic_policy():
     ) is None
 
     assert planner.last_failure_reason == "action_not_allowed"
+
+def test_reasoning_task_planner_rejects_reasoner_target_when_explicit_scene_label_differs():
+    reasoner = RecordingTaskReasoner(
+        proposal=ReasoningProposal(
+            actions=(
+                ReasoningAction(
+                    name="click_screen_element",
+                    description="Click the requested tab.",
+                    target="[Wersja zapoznawcza] README.md - Visual Studio Code",
+                ),
+            ),
+            rationale="Incorrectly selected the active document tab.",
+            confidence=0.99,
+        )
+    )
+
+    scene = ScreenScene(
+        observation=EnvironmentObservation(
+            state=EnvironmentState(
+                active_application="WindowsDesktop",
+                active_window_title="Visual Studio Code",
+            ),
+        ),
+        elements=(
+            ScreenElement(
+                kind="tabitem",
+                label="Testing",
+                confidence=0.99,
+                interaction_capability=(
+                    InteractionCapability.CLICKABLE
+                ),
+                metadata={
+                    "source": "windows_ui_automation",
+                    "uia_selected": False,
+                },
+            ),
+            ScreenElement(
+                kind="tabitem",
+                label="[Wersja zapoznawcza] README.md - Visual Studio Code",
+                confidence=0.99,
+                interaction_capability=(
+                    InteractionCapability.CLICKABLE
+                ),
+                metadata={
+                    "source": "windows_ui_automation",
+                    "uia_selected": True,
+                },
+            ),
+        ),
+    )
+
+    context = TaskPlanningContext(
+        request_message=(
+            "W aktywnym Visual Studio Code kliknij widoczn? zak?adk? Testing."
+        ),
+        intent=AgentIntent.COMPUTER_USE.value,
+        capability_name="COMPUTER_USE",
+        capability_description="Universal computer use.",
+        skill_name="ComputerUseSkill",
+        scene=scene,
+    )
+
+    planner = ReasoningTaskPlanner(reasoner)
+
+    assert planner.plan(context=context) is None
+    assert planner.last_failure_reason == (
+        "target_does_not_match_explicit_request"
+    )
+

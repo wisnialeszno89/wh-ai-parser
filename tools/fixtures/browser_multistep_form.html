@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="pl">
+<head>
+  <meta charset="utf-8">
+  <title>Browser Multistep Form</title>
+</head>
+<body>
+  <main>
+    <h1>Kontrolowany formularz wieloetapowy</h1>
+    <p>Uzupełnij dane testowe, wybierając odpowiedź zgodnie z poleceniem.</p>
+
+    <form id="customer-form">
+      <p>
+        <label for="name">Imię klienta</label>
+        <input id="name" name="name" type="text">
+      </p>
+
+      <p>
+        <label for="country">Kraj</label>
+        <select id="country" name="country">
+          <option value="">-- wybierz --</option>
+          <option value="Polska">Polska</option>
+          <option value="Niemcy">Niemcy</option>
+          <option value="Czechy">Czechy</option>
+        </select>
+      </p>
+
+      <p id="instruction">
+        Wpisz „Adam”, wybierz „Polska”, a następnie zatwierdź formularz.
+      </p>
+
+      <button id="submit" type="submit">Zatwierdź formularz</button>
+    </form>
+
+    <p id="status" aria-live="polite"></p>
+  </main>
+
+  <script>
+    const form = document.getElementById("customer-form");
+    const name = document.getElementById("name");
+    const country = document.getElementById("country");
+    const status = document.getElementById("status");
+
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();
+
+      if (name.value === "Adam" && country.value === "Polska") {
+        document.title = "Browser Multistep Form — Success";
+        status.textContent = "Formularz zatwierdzony";
+        form.remove();
+      } else {
+        status.textContent = "Dane formularza są niepoprawne";
+      }
+    });
+  </script>
+</body>
+</html>
