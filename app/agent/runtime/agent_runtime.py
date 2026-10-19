@@ -1,4 +1,5 @@
 import time
+from collections.abc import Mapping
 from uuid import uuid4
 
 from app.agent.agent_request import AgentRequest
@@ -17,6 +18,10 @@ from app.agent.memory.agent_memory import AgentExperience
 
 from app.agent.offers.offer_workflow_service import (
     OfferWorkflowService,
+)
+from app.agent.offers.quote_facts import (
+    QuoteFactValidator,
+    QuoteRuleEvidence,
 )
 
 from app.agent.execution.default_executors import (
@@ -119,6 +124,7 @@ class AgentRuntime:
         session_store: AgentSessionStore | None = None,
         control_loop: AgentControlLoop | None = None,
         learned_parameter_resolver=None,
+        approved_quote_rules: Mapping[str, QuoteRuleEvidence] | None = None,
         browser_adapter: BrowserAdapter | None = None,
         browser_context_enabled: bool = False,
         confirmation_ttl_seconds: float = 300.0,
@@ -133,6 +139,7 @@ class AgentRuntime:
 
         self.control_loop = control_loop
         self.learned_parameter_resolver = learned_parameter_resolver
+        self.approved_quote_rules = dict(approved_quote_rules or {})
         self.browser_adapter = browser_adapter
         self.browser_context_enabled = browser_context_enabled
 
@@ -693,6 +700,63 @@ class AgentRuntime:
                 executed=False,
             )
 
+        # Typed quote facts are validated before session mutation, observation,
+        # reasoning, or any possible GUI execution. Missing/conflicting facts fail closed.
+        quote_fact_result = None
+        raw_quote_facts = request.metadata.get("quote_facts")
+        if raw_quote_facts is not None:
+            raw_pdf_sources = request.metadata.get("pdf_sources")
+            trusted_pdf_sources = (
+                raw_pdf_sources
+                if isinstance(raw_pdf_sources, Mapping)
+                else None
+            )
+            quote_fact_result = QuoteFactValidator().validate_payload(
+                raw_quote_facts,
+                request_message=request.message,
+                pdf_sources=trusted_pdf_sources,
+                approved_rules=self.approved_quote_rules,
+            )
+            if not quote_fact_result.can_execute:
+                context = AgentExecutionContext(
+                    request=request,
+                    intent=AgentIntent.CREATE_QUOTE,
+                    plan=None,
+                    capability=None,
+                    skill=None,
+                    requires_manual_review=True,
+                )
+                context.set_value(
+                    "quote_facts_validation",
+                    quote_fact_result.to_payload(),
+                )
+                context.set_value(
+                    "salesperson_questions",
+                    quote_fact_result.questions,
+                )
+                context.set_value(
+                    "task_reasoning_failure",
+                    "quote_facts_require_manual_review",
+                )
+                return AgentRuntimeResult(
+                    intent=AgentIntent.CREATE_QUOTE,
+                    context=context,
+                    execution_report=None,
+                    requires_manual_review=True,
+                    executed=False,
+                )
+
+            request = AgentRequest(
+                message=request.message,
+                session_id=request.session_id,
+                salesman_id=request.salesman_id,
+                metadata={
+                    **request.metadata,
+                    "validated_quote_facts": quote_fact_result.to_payload(),
+                },
+                mode=request.mode,
+            )
+
         # A confirmation token resumes the exact task that produced it.
         # Do not let a follow-up message silently replace that task goal
         # before the reasoning pass that validates the confirmed action.
@@ -829,28 +893,28 @@ class AgentRuntime:
                     executed=False,
                 )
 
-        learned_workflow_result = (
-            self._try_execute_learned_workflow(
+        # Resolve quote intent before learned-skill replay: a previously taught
+        # GUI workflow must never bypass the deterministic quote preconditions.
+        detected_intent = (
+            AgentIntent.CREATE_QUOTE
+            if quote_fact_result is not None
+            else None
+        )
+        if detected_intent is None and hasattr(self.orchestrator, "planner"):
+            detected_intent = self.orchestrator.planner.plan(request).intent
+
+        learned_workflow_result = None
+        if detected_intent != AgentIntent.CREATE_QUOTE:
+            learned_workflow_result = self._try_execute_learned_workflow(
                 request,
                 initial_scene=initial_scene,
             )
-        )
 
         if learned_workflow_result is not None:
             return learned_workflow_result
 
-        # Detect intent without invoking the task reasoner a second time.
-        # For the standard orchestrator this is deterministic and does not
-        # execute anything. Custom orchestrators fall back to their returned
-        # context when no explicit planner is exposed.
-        detected_intent = None
-
-        if hasattr(self.orchestrator, "planner"):
-            detected_intent = (
-                self.orchestrator.planner.plan(
-                    request
-                ).intent
-            )
+        # If no deterministic planner is exposed, the prepared context below
+        # remains the source of the detected intent.
 
         if detected_intent is None:
             context = self._prepare_context(
@@ -874,12 +938,20 @@ class AgentRuntime:
 
                 session.remember(request.message)
 
-            offer_workflow_result = (
-                OfferWorkflowService().process(
+            offer_service = OfferWorkflowService()
+            if quote_fact_result is not None:
+                typed_context = quote_fact_result.to_offer_context(
+                    request.message,
+                )
+                offer_workflow_result = offer_service.process_context(
+                    session.state.offer_session,
+                    typed_context,
+                )
+            else:
+                offer_workflow_result = offer_service.process(
                     session.state.offer_session,
                     request.message,
                 )
-            )
 
             session.state.offer_session = (
                 offer_workflow_result.session
@@ -1009,6 +1081,12 @@ class AgentRuntime:
                     resolved_external_knowledge,
                 )
 
+        if quote_fact_result is not None:
+            context.set_value(
+                "quote_facts_validation",
+                quote_fact_result.to_payload(),
+            )
+
         if offer_workflow_result is not None:
             context.set_value(
                 "offer_context",
@@ -1040,28 +1118,30 @@ class AgentRuntime:
             offer_workflow_result is not None
             and offer_workflow_result.requires_salesperson_input
         ):
-            reasoning_gui_plan = (
-                self.control_loop is not None
-                and reasoning_active
-                and self._is_gui_reasoning_plan(
-                    context.plan,
-                )
+            context.requires_manual_review = True
+            context.set_value(
+                "salesperson_questions",
+                offer_workflow_result.questions,
             )
-
-            if not reasoning_gui_plan:
-                context.requires_manual_review = True
-                context.set_value(
-                    "salesperson_questions",
-                    offer_workflow_result.questions,
-                )
-
-                return AgentRuntimeResult(
-                    intent=context.intent,
-                    context=context,
-                    execution_report=None,
-                    requires_manual_review=True,
-                    executed=False,
-                )
+            context.set_value(
+                "quote_workflow_blocked",
+                {
+                    "reason": "required_quote_facts_missing_or_conflicting",
+                    "missing_fields": tuple(
+                        offer_workflow_result.validation.missing_fields
+                    ),
+                    "conflicts": tuple(
+                        offer_workflow_result.validation.conflicts
+                    ),
+                },
+            )
+            return AgentRuntimeResult(
+                intent=context.intent,
+                context=context,
+                execution_report=None,
+                requires_manual_review=True,
+                executed=False,
+            )
 
         if (
             context.requires_manual_review
