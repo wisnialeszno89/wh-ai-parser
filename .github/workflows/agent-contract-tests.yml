@@ -76,7 +76,8 @@ jobs:
             tests/test_browser_verification.py \
             tests/test_playwright_browser_provider.py \
             tests/test_browser_navimind_bridge.py \
-            tests/test_task_planning_context_adapters.py
+            tests/test_task_planning_context_adapters.py \
+            tests/test_hough_line_normalizer.py
 
       - name: Run resumable WindowHub task and checkpoint tests
         run: |
@@ -96,8 +97,11 @@ jobs:
             app/agent/runtime/agent_runtime.py \
             app/agent/runtime/windowhub_agent_runtime.py \
             app/agent/runtime/windowhub_resumable_task_host.py \
+            app/runtime/execution/vision/analyzers/canvas_analyzer.py \
+            app/runtime/execution/vision/analyzers/hough_line_normalizer.py \
             tools/smoke_windowhub_readonly.py \
-            tests/test_windowhub_agent_runtime.py
+            tests/test_windowhub_agent_runtime.py \
+            tests/test_hough_line_normalizer.py
 
       - name: Run local-only Playwright provider smoke
         run: python tools/smoke_browser_provider_local.py
