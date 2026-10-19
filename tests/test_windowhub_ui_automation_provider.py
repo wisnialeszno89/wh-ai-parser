@@ -105,10 +105,10 @@ class FakeDesktop:
         return self._windows_by_handle[handle]
 
 
-def make_observation(tracked_objects=()):
+def make_observation(tracked_objects=(), *, title="Okna - WindowHub"):
     return EnvironmentObservation(
         state=EnvironmentState(
-            active_window_title="Okna - WindowHub",
+            active_window_title=title,
         ),
         metadata={
             "window_rect": SimpleNamespace(
@@ -459,7 +459,7 @@ def test_ui_automation_provider_records_native_handle_separately_from_enumeratio
         (item,),
         title="Okna - OFR/4300-",
     )
-    observation = make_observation()
+    observation = make_observation(title="Okna - OFR/4300-")
     observation.metadata["window_handle"] = 200
     desktop = FakeDesktop(
         window,
