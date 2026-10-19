@@ -17,14 +17,14 @@ from app.agent.offers.quote_facts import (
 )
 
 
-def extracted_pdf(alias: str, text: str, *, page_number: int = 1) -> PdfDocumentExtraction:
+def extracted_pdf(alias: str, text: str, *, page_number: int = 1, needs_ocr: bool = False) -> PdfDocumentExtraction:
     page = PdfPageFinding(
         source_alias=alias,
         page_number=page_number,
         text=text,
         extraction_method="pypdf_text",
         extraction_confidence=None,
-        needs_ocr=False,
+        needs_ocr=needs_ocr,
     )
     return PdfDocumentExtraction(
         source_alias=alias,
@@ -310,3 +310,44 @@ def test_invalid_confidence_and_unsafe_alias_are_rejected():
             confidence=1.5,
             origin="explicit_request",
         ).validate()
+
+
+def test_nonpositive_dimensions_and_unknown_products_are_rejected():
+    alias = "invalid-offer.pdf"
+    text = "Product: wall. Width: 0 mm. Height: 1500 mm."
+    extraction = extracted_pdf(alias, text)
+    facts = (
+        pdf_fact("product_type", "wall", "Product: wall", alias=alias),
+        pdf_fact("width", "0 mm", "Width: 0 mm", alias=alias, unit="mm"),
+        pdf_fact("height", "1500 mm", "Height: 1500 mm", alias=alias, unit="mm"),
+    )
+    result = QuoteFactValidator().validate(
+        facts,
+        known_sources={alias: extraction},
+    )
+
+    assert result.can_execute is False
+    assert any(item.code == "invalid_quote_fact" for item in result.conflicts)
+
+
+def test_pdf_fact_from_page_marked_for_ocr_is_not_accepted():
+    alias = "scanned-offer.pdf"
+    extraction = extracted_pdf(
+        alias,
+        "",
+        needs_ocr=True,
+    )
+    fact = pdf_fact(
+        "width",
+        "1200 mm",
+        "Width: 1200 mm",
+        alias=alias,
+        unit="mm",
+    )
+    result = QuoteFactValidator().validate(
+        (fact,),
+        known_sources={alias: extraction},
+    )
+
+    assert result.can_execute is False
+    assert any(item.code == "unverified_source_provenance" for item in result.conflicts)
