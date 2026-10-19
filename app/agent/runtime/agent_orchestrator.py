@@ -19,15 +19,22 @@ from app.agent.planning.action_plan import (
 from app.agent.runtime.execution_context import (
     AgentExecutionContext,
 )
+from app.agent.runtime.reasoning_budget import ReasoningBudget
 
 from app.agent.perception.screen_scene import (
     ScreenScene,
+)
+from app.agent.adapters.browser_adapter import (
+    BrowserPage,
 )
 
 from app.agent.reasoning.reasoning_task_planner import (
     ReasoningTaskPlanner,
 )
 from app.agent.reasoning.knowledge_context import KnowledgeContext
+from app.agent.knowledge.computer_foundation import (
+    build_local_knowledge,
+)
 
 from app.agent.reasoning.task_planning_context import (
     TaskPlanningContext,
@@ -166,10 +173,12 @@ class AgentOrchestrator:
         self,
         request: AgentRequest,
         initial_scene: ScreenScene | None = None,
+        browser_page: BrowserPage | None = None,
         offer_workflow: dict[str, object] | None = None,
         application_knowledge: dict[str, object] | None = None,
         external_knowledge: KnowledgeContext | None = None,
         autonomous: bool = False,
+        reasoning_budget: ReasoningBudget | None = None,
     ) -> AgentExecutionContext:
         deterministic_plan = self.planner.plan(request)
         intent = deterministic_plan.intent
@@ -274,6 +283,12 @@ class AgentOrchestrator:
                     for match in matches
                 )
 
+            local_knowledge = build_local_knowledge(
+                application_knowledge
+                if application_knowledge is not None
+                else self.application_knowledge
+            )
+
             task_context = TaskPlanningContext(
                 request_message=request.message,
                 intent=intent.value,
@@ -292,12 +307,9 @@ class AgentOrchestrator:
                     else str(request.mode)
                 ),
                 scene=initial_scene,
+                browser_page=browser_page,
                 offer_workflow=offer_workflow,
-                application_knowledge=(
-                    application_knowledge
-                    if application_knowledge is not None
-                    else self.application_knowledge
-                ),
+                application_knowledge=local_knowledge,
                 external_knowledge=external_knowledge,
                 experience=experience,
                 learned_workflows=learned_workflows,
@@ -308,11 +320,20 @@ class AgentOrchestrator:
                         application=descriptor.application
                     ) is not None
                 ),
-                world=SemanticWorldModel.from_scene(initial_scene),
+                world=(
+                    SemanticWorldModel.from_browser_page(
+                        browser_page
+                    )
+                    if browser_page is not None
+                    else SemanticWorldModel.from_scene(
+                        initial_scene
+                    )
+                ),
             )
 
             reasoned_plan = self.task_planner.plan(
                 context=task_context,
+                reasoning_budget=reasoning_budget,
             )
 
             if reasoned_plan is not None:

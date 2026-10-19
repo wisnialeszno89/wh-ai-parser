@@ -187,6 +187,15 @@ class AgentPlanner:
 
         message = request.message.lower()
 
+        target_application = request.metadata.get(
+            "target_application"
+        )
+        if (
+            isinstance(target_application, str)
+            and target_application.strip().casefold() == "browser"
+        ):
+            return AgentIntent.COMPUTER_USE
+
         if (
             self._looks_like_open_new_offer_request(
                 message
@@ -255,6 +264,17 @@ class AgentPlanner:
     ) -> ActionPlan:
 
         intent = self.detect_intent(request)
+
+        if intent == AgentIntent.COMPUTER_USE:
+            # Browser requests are resolved by the semantic task reasoner.
+            # Keep a deterministic intent/plan shell so the runtime does not
+            # collapse an explicitly targeted Browser request back to UNKNOWN.
+            return ActionPlan(
+                intent=intent,
+                confidence=1.0,
+                requires_manual_review=True,
+                steps=(),
+            )
 
         if intent == AgentIntent.EXECUTE_IN_WH:
             if self._looks_like_open_new_offer_request(

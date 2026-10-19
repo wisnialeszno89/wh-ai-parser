@@ -19,9 +19,12 @@ jobs:
       - name: Install test dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install pytest python-dotenv python-docx openpyxl
+          pip install pytest python-dotenv python-docx openpyxl playwright
 
-      - name: Run agent contract and learned-skill tests
+      - name: Install Playwright Chromium
+        run: python -m playwright install --with-deps chromium
+
+      - name: Run agent contract, browser safety, and learned-skill tests
         run: |
           pytest -q \
             tests/test_knowledge_context.py \
@@ -51,5 +54,26 @@ jobs:
             tests/test_word_document_adapter.py \
             tests/test_excel_workbook_adapter.py \
             tests/test_email_draft_adapter.py \
+            tests/test_default_executors.py \
+            tests/test_browser_action_executor.py \
+            tests/test_browser_action_risk_policy.py \
+            tests/test_browser_agent_runtime.py \
+            tests/test_browser_confirmation.py \
+            tests/test_browser_confirmation_expiry.py \
+            tests/test_browser_confirmation_freshness.py \
+            tests/test_browser_confirmation_handshake.py \
+            tests/test_browser_confirmation_live.py \
+            tests/test_browser_confirmation_scope.py \
+            tests/test_browser_confirmation_scope_execution.py \
+            tests/test_browser_confirmation_task_boundary.py \
+            tests/test_browser_local_risk_confirmation_e2e.py \
+            tests/test_browser_local_risk_integration.py \
+            tests/test_browser_negative_safety.py \
             tests/test_browser_adapter.py \
+            tests/test_browser_verification.py \
+            tests/test_playwright_browser_provider.py \
+            tests/test_browser_navimind_bridge.py \
             tests/test_task_planning_context_adapters.py
+
+      - name: Run local-only Playwright provider smoke
+        run: python tools/smoke_browser_provider_local.py

@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="pl">
+<head>
+  <meta charset="utf-8">
+  <title>Browser Autonomous Fixture</title>
+</head>
+<body>
+  <main>
+    <h1>Kontrolowany test przeglądarki</h1>
+    <p id="status">Kliknij przycisk, aby zakończyć zadanie.</p>
+    <button type="button" id="finish">Zakończ zadanie</button>
+  </main>
+  <script>
+    document.getElementById("finish").addEventListener("click", () => {
+      document.title = "Browser Autonomous Fixture — Success";
+      document.getElementById("status").textContent = "Zadanie zakończone";
+      document.getElementById("finish").remove();
+    });
+  </script>
+</body>
+</html>

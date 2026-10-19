@@ -231,6 +231,29 @@ class TargetResolver:
                 score=score,
             )
 
+        # Conservative semantic-role tie-breaker:
+        # when multiple exact-label candidates remain unresolved, prefer a
+        # unique nested UIA tab candidate. This uses explicit role metadata,
+        # never geometry or candidate ordering.
+        nested_ui_tabs = [
+            element
+            for element in candidates
+            if (
+                str(element.kind).strip().casefold() == "tabitem"
+                and (element.metadata or {}).get("uia_tab_scope") == "nested"
+                and (element.metadata or {}).get("source")
+                == "windowhub_ui_automation"
+            )
+        ]
+
+        if len(nested_ui_tabs) == 1:
+            return TargetResolution(
+                resolved=True,
+                element=nested_ui_tabs[0],
+                reason=f"{match_reason} Unique nested UIA tab role disambiguated.",
+                score=score,
+            )
+
         return TargetResolution(
             resolved=False,
             reason=(
