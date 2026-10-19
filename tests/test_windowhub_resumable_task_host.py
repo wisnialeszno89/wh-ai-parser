@@ -100,8 +100,17 @@ class SimulatedOfferOrchestrator:
     def __init__(self, *, wrong_width=False, submit=False):
         self.wrong_width = wrong_width
         self.submit = submit
+        self.application_knowledge = None
 
-    def prepare(self, request, initial_scene=None, autonomous=False, reasoning_budget=None):
+    def prepare(
+        self,
+        request,
+        initial_scene=None,
+        application_knowledge=None,
+        autonomous=False,
+        reasoning_budget=None,
+    ):
+        self.application_knowledge = application_knowledge
         scene = initial_scene
         labels = {e.label: e for e in scene.elements}
         action = None
@@ -192,7 +201,8 @@ def make_host(tmp_path, *, orchestrator=None, control=None, final_verifier=None)
 
 
 def test_persisted_runner_completes_multistep_windowhub_draft_through_existing_control_loop(tmp_path):
-    host, control = make_host(tmp_path)
+    orchestrator = SimulatedOfferOrchestrator()
+    host, control = make_host(tmp_path, orchestrator=orchestrator)
     initial = TaskCheckpoint(
         task_id="windowhub-draft-1",
         goal="Create a WindowHub draft offer for a window 1200 x 1500",
@@ -220,6 +230,7 @@ def test_persisted_runner_completes_multistep_windowhub_draft_through_existing_c
     reloaded = host.service.get(initial.task_id)
     assert reloaded == current
     assert reloaded.draft_only is True
+    assert orchestrator.application_knowledge["application"] == "WindowHub"
 
 
 def test_conflicting_model_proposed_dimension_stops_before_control_loop_execution(tmp_path):
