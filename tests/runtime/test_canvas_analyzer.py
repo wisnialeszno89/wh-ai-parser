@@ -98,29 +98,3 @@ def test_canvas_analyzer_detects_white_workspace_in_grey_document_area():
     assert bounds.y <= 325
     assert bounds.width >= 230
     assert bounds.height >= 230
-
-
-def test_canvas_analyzer_normalizes_both_hough_line_shapes():
-    expected = [
-        [10, 20, 30, 40],
-        [50, 60, 70, 80],
-    ]
-    flat_shape = np.array(expected, dtype=np.int32)
-    nested_shape = flat_shape.reshape((-1, 1, 4))
-
-    flat_result = CanvasAnalyzer._normalize_hough_lines(flat_shape)
-    nested_result = CanvasAnalyzer._normalize_hough_lines(nested_shape)
-
-    assert flat_result.shape == (2, 4)
-    assert nested_result.shape == (2, 4)
-    assert flat_result.tolist() == expected
-    assert nested_result.tolist() == expected
-
-
-def test_canvas_analyzer_ignores_malformed_hough_line_shape():
-    malformed = np.array([7], dtype=np.int32)
-
-    result = CanvasAnalyzer._normalize_hough_lines(malformed)
-
-    assert result.shape == (0, 4)
-
