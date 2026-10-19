@@ -417,12 +417,25 @@ def verify_windowhub_final_state(
             reason="Final-state verification needs explicit required fields.",
         )
 
+    active_document = getattr(scene, "active_document", None)
+    if not isinstance(active_document, str) or not active_document.strip():
+        return Verification(
+            False,
+            evidence=({"reason": "active_document_unresolved"},),
+            missing_fields=tuple(checkpoint.required_fields),
+            reason=(
+                "Active document is unresolved; refusing cross-document "
+                "final-state verification."
+            ),
+        )
+
     try:
         reader = WindowHubFormReader()
-        if getattr(scene, "active_document", None) is not None:
-            form_fields = reader.read_active_document(scene)
-        else:
-            form_fields = reader.read(scene)
+        # Final-state verification must only consume fields proven to belong
+        # to the uniquely resolved active document. Falling back to read()
+        # would allow a matching value from another document or a generic
+        # dialog/viewer to satisfy the quote's required fields.
+        form_fields = reader.read_active_document(scene)
     except (AttributeError, TypeError, ValueError) as exc:
         return Verification(False, reason=f"windowhub_form_read_failed:{type(exc).__name__}")
 
