@@ -196,3 +196,17 @@ def test_approved_action_is_not_replayed_when_scene_changes_before_execution():
     assert result.status == TaskStatus.STOPPED
     assert result.stop_reason == "stale_scene_before_approved_action"
     assert runs == []
+
+def test_final_missing_fields_block_completion_even_if_verifier_claims_success():
+    scene = Scene([Element("text", "Szkic zapisany")]); harness = Harness(scene)
+    runner = make_runner(
+        harness, planner=lambda s,o: PlanDecision(complete=True),
+        executor=lambda *args: Execution(True, True, "unused"),
+        final_verifier=lambda s,o: Verification(True, evidence=({"width": "1200"},),
+                                                  missing_fields=("height",), reason=""),
+    )
+    result = runner.advance(TaskCheckpoint("t", "Verify draft", facts={"width":1200, "height":1500}))
+    assert result.status == TaskStatus.STOPPED
+    assert result.stop_reason == "final_state_verification_failed"
+    assert "Final state not verified: height" in result.unresolved_issues
+

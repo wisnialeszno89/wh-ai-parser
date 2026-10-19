@@ -254,7 +254,7 @@ class ResumableTaskRunner:
                 if not decision.complete: return self._stop(working, "planner_produced_no_action_and_no_completion")
                 try: final = self.verify_final_state(working, scene)
                 except Exception as exc: final = Verification(False, reason=f"final_verification_failed:{type(exc).__name__}")
-                if final.verified:
+                if final.verified and not final.missing_fields:
                     return replace(working, status=TaskStatus.COMPLETED, final_evidence=final.evidence, stop_reason=None)
                 reason = final.reason or "final_state_verification_failed"
                 return self._stop(replace(working, final_evidence=final.evidence), reason,
