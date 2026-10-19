@@ -217,3 +217,26 @@ def test_pdf_adapter_exposes_semantic_descriptor_and_availability(tmp_path):
     assert adapter.descriptor.application == "PDF"
     assert adapter.supports("extract_text")
     assert adapter.is_available()
+
+def test_pdf_adapter_rejects_encrypted_pdf_without_password_guessing(tmp_path):
+    from pypdf import PdfReader, PdfWriter
+
+    root = tmp_path / "approved"
+    root.mkdir()
+    plaintext = root / "source.pdf"
+    write_text_pdf(plaintext, ["Sensitive offer data"])
+
+    reader = PdfReader(plaintext)
+    writer = PdfWriter()
+    for page in reader.pages:
+        writer.add_page(page)
+    writer.encrypt("test-password")
+
+    encrypted = root / "encrypted.pdf"
+    with encrypted.open("wb") as stream:
+        writer.write(stream)
+
+    with pytest.raises(PdfDocumentError) as exc_info:
+        adapter_for(root).extract(encrypted)
+
+    assert exc_info.value.code == "encrypted_pdf"
