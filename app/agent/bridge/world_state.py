@@ -1,6 +1,8 @@
 from dataclasses import dataclass, field
 from typing import Mapping
 
+from app.agent.adapters.browser_adapter import BrowserPage
+
 
 @dataclass(frozen=True)
 class WorldElement:
@@ -28,8 +30,8 @@ class WorldState:
     """
     Stable, provider-neutral snapshot of the world exposed to NaviMind.
 
-    Runtime handles, coordinates, automation ids and screenshots are
-    deliberately excluded from this contract.
+    Runtime handles, coordinates, automation ids and provider-local browser
+    locators are deliberately excluded from this contract.
     """
 
     active_application: str | None = None
@@ -44,14 +46,18 @@ class WorldState:
 
         state = scene.observation.state
         elements: list[WorldElement] = []
+
         for element in scene.elements[:100]:
             metadata = element.metadata or {}
             current_value = metadata.get("current_value")
+
             elements.append(
                 WorldElement(
                     kind=element.kind,
                     label=element.label,
-                    interaction_capability=element.interaction_capability.value,
+                    interaction_capability=(
+                        element.interaction_capability.value
+                    ),
                     current_value=(
                         current_value
                         if isinstance(current_value, str)
@@ -67,6 +73,57 @@ class WorldState:
             visible_elements=tuple(elements),
         )
 
+    @classmethod
+    def from_browser_page(
+        cls,
+        page: BrowserPage | None,
+    ) -> "WorldState":
+        if page is None:
+            return cls()
+
+        elements = tuple(
+            WorldElement(
+                kind=element.kind,
+                label=element.label,
+                interaction_capability=(
+                    element.interaction_capability
+                ).casefold(),
+                current_value=element.current_value,
+                confidence=element.confidence,
+            )
+            for element in page.elements[:100]
+        )
+
+        return cls(
+            active_application="Browser",
+            active_window_title=page.title,
+            visible_elements=elements,
+            metadata={
+                "browser_url": page.url,
+                "browser_title": page.title,
+                "browser_text": page.text,
+            },
+        )
+
+    def find_elements(
+        self,
+        label: str,
+    ) -> tuple[WorldElement, ...]:
+        normalized = label.strip().casefold()
+
+        if not normalized:
+            return ()
+
+        return tuple(
+            element
+            for element in self.visible_elements
+            if (
+                isinstance(element.label, str)
+                and element.label.strip().casefold()
+                == normalized
+            )
+        )
+
     def to_payload(self) -> dict[str, object]:
         return {
             "active_application": self.active_application,
@@ -76,4 +133,5 @@ class WorldState:
                 for element in self.visible_elements
             ],
             "element_count": len(self.visible_elements),
+            "metadata": dict(self.metadata),
         }

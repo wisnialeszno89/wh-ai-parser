@@ -208,8 +208,10 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
 
     @staticmethod
     def _default_desktop():
-        from pywinauto import Desktop
+        from app.agent.platform.windows_com import ensure_windows_sta
+        ensure_windows_sta()
 
+        from pywinauto import Desktop
         return Desktop(backend="uia")
 
     @staticmethod
