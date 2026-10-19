@@ -544,6 +544,7 @@ def test_ui_automation_provider_exposes_bounded_ancestor_context():
         name="Konstrukcja",
         control_type="Pane",
         class_name="Afx:Pane",
+        handle=501,
     )
     item = FakeUIAItem(
         name="Szerokość",
@@ -566,7 +567,7 @@ def test_ui_automation_provider_exposes_bounded_ancestor_context():
 
     assert len(elements) == 1
     assert elements[0].metadata["uia_ancestor_context"] == (
-        ("Pane", "Afx:Pane", "Konstrukcja"),
+        ("Pane", "Afx:Pane", "Konstrukcja", 501),
     )
 
 
