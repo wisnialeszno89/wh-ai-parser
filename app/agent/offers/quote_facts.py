@@ -7,6 +7,11 @@ import re
 from typing import Iterable, Mapping
 
 from app.agent.learning.learned_parameter import canonical_parameter_name
+from app.catalog.profiles import PROFILE_CATALOG
+from app.wh.resolvers.profile_resolver import (
+    ProfileResolutionStatus,
+    ProfileResolver,
+)
 from app.agent.offers.offer_context import OfferContext
 from app.agent.offers.offer_context_parser import OfferContextParser
 from app.agent.offers.offer_context_validator import OfferContextValidator
@@ -350,11 +355,20 @@ def _normalize_value(
         if normalized not in {"white", "anthracite", "black", "brown"} and not re.fullmatch(r"\d{4}", normalized):
             raise ValueError("Unsupported color value; use a known project color or a four-digit RAL code.")
     elif field_name == "profile":
-        # Resolve profiles using the existing deterministic project catalog.
-        selection = OfferContextParser().profile_selection_resolver.resolve(value)
-        if selection.source == ProfileSelectionSource.UNKNOWN or selection.profile is None:
-            raise ValueError("Profile value is not recognized by the project profile catalog.")
-        normalized = selection.profile
+        # A value in this field is an explicit profile selection, so the resolver's
+        # "not mentioned" default must never turn an unknown value into VEKA_82.
+        catalog_code = value.strip().upper()
+        if catalog_code in PROFILE_CATALOG:
+            normalized = catalog_code
+        else:
+            resolution = ProfileResolver().resolve_result(value)
+            if (
+                resolution.status != ProfileResolutionStatus.RESOLVED
+                or resolution.profile is None
+                or resolution.profile not in PROFILE_CATALOG
+            ):
+                raise ValueError("Profile value is not recognized by the project profile catalog.")
+            normalized = resolution.profile
     elif field_name == "opening":
         # Reuse the project opening knowledge; ambiguous descriptions must not be guessed.
         resolution = OfferContextParser().opening_resolver.resolve_result(value)
