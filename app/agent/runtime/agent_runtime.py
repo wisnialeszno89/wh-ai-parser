@@ -903,8 +903,17 @@ class AgentRuntime:
         if detected_intent is None and hasattr(self.orchestrator, "planner"):
             detected_intent = self.orchestrator.planner.plan(request).intent
 
+        # Use the repository's deterministic planner as a guard when a custom
+        # orchestrator does not expose its own planner. Keep detected_intent
+        # unresolved in that case so the custom prepare() result remains authoritative.
+        quote_guard_intent = detected_intent
+        if quote_guard_intent is None:
+            from app.agent.planning.agent_planner import AgentPlanner
+
+            quote_guard_intent = AgentPlanner().plan(request).intent
+
         learned_workflow_result = None
-        if detected_intent != AgentIntent.CREATE_QUOTE:
+        if quote_guard_intent != AgentIntent.CREATE_QUOTE:
             learned_workflow_result = self._try_execute_learned_workflow(
                 request,
                 initial_scene=initial_scene,
