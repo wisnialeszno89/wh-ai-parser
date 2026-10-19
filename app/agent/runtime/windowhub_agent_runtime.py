@@ -41,7 +41,7 @@ def create_windowhub_agent_runtime() -> AgentRuntime:
         task_reasoner = OpenAITaskReasoner()
         plan_reasoner = OpenAIPlanReasoner()
 
-    return AgentRuntime(
+    runtime = AgentRuntime(
         orchestrator=AgentOrchestrator(
             task_reasoner=task_reasoner,
             application_knowledge=(
@@ -56,3 +56,7 @@ def create_windowhub_agent_runtime() -> AgentRuntime:
             OfferRequestParameterResolver().resolve
         ),
     )
+    # This only wires the existing environment dependencies to the persisted
+    # task service. No observation or GUI action occurs until explicitly advanced.
+    runtime.configure_windowhub_resumable_tasks()
+    return runtime
