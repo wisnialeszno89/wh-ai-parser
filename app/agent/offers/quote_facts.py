@@ -86,13 +86,13 @@ _UNIT_ALIASES = {
 }
 _DIMENSION_FACTORS = {"mm": Decimal("1"), "cm": Decimal("10"), "m": Decimal("1000")}
 _VALUE_WITH_UNIT = re.compile(
-    r"^\\s*([+-]?\\d+(?:[.,]\\d+)?)\\s*([a-zA-Z]+)?\\s*$"
+    r"^\s*([+-]?\d+(?:[.,]\d+)?)\s*([a-zA-Z]+)?\s*$"
 )
 _EXPLICIT_QUANTITY = re.compile(
-    r"\\b(?:ilość|ilosc)\\s*[:=]?\\s*\\d+\\b"
-    r"|\\b\\d+\\s*(?:szt\\.?|sztuk|sztuki|okien|okna|okno|drzwi)\\b"
-    r"|\\b(?:potrzebuję|potrzebuje|chcę|chce)\\s+\\d+\\b"
-    r"|\\b\\d+\\s*[x×]\\s*(?:okn|drzwi|window)",
+    r"\b(?:ilość|ilosc)\s*[:=]?\s*\d+\b"
+    r"|\b\d+\s*(?:szt\.?|sztuk|sztuki|okien|okna|okno|drzwi)\b"
+    r"|\b(?:potrzebuję|potrzebuje|chcę|chce)\s+\d+\b"
+    r"|\b\d+\s*[x×]\s*(?:okn|drzwi|window)",
     re.IGNORECASE,
 )
 
