@@ -96,6 +96,7 @@ class WindowHubResumableTaskHost:
             context = self.orchestrator.prepare(
                 request,
                 initial_scene=scene,
+                application_knowledge=get_windowhub_offer_knowledge(),
                 autonomous=True,
                 reasoning_budget=budget,
             )
@@ -103,7 +104,7 @@ class WindowHubResumableTaskHost:
             # Keep old/custom orchestrators usable only when they explicitly
             # identify which optional parameter they don't implement.
             if "unexpected keyword argument" not in str(exc) or not any(
-                key in str(exc) for key in ("autonomous", "reasoning_budget")
+                key in str(exc) for key in ("application_knowledge", "autonomous", "reasoning_budget")
             ):
                 raise
             context = self.orchestrator.prepare(
