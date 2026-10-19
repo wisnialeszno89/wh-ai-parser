@@ -104,6 +104,79 @@ def test_native_relationships_are_reported_separately_from_enumeration():
     assert result["scope_status"] == "unknown"
 
 
+def test_active_document_ancestor_match_is_reported_without_emitting_ancestor_name():
+    secret_name = "OFR/4304-4103"
+    field = make_field(
+        value="SENSITIVE-CURRENT-VALUE",
+        metadata={
+            "uia_ancestor_context": (
+                ("Window", "Afx:TabChild", secret_name),
+                ("Pane", "Afx:Pane", "Private customer context"),
+            ),
+            "uia_native_handle": 701,
+            "uia_window_handle": 123,
+        },
+    )
+
+    result = _field_diagnostic(
+        field,
+        root_handle=123,
+        active_document=secret_name,
+        native_relationships={
+            "uia_native_handle_present": True,
+            "native_window_relation_available": True,
+            "native_root_matches_observed_window": True,
+            "native_root_owner_matches_observed_window": True,
+            "native_parent_matches_observed_window": False,
+            "native_owner_matches_observed_window": False,
+            "in_observed_root_window": True,
+            "native_owned_by_observed_window": True,
+            "belongs_to_observed_window_or_owned_popup": True,
+        },
+    )
+
+    rendered = repr(result)
+    assert result["active_document_ancestor_name_exact_match"] is True
+    assert result["active_document_window_ancestor_name_exact_match"] is True
+    assert result["named_window_ancestor_count"] == 1
+    assert secret_name not in rendered
+    assert "Private customer context" not in rendered
+    assert "SENSITIVE-CURRENT-VALUE" not in rendered
+
+
+def test_document_ancestor_match_requires_exact_name_and_reports_unmatched():
+    field = make_field(
+        value="SENSITIVE-CURRENT-VALUE",
+        metadata={
+            "uia_ancestor_context": (
+                ("Window", "Afx:TabChild", "OFR/4304-4103 other"),
+                ("Pane", "Afx:Pane", "OFR/4304-4103"),
+            ),
+        },
+    )
+
+    result = _field_diagnostic(
+        field,
+        root_handle=123,
+        active_document="OFR/4304-4103",
+        native_relationships={
+            "uia_native_handle_present": False,
+            "native_window_relation_available": False,
+            "native_root_matches_observed_window": None,
+            "native_root_owner_matches_observed_window": None,
+            "native_parent_matches_observed_window": None,
+            "native_owner_matches_observed_window": None,
+            "in_observed_root_window": None,
+            "native_owned_by_observed_window": None,
+            "belongs_to_observed_window_or_owned_popup": None,
+        },
+    )
+
+    assert result["active_document_ancestor_name_exact_match"] is True
+    assert result["active_document_window_ancestor_name_exact_match"] is False
+    assert result["named_window_ancestor_count"] == 1
+
+
 def test_field_scope_diagnostic_preserves_explicit_document_scope():
     field = make_field(
         value="1200",
