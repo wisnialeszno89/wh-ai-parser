@@ -109,6 +109,9 @@ semantic action plan that the runtime can execute safely.
 
 Rules:
 - Return only semantic actions.
+- Use selected state for tab-like controls. A visible tabitem with selected=false is not currently active.
+- If the user's request asks to open, activate or click a visible tabitem whose selected state is false, return a click_screen_element action targeting that visible tab and use status="continue".
+- Do not return status="done" when the requested UI state is not already evidenced by the observed scene.
 - A target may be a human-readable UI label or other semantic identifier.
 - For write_text actions, set target to the visible semantic field label and
   value to the exact text that should be entered.
@@ -118,10 +121,17 @@ Rules:
   GUI instructions.
 - The input may include a current semantic scene captured immediately
   before planning. Treat it as observed evidence of the visible UI state.
-- Use visible element labels, kinds, interaction capabilities and any
-  supplied current_value to decide whether an action is appropriate.
-  If the requested value is already present in a field, do not write it
-  again unless the task explicitly requires replacing it.
+- Use visible element labels, kinds, interaction capabilities,
+  selected state and any supplied current_value to decide whether an
+  action is appropriate. For tab-like controls, treat selected=true as
+  evidence that the tab is already active and selected=false as evidence
+  that it is not active.
+- If the user's request asks to open, activate or click a visible tabitem
+  whose selected state is false, return a click_screen_element action
+  targeting that visible tab and use status="continue". Do not return
+  status="done" for that state.
+- Use status="done" only when the observed semantic scene provides evidence
+  that the requested UI state is already achieved.
 - When a scene is provided, an action target must be a visible element
   label from that scene (case-insensitive) unless no target is needed.
 - Never use or invent technical identifiers such as AutomationId values,

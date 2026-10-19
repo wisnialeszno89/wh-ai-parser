@@ -97,7 +97,6 @@ expands the local action allowlist or execution permissions.
 The current stage adds the contract, validation and transport only. No web
 research is executed yet.
 
-
 ### Agent experience memory
 
 The runtime now keeps a durable, model-safe memory of execution outcomes.
@@ -106,16 +105,63 @@ and compact diagnostics, while raw user requests and machine-specific runtime
 identifiers are excluded. Recent experiences can be supplied to task
 reasoning as prior context.
 
-
 ## Universal desktop adapters
 
 The Universal Agent now has a semantic application-adapter contract and a
-deterministic adapter registry. The first concrete adapter is the filesystem:
-it can list, read, write, copy, move and test paths inside explicitly allowed
-roots. Writes require explicit overwrite permission when a destination
-already exists, and deletion is not part of this first adapter.
+deterministic adapter registry. The current registry includes filesystem,
+Word, Excel, email-draft and browser adapters.
 
-The default workspace is configured by `AGENT_FILESYSTEM_ROOT`. The adapter
-layer is separate from GUI perception and execution, so later Word, Excel,
-browser and email adapters can reuse the same semantic registry without
+The browser adapter exposes semantic navigation and interactions while keeping
+provider-specific selectors, coordinates and runtime identifiers local. Browser
+providers remain replaceable implementation details. The default browser
+adapter is unconfigured and unavailable until a concrete provider is injected.
+
+The adapter layer is separate from GUI perception and execution, so later
+desktop-specific controls can reuse the same semantic registry without
 becoming WindowHub-specific.
+
+## Generic Windows desktop runtime with NaviMind
+
+The supported generic Windows runtime entry point is
+`create_windows_desktop_agent_runtime()` in
+`app/agent/runtime/windows_desktop_agent_runtime.py`. It wires the selected
+`TaskReasoner` into `AgentOrchestrator(require_task_reasoning=True)` and uses
+the existing Windows control loop, local semantic target validation, execution
+safety gate and verification path.
+
+Configure the hosted bridge in the local `.env` file (never commit real values):
+
+```dotenv
+NAVIMIND_AGENT_URL=https://your-deployment.example/api/agent/task
+NAVIMIND_AGENT_SECRET=replace-with-the-same-high-entropy-secret
+NAVIMIND_AGENT_TIMEOUT_SECONDS=45
+COMPUTER_REAL=0
+```
+
+NaviMind is selected whenever `NAVIMIND_AGENT_URL` is present. Its secret is
+required; production endpoints must use HTTPS. HTTP is allowed only for
+localhost development. If NaviMind is configured but authentication or the
+remote call fails, task reasoning stops for manual review; the runtime does
+not silently switch to OpenAI. The explicit OpenAI task-reasoning alternative
+is `AGENT_TASK_REASONING=1` with `OPENAI_API_KEY`, and is selected only when
+the NaviMind URL is absent. Verification-driven OpenAI replanning is separately
+opt-in through `AGENT_PLAN_REASONING=1`.
+
+Run a provider-only outbound contract smoke test. It sends synthetic semantic
+state and does not observe, click, type into, or otherwise control the desktop:
+
+```powershell
+python tools/smoke_windows_desktop_navimind.py
+```
+
+Start the generic Windows agent with a natural-language goal:
+
+```powershell
+python tools/run_windows_desktop_agent.py --goal "Click the visible Testing tab"
+```
+
+Physical GUI execution remains disabled by default. Only set
+`COMPUTER_REAL=1` for an explicitly scoped live test. Even in live mode,
+NaviMind proposes semantic actions only; local target validation, execution
+policy and post-action verification remain authoritative.
+
