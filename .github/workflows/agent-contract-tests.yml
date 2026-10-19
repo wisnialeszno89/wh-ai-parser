@@ -78,8 +78,13 @@ jobs:
             tests/test_browser_navimind_bridge.py \
             tests/test_task_planning_context_adapters.py
 
-      - name: Run resumable WindowHub task tests
-        run: pytest -q tests/test_resumable_task.py
+      - name: Run resumable WindowHub task and checkpoint tests
+        run: |
+          pytest -q \
+            tests/test_resumable_task.py \
+            tests/test_resumable_task_repository.py \
+            tests/test_resumable_task_service.py \
+            tests/test_agent_runtime_resumable_task.py
 
       - name: Run local-only Playwright provider smoke
         run: python tools/smoke_browser_provider_local.py
