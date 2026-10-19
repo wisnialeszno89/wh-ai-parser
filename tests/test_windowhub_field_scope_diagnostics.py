@@ -80,7 +80,9 @@ def test_native_relationships_are_reported_separately_from_enumeration():
         "native_root_owner_matches_observed_window": True,
         "native_parent_matches_observed_window": False,
         "native_owner_matches_observed_window": False,
-        "in_observed_root_window": True,
+        "in_observed_root_window": False,
+        "native_owned_by_observed_window": True,
+        "belongs_to_observed_window_or_owned_popup": True,
     }
 
     result = _field_diagnostic(
@@ -94,7 +96,9 @@ def test_native_relationships_are_reported_separately_from_enumeration():
     assert result["native_window_relation_available"] is True
     assert result["native_root_matches_observed_window"] is False
     assert result["native_root_owner_matches_observed_window"] is True
-    assert result["in_observed_root_window"] is True
+    assert result["in_observed_root_window"] is False
+    assert result["native_owned_by_observed_window"] is True
+    assert result["belongs_to_observed_window_or_owned_popup"] is True
     # Window ownership alone is not enough to claim a document-tab scope.
     assert result["document_scope"] is None
     assert result["scope_status"] == "unknown"
