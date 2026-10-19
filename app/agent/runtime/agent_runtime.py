@@ -125,6 +125,7 @@ class AgentRuntime:
         control_loop: AgentControlLoop | None = None,
         learned_parameter_resolver=None,
         approved_quote_rules: Mapping[str, QuoteRuleEvidence] | None = None,
+        pdf_source_registry: Mapping[str, object] | None = None,
         browser_adapter: BrowserAdapter | None = None,
         browser_context_enabled: bool = False,
         confirmation_ttl_seconds: float = 300.0,
@@ -140,6 +141,9 @@ class AgentRuntime:
         self.control_loop = control_loop
         self.learned_parameter_resolver = learned_parameter_resolver
         self.approved_quote_rules = dict(approved_quote_rules or {})
+        # Only the host/runtime can register extracted source objects. Request
+        # metadata is untrusted and cannot assert its own PDF provenance.
+        self.pdf_source_registry = dict(pdf_source_registry or {})
         self.browser_adapter = browser_adapter
         self.browser_context_enabled = browser_context_enabled
 
@@ -705,16 +709,10 @@ class AgentRuntime:
         quote_fact_result = None
         raw_quote_facts = request.metadata.get("quote_facts")
         if raw_quote_facts is not None:
-            raw_pdf_sources = request.metadata.get("pdf_sources")
-            trusted_pdf_sources = (
-                raw_pdf_sources
-                if isinstance(raw_pdf_sources, Mapping)
-                else None
-            )
             quote_fact_result = QuoteFactValidator().validate_payload(
                 raw_quote_facts,
                 request_message=request.message,
-                pdf_sources=trusted_pdf_sources,
+                pdf_sources=self.pdf_source_registry,
                 approved_rules=self.approved_quote_rules,
             )
             if not quote_fact_result.can_execute:
