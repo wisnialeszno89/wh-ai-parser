@@ -1,3 +1,5 @@
+from app.agent.offers.offer_context import OfferContext
+
 from app.agent.offers.offer_agent_result import (
     OfferAgentResult,
 )
@@ -185,3 +187,36 @@ class OfferAgentSessionService:
             session=session,
             agent_result=merged_agent_result,
         )
+
+    def process_context(
+        self,
+        session: OfferAgentSession,
+        context: OfferContext,
+    ) -> OfferAgentSessionResult:
+        """Validate a locally constructed, source-backed typed offer context."""
+        merged_context = context
+        if session.current_context is not None:
+            merged_context = self.context_merger.merge(
+                session.current_context,
+                context,
+            )
+
+        validation = self.context_validator.validate(merged_context)
+        question_result = self.question_builder.build(validation)
+        is_ready_for_pricing = validation.is_valid
+        agent_result = OfferAgentResult(
+            context=merged_context,
+            validation=validation,
+            questions=question_result.questions,
+            messages=question_result.messages,
+            is_ready_for_pricing=is_ready_for_pricing,
+            requires_salesperson_input=not is_ready_for_pricing,
+        )
+
+        session.current_context = merged_context
+        session.workflow_state = self.workflow_state_resolver.resolve(agent_result)
+        return OfferAgentSessionResult(
+            session=session,
+            agent_result=agent_result,
+        )
+
