@@ -343,3 +343,36 @@ def test_final_verification_fails_closed_when_active_document_is_unresolved():
     assert "active document is unresolved" in result.reason.casefold()
     assert result.evidence[0]["reason"] == "active_document_unresolved"
 
+def test_final_verification_ignores_matching_fields_with_unknown_document_scope():
+    # This models the real-app diagnostic: an active document tab can be
+    # resolved while generic UIA fields still have unknown document scope.
+    scene = FakeScene(
+        [
+            FakeElement(
+                "edit",
+                "Szerokość",
+                "writable",
+                metadata={"current_value": "1200"},
+            ),
+            FakeElement(
+                "edit",
+                "Wysokość",
+                "writable",
+                metadata={"current_value": "1500"},
+            ),
+        ],
+        active_document="OFR/4300-",
+    )
+    checkpoint = TaskCheckpoint(
+        "windowhub-unknown-field-scope",
+        "Verify width and height are attached to the selected offer",
+        facts={"width": 1200, "height": 1500},
+        required_fields=("width", "height"),
+    )
+
+    result = verify_windowhub_final_state(checkpoint, scene)
+
+    assert result.verified is False
+    assert set(result.missing_fields) == {"width", "height"}
+    assert "missing or ambiguous fields" in result.reason
+
