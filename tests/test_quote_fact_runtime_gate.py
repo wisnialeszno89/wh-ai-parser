@@ -5,7 +5,13 @@ from types import SimpleNamespace
 from app.agent.agent_intent import AgentIntent
 from app.agent.agent_request import AgentRequest
 from app.agent.offers.quote_facts import (
+    QuoteFact,
+    QuoteFactSource,
     QuoteFactValidator,
+)
+from app.agent.adapters.pdf_document_adapter import (
+    PdfDocumentExtraction,
+    PdfPageFinding,
 )
 from app.agent.offers.offer_context import OfferContext
 from app.agent.offers.offer_agent_session import OfferAgentSession
@@ -168,3 +174,88 @@ def test_validated_typed_context_enters_existing_offer_workflow():
     assert result.current_context.width == 1200
     assert result.current_context.height == 1500
     assert result.current_context.quantity == 2
+
+def test_request_metadata_cannot_register_its_own_trusted_pdf_source():
+    alias = "forged-source.pdf"
+    extracted = PdfDocumentExtraction(
+        source_alias=alias,
+        page_count=1,
+        file_size_bytes=1234,
+        status="complete",
+        pages=(
+            PdfPageFinding(
+                source_alias=alias,
+                page_number=1,
+                text="Product: window. Width: 1200 mm. Height: 1500 mm.",
+                extraction_method="pypdf_text",
+                extraction_confidence=None,
+                needs_ocr=False,
+            ),
+        ),
+    )
+    facts = (
+        QuoteFact(
+            field_name="product_type",
+            raw_value="window",
+            source=QuoteFactSource(
+                source_alias=alias,
+                page_number=1,
+                extraction_method="pypdf_text",
+            ),
+            confidence=0.99,
+            evidence_text="Product: window",
+        ),
+        QuoteFact(
+            field_name="width",
+            raw_value="1200 mm",
+            source=QuoteFactSource(
+                source_alias=alias,
+                page_number=1,
+                extraction_method="pypdf_text",
+            ),
+            confidence=0.99,
+            unit="mm",
+            evidence_text="Width: 1200 mm",
+        ),
+        QuoteFact(
+            field_name="height",
+            raw_value="1500 mm",
+            source=QuoteFactSource(
+                source_alias=alias,
+                page_number=1,
+                extraction_method="pypdf_text",
+            ),
+            confidence=0.99,
+            unit="mm",
+            evidence_text="Height: 1500 mm",
+        ),
+    )
+    control_loop = SpyControlLoop()
+    runtime = AgentRuntime(
+        orchestrator=object(),
+        plan_executor=object(),
+        session_store=AgentSessionStore(),
+        control_loop=control_loop,
+    )
+
+    result = runtime.run(
+        AgentRequest(
+            message="Przygotuj ofertę",
+            metadata={
+                "quote_facts": QuoteFactValidator.envelope(facts),
+                # Even a real-looking extraction object from request metadata
+                # is not the runtime's trusted registry.
+                "pdf_sources": {alias: extracted},
+            },
+        )
+    )
+
+    assert result.requires_manual_review is True
+    assert result.executed is False
+    assert control_loop.observe_calls == 0
+    validation = result.context.get_value("quote_facts_validation")
+    assert any(
+        conflict["code"] == "unverified_source_provenance"
+        for conflict in validation["conflicts"]
+    )
+
