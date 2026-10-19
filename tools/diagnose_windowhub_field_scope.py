@@ -5,6 +5,7 @@ control values, invokes the planner, or executes a GUI action.
 """
 from __future__ import annotations
 
+import ctypes
 import json
 import os
 from pathlib import Path
@@ -27,7 +28,69 @@ def _robot_execution_mode(control_loop):
     return matches[0].robot_action_executor.mode
 
 
-def _field_diagnostic(field, *, root_handle=None):
+def _positive_handle(value):
+    try:
+        handle = int(value)
+    except (TypeError, ValueError, OSError):
+        return None
+    return handle if handle > 0 else None
+
+
+def _native_window_relationships(native_handle, root_handle):
+    """Compare a control's real HWND ancestry with the observed WindowHub HWND.
+
+    The UIA enumeration handle only describes which wrapper was walked. It
+    does not prove that every returned control is a native descendant of that
+    window, so this helper separately asks Win32 for root/owner relationships.
+    """
+    native = _positive_handle(native_handle)
+    root = _positive_handle(root_handle)
+    result = {
+        "uia_native_handle_present": native is not None,
+        "native_window_relation_available": False,
+        "native_root_matches_observed_window": None,
+        "native_root_owner_matches_observed_window": None,
+        "native_parent_matches_observed_window": None,
+        "native_owner_matches_observed_window": None,
+        "in_observed_root_window": None,
+    }
+    if os.name != "nt" or native is None or root is None:
+        return result
+
+    try:
+        user32 = ctypes.WinDLL("user32", use_last_error=True)
+        get_ancestor = user32.GetAncestor
+        get_ancestor.argtypes = (ctypes.c_void_p, ctypes.c_uint)
+        get_ancestor.restype = ctypes.c_void_p
+        get_parent = user32.GetParent
+        get_parent.argtypes = (ctypes.c_void_p,)
+        get_parent.restype = ctypes.c_void_p
+        get_window = user32.GetWindow
+        get_window.argtypes = (ctypes.c_void_p, ctypes.c_uint)
+        get_window.restype = ctypes.c_void_p
+
+        hwnd = ctypes.c_void_p(native)
+        native_root = int(get_ancestor(hwnd, 2) or 0)  # GA_ROOT
+        native_root_owner = int(get_ancestor(hwnd, 3) or 0)  # GA_ROOTOWNER
+        native_parent = int(get_parent(hwnd) or 0)
+        native_owner = int(get_window(hwnd, 4) or 0)  # GW_OWNER
+    except Exception:
+        return result
+
+    root_matches = native_root == root
+    owner_root_matches = native_root_owner == root
+    result.update({
+        "native_window_relation_available": True,
+        "native_root_matches_observed_window": root_matches,
+        "native_root_owner_matches_observed_window": owner_root_matches,
+        "native_parent_matches_observed_window": native_parent == root,
+        "native_owner_matches_observed_window": native_owner == root,
+        "in_observed_root_window": root_matches or owner_root_matches,
+    })
+    return result
+
+
+def _field_diagnostic(field, *, root_handle=None, native_relationships=None):
     """Return field scope facts while deliberately excluding all field values."""
     metadata = getattr(field.element, "metadata", None) or {}
     ancestry = []
@@ -43,6 +106,14 @@ def _field_diagnostic(field, *, root_handle=None):
 
     current_value = getattr(field, "value", None)
     observed_handle = metadata.get("uia_window_handle")
+    native_relationships = (
+        native_relationships
+        if native_relationships is not None
+        else _native_window_relationships(
+            metadata.get("uia_native_handle"),
+            root_handle,
+        )
+    )
 
     return {
         "label": field.label,
@@ -53,9 +124,12 @@ def _field_diagnostic(field, *, root_handle=None):
         "uia_document_tab_selected": metadata.get(
             "uia_document_tab_selected"
         ),
-        "in_observed_root_window": (
+        # This records which wrapper was enumerated; actual HWND ancestry is
+        # reported separately and determines in_observed_root_window.
+        "enumerated_by_observed_window": (
             root_handle is not None and observed_handle == root_handle
         ),
+        **native_relationships,
         "owned_modal": metadata.get("uia_owned_modal") is True,
         "current_value_present": (
             isinstance(current_value, str) and bool(current_value.strip())
