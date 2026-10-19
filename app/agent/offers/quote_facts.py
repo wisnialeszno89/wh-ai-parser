@@ -128,7 +128,7 @@ class QuoteFactSource:
 
     def validate(self) -> None:
         alias = _nonempty(self.source_alias, "source_alias", max_length=255)
-        if "/" in alias or "\\" in alias or ".." in alias:
+        if "/" in alias or "\\" in alias or ".." in alias or ":" in alias:
             raise ValueError("source_alias must be a non-path alias.")
         _nonempty(self.extraction_method, "extraction_method", max_length=128)
         if self.source_kind not in _ALLOWED_SOURCE_KINDS:
@@ -233,7 +233,13 @@ def _normalize_value(
             number = Decimal(match.group(1).replace(",", "."))
         except InvalidOperation as exc:
             raise ValueError(f"{field_name} is not a valid number.") from exc
-        detected_unit = (unit or match.group(2) or "mm").strip().casefold()
+        embedded_unit = match.group(2)
+        if embedded_unit and unit:
+            embedded_canonical = _UNIT_ALIASES.get(embedded_unit.casefold())
+            supplied_canonical = _UNIT_ALIASES.get(unit.strip().casefold())
+            if embedded_canonical is None or supplied_canonical != embedded_canonical:
+                raise ValueError(f"{field_name} has conflicting embedded and declared units.")
+        detected_unit = (unit or embedded_unit or "mm").strip().casefold()
         canonical_unit = _UNIT_ALIASES.get(detected_unit)
         if canonical_unit is None:
             raise ValueError(f"Unsupported length unit for {field_name}.")
@@ -256,8 +262,12 @@ def _normalize_value(
             raise ValueError("quantity must be a whole number.")
         if quantity <= 0:
             raise ValueError("quantity must be greater than zero.")
-        supplied_unit = (unit or match.group(2) or "piece").strip().casefold()
-        if supplied_unit not in {"piece", "pieces", "pc", "pcs", "szt", "szt.", "sztuk", "sztuki"}:
+        count_units = {"piece", "pieces", "pc", "pcs", "szt", "szt.", "sztuk", "sztuki"}
+        embedded_unit = match.group(2)
+        if embedded_unit and embedded_unit.casefold() not in count_units:
+            raise ValueError("Unsupported embedded quantity unit.")
+        supplied_unit = (unit or embedded_unit or "piece").strip().casefold()
+        if supplied_unit not in count_units:
             raise ValueError("Unsupported quantity unit.")
         return int(quantity), "piece"
 
@@ -269,7 +279,10 @@ def _normalize_value(
             amount = Decimal(match.group(1).replace(",", "."))
         except InvalidOperation as exc:
             raise ValueError("price is not a valid decimal amount.") from exc
-        currency = (unit or match.group(2) or "").strip().upper()
+        embedded_currency = match.group(2)
+        if embedded_currency and unit and embedded_currency.upper() != unit.strip().upper():
+            raise ValueError("price has conflicting embedded and declared currencies.")
+        currency = (unit or embedded_currency or "").strip().upper()
         if currency not in {"PLN", "EUR", "USD", "GBP", "CHF", "CZK"}:
             raise ValueError("price requires a recognized explicit currency unit.")
         if amount < 0:
