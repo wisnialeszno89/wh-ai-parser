@@ -54,6 +54,8 @@ from app.agent.runtime.autonomous_run_result import (
     AutonomousRunResult,
 )
 from app.agent.runtime.reasoning_budget import ReasoningBudget
+from app.agent.runtime.resumable_task import TaskCheckpoint
+from app.agent.runtime.resumable_task_service import ResumableTaskService
 from app.agent.runtime.reasoning_usage import (
     ReasoningCostTracker,
     ReasoningUsage,
@@ -130,6 +132,7 @@ class AgentRuntime:
         browser_context_enabled: bool = False,
         confirmation_ttl_seconds: float = 300.0,
         confirmation_clock=None,
+        resumable_task_service: ResumableTaskService | None = None,
     ) -> None:
 
         self.orchestrator = (
@@ -139,6 +142,9 @@ class AgentRuntime:
         )
 
         self.control_loop = control_loop
+        # Checkpoint execution is opt-in: the host must explicitly wire a
+        # runner configured for its observation/execution environment.
+        self.resumable_task_service = resumable_task_service
         self.learned_parameter_resolver = learned_parameter_resolver
         self.approved_quote_rules = dict(approved_quote_rules or {})
         # Only the host/runtime can register extracted source objects. Request
@@ -1632,3 +1638,70 @@ class AgentRuntime:
             execution_metrics=execution_metrics,
             quality_metrics=quality_metrics,
         )
+
+    def _require_resumable_task_service(self) -> ResumableTaskService:
+        service = self.resumable_task_service
+        if service is None:
+            raise RuntimeError(
+                "Resumable task service is not configured for this AgentRuntime."
+            )
+        return service
+
+    def start_resumable_task(
+        self,
+        checkpoint: TaskCheckpoint,
+    ) -> TaskCheckpoint:
+        """Create and persist a checkpoint without performing GUI actions."""
+        return self._require_resumable_task_service().create(checkpoint)
+
+    def get_resumable_task(
+        self,
+        task_id: str,
+    ) -> TaskCheckpoint | None:
+        """Load a checkpoint, including one saved by a prior service instance."""
+        return self._require_resumable_task_service().get(task_id)
+
+    def advance_resumable_task(
+        self,
+        task_id: str,
+    ) -> TaskCheckpoint:
+        """Advance exactly one runner cycle and persist its resulting checkpoint."""
+        return self._require_resumable_task_service().advance(task_id)
+
+    def supply_resumable_task_facts(
+        self,
+        task_id: str,
+        values: Mapping[str, object],
+    ) -> TaskCheckpoint:
+        return self._require_resumable_task_service().supply_facts(task_id, values)
+
+    def approve_resumable_task_action(
+        self,
+        task_id: str,
+        *,
+        approve_submission: bool = False,
+    ) -> TaskCheckpoint:
+        return self._require_resumable_task_service().approve_pending_action(
+            task_id,
+            approve_submission=approve_submission,
+        )
+
+    def resolve_resumable_task_issue(
+        self,
+        task_id: str,
+        issue: str,
+    ) -> TaskCheckpoint:
+        return self._require_resumable_task_service().resolve_issue(task_id, issue)
+
+    def resume_resumable_task_after_review(
+        self,
+        task_id: str,
+    ) -> TaskCheckpoint:
+        return self._require_resumable_task_service().resume_after_review(task_id)
+
+    def delete_resumable_task(
+        self,
+        task_id: str,
+    ) -> bool:
+        return self._require_resumable_task_service().delete(task_id)
+
