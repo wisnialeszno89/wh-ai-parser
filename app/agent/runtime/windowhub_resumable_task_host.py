@@ -54,8 +54,14 @@ class WindowHubResumableTaskHost:
         repository: TaskCheckpointRepository | None = None,
         final_verifier: Callable[[TaskCheckpoint, object], Verification] | None = None,
     ) -> None:
-        if control_loop is None or not callable(getattr(control_loop, "observe_scene", None)):
-            raise ValueError("A WindowHub control loop with observe_scene() is required.")
+        if (
+            control_loop is None
+            or not callable(getattr(control_loop, "observe_scene", None))
+            or not callable(getattr(control_loop, "run", None))
+        ):
+            raise ValueError(
+                "A WindowHub control loop with observe_scene() and run() is required."
+            )
         if orchestrator is None or not callable(getattr(orchestrator, "prepare", None)):
             raise ValueError("An agent orchestrator with prepare() is required.")
         self.control_loop = control_loop
