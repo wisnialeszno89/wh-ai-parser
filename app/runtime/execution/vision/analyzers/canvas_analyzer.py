@@ -4,6 +4,9 @@ import numpy as np
 import cv2
 
 from app.runtime.execution.native_toolbar_resolver import NativeToolbarResolver
+from app.runtime.execution.vision.analyzers.hough_line_normalizer import (
+    normalize_hough_line_segments,
+)
 from app.runtime.execution.vision.models.canvas import Canvas
 from app.runtime.execution.vision.models.rect import Rect
 
@@ -240,31 +243,6 @@ class CanvasAnalyzer:
 
         return rect
 
-    @staticmethod
-    def _normalize_hough_lines(lines):
-        """Normalize OpenCV HoughLinesP output to a stable N x 4 array.
-
-        OpenCV builds may return either (N, 1, 4) or (N, 4). Iterating over
-        lines[:, 0] assumes the first shape and can yield numpy scalar values
-        for the second one.
-        """
-        empty = np.empty((0, 4), dtype=np.int32)
-        if lines is None:
-            return empty
-
-        try:
-            values = np.asarray(lines)
-        except (TypeError, ValueError):
-            return empty
-
-        if values.size == 0:
-            return empty
-        if values.ndim == 1 and values.shape[0] == 4:
-            return values.reshape(1, 4)
-        if values.ndim >= 2 and values.shape[-1] == 4:
-            return values.reshape(-1, 4)
-        return empty
-
     def _detect_workspace_from_lines(
         self,
         image,
@@ -289,8 +267,8 @@ class CanvasAnalyzer:
             minLineLength=min_line_length,
             maxLineGap=12,
         )
-        normalized_lines = self._normalize_hough_lines(lines)
-        if normalized_lines.size == 0:
+        normalized_lines = normalize_hough_line_segments(lines)
+        if not normalized_lines:
             return None
 
         horizontals = []
