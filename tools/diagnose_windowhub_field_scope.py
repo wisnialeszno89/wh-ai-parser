@@ -53,6 +53,8 @@ def _native_window_relationships(native_handle, root_handle):
         "native_parent_matches_observed_window": None,
         "native_owner_matches_observed_window": None,
         "in_observed_root_window": None,
+        "native_owned_by_observed_window": None,
+        "belongs_to_observed_window_or_owned_popup": None,
     }
     if os.name != "nt" or native is None or root is None:
         return result
@@ -85,7 +87,11 @@ def _native_window_relationships(native_handle, root_handle):
         "native_root_owner_matches_observed_window": owner_root_matches,
         "native_parent_matches_observed_window": native_parent == root,
         "native_owner_matches_observed_window": native_owner == root,
-        "in_observed_root_window": root_matches or owner_root_matches,
+        "in_observed_root_window": root_matches,
+        "native_owned_by_observed_window": owner_root_matches,
+        "belongs_to_observed_window_or_owned_popup": (
+            root_matches or owner_root_matches
+        ),
     })
     return result
 
