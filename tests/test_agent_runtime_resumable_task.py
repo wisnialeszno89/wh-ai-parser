@@ -51,3 +51,64 @@ def test_runtime_without_explicit_resumable_service_fails_closed():
         assert "not configured" in str(exc)
     else:
         raise AssertionError("Runtime must not silently create an unconfigured task service.")
+
+
+class NonExecutingControlLoop:
+    """Dependency probe that fails if configuration advances into GUI work."""
+
+    def __init__(self):
+        self.observe_calls = 0
+        self.run_calls = 0
+
+    def observe_scene(self):
+        self.observe_calls += 1
+        raise AssertionError("Configuration must not observe the environment.")
+
+    def run(self, *, plan, context):
+        self.run_calls += 1
+        raise AssertionError("Configuration must not execute a GUI plan.")
+
+
+class NonExecutingOrchestrator:
+    def __init__(self):
+        self.prepare_calls = 0
+
+    def prepare(self, *args, **kwargs):
+        self.prepare_calls += 1
+        raise AssertionError("Configuration must not invoke the planner.")
+
+
+def test_runtime_explicitly_configures_windowhub_host_without_gui_side_effects(tmp_path):
+    control = NonExecutingControlLoop()
+    orchestrator = NonExecutingOrchestrator()
+    runtime = AgentRuntime(orchestrator=orchestrator, control_loop=control)
+
+    host = runtime.configure_windowhub_resumable_tasks(
+        repository=TaskCheckpointRepository(tmp_path),
+    )
+
+    checkpoint = TaskCheckpoint(
+        "runtime-windowhub-config",
+        "Create a WindowHub draft offer",
+        max_reasoning_calls=3,
+    )
+    assert runtime.start_resumable_task(checkpoint) == checkpoint
+    assert runtime.get_resumable_task(checkpoint.task_id) == checkpoint
+    assert runtime.resumable_task_service is host.service
+    assert host.control_loop is control
+    assert host.orchestrator is orchestrator
+    assert control.observe_calls == 0
+    assert control.run_calls == 0
+    assert orchestrator.prepare_calls == 0
+
+
+def test_runtime_refuses_windowhub_configuration_without_explicit_control_loop():
+    runtime = AgentRuntime()
+    try:
+        runtime.configure_windowhub_resumable_tasks()
+    except RuntimeError as exc:
+        assert "explicitly configured control loop" in str(exc)
+    else:
+        raise AssertionError("WindowHub resumable tasks must require an explicit control loop.")
+
+    assert runtime.resumable_task_service is None

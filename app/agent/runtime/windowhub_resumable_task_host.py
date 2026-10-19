@@ -54,8 +54,14 @@ class WindowHubResumableTaskHost:
         repository: TaskCheckpointRepository | None = None,
         final_verifier: Callable[[TaskCheckpoint, object], Verification] | None = None,
     ) -> None:
-        if control_loop is None or not callable(getattr(control_loop, "observe_scene", None)):
-            raise ValueError("A WindowHub control loop with observe_scene() is required.")
+        if (
+            control_loop is None
+            or not callable(getattr(control_loop, "observe_scene", None))
+            or not callable(getattr(control_loop, "run", None))
+        ):
+            raise ValueError(
+                "A WindowHub control loop with observe_scene() and run() is required."
+            )
         if orchestrator is None or not callable(getattr(orchestrator, "prepare", None)):
             raise ValueError("An agent orchestrator with prepare() is required.")
         self.control_loop = control_loop
@@ -96,6 +102,7 @@ class WindowHubResumableTaskHost:
             context = self.orchestrator.prepare(
                 request,
                 initial_scene=scene,
+                application_knowledge=get_windowhub_offer_knowledge(),
                 autonomous=True,
                 reasoning_budget=budget,
             )
@@ -103,7 +110,7 @@ class WindowHubResumableTaskHost:
             # Keep old/custom orchestrators usable only when they explicitly
             # identify which optional parameter they don't implement.
             if "unexpected keyword argument" not in str(exc) or not any(
-                key in str(exc) for key in ("autonomous", "reasoning_budget")
+                key in str(exc) for key in ("application_knowledge", "autonomous", "reasoning_budget")
             ):
                 raise
             context = self.orchestrator.prepare(

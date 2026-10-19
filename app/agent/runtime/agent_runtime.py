@@ -1,5 +1,5 @@
 import time
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from uuid import uuid4
 
 from app.agent.agent_request import AgentRequest
@@ -54,7 +54,8 @@ from app.agent.runtime.autonomous_run_result import (
     AutonomousRunResult,
 )
 from app.agent.runtime.reasoning_budget import ReasoningBudget
-from app.agent.runtime.resumable_task import TaskCheckpoint
+from app.agent.runtime.resumable_task import TaskCheckpoint, Verification
+from app.agent.runtime.resumable_task_repository import TaskCheckpointRepository
 from app.agent.runtime.resumable_task_service import ResumableTaskService
 from app.agent.runtime.reasoning_usage import (
     ReasoningCostTracker,
@@ -1638,6 +1639,50 @@ class AgentRuntime:
             execution_metrics=execution_metrics,
             quality_metrics=quality_metrics,
         )
+
+    def configure_windowhub_resumable_tasks(
+        self,
+        *,
+        repository: TaskCheckpointRepository | None = None,
+        final_verifier: Callable[[TaskCheckpoint, object], Verification] | None = None,
+    ) -> "WindowHubResumableTaskHost":
+        """Explicitly wire resumable WindowHub tasks to this runtime's dependencies.
+
+        Configuration is side-effect free: it creates no observation and
+        performs no GUI action. The caller must explicitly advance a task to
+        request an individual observe-plan-validate-execute-verify cycle.
+        """
+        if self.resumable_task_service is not None:
+            raise RuntimeError(
+                "Resumable task service is already configured for this AgentRuntime."
+            )
+
+        control_loop = self.control_loop
+        if (
+            control_loop is None
+            or not callable(getattr(control_loop, "observe_scene", None))
+            or not callable(getattr(control_loop, "run", None))
+        ):
+            raise RuntimeError(
+                "WindowHub resumable tasks require an explicitly configured control loop."
+            )
+
+        # Local import keeps the host's dependency on AgentRuntime optional and
+        # avoids a module import cycle. This is opt-in; construction never runs
+        # the supplied control loop.
+        from app.agent.runtime.windowhub_resumable_task_host import (
+            WindowHubResumableTaskHost,
+        )
+
+        host = WindowHubResumableTaskHost(
+            control_loop=control_loop,
+            orchestrator=self.orchestrator,
+            repository=repository,
+            final_verifier=final_verifier,
+        )
+        self._windowhub_resumable_task_host = host
+        self.resumable_task_service = host.service
+        return host
 
     def _require_resumable_task_service(self) -> ResumableTaskService:
         service = self.resumable_task_service
