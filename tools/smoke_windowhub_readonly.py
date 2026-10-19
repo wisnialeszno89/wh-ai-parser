@@ -41,7 +41,6 @@ def main() -> int:
         return 2
 
     try:
-        from app.agent.execution.robot_gui_executor import RobotGUIExecutor
         from app.agent.knowledge.windowhub_offer_knowledge import (
             get_windowhub_offer_knowledge,
         )
