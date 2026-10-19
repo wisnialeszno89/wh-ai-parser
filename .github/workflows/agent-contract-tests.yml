@@ -84,10 +84,20 @@ jobs:
             tests/test_resumable_task.py \
             tests/test_resumable_task_repository.py \
             tests/test_resumable_task_service.py \
-            tests/test_agent_runtime_resumable_task.py
+            tests/test_agent_runtime_resumable_task.py \
+            tests/test_windowhub_agent_runtime.py
 
       - name: Run WindowHub resumable task adapter tests
         run: pytest -q tests/test_windowhub_resumable_task_host.py
+
+      - name: Compile WindowHub runtime wiring and read-only smoke
+        run: |
+          python -m compileall -q \
+            app/agent/runtime/agent_runtime.py \
+            app/agent/runtime/windowhub_agent_runtime.py \
+            app/agent/runtime/windowhub_resumable_task_host.py \
+            tools/smoke_windowhub_readonly.py \
+            tests/test_windowhub_agent_runtime.py
 
       - name: Run local-only Playwright provider smoke
         run: python tools/smoke_browser_provider_local.py
