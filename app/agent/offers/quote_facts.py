@@ -539,8 +539,11 @@ class QuoteFactValidator:
         request_conflicts: Iterable[str] = (),
         known_sources: Mapping[str, object] | None = None,
         approved_rules: Mapping[str, QuoteRuleEvidence] | Iterable[QuoteRuleEvidence] = (),
+        request_message: str | None = None,
+        trusted_request_facts: Iterable[QuoteFact] = (),
     ) -> QuoteFactsValidationResult:
         fact_tuple = tuple(facts)
+        trusted_request_fact_ids = {id(fact) for fact in trusted_request_facts}
         conflicts: list[QuoteFactConflict] = []
         grouped: dict[str, list[tuple[QuoteFact, object]]] = {}
         if isinstance(approved_rules, Mapping):
@@ -567,7 +570,15 @@ class QuoteFactValidator:
                 )
                 continue
 
-            source_error = self._validate_fact_source(fact, known_sources)
+            source_error = (
+                None
+                if id(fact) in trusted_request_fact_ids
+                else self._validate_fact_source(
+                    fact,
+                    known_sources,
+                    request_message=request_message,
+                )
+            )
             if source_error is not None:
                 conflicts.append(
                     QuoteFactConflict(
@@ -721,15 +732,41 @@ class QuoteFactValidator:
             request_conflicts=parser_conflicts,
             known_sources=pdf_sources,
             approved_rules=approved_rules,
+            request_message=request_message,
+            trusted_request_facts=request_facts,
         )
 
     @staticmethod
     def _validate_fact_source(
         fact: QuoteFact,
         known_sources: Mapping[str, object] | None,
+        *,
+        request_message: str | None = None,
     ) -> str | None:
-        if fact.source.source_kind != "pdf_document":
+        if fact.source.source_kind == "salesperson_request":
+            if not isinstance(request_message, str) or not request_message.strip():
+                return "Salesperson-request fact has no trusted request text."
+            if not fact.evidence_text:
+                return "Salesperson-request fact must include an evidence_text excerpt."
+            normalize_space = lambda value: " ".join(value.casefold().split())
+            normalized_request = normalize_space(request_message)
+            normalized_evidence = normalize_space(fact.evidence_text)
+            if normalized_evidence not in normalized_request:
+                return "Salesperson-request evidence_text is not present in the request."
+            try:
+                evidence_value, _ = _normalize_value(
+                    fact.field_name,
+                    fact.evidence_text,
+                    fact.unit,
+                )
+            except (TypeError, ValueError):
+                return "Salesperson-request evidence_text does not normalize for this field."
+            if _comparable(evidence_value) != _comparable(fact.normalized_value):
+                return "Salesperson-request evidence_text does not support the stated fact."
             return None
+
+        if fact.source.source_kind != "pdf_document":
+            return "Fact source kind is not backed by a trusted fact-source registry."
 
         if known_sources is None:
             return "PDF fact has no trusted in-process PDF extraction registry."
