@@ -96,7 +96,13 @@ def _native_window_relationships(native_handle, root_handle):
     return result
 
 
-def _field_diagnostic(field, *, root_handle=None, native_relationships=None):
+def _field_diagnostic(
+    field,
+    *,
+    root_handle=None,
+    native_relationships=None,
+    active_document=None,
+):
     """Return field scope facts while deliberately excluding all field values."""
     metadata = getattr(field.element, "metadata", None) or {}
     ancestry = []
@@ -121,6 +127,31 @@ def _field_diagnostic(field, *, root_handle=None, native_relationships=None):
         )
     )
 
+    # Compare names privately; never print ancestor names, since UIA can
+    # expose customer/document text in parent window names.
+    normalized_document = (
+        active_document.strip().casefold()
+        if isinstance(active_document, str) and active_document.strip()
+        else None
+    )
+    ancestor_context = metadata.get("uia_ancestor_context", ()) or ()
+    ancestor_name_exact_match = False
+    window_ancestor_name_exact_match = False
+    named_window_ancestor_count = 0
+    for item in ancestor_context:
+        if not isinstance(item, (tuple, list)) or len(item) < 3:
+            continue
+        control_type = str(item[0] or "").strip().casefold()
+        name = item[2]
+        if not isinstance(name, str) or not name.strip():
+            continue
+        if control_type == "window":
+            named_window_ancestor_count += 1
+        if normalized_document is not None and name.strip().casefold() == normalized_document:
+            ancestor_name_exact_match = True
+            if control_type == "window":
+                window_ancestor_name_exact_match = True
+
     return {
         "label": field.label,
         "control_type": field.control_type,
@@ -137,6 +168,11 @@ def _field_diagnostic(field, *, root_handle=None, native_relationships=None):
         ),
         **native_relationships,
         "owned_modal": metadata.get("uia_owned_modal") is True,
+        "active_document_ancestor_name_exact_match": ancestor_name_exact_match,
+        "active_document_window_ancestor_name_exact_match": (
+            window_ancestor_name_exact_match
+        ),
+        "named_window_ancestor_count": named_window_ancestor_count,
         "current_value_present": (
             isinstance(current_value, str) and bool(current_value.strip())
         ),
@@ -225,7 +261,11 @@ def main() -> int:
             "document_tabs": document_tabs,
             "readable_form_field_count": len(fields),
             "field_scope_diagnostics": [
-                _field_diagnostic(field, root_handle=root_handle)
+                _field_diagnostic(
+                    field,
+                    root_handle=root_handle,
+                    active_document=scene.active_document,
+                )
                 for field in fields
             ],
             "gui_actions_executed": 0,
