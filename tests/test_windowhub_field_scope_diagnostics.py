@@ -34,7 +34,12 @@ def test_field_scope_diagnostic_never_includes_observed_field_value():
     assert result["label"] == "Szerokość"
     assert result["scope_status"] == "unknown"
     assert result["current_value_present"] is True
-    assert result["in_observed_root_window"] is True
+    # The wrapper used for enumeration is not proof of the control's native
+    # HWND ancestry. With no native HWND, root membership must stay unknown.
+    assert result["enumerated_by_observed_window"] is True
+    assert result["uia_native_handle_present"] is False
+    assert result["native_window_relation_available"] is False
+    assert result["in_observed_root_window"] is None
     assert result["ancestor_structure"] == ["Pane<Afx:Pane>"]
     assert "CUSTOMER-SECRET-1234" not in rendered
     assert "CUSTOMER-SECRET-ANCESTOR" not in rendered
@@ -53,9 +58,50 @@ def test_field_scope_diagnostic_distinguishes_unobserved_value_and_other_window(
     result = _field_diagnostic(field, root_handle=123)
 
     assert result["current_value_present"] is False
-    assert result["in_observed_root_window"] is False
+    assert result["enumerated_by_observed_window"] is False
+    assert result["in_observed_root_window"] is None
     assert result["owned_modal"] is True
     assert result["ancestor_structure"] == []
+
+
+def test_native_relationships_are_reported_separately_from_enumeration():
+    field = make_field(
+        value="1200",
+        metadata={
+            "uia_window_handle": 123,
+            "uia_native_handle": 901,
+            "document_scope": None,
+        },
+    )
+    native_relationships = {
+        "uia_native_handle_present": True,
+        "native_window_relation_available": True,
+        "native_root_matches_observed_window": False,
+        "native_root_owner_matches_observed_window": True,
+        "native_parent_matches_observed_window": False,
+        "native_owner_matches_observed_window": False,
+        "in_observed_root_window": False,
+        "native_owned_by_observed_window": True,
+        "belongs_to_observed_window_or_owned_popup": True,
+    }
+
+    result = _field_diagnostic(
+        field,
+        root_handle=123,
+        native_relationships=native_relationships,
+    )
+
+    assert result["enumerated_by_observed_window"] is True
+    assert result["uia_native_handle_present"] is True
+    assert result["native_window_relation_available"] is True
+    assert result["native_root_matches_observed_window"] is False
+    assert result["native_root_owner_matches_observed_window"] is True
+    assert result["in_observed_root_window"] is False
+    assert result["native_owned_by_observed_window"] is True
+    assert result["belongs_to_observed_window_or_owned_popup"] is True
+    # Window ownership alone is not enough to claim a document-tab scope.
+    assert result["document_scope"] is None
+    assert result["scope_status"] == "unknown"
 
 
 def test_field_scope_diagnostic_preserves_explicit_document_scope():
