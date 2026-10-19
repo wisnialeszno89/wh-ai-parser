@@ -8,6 +8,7 @@ from app.agent.adapters.browser_adapter import BrowserAdapter
 from app.agent.adapters.email_draft_adapter import EmailDraftAdapter
 from app.agent.adapters.excel_workbook_adapter import ExcelWorkbookAdapter
 from app.agent.adapters.filesystem_adapter import FileSystemAdapter
+from app.agent.adapters.pdf_document_adapter import PdfDocumentAdapter
 from app.agent.adapters.word_document_adapter import WordDocumentAdapter
 
 
@@ -63,6 +64,9 @@ def create_default_adapter_registry(
                 dry_run=browser_dry_run,
             ),
             FileSystemAdapter(
+                allowed_roots=roots,
+            ),
+            PdfDocumentAdapter(
                 allowed_roots=roots,
             ),
             ExcelWorkbookAdapter(
