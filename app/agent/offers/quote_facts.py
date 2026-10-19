@@ -240,6 +240,8 @@ def _normalize_value(
         millimeters = number * _DIMENSION_FACTORS[canonical_unit]
         if millimeters != millimeters.to_integral_value():
             raise ValueError(f"{field_name} does not resolve to a whole millimeter.")
+        if millimeters <= 0:
+            raise ValueError(f"{field_name} must be greater than zero.")
         return int(millimeters), "mm"
 
     if field_name == "quantity":
@@ -252,6 +254,8 @@ def _normalize_value(
             raise ValueError("quantity is not a valid number.") from exc
         if quantity != quantity.to_integral_value():
             raise ValueError("quantity must be a whole number.")
+        if quantity <= 0:
+            raise ValueError("quantity must be greater than zero.")
         supplied_unit = (unit or match.group(2) or "piece").strip().casefold()
         if supplied_unit not in {"piece", "pieces", "pc", "pcs", "szt", "szt.", "sztuk", "sztuki"}:
             raise ValueError("Unsupported quantity unit.")
@@ -290,6 +294,8 @@ def _normalize_value(
             "sliding door": "sliding_door",
         }
         normalized = aliases.get(normalized, normalized)
+        if normalized not in {"window", "door", "balcony_door", "sliding_door"}:
+            raise ValueError("Unsupported product_type value.")
     elif field_name == "configuration":
         aliases = {
             "jednoskrzydłowe": "single_leaf",
@@ -300,6 +306,8 @@ def _normalize_value(
             "nieotwierane": "fixed",
         }
         normalized = aliases.get(normalized, normalized)
+        if normalized not in {"single_leaf", "double_leaf", "fixed"}:
+            raise ValueError("Unsupported configuration value.")
     elif field_name == "glazing":
         aliases = {
             "dwuszybowe": "double",
@@ -310,6 +318,8 @@ def _normalize_value(
             "triple": "triple",
         }
         normalized = aliases.get(normalized, normalized)
+        if normalized not in {"double", "triple"}:
+            raise ValueError("Unsupported glazing value.")
     elif field_name in {"color_inside", "color_outside"}:
         aliases = {
             "biały": "white",
@@ -324,11 +334,20 @@ def _normalize_value(
             "brown": "brown",
         }
         normalized = aliases.get(normalized, normalized)
+        if normalized not in {"white", "anthracite", "black", "brown"} and not re.fullmatch(r"\\d{4}", normalized):
+            raise ValueError("Unsupported color value; use a known project color or a four-digit RAL code.")
     elif field_name == "profile":
-        # Preserve the project's catalog-style profile identifiers.
-        normalized = value.upper()
+        # Resolve profiles using the existing deterministic project catalog.
+        selection = OfferContextParser().profile_selection_resolver.resolve(value)
+        if selection.source == ProfileSelectionSource.UNKNOWN or selection.profile is None:
+            raise ValueError("Profile value is not recognized by the project profile catalog.")
+        normalized = selection.profile
     elif field_name == "opening":
-        normalized = value.upper() if re.fullmatch(r"[A-Za-z0-9_ -]+", value) else value
+        # Reuse the project opening knowledge; ambiguous descriptions must not be guessed.
+        resolution = OfferContextParser().opening_resolver.resolve_result(value)
+        if not resolution.is_resolved or resolution.code is None:
+            raise ValueError("Opening value is unknown or ambiguous in project knowledge.")
+        normalized = resolution.code
     return normalized, None
 
 
