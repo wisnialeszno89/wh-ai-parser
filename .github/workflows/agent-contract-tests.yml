@@ -86,5 +86,8 @@ jobs:
             tests/test_resumable_task_service.py \
             tests/test_agent_runtime_resumable_task.py
 
+      - name: Run WindowHub resumable task adapter tests
+        run: pytest -q tests/test_windowhub_resumable_task_host.py
+
       - name: Run local-only Playwright provider smoke
         run: python tools/smoke_browser_provider_local.py
