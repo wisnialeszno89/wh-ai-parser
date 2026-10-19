@@ -51,6 +51,8 @@ jobs:
             tests/test_adapter_registry.py \
             tests/test_filesystem_adapter.py \
             tests/test_pdf_document_adapter.py \
+            tests/test_quote_facts.py \
+            tests/test_quote_fact_runtime_gate.py \
             tests/test_default_adapters.py \
             tests/test_word_document_adapter.py \
             tests/test_excel_workbook_adapter.py \
