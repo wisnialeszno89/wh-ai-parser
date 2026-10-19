@@ -1,4 +1,5 @@
 from dataclasses import replace
+from types import SimpleNamespace
 
 from app.agent.runtime.agent_runtime import AgentRuntime
 from app.agent.runtime.resumable_task import Execution, PlanDecision, ResumableTaskRunner, TaskCheckpoint, TaskStatus, Verification
@@ -9,7 +10,16 @@ from app.agent.runtime.resumable_task_service import ResumableTaskService
 class CompletingRunner(ResumableTaskRunner):
     def __init__(self):
         super().__init__(
-            observe=lambda: object(),
+            observe=lambda: SimpleNamespace(
+                observation=SimpleNamespace(
+                    state=SimpleNamespace(
+                        active_application="WindowHub",
+                        active_window_title="WindowHub",
+                    )
+                ),
+                elements=(),
+                metadata={},
+            ),
             plan_next=lambda state, scene: PlanDecision(complete=True),
             execute_action=lambda action, scene, validation: Execution(False, False, "unused"),
             verify_action=lambda action, execution, scene: Verification(False),
