@@ -595,20 +595,16 @@ def test_navimind_reasoner_sends_table_from_live_perception_scene(monkeypatch):
 
         def __call__(self, image):
             self.calls += 1
-            return type(
-                "OCRResult",
-                (),
-                {
-                    "txts": ["Dokument"],
-                    "boxes": [
-                        np.array(
-                            [[5, 5], [45, 5], [45, 20], [5, 20]],
-                            dtype=float,
-                        )
-                    ],
-                    "scores": [0.99],
-                },
-            )()
+            return SimpleNamespace(
+                txts=["Dokument"],
+                boxes=[
+                    np.array(
+                        [[5, 5], [45, 5], [45, 20], [5, 20]],
+                        dtype=float,
+                    )
+                ],
+                scores=[0.99],
+            )
 
     reconstruction = WindowHubOCRTableReconstruction(
         rows=(
@@ -694,6 +690,7 @@ def test_navimind_reasoner_sends_table_from_live_perception_scene(monkeypatch):
     assert proposal is not None
     assert engine.calls == 1
     assert scene.metadata["windowhub_ocr_table_reconstruction"] is reconstruction
+    assert scene.elements[0].interaction_capability is InteractionCapability.UNKNOWN
 
     body = captured["body"]
     world = body["world"]
