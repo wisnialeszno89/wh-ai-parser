@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
-import json
 import math
 import re
 from typing import Iterable, Mapping
@@ -344,6 +343,7 @@ class QuoteFact:
     origin: str = "source_fact"
     unit: str | None = None
     rule_evidence: QuoteRuleEvidence | None = None
+    evidence_text: str | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "field_name", _canonical_field(self.field_name))
@@ -362,6 +362,8 @@ class QuoteFact:
             raise ValueError("Unsupported quote fact origin.")
         if self.unit is not None:
             _nonempty(self.unit, "unit", max_length=32)
+        if self.evidence_text is not None:
+            _nonempty(self.evidence_text, "evidence_text", max_length=4000)
         if self.rule_evidence is not None:
             self.rule_evidence.validate()
 
@@ -384,6 +386,7 @@ class QuoteFact:
             "confidence": float(self.confidence),
             "origin": self.origin,
             "unit": self.unit.strip() if self.unit else None,
+            "evidence_text": self.evidence_text.strip() if self.evidence_text else None,
         }
         if self.rule_evidence is not None:
             payload["rule_evidence"] = self.rule_evidence.to_payload()
@@ -411,6 +414,7 @@ class QuoteFact:
                 if payload.get("rule_evidence") is not None
                 else None
             ),
+            evidence_text=payload.get("evidence_text"),
         )
         result.validate()
         # Ignore caller-supplied normalized fields. Normalization is recomputed locally.
@@ -514,10 +518,20 @@ class QuoteFactValidator:
         facts: Iterable[QuoteFact],
         *,
         request_conflicts: Iterable[str] = (),
+        known_sources: Mapping[str, object] | None = None,
+        approved_rules: Mapping[str, QuoteRuleEvidence] | Iterable[QuoteRuleEvidence] = (),
     ) -> QuoteFactsValidationResult:
         fact_tuple = tuple(facts)
         conflicts: list[QuoteFactConflict] = []
         grouped: dict[str, list[tuple[QuoteFact, object]]] = {}
+        if isinstance(approved_rules, Mapping):
+            rule_registry = dict(approved_rules)
+        else:
+            rule_registry = {
+                rule.rule_id: rule
+                for rule in approved_rules
+                if isinstance(rule, QuoteRuleEvidence)
+            }
 
         for fact in fact_tuple:
             try:
@@ -534,13 +548,37 @@ class QuoteFactValidator:
                 )
                 continue
 
-            if fact.field_name in {"price", "configuration"} and fact.origin == "model_inference":
+            source_error = self._validate_fact_source(fact, known_sources)
+            if source_error is not None:
+                conflicts.append(
+                    QuoteFactConflict(
+                        code="unverified_source_provenance",
+                        field_name=fact.field_name,
+                        message=source_error,
+                        sources=(fact.source,),
+                        values=(str(normalized),),
+                    )
+                )
+
+            requires_rule = (
+                fact.field_name == "price" and fact.origin == "model_inference"
+            ) or (
+                fact.field_name == "configuration"
+                and fact.origin in {"model_inference", "deterministic_rule"}
+            ) or (
+                fact.field_name == "price"
+                and fact.origin == "deterministic_rule"
+            )
+            if requires_rule:
                 expected_rule = "pricing" if fact.field_name == "price" else "configuration"
                 evidence = fact.rule_evidence
                 try:
                     if evidence is None or evidence.rule_type != expected_rule:
                         raise ValueError("matching approved rule evidence is missing")
                     evidence.validate()
+                    trusted = rule_registry.get(evidence.rule_id)
+                    if trusted is None or trusted != evidence:
+                        raise ValueError("rule is not present in the trusted approved-rule registry")
                 except (TypeError, ValueError) as exc:
                     code = "unsourced_pricing_rule" if fact.field_name == "price" else "unsourced_configuration_rule"
                     conflicts.append(
@@ -548,8 +586,8 @@ class QuoteFactValidator:
                             code=code,
                             field_name=fact.field_name,
                             message=(
-                                f"Model-derived {fact.field_name} is blocked without "
-                                f"approved {expected_rule} evidence: {exc}."
+                                f"Derived {fact.field_name} is blocked without "
+                                f"trusted approved {expected_rule} evidence: {exc}."
                             ),
                             sources=(fact.source,),
                             values=(str(normalized),),
@@ -618,6 +656,8 @@ class QuoteFactValidator:
         payload: object,
         *,
         request_message: str | None = None,
+        pdf_sources: Mapping[str, object] | None = None,
+        approved_rules: Mapping[str, QuoteRuleEvidence] | Iterable[QuoteRuleEvidence] = (),
     ) -> QuoteFactsValidationResult:
         """Parse a narrow, versioned envelope; ignore unrelated metadata by design."""
         try:
@@ -637,7 +677,17 @@ class QuoteFactValidator:
                 field_name="quote_facts",
                 message=str(exc),
             )
-            return self.validate((), request_conflicts=(conflict.message,))
+            return QuoteFactsValidationResult(
+                facts=(),
+                normalized_values={},
+                missing_fields=tuple(self.REQUIRED_FIELDS),
+                conflicts=(conflict,),
+                questions=tuple(
+                    _FIELD_QUESTIONS[field_name]
+                    for field_name in self.REQUIRED_FIELDS
+                    if field_name in _FIELD_QUESTIONS
+                ) + ("Dane oferty mają nieprawidłowy format. Wymagana jest ręczna weryfikacja.",),
+            )
 
         parser_conflicts: tuple[str, ...] = ()
         request_facts: tuple[QuoteFact, ...] = ()
@@ -650,7 +700,56 @@ class QuoteFactValidator:
         return self.validate(
             (*facts, *request_facts),
             request_conflicts=parser_conflicts,
+            known_sources=pdf_sources,
+            approved_rules=approved_rules,
         )
+
+    @staticmethod
+    def _validate_fact_source(
+        fact: QuoteFact,
+        known_sources: Mapping[str, object] | None,
+    ) -> str | None:
+        if fact.source.source_kind != "pdf_document":
+            return None
+
+        if known_sources is None:
+            return "PDF fact has no trusted in-process PDF extraction registry."
+        extraction = known_sources.get(fact.source.source_alias)
+        if extraction is None:
+            return "PDF source alias is not present in the trusted extraction registry."
+
+        from app.agent.adapters.pdf_document_adapter import PdfDocumentExtraction
+
+        if not isinstance(extraction, PdfDocumentExtraction):
+            return "PDF source registry entry is not a trusted PdfDocumentExtraction object."
+        if extraction.source_alias != fact.source.source_alias:
+            return "PDF source alias does not match the extraction result."
+        if fact.source.page_number is None:
+            return "PDF fact provenance must identify a 1-based page number."
+        page = next(
+            (
+                item for item in extraction.pages
+                if item.page_number == fact.source.page_number
+            ),
+            None,
+        )
+        if page is None:
+            return "PDF fact page number is outside the extracted source."
+        if page.extraction_method != fact.source.extraction_method:
+            return "PDF extraction method does not match the extracted page."
+        if page.needs_ocr:
+            return "PDF fact cannot be accepted from a page that still requires OCR."
+        if not fact.evidence_text:
+            return "PDF fact must include a verbatim evidence_text excerpt."
+        normalize_space = lambda value: " ".join(value.casefold().split())
+        normalized_page = normalize_space(page.text)
+        normalized_evidence = normalize_space(fact.evidence_text)
+        normalized_value = normalize_space(fact.raw_value)
+        if normalized_evidence not in normalized_page:
+            return "PDF fact evidence_text is not present in the trusted extracted page."
+        if normalized_value not in normalized_evidence:
+            return "PDF fact raw_value is not present in its evidence_text excerpt."
+        return None
 
     @staticmethod
     def envelope(facts: Iterable[QuoteFact]) -> dict[str, object]:
