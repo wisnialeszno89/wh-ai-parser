@@ -351,3 +351,62 @@ def test_pdf_fact_from_page_marked_for_ocr_is_not_accepted():
 
     assert result.can_execute is False
     assert any(item.code == "unverified_source_provenance" for item in result.conflicts)
+
+def test_external_salesperson_facts_must_match_verbatim_request_evidence():
+    request = "Okno 1200x1500"
+    source = QuoteFactSource(
+        source_alias="user-message",
+        section="message",
+        extraction_method="explicit_request",
+        source_kind="salesperson_request",
+    )
+    valid_fact = QuoteFact(
+        field_name="width",
+        raw_value="1200 mm",
+        source=source,
+        confidence=0.99,
+        origin="explicit_request",
+        unit="mm",
+        evidence_text="1200",
+    )
+    valid = QuoteFactValidator().validate_payload(
+        QuoteFactValidator.envelope((valid_fact,)),
+        request_message=request,
+    )
+    assert valid.can_execute is True
+
+    forged_fact = QuoteFact(
+        field_name="width",
+        raw_value="1300 mm",
+        source=source,
+        confidence=0.99,
+        origin="explicit_request",
+        unit="mm",
+        evidence_text="1200",
+    )
+    forged = QuoteFactValidator().validate_payload(
+        QuoteFactValidator.envelope((forged_fact,)),
+        request_message=request,
+    )
+    assert forged.can_execute is False
+    assert any(item.code == "unverified_source_provenance" for item in forged.conflicts)
+
+
+def test_conflicting_declared_and_embedded_units_are_rejected():
+    fact = QuoteFact(
+        field_name="width",
+        raw_value="120 cm",
+        source=QuoteFactSource(
+            source_alias="message",
+            section="message",
+            extraction_method="explicit_request",
+            source_kind="salesperson_request",
+        ),
+        confidence=0.9,
+        origin="explicit_request",
+        unit="mm",
+    )
+    result = QuoteFactValidator().validate((fact,))
+    assert result.can_execute is False
+    assert any(item.code == "invalid_quote_fact" for item in result.conflicts)
+
