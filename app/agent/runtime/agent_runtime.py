@@ -746,14 +746,19 @@ class AgentRuntime:
                     executed=False,
                 )
 
+            validated_metadata = {
+                key: value
+                for key, value in request.metadata.items()
+                if key not in {"quote_facts", "pdf_sources", "approved_quote_rules"}
+            }
+            validated_metadata["validated_quote_facts"] = (
+                quote_fact_result.to_payload()
+            )
             request = AgentRequest(
                 message=request.message,
                 session_id=request.session_id,
                 salesman_id=request.salesman_id,
-                metadata={
-                    **request.metadata,
-                    "validated_quote_facts": quote_fact_result.to_payload(),
-                },
+                metadata=validated_metadata,
                 mode=request.mode,
             )
 
