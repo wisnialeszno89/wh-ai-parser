@@ -102,6 +102,7 @@ def _field_diagnostic(
     root_handle=None,
     native_relationships=None,
     active_document=None,
+    selected_document_tab_native_handle=None,
 ):
     """Return field scope facts while deliberately excluding all field values."""
     metadata = getattr(field.element, "metadata", None) or {}
@@ -152,6 +153,15 @@ def _field_diagnostic(
             if control_type == "window":
                 window_ancestor_name_exact_match = True
 
+    field_native_handle = _positive_handle(metadata.get("uia_native_handle"))
+    selected_tab_handle = _positive_handle(selected_document_tab_native_handle)
+    ancestor_native_handles = [
+        handle
+        for item in ancestor_context
+        if isinstance(item, (tuple, list)) and len(item) >= 4
+        and (handle := _positive_handle(item[3])) is not None
+    ]
+
     return {
         "label": field.label,
         "control_type": field.control_type,
@@ -173,6 +183,21 @@ def _field_diagnostic(
             window_ancestor_name_exact_match
         ),
         "named_window_ancestor_count": named_window_ancestor_count,
+        # Correlation only: equal HWNDs are diagnostic clues, not sufficient
+        # to infer document ownership or authorize reading/writing a field.
+        "selected_document_tab_native_handle_present": selected_tab_handle is not None,
+        "field_native_handle_present": field_native_handle is not None,
+        "field_native_handle_matches_selected_document_tab": (
+            field_native_handle == selected_tab_handle
+            if field_native_handle is not None and selected_tab_handle is not None
+            else None
+        ),
+        "ancestor_native_handle_available_count": len(ancestor_native_handles),
+        "ancestor_native_handle_matches_selected_document_tab": (
+            selected_tab_handle in ancestor_native_handles
+            if selected_tab_handle is not None and ancestor_native_handles
+            else (False if selected_tab_handle is not None else None)
+        ),
         "current_value_present": (
             isinstance(current_value, str) and bool(current_value.strip())
         ),
@@ -229,19 +254,53 @@ def main() -> int:
             raise RuntimeError("No valid WindowHub window handle was observed.")
 
         fields = WindowHubFormReader().read(scene)
-        document_tabs = [
-            {
-                "label": element.label,
-                "selected": (element.metadata or {}).get(
-                    "uia_document_tab_selected"
-                ),
-            }
+        document_tab_elements = [
+            element
             for element in scene.elements
             if element.kind.casefold() == "tabitem"
             and (element.metadata or {}).get("uia_tab_scope") == "document"
             and isinstance(element.label, str)
             and element.label.strip()
         ]
+        document_tab_handles = [
+            _positive_handle((element.metadata or {}).get("uia_native_handle"))
+            for element in document_tab_elements
+        ]
+        selected_tab_handles = [
+            _positive_handle((element.metadata or {}).get("uia_native_handle"))
+            for element in document_tab_elements
+            if (element.metadata or {}).get("uia_document_tab_selected") is True
+        ]
+        selected_document_tab_native_handle = (
+            selected_tab_handles[0]
+            if len(selected_tab_handles) == 1
+            else None
+        )
+        document_tabs = []
+        for index, element in enumerate(document_tab_elements):
+            handle = document_tab_handles[index]
+            other_handles = [
+                other
+                for other_index, other in enumerate(document_tab_handles)
+                if other_index != index and other is not None
+            ]
+            document_tabs.append({
+                "label": element.label,
+                "selected": (element.metadata or {}).get(
+                    "uia_document_tab_selected"
+                ),
+                "native_handle_present": handle is not None,
+                "native_handle_matches_observed_root": (
+                    handle == root_handle
+                    if handle is not None and isinstance(root_handle, int)
+                    else None
+                ),
+                "native_handle_shared_with_another_document_tab": (
+                    handle in other_handles if handle is not None and other_handles else (
+                        False if handle is not None else None
+                    )
+                ),
+            })
 
         result = {
             "result": "PASS",
@@ -265,6 +324,9 @@ def main() -> int:
                     field,
                     root_handle=root_handle,
                     active_document=scene.active_document,
+                    selected_document_tab_native_handle=(
+                        selected_document_tab_native_handle
+                    ),
                 )
                 for field in fields
             ],
