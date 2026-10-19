@@ -177,6 +177,59 @@ def test_document_ancestor_match_requires_exact_name_and_reports_unmatched():
     assert result["named_window_ancestor_count"] == 1
 
 
+def test_selected_tab_native_handle_correlation_is_boolean_only():
+    field = make_field(
+        value="DO-NOT-PRINT-THIS",
+        metadata={
+            "uia_native_handle": 701,
+            "uia_window_handle": 123,
+            "uia_ancestor_context": (
+                ("Pane", "Afx:Pane", "Parent", 501),
+                ("Window", "Afx:TabChild", "Child", 123),
+            ),
+        },
+    )
+
+    result = _field_diagnostic(
+        field,
+        root_handle=123,
+        selected_document_tab_native_handle=501,
+    )
+
+    rendered = repr(result)
+    assert result["selected_document_tab_native_handle_present"] is True
+    assert result["field_native_handle_present"] is True
+    assert result["field_native_handle_matches_selected_document_tab"] is False
+    assert result["ancestor_native_handle_available_count"] == 2
+    assert result["ancestor_native_handle_matches_selected_document_tab"] is True
+    assert "DO-NOT-PRINT-THIS" not in rendered
+    for raw_handle in ("701", "501", "123"):
+        assert raw_handle not in rendered
+    # Native-handle equality is just a diagnostic clue; scope remains unknown.
+    assert result["scope_status"] == "unknown"
+    assert result["document_scope"] is None
+
+
+def test_tab_native_handle_correlation_stays_unknown_when_tab_handle_missing():
+    field = make_field(
+        value="DO-NOT-PRINT-THIS",
+        metadata={
+            "uia_native_handle": 701,
+            "uia_ancestor_context": (
+                ("Window", "Afx:TabChild", "Child", 123),
+            ),
+        },
+    )
+
+    result = _field_diagnostic(field, selected_document_tab_native_handle=None)
+
+    assert result["selected_document_tab_native_handle_present"] is False
+    assert result["field_native_handle_matches_selected_document_tab"] is None
+    assert result["ancestor_native_handle_matches_selected_document_tab"] is None
+    assert result["scope_status"] == "unknown"
+    assert result["document_scope"] is None
+
+
 def test_field_scope_diagnostic_preserves_explicit_document_scope():
     field = make_field(
         value="1200",
