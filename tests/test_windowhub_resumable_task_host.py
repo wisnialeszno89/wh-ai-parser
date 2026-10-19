@@ -5,9 +5,12 @@ from app.agent.agent_action import AgentAction
 from app.agent.agent_intent import AgentIntent
 from app.agent.planning.action_plan import ActionPlan
 from app.agent.planning.action_step import ActionStep
-from app.agent.runtime.resumable_task import TaskCheckpoint, TaskStatus
+from app.agent.runtime.resumable_task import TaskCheckpoint, TaskStatus, Verification
 from app.agent.runtime.resumable_task_repository import TaskCheckpointRepository
-from app.agent.runtime.windowhub_resumable_task_host import WindowHubResumableTaskHost
+from app.agent.runtime.windowhub_resumable_task_host import (
+    WindowHubResumableTaskHost,
+    verify_windowhub_final_state,
+)
 
 
 @dataclass
@@ -299,3 +302,44 @@ def test_final_fields_must_match_current_document_values(tmp_path):
     state = host.service.advance(checkpoint.task_id)
     assert state.status == TaskStatus.STOPPED
     assert "height" in state.unresolved_issues[-1]
+
+def test_final_verification_fails_closed_when_active_document_is_unresolved():
+    # A matching value may still belong to a different document. The final
+    # verifier must never fall back to reading every visible Edit/ComboBox.
+    scene = FakeScene(
+        [
+            FakeElement(
+                "edit",
+                "Szerokość",
+                "writable",
+                metadata={
+                    "current_value": "1200",
+                    "document_scope": "OFR/4295-",
+                },
+            ),
+            FakeElement(
+                "edit",
+                "Wysokość",
+                "writable",
+                metadata={
+                    "current_value": "1500",
+                    "document_scope": "OFR/4295-",
+                },
+            ),
+        ],
+        active_document=None,
+    )
+    checkpoint = TaskCheckpoint(
+        "windowhub-unresolved-document",
+        "Verify width and height in the active offer",
+        facts={"width": 1200, "height": 1500},
+        required_fields=("width", "height"),
+    )
+
+    result = verify_windowhub_final_state(checkpoint, scene)
+
+    assert result.verified is False
+    assert set(result.missing_fields) == {"width", "height"}
+    assert "active document is unresolved" in result.reason.casefold()
+    assert result.evidence[0]["reason"] == "active_document_unresolved"
+
