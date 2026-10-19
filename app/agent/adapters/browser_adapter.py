@@ -164,8 +164,14 @@ class BrowserAdapter(ApplicationAdapter):
         )
 
     def read(self) -> BrowserPage:
+        page = self._provider.current_page()
+
+        # A freshly launched Playwright context starts at about:blank. That
+        # is a valid observation state before the first browser_navigate
+        # action, but it must never be accepted as a navigation destination.
         return self._validate_page(
-            self._provider.current_page()
+            page,
+            allow_initial_blank=True,
         )
 
     def click(self, target: BrowserElement) -> BrowserPage:
@@ -228,11 +234,19 @@ class BrowserAdapter(ApplicationAdapter):
             self._provider.back()
         )
 
-    def _validate_page(self, page: BrowserPage) -> BrowserPage:
+    def _validate_page(
+        self,
+        page: BrowserPage,
+        *,
+        allow_initial_blank: bool = False,
+    ) -> BrowserPage:
         if not isinstance(page, BrowserPage):
             raise TypeError(
                 "Browser provider must return BrowserPage."
             )
+
+        if allow_initial_blank and page.url.strip().casefold() == "about:blank":
+            return page
 
         # Providers may follow redirects or navigate as a side effect of
         # clicks. Validate the resulting page too, not only the requested URL.

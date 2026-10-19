@@ -195,6 +195,30 @@ class OutcomeVerifier:
                 confidence=1.0,
             )
 
+        if expected.require_browser_change:
+            baseline = expected.baseline_browser_signature
+            if baseline is None:
+                return VerificationResult(
+                    verified=False,
+                    reason=(
+                        "Browser change verification has no baseline "
+                        "semantic page signature."
+                    ),
+                    confidence=1.0,
+                )
+
+            current = self._browser_page_signature(page)
+            if current == baseline:
+                return VerificationResult(
+                    verified=False,
+                    reason=(
+                        "Browser semantic page did not change "
+                        "after the browser action."
+                    ),
+                    confidence=0.95,
+                    metadata={"browser_page_changed": False},
+                )
+
         if expected.expected_browser_url is not None:
             actual_url = self._normalize_url(page.url)
             expected_url = self._normalize_url(expected.expected_browser_url)
@@ -295,6 +319,26 @@ class OutcomeVerifier:
             verified=True,
             reason="Browser page matches expected outcome.",
             confidence=1.0,
+        )
+
+    @staticmethod
+    def _browser_page_signature(page: BrowserPage) -> tuple[object, ...]:
+        elements = []
+        for element in page.elements:
+            elements.append(
+                (
+                    element.label,
+                    element.kind,
+                    element.interaction_capability,
+                    element.current_value,
+                )
+            )
+
+        return (
+            page.url,
+            page.title,
+            page.text,
+            tuple(elements),
         )
 
     @staticmethod

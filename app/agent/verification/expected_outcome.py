@@ -39,3 +39,8 @@ class ExpectedOutcome:
     require_scene_change: bool = False
 
     baseline_scene_signature: tuple[tuple[object, ...], ...] | None = None
+
+    # Browser change verification used for actions such as click/back when
+    # no stronger action-specific postcondition is available.
+    require_browser_change: bool = False
+    baseline_browser_signature: tuple[object, ...] | None = None
