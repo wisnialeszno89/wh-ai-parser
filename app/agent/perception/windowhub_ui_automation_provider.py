@@ -476,7 +476,7 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
         item,
         *,
         max_depth: int = 8,
-    ) -> tuple[tuple[str | None, str | None, str | None], ...]:
+    ) -> tuple[tuple[str | None, str | None, str | None, int | None], ...]:
         """
         Capture a bounded semantic UIA ancestry path.
 
@@ -515,11 +515,15 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
             except Exception:
                 break
 
+            # Preserve the native handle separately from the descriptive
+            # ancestry. The consumer may compare identities privately, but
+            # should not treat ancestry alone as document ownership.
             context.append(
                 (
                     control_type,
                     class_name,
                     name,
+                    WindowHubUIAutomationProvider._native_handle(current),
                 )
             )
 
