@@ -14,6 +14,7 @@ from tools.diagnose_windowhub_field_scope import (
     _native_document_window_geometry_summary,
     _native_window_title_matches,
     _uia_native_document_control_correlation_census,
+    _uia_native_field_geometry_correlation_census,
 )
 
 
@@ -1023,6 +1024,88 @@ def test_uia_native_field_geometry_correlation_fails_closed_without_snapshot():
     assert result["uia_descendant_count"] == 0
     assert result["native_visible_field_like_control_count"] == 0
     assert result["document_context_native_field_like_control_count"] == 0
+
+
+def test_uia_native_geometry_census_identifies_tightest_container_by_counts(monkeypatch):
+    monkeypatch.setattr(
+        "tools.diagnose_windowhub_field_scope._native_parent_chain",
+        lambda handle: {
+            11: (11, 50, 100),
+            12: (12, 100),
+            13: (13, 50, 100),
+        }.get(handle),
+    )
+    document = {
+        "handle": 50,
+        "title": "PRIVATE_DOCUMENT",
+        "class_name": "Afx:MDIChild",
+        "visible": True,
+        "client_bounds_screen": (100, 100, 500, 500),
+    }
+    native_windows = (
+        {
+            "handle": 11, "title": "PRIVATE_EDIT_ONE", "class_name": "Edit",
+            "visible": True, "client_bounds_screen": (150, 150, 250, 180),
+        },
+        {
+            "handle": 12, "title": "PRIVATE_EDIT_OUTSIDE", "class_name": "Edit",
+            "visible": True, "client_bounds_screen": (600, 600, 700, 640),
+        },
+        {
+            "handle": 13, "title": "PRIVATE_COMBO_TWO", "class_name": "ComboBox",
+            "visible": True, "client_bounds_screen": (300, 150, 400, 180),
+        },
+    )
+
+    def uia(control_type, bounds):
+        left, top, right, bottom = bounds
+        rect = SimpleNamespace(
+            left=left, top=top, right=right, bottom=bottom,
+            width=lambda: right - left,
+            height=lambda: bottom - top,
+        )
+        return SimpleNamespace(
+            element_info=SimpleNamespace(
+                control_type=control_type, visible=True,
+            ),
+            rectangle=lambda: rect,
+        )
+
+    descendants = (
+        uia("Pane", (0, 0, 1000, 1000)),
+        uia("Custom", (145, 145, 255, 185)),
+        uia("Custom", (295, 145, 405, 185)),
+        uia("Other", (295, 145, 405, 185)),
+        uia("Other", (595, 595, 705, 645)),
+    )
+    result = _uia_native_field_geometry_correlation_census(
+        descendants,
+        provider=WindowHubUIAutomationProvider(),
+        native_windows=native_windows,
+        exact_active_document_windows=(document,),
+    )
+
+    assert result["native_visible_field_like_control_count"] == 3
+    assert result["document_context_native_field_like_control_count"] == 2
+    assert result["native_field_centers_contained_by_visible_uia_bounds_count"] == 3
+    assert result["document_context_field_centers_contained_by_visible_uia_bounds_count"] == 2
+    assert result["native_field_centers_with_unique_smallest_uia_container_count"] == 2
+    assert result["document_context_field_centers_with_unique_smallest_uia_container_count"] == 1
+    assert result["native_field_centers_with_tied_smallest_uia_container_count"] == 1
+    assert result["document_context_field_centers_with_tied_smallest_uia_container_count"] == 1
+    assert result["smallest_uia_container_control_type_counts"]["custom"] == 1
+    assert result["smallest_uia_container_control_type_counts"]["other"] == 1
+    assert result["smallest_uia_container_document_context_control_type_counts"]["custom"] == 1
+    assert result["smallest_uia_container_area_ratio_bucket_counts"]["1_to_1_5"] == 3
+    assert result["smallest_uia_container_document_context_area_ratio_bucket_counts"]["1_to_1_5"] == 2
+
+    rendered = repr(result)
+    for private_value in (
+        "PRIVATE_DOCUMENT", "PRIVATE_EDIT_ONE", "PRIVATE_EDIT_OUTSIDE",
+        "PRIVATE_COMBO_TWO", "11", "12", "13", "50", "(150, 150", "600",
+    ):
+        assert private_value.casefold() not in rendered.casefold()
+    assert "handle" not in rendered.casefold()
 
 
 def test_uia_native_document_control_correlation_links_nonstandard_nodes_by_handle(monkeypatch):
