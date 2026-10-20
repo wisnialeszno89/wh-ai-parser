@@ -724,6 +724,8 @@ def main() -> int:
             ),
             "document_tabs": document_tabs,
             "native_document_window_probe": native_document_window_summary,
+            "uia_raw_field_candidate_census": uia_raw_field_candidate_census,
+            "scene_field_element_census": scene_field_element_census,
             "readable_form_field_count": len(fields),
             "field_scope_diagnostics": [
                 _field_diagnostic(
