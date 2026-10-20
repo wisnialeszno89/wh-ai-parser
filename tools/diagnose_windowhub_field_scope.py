@@ -408,6 +408,10 @@ def _native_field_hwnd_geometry_census(
         "root_relative_intersects_count": None,
         "screen_relative_intersects_count": None,
         "root_client_relative_intersects_count": None,
+        "edge_alignment_tolerance_px": (2, 4, 8, 16, 32),
+        "root_relative_edges_within_tolerance_counts": None,
+        "screen_relative_edges_within_tolerance_counts": None,
+        "root_client_relative_edges_within_tolerance_counts": None,
         "matched_native_class_buckets": {},
     }
     if native_windows is None:
@@ -444,6 +448,15 @@ def _native_field_hwnd_geometry_census(
     root_relative_intersects_count = 0
     screen_relative_intersects_count = 0
     root_client_relative_intersects_count = 0
+    tolerances = (2, 4, 8, 16, 32)
+    edge_alignment_counts = {
+        candidate: {str(tolerance): 0 for tolerance in tolerances}
+        for candidate in (
+            "root_relative",
+            "screen_relative",
+            "root_client_relative",
+        )
+    }
 
     for field in tuple(fields or ()):
         field_count += 1
@@ -505,32 +518,53 @@ def _native_field_hwnd_geometry_census(
                 and field_bottom > top
             )
 
+        def record_edge_alignment(candidate, left, top, right, bottom):
+            # Compare four corresponding rectangle edges. A count within a
+            # tolerance is more discriminating than overlap alone. Native
+            # client bounds may be inset slightly by borders, so use several
+            # small tolerances and emit counts only.
+            max_edge_delta = max(
+                abs(field_left - left),
+                abs(field_top - top),
+                abs(field_right - right),
+                abs(field_bottom - bottom),
+            )
+            for tolerance in tolerances:
+                if max_edge_delta <= tolerance:
+                    edge_alignment_counts[candidate][str(tolerance)] += 1
+
         # UIA ScreenElement bounds are translated by the observed root
         # window's screen origin in WindowHubUIAutomationProvider.
-        if intersects(
+        root_bounds = (
             native_left - root_left,
             native_top - root_top,
             native_right - root_left,
             native_bottom - root_top,
-        ):
+        )
+        if intersects(*root_bounds):
             root_relative_intersects_count += 1
+        record_edge_alignment("root_relative", *root_bounds)
 
-        if intersects(
+        screen_bounds = (
             native_left,
             native_top,
             native_right,
             native_bottom,
-        ):
+        )
+        if intersects(*screen_bounds):
             screen_relative_intersects_count += 1
+        record_edge_alignment("screen_relative", *screen_bounds)
 
         if client_left is not None and client_top is not None:
-            if intersects(
+            root_client_bounds = (
                 native_left - client_left,
                 native_top - client_top,
                 native_right - client_left,
                 native_bottom - client_top,
-            ):
+            )
+            if intersects(*root_client_bounds):
                 root_client_relative_intersects_count += 1
+            record_edge_alignment("root_client_relative", *root_client_bounds)
 
     return {
         "available": True,
@@ -543,6 +577,10 @@ def _native_field_hwnd_geometry_census(
         "root_relative_intersects_count": root_relative_intersects_count,
         "screen_relative_intersects_count": screen_relative_intersects_count,
         "root_client_relative_intersects_count": root_client_relative_intersects_count,
+        "edge_alignment_tolerance_px": tolerances,
+        "root_relative_edges_within_tolerance_counts": edge_alignment_counts["root_relative"],
+        "screen_relative_edges_within_tolerance_counts": edge_alignment_counts["screen_relative"],
+        "root_client_relative_edges_within_tolerance_counts": edge_alignment_counts["root_client_relative"],
         "matched_native_class_buckets": class_counts,
     }
 
