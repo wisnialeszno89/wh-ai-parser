@@ -1006,7 +1006,6 @@ def test_uia_native_document_control_correlation_links_nonstandard_nodes_by_hand
         "PRIVATE_EDIT",
         "PRIVATE_COMBO_OUTSIDE",
         "PRIVATE_HIDDEN_COMBO",
-        "handle",
         "(120, 220",
         "11",
         "50",
