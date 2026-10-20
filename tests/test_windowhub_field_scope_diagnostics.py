@@ -495,6 +495,7 @@ def test_coordinate_origin_probe_reports_candidates_without_coordinates_or_scope
         field,
         exact_active_document_windows=(window,),
         root_window_rect=root,
+        root_client_bounds_screen=(100, 100, 900, 700),
     )
 
     assert result == {
