@@ -102,6 +102,53 @@ def _normalized_window_text(value):
     return " ".join(value.split()).casefold()
 
 
+def _native_client_bounds_screen(handle):
+    """Return a Win32 client rectangle in screen coordinates, internally only."""
+    hwnd_value = _positive_handle(handle)
+    if os.name != "nt" or hwnd_value is None:
+        return None
+    try:
+        user32 = ctypes.WinDLL("user32", use_last_error=True)
+
+        class _RECT(ctypes.Structure):
+            _fields_ = (
+                ("left", ctypes.c_long),
+                ("top", ctypes.c_long),
+                ("right", ctypes.c_long),
+                ("bottom", ctypes.c_long),
+            )
+
+        class _POINT(ctypes.Structure):
+            _fields_ = (("x", ctypes.c_long), ("y", ctypes.c_long))
+
+        get_client_rect = user32.GetClientRect
+        get_client_rect.argtypes = (ctypes.c_void_p, ctypes.POINTER(_RECT))
+        get_client_rect.restype = ctypes.c_int
+        client_to_screen = user32.ClientToScreen
+        client_to_screen.argtypes = (ctypes.c_void_p, ctypes.POINTER(_POINT))
+        client_to_screen.restype = ctypes.c_int
+
+        hwnd = ctypes.c_void_p(hwnd_value)
+        rect = _RECT()
+        if not get_client_rect(hwnd, ctypes.byref(rect)):
+            return None
+        top_left = _POINT(rect.left, rect.top)
+        bottom_right = _POINT(rect.right, rect.bottom)
+        if not (
+            client_to_screen(hwnd, ctypes.byref(top_left))
+            and client_to_screen(hwnd, ctypes.byref(bottom_right))
+            and bottom_right.x > top_left.x
+            and bottom_right.y > top_left.y
+        ):
+            return None
+        return (
+            int(top_left.x), int(top_left.y),
+            int(bottom_right.x), int(bottom_right.y),
+        )
+    except Exception:
+        return None
+
+
 def _native_child_window_snapshot(root_handle):
     """Enumerate native child HWNDs without returning their names to callers."""
     root = _positive_handle(root_handle)
