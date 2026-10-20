@@ -181,7 +181,9 @@ def test_nonstandard_uia_census_counts_value_patterns_without_emitting_text():
         class_name="WindowsForms10.Window.8.app.0",
         automation_id="SECRET_AUTOMATION_ID",
     )
-    winforms_custom.iface_value = object()
+    winforms_custom.iface_value = SimpleNamespace(
+        CurrentValue="PRIVATE_CURRENT_VALUE_DO_NOT_LEAK"
+    )
     winforms_custom.iface_text = object()
 
     mfc_other = FakeUIAItem(
@@ -195,8 +197,8 @@ def test_nonstandard_uia_census_counts_value_patterns_without_emitting_text():
         class_name="Afx:Wnd42",
         automation_id="SECRET_OTHER_ID",
     )
-    mfc_other.iface_legacy_iaccessible = object()
-    mfc_other.iface_value = object()
+    mfc_other.iface_legacy_iaccessible = SimpleNamespace(CurrentValue="")
+    mfc_other.iface_value = SimpleNamespace(CurrentValue=123)
 
     no_pattern = FakeUIAItem(
         name="SENSITIVE_EMPTY_NAME",
@@ -223,9 +225,16 @@ def test_nonstandard_uia_census_counts_value_patterns_without_emitting_text():
     assert by_type["custom"]["native_handle_present_count"] == 1
     assert by_type["custom"]["value_pattern_count"] == 1
     assert by_type["custom"]["text_pattern_count"] == 1
+    assert by_type["custom"]["value_pattern_current_value_read_count"] == 1
+    assert by_type["custom"]["value_pattern_current_value_nonempty_string_count"] == 1
+    assert by_type["custom"]["value_pattern_current_value_empty_string_count"] == 0
     assert by_type["other"]["count"] == 1
     assert by_type["other"]["value_pattern_count"] == 1
     assert by_type["other"]["legacy_iaccessible_pattern_count"] == 1
+    assert by_type["other"]["value_pattern_current_value_read_count"] == 1
+    assert by_type["other"]["value_pattern_current_value_nonstring_count"] == 1
+    assert by_type["other"]["legacy_current_value_read_count"] == 1
+    assert by_type["other"]["legacy_current_value_empty_string_count"] == 1
 
     class_buckets = result["class_bucket_counts"]
     assert class_buckets["custom"]["windows_forms"] == 1
@@ -234,6 +243,7 @@ def test_nonstandard_uia_census_counts_value_patterns_without_emitting_text():
 
     rendered = repr(result)
     for private_text in (
+        "PRIVATE_CURRENT_VALUE_DO_NOT_LEAK",
         "SENSITIVE_CUSTOM_NAME",
         "SENSITIVE_OTHER_NAME",
         "SENSITIVE_EMPTY_NAME",
