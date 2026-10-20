@@ -524,10 +524,12 @@ def _uia_nonstandard_candidate_summary(descendants, provider):
             ("value", "value_pattern_current_value"),
             ("legacy_iaccessible", "legacy_current_value"),
         ):
+            # A missing/unavailable pattern is not a failed value read.
+            # Count a read error only after the pattern interface exists and
+            # CurrentValue itself could not be retrieved.
             try:
                 pattern_iface = getattr(item, f"iface_{pattern_name}", None)
             except Exception:
-                row[f"{prefix}_read_error_count"] += 1
                 continue
             if pattern_iface is None:
                 continue
