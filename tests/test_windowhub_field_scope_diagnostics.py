@@ -1397,6 +1397,116 @@ def test_uia_native_document_control_correlation_links_nonstandard_nodes_by_hand
         assert private_value.casefold() not in rendered.casefold()
 
 
+def test_document_context_native_fields_report_uia_coverage_without_scope_inference(monkeypatch):
+    parent_chains = {
+        11: (11, 50, 100),
+        12: (12, 50, 100),
+        13: (13, 50, 100),
+        50: (50, 100),
+    }
+    monkeypatch.setattr(
+        "tools.diagnose_windowhub_field_scope._native_parent_chain",
+        lambda handle: parent_chains.get(handle),
+    )
+
+    document = {
+        "handle": 50,
+        "title": "PRIVATE_ACTIVE_DOCUMENT",
+        "class_name": "Afx:MDIChild",
+        "visible": True,
+        "client_bounds_screen": (100, 100, 500, 500),
+    }
+    native_windows = (
+        {
+            "handle": 11,
+            "title": "PRIVATE_EDIT_SURFACED_AS_PANE",
+            "class_name": "Edit",
+            "visible": True,
+            "client_bounds_screen": (120, 120, 200, 150),
+        },
+        {
+            "handle": 12,
+            "title": "PRIVATE_COMBO_SURFACED_AS_EDIT",
+            "class_name": "ComboBox",
+            "visible": True,
+            "client_bounds_screen": (220, 120, 300, 150),
+        },
+        {
+            "handle": 13,
+            "title": "PRIVATE_EDIT_NOT_EXPOSED",
+            "class_name": "Edit",
+            "visible": True,
+            "client_bounds_screen": (320, 120, 400, 150),
+        },
+        document,
+    )
+
+    def uia(control_type, handle):
+        return SimpleNamespace(
+            element_info=SimpleNamespace(
+                control_type=control_type,
+                handle=handle,
+                visible=True,
+                name="PRIVATE_UIA_NAME",
+            )
+        )
+
+    result = _uia_native_document_control_correlation_census(
+        (
+            uia("Pane", 11),
+            uia("Edit", 12),
+            uia("Custom", 50),
+        ),
+        provider=WindowHubUIAutomationProvider(),
+        native_windows=native_windows,
+        exact_active_document_windows=(document,),
+        observed_root_handle=100,
+    )
+
+    assert result["available"] is True
+    assert result["document_window_identity_available"] is True
+    assert result["document_client_bounds_available"] is True
+    assert result["document_context_native_field_like_control_count"] == 3
+    assert result["document_context_native_field_like_uia_handle_match_count"] == 2
+    assert result["document_context_native_field_like_uia_field_type_match_count"] == 1
+    assert result["document_context_native_field_like_uia_non_field_type_only_match_count"] == 1
+    assert result["document_context_native_field_like_uia_handle_missing_count"] == 1
+
+    assert result["document_context_native_field_like_uia_control_type_match_counts"]["pane"] == 1
+    assert result["document_context_native_field_like_uia_control_type_match_counts"]["edit"] == 1
+    assert result["document_context_native_field_like_by_class"]["win32_edit"] == {
+        "count": 2,
+        "uia_handle_match_count": 1,
+        "uia_field_type_match_count": 0,
+        "uia_non_field_type_only_match_count": 1,
+        "uia_handle_missing_count": 1,
+    }
+    assert result["document_context_native_field_like_by_class"]["win32_combobox"] == {
+        "count": 1,
+        "uia_handle_match_count": 1,
+        "uia_field_type_match_count": 1,
+        "uia_non_field_type_only_match_count": 0,
+        "uia_handle_missing_count": 0,
+    }
+
+    # These are coverage observations only; they must not set semantic scope.
+    rendered = repr(result)
+    for private_value in (
+        "PRIVATE_ACTIVE_DOCUMENT",
+        "PRIVATE_EDIT_SURFACED_AS_PANE",
+        "PRIVATE_COMBO_SURFACED_AS_EDIT",
+        "PRIVATE_EDIT_NOT_EXPOSED",
+        "PRIVATE_UIA_NAME",
+        "11",
+        "12",
+        "13",
+        "50",
+        "100",
+        "(120, 120",
+    ):
+        assert private_value not in rendered
+
+
 def test_uia_native_document_control_correlation_fails_closed_without_native_snapshot():
     descendant = SimpleNamespace(
         element_info=SimpleNamespace(
