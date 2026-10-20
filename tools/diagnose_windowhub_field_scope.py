@@ -426,14 +426,9 @@ def _field_coordinate_origin_probe(
     )
     # Candidate B: UIA field bounds are already screen-relative.
     screen_relative = (screen_left, screen_top, screen_right, screen_bottom)
-    # Candidate C: use the actual root HWND client origin from Win32,
-    # converted to screen coordinates with ClientToScreen.
-    root_client_relative = (
-        screen_left - client_left,
-        screen_top - client_top,
-        screen_right - client_left,
-        screen_bottom - client_top,
-    )
+    # Candidate C: the native child client rectangle as screen coordinates
+    # versus the UIA field bounds without translating either rectangle.
+    root_client_relative = screen_relative
     return {
         "available": True,
         "root_relative_intersects": intersects(*root_relative),
