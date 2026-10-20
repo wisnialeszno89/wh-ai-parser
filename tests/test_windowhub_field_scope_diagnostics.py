@@ -1025,7 +1025,7 @@ def test_uia_native_field_geometry_correlation_fails_closed_without_snapshot():
     assert result["document_context_native_field_like_control_count"] == 0
 
 
-def test_uia_structural_ancestor_census_reports_document_tab_relationships_only():
+def test_uia_structural_ancestor_census_reports_document_tab_relationships_only(monkeypatch):
     def node(control_type, bounds, *, class_name="", name=None, parent=None):
         left, top, right, bottom = bounds
         rectangle = SimpleNamespace(
@@ -1090,26 +1090,25 @@ def test_uia_structural_ancestor_census_reports_document_tab_relationships_only(
             "client_bounds_screen": (600, 600, 700, 640),
         },
     )
-    monkeypatch = None
     from tools.diagnose_windowhub_field_scope import (
         _uia_native_field_geometry_correlation_census,
     )
     # Keep the native ancestry synthetic and deterministic.
     import tools.diagnose_windowhub_field_scope as diagnostic
-    original_parent_chain = diagnostic._native_parent_chain
-    diagnostic._native_parent_chain = lambda handle: {
-        11: (11, 50, 100),
-        12: (12, 100),
-    }.get(handle)
-    try:
-        result = _uia_native_field_geometry_correlation_census(
-            (tight_pane, outside_container),
-            provider=WindowHubUIAutomationProvider(),
-            native_windows=native_windows,
-            exact_active_document_windows=(document,),
-        )
-    finally:
-        diagnostic._native_parent_chain = original_parent_chain
+    monkeypatch.setattr(
+        diagnostic,
+        "_native_parent_chain",
+        lambda handle: {
+            11: (11, 50, 100),
+            12: (12, 100),
+        }.get(handle),
+    )
+    result = _uia_native_field_geometry_correlation_census(
+        (tight_pane, outside_container),
+        provider=WindowHubUIAutomationProvider(),
+        native_windows=native_windows,
+        exact_active_document_windows=(document,),
+    )
 
     structural = result["uia_structural_ancestor_census"]
     assert structural["available"] is True
