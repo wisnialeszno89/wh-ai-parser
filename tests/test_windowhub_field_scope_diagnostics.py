@@ -4,6 +4,7 @@ from tools.diagnose_windowhub_field_scope import (
     _field_diagnostic,
     _field_document_window_geometry,
     _field_coordinate_origin_probe,
+    _native_child_window_control_census,
     _native_document_window_geometry_summary,
     _native_window_title_matches,
 )
@@ -475,11 +476,11 @@ def test_document_geometry_summary_emits_counts_only():
 
 
 
-def test_coordinate_origin_probe_reports_candidates_without_coordinates_or_scope():
+def test_coordinate_origin_probe_uses_windowrect_dimensions_and_distinguishes_origins():
     field = SimpleNamespace(
         label="PRIVATE_FIELD",
         value="PRIVATE_VALUE",
-        element=SimpleNamespace(x=250, y=250, width=20, height=20),
+        element=SimpleNamespace(x=15, y=60, width=20, height=20),
         document_scope=None,
         scope_status="unknown",
     )
@@ -489,26 +490,28 @@ def test_coordinate_origin_probe_reports_candidates_without_coordinates_or_scope
         "visible": True,
         "client_bounds_screen": (120, 180, 420, 480),
     }
-    root = SimpleNamespace(left=100, top=100, right=900, bottom=700)
+    # Match the real WindowRect shape: left/top/width/height, without
+    # right/bottom properties.
+    root = SimpleNamespace(left=100, top=100, width=800, height=600)
 
     result = _field_coordinate_origin_probe(
         field,
         exact_active_document_windows=(window,),
         root_window_rect=root,
-        root_client_bounds_screen=(100, 100, 900, 700),
+        root_client_bounds_screen=(110, 130, 890, 690),
     )
 
     assert result == {
         "available": True,
-        "root_relative_intersects": True,
-        "screen_relative_intersects": True,
+        "root_relative_intersects": False,
+        "screen_relative_intersects": False,
         "root_client_relative_intersects": True,
     }
     assert "PRIVATE_FIELD" not in repr(result)
     assert "PRIVATE_VALUE" not in repr(result)
     assert "PRIVATE_DOCUMENT" not in repr(result)
     assert "456789" not in repr(result)
-    assert "250" not in repr(result)
+    assert "15" not in repr(result)
     assert field.document_scope is None
     assert field.scope_status == "unknown"
 
@@ -544,3 +547,89 @@ def test_coordinate_origin_probe_stays_unknown_without_unique_visible_client():
         root_window_rect=root,
         root_client_bounds_screen=(0, 0, 100, 100),
     )["available"] is False
+
+
+def test_native_child_window_control_census_reports_class_counts_only():
+    windows = (
+        {
+            "handle": 101,
+            "title": "PRIVATE WINDOW TEXT",
+            "class_name": "Edit",
+            "visible": True,
+            "client_bounds_screen": (10, 10, 120, 35),
+        },
+        {
+            "handle": 102,
+            "title": "",
+            "class_name": "ComboBox",
+            "visible": True,
+            "client_bounds_screen": (10, 40, 120, 70),
+        },
+        {
+            "handle": 103,
+            "title": "PRIVATE MFC WINDOW",
+            "class_name": "Afx:MDIChild",
+            "visible": False,
+            "client_bounds_screen": None,
+        },
+        {
+            "handle": 104,
+            "title": "",
+            "class_name": "WindowsForms10.EDIT.app.0",
+            "visible": True,
+            "client_bounds_screen": (20, 80, 130, 105),
+        },
+        {
+            "handle": 105,
+            "title": "",
+            "class_name": None,
+            "visible": False,
+            "client_bounds_screen": None,
+        },
+    )
+
+    result = _native_child_window_control_census(windows)
+
+    assert result["available"] is True
+    assert result["descendant_count"] == 5
+    assert result["field_like_native_control_count"] == 3
+    assert result["by_class"]["win32_edit"] == {
+        "count": 1,
+        "visible_count": 1,
+        "positive_bounds_count": 1,
+        "native_text_present_count": 1,
+    }
+    assert result["by_class"]["win32_combobox"] == {
+        "count": 1,
+        "visible_count": 1,
+        "positive_bounds_count": 1,
+        "native_text_present_count": 0,
+    }
+    assert result["by_class"]["afx_mfc"]["count"] == 1
+    assert result["by_class"]["windows_forms_edit"]["count"] == 1
+    assert result["by_class"]["class_unavailable"]["count"] == 1
+
+    rendered = repr(result)
+    for private_value in (
+        "PRIVATE WINDOW TEXT",
+        "PRIVATE MFC WINDOW",
+        "101",
+        "102",
+        "103",
+        "104",
+        "105",
+        "10",
+        "120",
+        "Afx:MDIChild",
+    ):
+        assert private_value not in rendered
+
+
+def test_native_child_window_control_census_fails_closed_without_snapshot():
+    assert _native_child_window_control_census(None) == {
+        "available": False,
+        "descendant_count": None,
+        "field_like_native_control_count": None,
+        "by_class": {},
+    }
+
