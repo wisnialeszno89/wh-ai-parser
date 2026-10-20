@@ -96,6 +96,130 @@ def _native_window_relationships(native_handle, root_handle):
     return result
 
 
+def _normalized_window_text(value):
+    if not isinstance(value, str):
+        return ""
+    return " ".join(value.split()).casefold()
+
+
+def _native_child_window_snapshot(root_handle):
+    """Enumerate native child HWNDs without returning their names to callers."""
+    root = _positive_handle(root_handle)
+    if os.name != "nt" or root is None:
+        return None
+
+    try:
+        user32 = ctypes.WinDLL("user32", use_last_error=True)
+
+        enum_proc_type = ctypes.WINFUNCTYPE(
+            ctypes.c_int,
+            ctypes.c_void_p,
+            ctypes.c_ssize_t,
+        )
+        get_text = user32.GetWindowTextW
+        get_text.argtypes = (ctypes.c_void_p, ctypes.c_wchar_p, ctypes.c_int)
+        get_text.restype = ctypes.c_int
+        get_text_length = user32.GetWindowTextLengthW
+        get_text_length.argtypes = (ctypes.c_void_p,)
+        get_text_length.restype = ctypes.c_int
+        get_class = user32.GetClassNameW
+        get_class.argtypes = (ctypes.c_void_p, ctypes.c_wchar_p, ctypes.c_int)
+        get_class.restype = ctypes.c_int
+        is_visible = user32.IsWindowVisible
+        is_visible.argtypes = (ctypes.c_void_p,)
+        is_visible.restype = ctypes.c_int
+        enum_children = user32.EnumChildWindows
+        enum_children.argtypes = (ctypes.c_void_p, enum_proc_type, ctypes.c_ssize_t)
+        enum_children.restype = ctypes.c_int
+
+        windows = []
+
+        def add_window(raw_handle, _lparam):
+            handle = _positive_handle(raw_handle)
+            if handle is None:
+                return True
+            hwnd = ctypes.c_void_p(handle)
+
+            text_length = max(0, int(get_text_length(hwnd)))
+            title_buffer = ctypes.create_unicode_buffer(min(text_length + 1, 2048))
+            if title_buffer:
+                get_text(hwnd, title_buffer, len(title_buffer))
+
+            class_buffer = ctypes.create_unicode_buffer(256)
+            get_class(hwnd, class_buffer, len(class_buffer))
+
+            windows.append({
+                "handle": handle,
+                "title": title_buffer.value,
+                "class_name": class_buffer.value,
+                "visible": bool(is_visible(hwnd)),
+            })
+            return True
+
+        callback = enum_proc_type(add_window)
+        succeeded = bool(enum_children(ctypes.c_void_p(root), callback, 0))
+        if not succeeded:
+            return None
+        return tuple(windows)
+    except Exception:
+        return None
+
+
+def _native_window_title_matches(active_document, windows):
+    """Return internal candidate records plus a sanitized count summary."""
+    normalized_document = _normalized_window_text(active_document)
+    if windows is None or not normalized_document:
+        return (), {
+            "available": windows is not None,
+            "descendant_native_window_count": len(windows) if windows is not None else None,
+            "active_document_exact_title_match_count": None,
+            "active_document_substring_title_match_count": None,
+        }
+
+    exact = tuple(
+        item for item in windows
+        if _normalized_window_text(item.get("title")) == normalized_document
+    )
+    substring = tuple(
+        item for item in windows
+        if (
+            normalized_document in _normalized_window_text(item.get("title"))
+            or _normalized_window_text(item.get("title")) in normalized_document
+        )
+        and _normalized_window_text(item.get("title"))
+    )
+    return exact, {
+        "available": True,
+        "descendant_native_window_count": len(windows),
+        "active_document_exact_title_match_count": len(exact),
+        "active_document_substring_title_match_count": len(substring),
+    }
+
+
+def _native_parent_chain(handle):
+    """Return an internal HWND parent chain, or None when Win32 lookup fails."""
+    start = _positive_handle(handle)
+    if os.name != "nt" or start is None:
+        return None
+    try:
+        user32 = ctypes.WinDLL("user32", use_last_error=True)
+        get_parent = user32.GetParent
+        get_parent.argtypes = (ctypes.c_void_p,)
+        get_parent.restype = ctypes.c_void_p
+
+        chain = [start]
+        current = start
+        for _ in range(64):
+            parent = _positive_handle(get_parent(ctypes.c_void_p(current)))
+            if parent is None or parent == current:
+                break
+            chain.append(parent)
+            current = parent
+        return tuple(chain)
+    except Exception:
+        return None
+
+
 def _field_diagnostic(
     field,
     *,
@@ -103,6 +227,8 @@ def _field_diagnostic(
     native_relationships=None,
     active_document=None,
     selected_document_tab_native_handle=None,
+    exact_active_document_window_handles=(),
+    native_child_window_probe_available=False,
 ):
     """Return field scope facts while deliberately excluding all field values."""
     metadata = getattr(field.element, "metadata", None) or {}
@@ -162,6 +288,36 @@ def _field_diagnostic(
         and (handle := _positive_handle(item[3])) is not None
     ]
 
+    field_or_ancestor_native_handle_match = None
+    native_parent_chain_matches_active_document_window = None
+    if native_child_window_probe_available:
+        exact_handles = tuple(
+            handle
+            for raw in exact_active_document_window_handles
+            if (handle := _positive_handle(raw)) is not None
+        )
+        if not exact_handles:
+            field_or_ancestor_native_handle_match = False
+            native_parent_chain_matches_active_document_window = False
+        else:
+            observed_handles = []
+            if field_native_handle is not None:
+                observed_handles.append(field_native_handle)
+            observed_handles.extend(ancestor_native_handles)
+            field_or_ancestor_native_handle_match = any(
+                handle in exact_handles for handle in observed_handles
+            )
+
+            chains = [
+                _native_parent_chain(handle)
+                for handle in observed_handles
+            ]
+            known_chains = [chain for chain in chains if chain is not None]
+            if any(set(chain).intersection(exact_handles) for chain in known_chains):
+                native_parent_chain_matches_active_document_window = True
+            elif observed_handles and len(known_chains) == len(observed_handles):
+                native_parent_chain_matches_active_document_window = False
+
     return {
         "label": field.label,
         "control_type": field.control_type,
@@ -197,6 +353,12 @@ def _field_diagnostic(
             selected_tab_handle in ancestor_native_handles
             if selected_tab_handle is not None and ancestor_native_handles
             else (False if selected_tab_handle is not None else None)
+        ),
+        "field_or_ancestor_handle_matches_active_document_title_window": (
+            field_or_ancestor_native_handle_match
+        ),
+        "native_parent_chain_matches_active_document_title_window": (
+            native_parent_chain_matches_active_document_window
         ),
         "current_value_present": (
             isinstance(current_value, str) and bool(current_value.strip())
@@ -276,6 +438,16 @@ def main() -> int:
             if len(selected_tab_handles) == 1
             else None
         )
+        native_child_windows = _native_child_window_snapshot(root_handle)
+        exact_native_document_windows, native_document_window_summary = (
+            _native_window_title_matches(
+                scene.active_document,
+                native_child_windows,
+            )
+        )
+        exact_native_document_window_handles = tuple(
+            item["handle"] for item in exact_native_document_windows
+        )
         document_tabs = []
         for index, element in enumerate(document_tab_elements):
             handle = document_tab_handles[index]
@@ -318,6 +490,7 @@ def main() -> int:
                 "selected_document_tab_count", 0
             ),
             "document_tabs": document_tabs,
+            "native_document_window_probe": native_document_window_summary,
             "readable_form_field_count": len(fields),
             "field_scope_diagnostics": [
                 _field_diagnostic(
@@ -326,6 +499,12 @@ def main() -> int:
                     active_document=scene.active_document,
                     selected_document_tab_native_handle=(
                         selected_document_tab_native_handle
+                    ),
+                    exact_active_document_window_handles=(
+                        exact_native_document_window_handles
+                    ),
+                    native_child_window_probe_available=(
+                        native_child_windows is not None
                     ),
                 )
                 for field in fields

@@ -1,6 +1,9 @@
 from types import SimpleNamespace
 
-from tools.diagnose_windowhub_field_scope import _field_diagnostic
+from tools.diagnose_windowhub_field_scope import (
+    _field_diagnostic,
+    _native_window_title_matches,
+)
 
 
 def make_field(*, value, metadata, label="Szerokość", scope=None, status="unknown"):
@@ -228,6 +231,94 @@ def test_tab_native_handle_correlation_stays_unknown_when_tab_handle_missing():
     assert result["ancestor_native_handle_matches_selected_document_tab"] is None
     assert result["scope_status"] == "unknown"
     assert result["document_scope"] is None
+
+
+def test_native_document_child_window_title_probe_returns_only_sanitized_counts():
+    document_label = "OFR/4306-4235 <>"
+    windows = (
+        {
+            "handle": 501,
+            "title": document_label,
+            "class_name": "Afx:MDIChild",
+            "visible": True,
+        },
+        {
+            "handle": 502,
+            "title": "Podgląd wydruku <OFR/4306-4235 <>",
+            "class_name": "WindowsForms10.Window",
+            "visible": True,
+        },
+        {
+            "handle": 503,
+            "title": "Inna oferta",
+            "class_name": "Afx:MDIChild",
+            "visible": False,
+        },
+    )
+
+    exact, summary = _native_window_title_matches(document_label, windows)
+
+    assert tuple(item["handle"] for item in exact) == (501,)
+    assert summary == {
+        "available": True,
+        "descendant_native_window_count": 3,
+        "active_document_exact_title_match_count": 1,
+        "active_document_substring_title_match_count": 2,
+    }
+    rendered = repr(summary)
+    assert document_label not in rendered
+    assert "Podgląd wydruku" not in rendered
+    assert "501" not in rendered
+
+
+def test_native_document_child_window_probe_stays_unknown_when_snapshot_unavailable():
+    exact, summary = _native_window_title_matches(
+        "OFR/4306-4235",
+        None,
+    )
+
+    assert exact == ()
+    assert summary == {
+        "available": False,
+        "descendant_native_window_count": None,
+        "active_document_exact_title_match_count": None,
+        "active_document_substring_title_match_count": None,
+    }
+
+
+def test_native_child_window_matches_are_boolean_only_and_do_not_assign_scope(monkeypatch):
+    # Keep this unit test independent from unrelated HWNDs on the runner.
+    monkeypatch.setattr(
+        "tools.diagnose_windowhub_field_scope._native_parent_chain",
+        lambda _handle: None,
+    )
+    active_document = "OFR/4306-4235"
+    field = make_field(
+        value="DO-NOT-PRINT-THIS",
+        metadata={
+            "uia_native_handle": 701,
+            "uia_ancestor_context": (
+                ("Window", "Afx:MDIChild", active_document, 501),
+            ),
+        },
+    )
+
+    result = _field_diagnostic(
+        field,
+        active_document=active_document,
+        exact_active_document_window_handles=(501,),
+        native_child_window_probe_available=True,
+    )
+
+    rendered = repr(result)
+    assert result["field_or_ancestor_handle_matches_active_document_title_window"] is True
+    assert result["native_parent_chain_matches_active_document_title_window"] is None
+    assert result["scope_status"] == "unknown"
+    assert result["document_scope"] is None
+    assert "DO-NOT-PRINT-THIS" not in rendered
+    assert active_document not in rendered
+    assert "501" not in rendered
+    assert "701" not in rendered
 
 
 def test_field_scope_diagnostic_preserves_explicit_document_scope():
