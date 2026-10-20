@@ -384,6 +384,169 @@ def _native_child_window_control_census(windows):
     }
 
 
+def _native_field_hwnd_geometry_census(
+    fields,
+    native_windows,
+    *,
+    root_window_rect=None,
+    root_client_bounds_screen=None,
+):
+    """Correlate field HWNDs with native descendant bounds and report counts only.
+
+    This is a geometry/provider diagnostic. An HWND match or rectangle
+    intersection is not evidence of active-document ownership and never
+    changes document_scope or authorizes actions.
+    """
+    unknown = {
+        "available": False,
+        "fields_considered": len(tuple(fields or ())),
+        "fields_with_native_handle_count": None,
+        "field_handle_matches_native_descendant_count": None,
+        "matched_native_visible_count": None,
+        "matched_native_bounds_available_count": None,
+        "paired_geometry_available_count": None,
+        "root_relative_intersects_count": None,
+        "screen_relative_intersects_count": None,
+        "root_client_relative_intersects_count": None,
+        "matched_native_class_buckets": {},
+    }
+    if native_windows is None:
+        return unknown
+
+    records = tuple(native_windows)
+    by_handle = {}
+    for item in records:
+        handle = _positive_handle(item.get("handle"))
+        if handle is not None:
+            by_handle.setdefault(handle, item)
+
+    try:
+        root_left = int(getattr(root_window_rect, "left"))
+        root_top = int(getattr(root_window_rect, "top"))
+    except (TypeError, ValueError, AttributeError, OverflowError):
+        root_left = root_top = None
+
+    try:
+        client_left = int(root_client_bounds_screen[0])
+        client_top = int(root_client_bounds_screen[1])
+        if len(root_client_bounds_screen) != 4:
+            client_left = client_top = None
+    except (TypeError, ValueError, IndexError, OverflowError):
+        client_left = client_top = None
+
+    class_counts = {bucket: 0 for bucket in _NATIVE_WINDOW_CLASS_BUCKETS}
+    field_count = 0
+    native_handle_count = 0
+    handle_match_count = 0
+    visible_match_count = 0
+    bounds_available_count = 0
+    geometry_available_count = 0
+    root_relative_intersects_count = 0
+    screen_relative_intersects_count = 0
+    root_client_relative_intersects_count = 0
+
+    for field in tuple(fields or ()):
+        field_count += 1
+        metadata = getattr(getattr(field, "element", None), "metadata", None) or {}
+        native_handle = _positive_handle(metadata.get("uia_native_handle"))
+        if native_handle is None:
+            continue
+        native_handle_count += 1
+        native_window = by_handle.get(native_handle)
+        if native_window is None:
+            continue
+
+        handle_match_count += 1
+        if native_window.get("visible") is True:
+            visible_match_count += 1
+        class_bucket = _native_window_class_bucket(
+            native_window.get("class_name")
+        )
+        class_counts[class_bucket] += 1
+
+        native_bounds = native_window.get("client_bounds_screen")
+        if not (
+            isinstance(native_bounds, (tuple, list))
+            and len(native_bounds) == 4
+        ):
+            continue
+        try:
+            native_left, native_top, native_right, native_bottom = (
+                int(value) for value in native_bounds
+            )
+            if native_right <= native_left or native_bottom <= native_top:
+                continue
+        except (TypeError, ValueError, OverflowError):
+            continue
+        bounds_available_count += 1
+
+        element = getattr(field, "element", None)
+        try:
+            field_left = int(getattr(element, "x"))
+            field_top = int(getattr(element, "y"))
+            field_width = int(getattr(element, "width"))
+            field_height = int(getattr(element, "height"))
+        except (TypeError, ValueError, AttributeError, OverflowError):
+            continue
+        if field_width <= 0 or field_height <= 0:
+            continue
+        if root_left is None or root_top is None:
+            continue
+
+        geometry_available_count += 1
+        field_right = field_left + field_width
+        field_bottom = field_top + field_height
+
+        def intersects(left, top, right, bottom):
+            return (
+                field_left < right
+                and field_right > left
+                and field_top < bottom
+                and field_bottom > top
+            )
+
+        # UIA ScreenElement bounds are translated by the observed root
+        # window's screen origin in WindowHubUIAutomationProvider.
+        if intersects(
+            native_left - root_left,
+            native_top - root_top,
+            native_right - root_left,
+            native_bottom - root_top,
+        ):
+            root_relative_intersects_count += 1
+
+        if intersects(
+            native_left,
+            native_top,
+            native_right,
+            native_bottom,
+        ):
+            screen_relative_intersects_count += 1
+
+        if client_left is not None and client_top is not None:
+            if intersects(
+                native_left - client_left,
+                native_top - client_top,
+                native_right - client_left,
+                native_bottom - client_top,
+            ):
+                root_client_relative_intersects_count += 1
+
+    return {
+        "available": True,
+        "fields_considered": field_count,
+        "fields_with_native_handle_count": native_handle_count,
+        "field_handle_matches_native_descendant_count": handle_match_count,
+        "matched_native_visible_count": visible_match_count,
+        "matched_native_bounds_available_count": bounds_available_count,
+        "paired_geometry_available_count": geometry_available_count,
+        "root_relative_intersects_count": root_relative_intersects_count,
+        "screen_relative_intersects_count": screen_relative_intersects_count,
+        "root_client_relative_intersects_count": root_client_relative_intersects_count,
+        "matched_native_class_buckets": class_counts,
+    }
+
+
 def _field_document_window_geometry(
     field,
     *,
@@ -1313,6 +1476,14 @@ def main() -> int:
             "native_document_window_probe": native_document_window_summary,
             "native_child_window_control_census": (
                 _native_child_window_control_census(native_child_windows)
+            ),
+            "native_field_hwnd_geometry_census": (
+                _native_field_hwnd_geometry_census(
+                    fields,
+                    native_child_windows,
+                    root_window_rect=metadata.get("window_rect"),
+                    root_client_bounds_screen=root_client_bounds_screen,
+                )
             ),
             "native_document_window_geometry_probe": (
                 _native_document_window_geometry_summary(

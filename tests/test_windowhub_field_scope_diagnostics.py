@@ -5,6 +5,7 @@ from tools.diagnose_windowhub_field_scope import (
     _field_document_window_geometry,
     _field_coordinate_origin_probe,
     _native_child_window_control_census,
+    _native_field_hwnd_geometry_census,
     _native_document_window_geometry_summary,
     _native_window_title_matches,
 )
@@ -632,4 +633,85 @@ def test_native_child_window_control_census_fails_closed_without_snapshot():
         "field_like_native_control_count": None,
         "by_class": {},
     }
+
+def test_native_field_hwnd_geometry_census_correlates_handles_and_sanitizes_output():
+    field = SimpleNamespace(
+        label="PRIVATE_FIELD_LABEL",
+        value="PRIVATE_FIELD_VALUE",
+        element=SimpleNamespace(
+            x=40, y=80, width=100, height=30,
+            metadata={"uia_native_handle": 501},
+        ),
+    )
+    native_windows = (
+        {
+            "handle": 501,
+            "title": "PRIVATE_WINDOW_TITLE",
+            "class_name": "Edit",
+            "visible": True,
+            "client_bounds_screen": (145, 190, 250, 225),
+        },
+        {
+            "handle": 502,
+            "title": "PRIVATE_OTHER",
+            "class_name": "ComboBox",
+            "visible": True,
+            "client_bounds_screen": (500, 500, 600, 540),
+        },
+    )
+    root = SimpleNamespace(left=100, top=100, width=800, height=600)
+
+    result = _native_field_hwnd_geometry_census(
+        (field,),
+        native_windows,
+        root_window_rect=root,
+        root_client_bounds_screen=(110, 130, 890, 690),
+    )
+
+    assert result["available"] is True
+    assert result["fields_considered"] == 1
+    assert result["fields_with_native_handle_count"] == 1
+    assert result["field_handle_matches_native_descendant_count"] == 1
+    assert result["matched_native_visible_count"] == 1
+    assert result["matched_native_bounds_available_count"] == 1
+    assert result["paired_geometry_available_count"] == 1
+    assert result["root_relative_intersects_count"] == 1
+    assert result["screen_relative_intersects_count"] == 0
+    assert result["root_client_relative_intersects_count"] == 1
+    assert result["matched_native_class_buckets"]["win32_edit"] == 1
+    rendered = repr(result)
+    for private_value in (
+        "PRIVATE_FIELD_LABEL",
+        "PRIVATE_FIELD_VALUE",
+        "PRIVATE_WINDOW_TITLE",
+        "PRIVATE_OTHER",
+        "501",
+        "502",
+        "145",
+        "190",
+    ):
+        assert private_value not in rendered
+    assert field.element.metadata["uia_native_handle"] == 501
+
+
+def test_native_field_hwnd_geometry_census_fails_closed_without_snapshot():
+    field = SimpleNamespace(
+        label="PRIVATE",
+        value="PRIVATE",
+        element=SimpleNamespace(
+            x=1, y=2, width=10, height=10,
+            metadata={"uia_native_handle": 501},
+        ),
+    )
+
+    result = _native_field_hwnd_geometry_census(
+        (field,),
+        None,
+        root_window_rect=SimpleNamespace(left=0, top=0),
+    )
+    assert result["available"] is False
+    assert result["fields_considered"] == 1
+    assert result["field_handle_matches_native_descendant_count"] is None
+    assert "PRIVATE" not in repr(result)
+    assert "501" not in repr(result)
 
