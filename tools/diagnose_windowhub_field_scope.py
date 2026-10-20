@@ -1132,6 +1132,29 @@ def main() -> int:
                     exact_native_document_windows
                 )
             ),
+            "coordinate_origin_probe_available_field_count": sum(
+                _field_coordinate_origin_probe(
+                    field,
+                    exact_active_document_windows=exact_native_document_windows,
+                    root_window_rect=metadata.get("window_rect"),
+                )["available"] is True
+                for field in fields
+            ),
+            "coordinate_origin_candidate_intersection_counts": {
+                candidate: sum(
+                    _field_coordinate_origin_probe(
+                        field,
+                        exact_active_document_windows=exact_native_document_windows,
+                        root_window_rect=metadata.get("window_rect"),
+                    )[candidate] is True
+                    for field in fields
+                )
+                for candidate in (
+                    "root_relative_intersects",
+                    "screen_relative_intersects",
+                    "root_client_relative_intersects",
+                )
+            },
             "uia_raw_field_candidate_census": uia_raw_field_candidate_census,
             "scene_field_element_census": scene_field_element_census,
             "readable_form_field_count": len(fields),
