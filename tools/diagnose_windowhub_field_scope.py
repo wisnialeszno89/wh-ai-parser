@@ -1744,6 +1744,32 @@ def _uia_native_field_geometry_correlation_census(
             "all_native_fields": {},
             "document_context_fields": {},
         },
+        "uia_structural_ancestor_census": {
+            "available": native_windows is not None,
+            "max_parent_depth": 12,
+            "all_native_fields_with_unique_smallest_container_count": 0,
+            "document_context_fields_with_unique_smallest_container_count": 0,
+            "all_native_fields_with_parent_chain_checked_count": 0,
+            "document_context_fields_with_parent_chain_checked_count": 0,
+            "all_native_fields_with_tabitem_ancestor_count": 0,
+            "document_context_fields_with_tabitem_ancestor_count": 0,
+            "all_native_fields_with_document_tab_host_relation_count": 0,
+            "document_context_fields_with_document_tab_host_relation_count": 0,
+            "all_native_fields_parent_lookup_error_count": 0,
+            "document_context_fields_parent_lookup_error_count": 0,
+            "all_native_fields_smallest_container_type_counts": {
+                name: 0 for name in control_types
+            },
+            "document_context_fields_smallest_container_type_counts": {
+                name: 0 for name in control_types
+            },
+            "all_native_fields_ancestor_control_type_counts": {
+                name: 0 for name in control_types
+            },
+            "document_context_fields_ancestor_control_type_counts": {
+                name: 0 for name in control_types
+            },
+        },
         "by_uia_control_type": by_type,
     }
     if native_windows is None:
@@ -1940,6 +1966,9 @@ def _uia_native_field_geometry_correlation_census(
             "bounds": bounds,
             "control_type": control_type,
             "area": (bounds[2] - bounds[0]) * (bounds[3] - bounds[1]),
+            # Kept in memory for parent traversal; the wrapper is never
+            # included in the returned diagnostic report.
+            "item": item,
         })
         if control_type == "text":
             summary["uia_text_neighbor_census"]["visible_text_nodes_with_positive_bounds_count"] += 1
@@ -2058,6 +2087,123 @@ def _uia_native_field_geometry_correlation_census(
     summary["uia_text_neighbor_census"]["document_context_fields"] = (
         text_neighbor_summary(document_fields)
     )
+
+    # Geometry has not identified semantic fields. For each native control,
+    # walk the UIA parent chain only from its uniquely smallest enclosing UIA
+    # node. This census reports aggregate relationship counts, never names,
+    # class names, handles, or coordinates.
+    structural = summary["uia_structural_ancestor_census"]
+    type_names = tuple(control_types)
+
+    def inspect_structure(fields, *, document_context):
+        prefix = "document_context_fields" if document_context else "all_native_fields"
+        unique_key = (
+            "document_context_field_centers_with_unique_smallest_uia_container_count"
+            if document_context
+            else "native_field_centers_with_unique_smallest_uia_container_count"
+        )
+        tied_key = (
+            "document_context_field_centers_with_tied_smallest_uia_container_count"
+            if document_context
+            else "native_field_centers_with_tied_smallest_uia_container_count"
+        )
+        structural_unique_key = f"{prefix}_with_unique_smallest_container_count"
+        checked_key = f"{prefix}_with_parent_chain_checked_count"
+        tabitem_key = f"{prefix}_with_tabitem_ancestor_count"
+        document_tab_key = f"{prefix}_with_document_tab_host_relation_count"
+        error_key = f"{prefix}_parent_lookup_error_count"
+        container_types_key = f"{prefix}_smallest_container_type_counts"
+        ancestor_types_key = f"{prefix}_ancestor_control_type_counts"
+
+        for field in fields:
+            containing = [
+                record for record in uia_bounds_records
+                if contains_center(record["bounds"], field["center"])
+            ]
+            if not containing:
+                continue
+            min_area = min(record["area"] for record in containing)
+            smallest = [
+                record for record in containing if record["area"] == min_area
+            ]
+            if len(smallest) != 1:
+                continue
+
+            record = smallest[0]
+            structural[structural_unique_key] += 1
+            container_type = record["control_type"]
+            if container_type not in structural[container_types_key]:
+                container_type = "other"
+            structural[container_types_key][container_type] += 1
+
+            current = record.get("item")
+            parent_chain = []
+            had_parent_method = False
+            lookup_failed = False
+            for _ in range(structural["max_parent_depth"]):
+                parent_getter = getattr(current, "parent", None)
+                if not callable(parent_getter):
+                    break
+                had_parent_method = True
+                try:
+                    parent = parent_getter()
+                except Exception:
+                    lookup_failed = True
+                    break
+                if parent is None:
+                    break
+                current = parent
+                try:
+                    info = current.element_info
+                    raw_type = provider._normalize_control_type(
+                        getattr(info, "control_type", None)
+                    )
+                    control_type = raw_type if raw_type in structural[ancestor_types_key] else "other"
+                    class_name = getattr(info, "class_name", None)
+                    class_name = (
+                        class_name.casefold().replace(":", "")
+                        if isinstance(class_name, str)
+                        else ""
+                    )
+                    name = getattr(info, "name", None)
+                    parent_chain.append({
+                        "control_type": control_type,
+                        "name_present": isinstance(name, str) and bool(name.strip()),
+                        "document_tab_host": (
+                            control_type == "tab"
+                            and "afxtabwnd" in class_name
+                        ),
+                    })
+                except Exception:
+                    lookup_failed = True
+                    break
+
+            if lookup_failed:
+                structural[error_key] += 1
+            if had_parent_method:
+                structural[checked_key] += 1
+            for ancestor in parent_chain:
+                structural[ancestor_types_key][ancestor["control_type"]] += 1
+
+            has_tabitem = any(
+                ancestor["control_type"] == "tabitem"
+                for ancestor in parent_chain
+            )
+            if has_tabitem:
+                structural[tabitem_key] += 1
+
+            has_document_tab_host_relation = any(
+                ancestor["control_type"] == "tabitem"
+                and ancestor["name_present"]
+                and index + 1 < len(parent_chain)
+                and parent_chain[index + 1]["document_tab_host"] is True
+                for index, ancestor in enumerate(parent_chain)
+            )
+            if has_document_tab_host_relation:
+                structural[document_tab_key] += 1
+
+    inspect_structure(native_fields, document_context=False)
+    inspect_structure(document_fields, document_context=True)
     return summary
 
 
