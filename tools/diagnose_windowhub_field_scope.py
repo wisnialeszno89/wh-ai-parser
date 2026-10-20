@@ -1525,6 +1525,13 @@ def _uia_native_document_control_correlation_census(
         "matched_field_like_parent_and_bounds_match_count": 0,
         "document_window_identity_available": False,
         "document_client_bounds_available": False,
+        "document_context_native_field_like_control_count": None,
+        "document_context_native_field_like_uia_handle_match_count": None,
+        "document_context_native_field_like_uia_field_type_match_count": None,
+        "document_context_native_field_like_uia_non_field_type_only_match_count": None,
+        "document_context_native_field_like_uia_handle_missing_count": None,
+        "document_context_native_field_like_uia_control_type_match_counts": {},
+        "document_context_native_field_like_by_class": {},
         "by_uia_control_type": by_type,
     }
     if native_windows is None:
@@ -1571,6 +1578,7 @@ def _uia_native_document_control_correlation_census(
         "win32_combobox",
     }
     chain_cache = {}
+    uia_control_types_by_handle = {}
 
     def valid_bounds(value):
         if not isinstance(value, (tuple, list)) or len(value) != 4:
@@ -1603,6 +1611,8 @@ def _uia_native_document_control_correlation_census(
             row["visible_count"] += 1
 
         handle = provider._native_handle(item)
+        if handle is not None:
+            uia_control_types_by_handle.setdefault(handle, set()).add(control_type)
         if handle is None:
             continue
         summary["uia_nodes_with_native_handle_count"] += 1
@@ -1666,6 +1676,97 @@ def _uia_native_document_control_correlation_census(
         if chain_contains_document is True and intersects_document:
             row["matched_native_field_like_parent_and_bounds_match_count"] += 1
             summary["matched_field_like_parent_and_bounds_match_count"] += 1
+
+    # Separately measure native document-context Edit/ComboBox HWNDs against
+    # the UIA handles observed above. This exposes coverage gaps without
+    # assigning semantic scope: a native field control can be missing from
+    # UIA, or UIA can surface the same HWND under a non-field control type.
+    document_context_native_by_handle = {}
+    if document_handle is not None and document_bounds is not None:
+        for native in records:
+            if _native_window_class_bucket(native.get("class_name")) not in field_like_buckets:
+                continue
+            if native.get("visible") is not True:
+                continue
+            handle = _positive_handle(native.get("handle"))
+            bounds = valid_bounds(native.get("client_bounds_screen"))
+            if handle is None or bounds is None:
+                continue
+            if handle not in chain_cache:
+                chain_cache[handle] = _native_parent_chain(handle)
+            chain = chain_cache[handle]
+            if chain is None or document_handle not in chain:
+                continue
+            intersects_document = (
+                bounds[0] < document_bounds[2]
+                and bounds[2] > document_bounds[0]
+                and bounds[1] < document_bounds[3]
+                and bounds[3] > document_bounds[1]
+            )
+            if intersects_document:
+                document_context_native_by_handle[handle] = (
+                    _native_window_class_bucket(native.get("class_name"))
+                )
+
+    context_class_buckets = tuple(sorted(field_like_buckets))
+    context_by_class = {
+        bucket: {
+            "count": 0,
+            "uia_handle_match_count": 0,
+            "uia_field_type_match_count": 0,
+            "uia_non_field_type_only_match_count": 0,
+            "uia_handle_missing_count": 0,
+        }
+        for bucket in context_class_buckets
+    }
+    context_uia_type_counts = {name: 0 for name in control_types}
+    context_handle_match_count = 0
+    context_field_type_match_count = 0
+    context_non_field_only_count = 0
+    context_handle_missing_count = 0
+    for handle, bucket in document_context_native_by_handle.items():
+        row = context_by_class[bucket]
+        row["count"] += 1
+        matched_types = uia_control_types_by_handle.get(handle, set())
+        for matched_type in matched_types:
+            if matched_type in context_uia_type_counts:
+                context_uia_type_counts[matched_type] += 1
+        has_uia_match = bool(matched_types)
+        has_field_type_match = bool(matched_types.intersection({"edit", "combobox"}))
+        if has_uia_match:
+            context_handle_match_count += 1
+            row["uia_handle_match_count"] += 1
+        else:
+            context_handle_missing_count += 1
+            row["uia_handle_missing_count"] += 1
+        if has_field_type_match:
+            context_field_type_match_count += 1
+            row["uia_field_type_match_count"] += 1
+        elif has_uia_match:
+            context_non_field_only_count += 1
+            row["uia_non_field_type_only_match_count"] += 1
+
+    summary.update({
+        "document_context_native_field_like_control_count": (
+            len(document_context_native_by_handle)
+        ),
+        "document_context_native_field_like_uia_handle_match_count": (
+            context_handle_match_count
+        ),
+        "document_context_native_field_like_uia_field_type_match_count": (
+            context_field_type_match_count
+        ),
+        "document_context_native_field_like_uia_non_field_type_only_match_count": (
+            context_non_field_only_count
+        ),
+        "document_context_native_field_like_uia_handle_missing_count": (
+            context_handle_missing_count
+        ),
+        "document_context_native_field_like_uia_control_type_match_counts": (
+            context_uia_type_counts
+        ),
+        "document_context_native_field_like_by_class": context_by_class,
+    })
 
     # Root identity is used only to ensure caller supplied a real observation;
     # no raw handle is included in the serialized summary.
