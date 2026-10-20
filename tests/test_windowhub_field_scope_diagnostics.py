@@ -678,6 +678,16 @@ def test_native_field_hwnd_geometry_census_correlates_handles_and_sanitizes_outp
     assert result["root_relative_intersects_count"] == 1
     assert result["screen_relative_intersects_count"] == 0
     assert result["root_client_relative_intersects_count"] == 1
+    assert result["edge_alignment_tolerance_px"] == (2, 4, 8, 16, 32)
+    assert result["root_relative_edges_within_tolerance_counts"] == {
+        "2": 0, "4": 0, "8": 0, "16": 1, "32": 1,
+    }
+    assert result["screen_relative_edges_within_tolerance_counts"] == {
+        "2": 0, "4": 0, "8": 0, "16": 0, "32": 0,
+    }
+    assert result["root_client_relative_edges_within_tolerance_counts"] == {
+        "2": 0, "4": 0, "8": 0, "16": 0, "32": 1,
+    }
     assert result["matched_native_class_buckets"]["win32_edit"] == 1
     rendered = repr(result)
     for private_value in (
@@ -714,4 +724,51 @@ def test_native_field_hwnd_geometry_census_fails_closed_without_snapshot():
     assert result["field_handle_matches_native_descendant_count"] is None
     assert "PRIVATE" not in repr(result)
     assert "501" not in repr(result)
+
+def test_native_field_hwnd_geometry_edge_alignment_distinguishes_origins():
+    field = SimpleNamespace(
+        label="PRIVATE_FIELD",
+        value="PRIVATE_VALUE",
+        element=SimpleNamespace(
+            x=40, y=80, width=100, height=30,
+            metadata={"uia_native_handle": 501},
+        ),
+    )
+    windows = ({
+        "handle": 501,
+        "title": "PRIVATE_TITLE",
+        "class_name": "Edit",
+        "visible": True,
+        # Root screen origin is (100, 100). Translating the native bounds
+        # by that origin makes all four edges match the UIA field exactly.
+        "client_bounds_screen": (140, 180, 240, 210),
+    },)
+    root = SimpleNamespace(left=100, top=100, width=800, height=600)
+
+    result = _native_field_hwnd_geometry_census(
+        (field,),
+        windows,
+        root_window_rect=root,
+        root_client_bounds_screen=(110, 130, 890, 690),
+    )
+
+    assert result["root_relative_edges_within_tolerance_counts"] == {
+        "2": 1, "4": 1, "8": 1, "16": 1, "32": 1,
+    }
+    assert result["screen_relative_edges_within_tolerance_counts"] == {
+        "2": 0, "4": 0, "8": 0, "16": 0, "32": 0,
+    }
+    assert result["root_client_relative_edges_within_tolerance_counts"] == {
+        "2": 0, "4": 0, "8": 0, "16": 0, "32": 1,
+    }
+    rendered = repr(result)
+    for private_value in (
+        "PRIVATE_FIELD",
+        "PRIVATE_VALUE",
+        "PRIVATE_TITLE",
+        "501",
+        "140",
+        "180",
+    ):
+        assert private_value not in rendered
 
