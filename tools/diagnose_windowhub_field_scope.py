@@ -304,6 +304,7 @@ def _field_coordinate_origin_probe(
     *,
     exact_active_document_windows=(),
     root_window_rect=None,
+    root_client_bounds_screen=None,
 ):
     """Compare UIA field bounds in several candidate origins, returning counts only.
 
@@ -343,6 +344,14 @@ def _field_coordinate_origin_probe(
         root_top = int(rect_value(root_window_rect, "top"))
         root_right = int(rect_value(root_window_rect, "right"))
         root_bottom = int(rect_value(root_window_rect, "bottom"))
+        if not (
+            isinstance(root_client_bounds_screen, (tuple, list))
+            and len(root_client_bounds_screen) == 4
+        ):
+            return unknown
+        client_left, client_top, client_right, client_bottom = (
+            int(value) for value in root_client_bounds_screen
+        )
     except (TypeError, ValueError, AttributeError, OverflowError):
         return unknown
 
@@ -350,6 +359,7 @@ def _field_coordinate_origin_probe(
         field_width <= 0 or field_height <= 0
         or screen_right <= screen_left or screen_bottom <= screen_top
         or root_right <= root_left or root_bottom <= root_top
+        or client_right <= client_left or client_bottom <= client_top
     ):
         return unknown
 
@@ -369,11 +379,14 @@ def _field_coordinate_origin_probe(
     )
     # Candidate B: UIA field bounds are already screen-relative.
     screen_relative = (screen_left, screen_top, screen_right, screen_bottom)
-    # Candidate C: normalize both rectangles to the root's client origin by
-    # subtracting the root client top-left as reported by Win32. The input
-    # root rect is the observed UIA root rectangle, so this is still a
-    # hypothesis, not an assertion about the provider's coordinate contract.
-    root_client_relative = root_relative
+    # Candidate C: use the actual root HWND client origin from Win32,
+    # converted to screen coordinates with ClientToScreen.
+    root_client_relative = (
+        screen_left - client_left,
+        screen_top - client_top,
+        screen_right - client_left,
+        screen_bottom - client_top,
+    )
     return {
         "available": True,
         "root_relative_intersects": intersects(*root_relative),
