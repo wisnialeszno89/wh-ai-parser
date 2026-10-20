@@ -1674,6 +1674,257 @@ def _uia_native_document_control_correlation_census(
 
 
 
+def _uia_native_field_geometry_correlation_census(
+    descendants,
+    *,
+    provider,
+    native_windows,
+    exact_active_document_windows=(),
+):
+    """Correlate raw UIA screen rectangles to native field-like HWND geometry.
+
+    UIA rectangles come from the raw wrapper rectangle() in screen coordinates.
+    This is spatial evidence only: it neither assigns document scope nor
+    authorizes form reads or GUI actions. Only aggregate counts are returned.
+    """
+    control_types = (
+        "edit", "combobox", "custom", "pane", "document",
+        "group", "window", "button", "text", "tabitem", "other",
+    )
+    row_template = {
+        "count": 0,
+        "visible_count": 0,
+        "positive_bounds_count": 0,
+        "visible_bounds_intersecting_native_field_count": 0,
+        "visible_bounds_containing_native_field_center_count": 0,
+        "visible_bounds_edge_aligned_native_field_count": 0,
+        "visible_bounds_containing_document_context_field_center_count": 0,
+        "visible_bounds_edge_aligned_document_context_field_count": 0,
+    }
+    by_type = {name: dict(row_template) for name in control_types}
+    summary = {
+        "available": native_windows is not None,
+        "uia_descendant_count": len(tuple(descendants or ())),
+        "uia_nodes_with_positive_bounds_count": 0,
+        "visible_uia_nodes_with_positive_bounds_count": 0,
+        "visible_uia_nodes_intersecting_native_field_count": 0,
+        "visible_uia_nodes_containing_native_field_center_count": 0,
+        "visible_uia_nodes_edge_aligned_native_field_count": 0,
+        "visible_uia_nodes_containing_document_context_field_center_count": 0,
+        "visible_uia_nodes_edge_aligned_document_context_field_count": 0,
+        "native_visible_field_like_control_count": 0,
+        "document_context_native_field_like_control_count": 0,
+        "native_field_centers_contained_by_visible_uia_bounds_count": 0,
+        "document_context_field_centers_contained_by_visible_uia_bounds_count": 0,
+        "document_window_identity_available": False,
+        "document_client_bounds_available": False,
+        "edge_alignment_tolerance_px": 8,
+        "by_uia_control_type": by_type,
+    }
+    if native_windows is None:
+        return summary
+
+    def safe_coordinate(rectangle, name):
+        value = getattr(rectangle, name, None)
+        if callable(value):
+            value = value()
+        try:
+            return int(value)
+        except (TypeError, ValueError, OverflowError):
+            return None
+
+    def valid_bounds(value):
+        if not isinstance(value, (tuple, list)) or len(value) != 4:
+            return None
+        try:
+            bounds = tuple(int(part) for part in value)
+        except (TypeError, ValueError, OverflowError):
+            return None
+        if bounds[2] <= bounds[0] or bounds[3] <= bounds[1]:
+            return None
+        return bounds
+
+    def rectangle_bounds(item):
+        try:
+            rectangle = item.rectangle()
+        except Exception:
+            return None
+        left = safe_coordinate(rectangle, "left")
+        top = safe_coordinate(rectangle, "top")
+        right = safe_coordinate(rectangle, "right")
+        bottom = safe_coordinate(rectangle, "bottom")
+        if right is None:
+            width = safe_coordinate(rectangle, "width")
+            right = left + width if left is not None and width is not None else None
+        if bottom is None:
+            height = safe_coordinate(rectangle, "height")
+            bottom = top + height if top is not None and height is not None else None
+        if None in (left, top, right, bottom):
+            return None
+        return valid_bounds((left, top, right, bottom))
+
+    records = tuple(native_windows)
+    document_windows = tuple(exact_active_document_windows or ())
+    document = (
+        document_windows[0]
+        if len(document_windows) == 1
+        and document_windows[0].get("visible") is True
+        else None
+    )
+    document_handle = (
+        _positive_handle(document.get("handle"))
+        if document is not None
+        else None
+    )
+    document_bounds = (
+        valid_bounds(document.get("client_bounds_screen"))
+        if document is not None
+        else None
+    )
+    summary["document_window_identity_available"] = document_handle is not None
+    summary["document_client_bounds_available"] = document_bounds is not None
+
+    field_buckets = {
+        "windows_forms_edit", "windows_forms_combobox",
+        "win32_edit", "win32_combobox",
+    }
+    native_fields = []
+    chain_cache = {}
+    for native in records:
+        if _native_window_class_bucket(native.get("class_name")) not in field_buckets:
+            continue
+        if native.get("visible") is not True:
+            continue
+        bounds = valid_bounds(native.get("client_bounds_screen"))
+        if bounds is None:
+            continue
+        document_context = False
+        native_handle = _positive_handle(native.get("handle"))
+        if (
+            document_handle is not None
+            and document_bounds is not None
+            and native_handle is not None
+        ):
+            if native_handle not in chain_cache:
+                chain_cache[native_handle] = _native_parent_chain(native_handle)
+            chain = chain_cache[native_handle]
+            if chain is not None:
+                intersects_document = (
+                    bounds[0] < document_bounds[2]
+                    and bounds[2] > document_bounds[0]
+                    and bounds[1] < document_bounds[3]
+                    and bounds[3] > document_bounds[1]
+                )
+                document_context = (
+                    document_handle in chain and intersects_document
+                )
+        native_fields.append({
+            "bounds": bounds,
+            "center": (
+                (bounds[0] + bounds[2]) / 2,
+                (bounds[1] + bounds[3]) / 2,
+            ),
+            "document_context": document_context,
+        })
+
+    document_fields = [
+        field for field in native_fields
+        if field["document_context"] is True
+    ]
+    summary["native_visible_field_like_control_count"] = len(native_fields)
+    summary["document_context_native_field_like_control_count"] = len(document_fields)
+
+    def intersects(first, second):
+        return (
+            first[0] < second[2]
+            and first[2] > second[0]
+            and first[1] < second[3]
+            and first[3] > second[1]
+        )
+
+    def contains_center(bounds, center):
+        return (
+            bounds[0] <= center[0] <= bounds[2]
+            and bounds[1] <= center[1] <= bounds[3]
+        )
+
+    def edge_aligned(first, second):
+        return max(
+            abs(first[0] - second[0]),
+            abs(first[1] - second[1]),
+            abs(first[2] - second[2]),
+            abs(first[3] - second[3]),
+        ) <= summary["edge_alignment_tolerance_px"]
+
+    uia_bounds_records = []
+    for item in tuple(descendants or ()):
+        try:
+            info = item.element_info
+            control_type = provider._normalize_control_type(
+                getattr(info, "control_type", None)
+            )
+            visible = bool(getattr(info, "visible", True))
+        except Exception:
+            control_type = "other"
+            visible = False
+        if control_type not in by_type:
+            control_type = "other"
+        row = by_type[control_type]
+        row["count"] += 1
+        if visible:
+            row["visible_count"] += 1
+        bounds = rectangle_bounds(item)
+        if bounds is None:
+            continue
+        summary["uia_nodes_with_positive_bounds_count"] += 1
+        row["positive_bounds_count"] += 1
+        if not visible:
+            continue
+        summary["visible_uia_nodes_with_positive_bounds_count"] += 1
+
+        intersects_any = any(intersects(bounds, field["bounds"]) for field in native_fields)
+        contains_field_center = any(
+            contains_center(bounds, field["center"]) for field in native_fields
+        )
+        edge_matches = any(
+            edge_aligned(bounds, field["bounds"]) for field in native_fields
+        )
+        contains_document_center = any(
+            contains_center(bounds, field["center"]) for field in document_fields
+        )
+        document_edge_matches = any(
+            edge_aligned(bounds, field["bounds"]) for field in document_fields
+        )
+
+        if intersects_any:
+            summary["visible_uia_nodes_intersecting_native_field_count"] += 1
+            row["visible_bounds_intersecting_native_field_count"] += 1
+        if contains_field_center:
+            summary["visible_uia_nodes_containing_native_field_center_count"] += 1
+            row["visible_bounds_containing_native_field_center_count"] += 1
+        if edge_matches:
+            summary["visible_uia_nodes_edge_aligned_native_field_count"] += 1
+            row["visible_bounds_edge_aligned_native_field_count"] += 1
+        if contains_document_center:
+            summary["visible_uia_nodes_containing_document_context_field_center_count"] += 1
+            row["visible_bounds_containing_document_context_field_center_count"] += 1
+        if document_edge_matches:
+            summary["visible_uia_nodes_edge_aligned_document_context_field_count"] += 1
+            row["visible_bounds_edge_aligned_document_context_field_count"] += 1
+        uia_bounds_records.append(bounds)
+
+    summary["native_field_centers_contained_by_visible_uia_bounds_count"] = sum(
+        any(contains_center(bounds, field["center"]) for bounds in uia_bounds_records)
+        for field in native_fields
+    )
+    summary["document_context_field_centers_contained_by_visible_uia_bounds_count"] = sum(
+        any(contains_center(bounds, field["center"]) for bounds in uia_bounds_records)
+        for field in document_fields
+    )
+    return summary
+
+
+
 def _uia_raw_field_candidate_census(
     root_handle,
     expected_title,
@@ -1753,6 +2004,14 @@ def _uia_raw_field_candidate_census(
             native_windows=native_windows,
             exact_active_document_windows=exact_active_document_windows,
             observed_root_handle=observed_root_handle,
+        )
+    )
+    summary["native_field_geometry_correlation_census"] = (
+        _uia_native_field_geometry_correlation_census(
+            descendants,
+            provider=provider,
+            native_windows=native_windows,
+            exact_active_document_windows=exact_active_document_windows,
         )
     )
     summary["failure_stage"] = None
