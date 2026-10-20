@@ -1135,6 +1135,7 @@ def main() -> int:
             else None
         )
         native_child_windows = _native_child_window_snapshot(root_handle)
+        root_client_bounds_screen = _native_client_bounds_screen(root_handle)
         exact_native_document_windows, native_document_window_summary = (
             _native_window_title_matches(
                 scene.active_document,
@@ -1197,6 +1198,7 @@ def main() -> int:
                     field,
                     exact_active_document_windows=exact_native_document_windows,
                     root_window_rect=metadata.get("window_rect"),
+                    root_client_bounds_screen=root_client_bounds_screen,
                 )["available"] is True
                 for field in fields
             ),
@@ -1206,6 +1208,7 @@ def main() -> int:
                         field,
                         exact_active_document_windows=exact_native_document_windows,
                         root_window_rect=metadata.get("window_rect"),
+                        root_client_bounds_screen=root_client_bounds_screen,
                     )[candidate] is True
                     for field in fields
                 )
