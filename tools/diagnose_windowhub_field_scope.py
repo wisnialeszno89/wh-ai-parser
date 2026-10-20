@@ -510,6 +510,8 @@ def _native_control_document_context_census(
         bounds = valid_bounds(item.get("client_bounds_screen"))
         if bounds is not None:
             row["positive_bounds_count"] += 1
+            if is_visible:
+                visible_with_bounds_count += 1
 
         intersects_document = False
         contained_in_document = False
@@ -532,8 +534,6 @@ def _native_control_document_context_census(
             if contained_in_document:
                 row["visible_bounds_fully_within_document_client_count"] += 1
                 visible_bounds_contained_count += 1
-            if is_visible:
-                visible_with_bounds_count += 1
 
         chain_checked = False
         chain_contains_document = False
