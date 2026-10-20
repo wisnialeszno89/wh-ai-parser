@@ -384,6 +384,204 @@ def _native_child_window_control_census(windows):
     }
 
 
+
+def _native_control_document_context_census(
+    native_windows,
+    exact_active_document_windows,
+    *,
+    observed_root_handle=None,
+):
+    """Summarize native Edit/ComboBox relationship to the resolved document.
+
+    The report contains counts only. Native class, visibility, HWND ancestry,
+    and rectangle overlap are diagnostic signals, not proof that a control is
+    a semantic field and never establish document scope or authorize actions.
+    """
+    unknown = {
+        "available": False,
+        "native_descendant_count": None,
+        "field_like_native_control_count": None,
+        "visible_field_like_native_control_count": None,
+        "visible_field_like_with_bounds_count": None,
+        "document_window_identity_available": False,
+        "document_client_bounds_available": False,
+        "visible_field_like_parent_chain_checked_count": None,
+        "visible_field_like_parent_chain_contains_document_count": None,
+        "visible_field_like_parent_chain_excludes_document_count": None,
+        "visible_field_like_parent_chain_contains_root_count": None,
+        "visible_field_like_bounds_intersect_document_client_count": None,
+        "visible_field_like_bounds_fully_within_document_client_count": None,
+        "visible_field_like_parent_and_bounds_match_count": None,
+        "by_class": {},
+    }
+    if native_windows is None:
+        return unknown
+
+    records = tuple(native_windows)
+    document_windows = tuple(exact_active_document_windows or ())
+    document_window = (
+        document_windows[0]
+        if len(document_windows) == 1
+        and document_windows[0].get("visible") is True
+        else None
+    )
+    document_handle = (
+        _positive_handle(document_window.get("handle"))
+        if document_window is not None
+        else None
+    )
+    document_bounds = (
+        document_window.get("client_bounds_screen")
+        if document_window is not None
+        else None
+    )
+    if not (
+        isinstance(document_bounds, (tuple, list))
+        and len(document_bounds) == 4
+    ):
+        document_bounds = None
+    else:
+        try:
+            document_bounds = tuple(int(value) for value in document_bounds)
+            if (
+                document_bounds[2] <= document_bounds[0]
+                or document_bounds[3] <= document_bounds[1]
+            ):
+                document_bounds = None
+        except (TypeError, ValueError, OverflowError):
+            document_bounds = None
+
+    root_handle = _positive_handle(observed_root_handle)
+    field_buckets = (
+        "windows_forms_edit",
+        "windows_forms_combobox",
+        "win32_edit",
+        "win32_combobox",
+    )
+    by_class = {
+        bucket: {
+            "count": 0,
+            "visible_count": 0,
+            "positive_bounds_count": 0,
+            "visible_parent_chain_checked_count": 0,
+            "visible_parent_chain_contains_document_count": 0,
+            "visible_parent_chain_excludes_document_count": 0,
+            "visible_parent_chain_contains_root_count": 0,
+            "visible_bounds_intersect_document_client_count": 0,
+            "visible_bounds_fully_within_document_client_count": 0,
+        }
+        for bucket in field_buckets
+    }
+    field_like_count = 0
+    visible_count = 0
+    visible_with_bounds_count = 0
+    parent_chain_checked_count = 0
+    parent_chain_document_count = 0
+    parent_chain_not_document_count = 0
+    parent_chain_root_count = 0
+    visible_bounds_intersect_count = 0
+    visible_bounds_contained_count = 0
+    parent_and_bounds_match_count = 0
+
+    def valid_bounds(value):
+        if not isinstance(value, (tuple, list)) or len(value) != 4:
+            return None
+        try:
+            bounds = tuple(int(part) for part in value)
+        except (TypeError, ValueError, OverflowError):
+            return None
+        if bounds[2] <= bounds[0] or bounds[3] <= bounds[1]:
+            return None
+        return bounds
+
+    for item in records:
+        bucket = _native_window_class_bucket(item.get("class_name"))
+        if bucket not in by_class:
+            continue
+
+        row = by_class[bucket]
+        row["count"] += 1
+        field_like_count += 1
+        is_visible = item.get("visible") is True
+        if is_visible:
+            row["visible_count"] += 1
+            visible_count += 1
+
+        bounds = valid_bounds(item.get("client_bounds_screen"))
+        if bounds is not None:
+            row["positive_bounds_count"] += 1
+
+        intersects_document = False
+        contained_in_document = False
+        if is_visible and bounds is not None and document_bounds is not None:
+            intersects_document = (
+                bounds[0] < document_bounds[2]
+                and bounds[2] > document_bounds[0]
+                and bounds[1] < document_bounds[3]
+                and bounds[3] > document_bounds[1]
+            )
+            contained_in_document = (
+                bounds[0] >= document_bounds[0]
+                and bounds[1] >= document_bounds[1]
+                and bounds[2] <= document_bounds[2]
+                and bounds[3] <= document_bounds[3]
+            )
+            if intersects_document:
+                row["visible_bounds_intersect_document_client_count"] += 1
+                visible_bounds_intersect_count += 1
+            if contained_in_document:
+                row["visible_bounds_fully_within_document_client_count"] += 1
+                visible_bounds_contained_count += 1
+            if is_visible:
+                visible_with_bounds_count += 1
+
+        chain_checked = False
+        chain_contains_document = False
+        chain_contains_root = False
+        handle = _positive_handle(item.get("handle"))
+        if (
+            is_visible
+            and handle is not None
+            and document_handle is not None
+        ):
+            chain = _native_parent_chain(handle)
+            if chain is not None:
+                chain_checked = True
+                row["visible_parent_chain_checked_count"] += 1
+                parent_chain_checked_count += 1
+                chain_contains_document = document_handle in chain
+                if chain_contains_document:
+                    row["visible_parent_chain_contains_document_count"] += 1
+                    parent_chain_document_count += 1
+                else:
+                    row["visible_parent_chain_excludes_document_count"] += 1
+                    parent_chain_not_document_count += 1
+                if root_handle is not None and root_handle in chain:
+                    row["visible_parent_chain_contains_root_count"] += 1
+                    parent_chain_root_count += 1
+
+        if chain_checked and chain_contains_document and intersects_document:
+            parent_and_bounds_match_count += 1
+
+    return {
+        "available": True,
+        "native_descendant_count": len(records),
+        "field_like_native_control_count": field_like_count,
+        "visible_field_like_native_control_count": visible_count,
+        "visible_field_like_with_bounds_count": visible_with_bounds_count,
+        "document_window_identity_available": document_handle is not None,
+        "document_client_bounds_available": document_bounds is not None,
+        "visible_field_like_parent_chain_checked_count": parent_chain_checked_count,
+        "visible_field_like_parent_chain_contains_document_count": parent_chain_document_count,
+        "visible_field_like_parent_chain_excludes_document_count": parent_chain_not_document_count,
+        "visible_field_like_parent_chain_contains_root_count": parent_chain_root_count,
+        "visible_field_like_bounds_intersect_document_client_count": visible_bounds_intersect_count,
+        "visible_field_like_bounds_fully_within_document_client_count": visible_bounds_contained_count,
+        "visible_field_like_parent_and_bounds_match_count": parent_and_bounds_match_count,
+        "by_class": by_class,
+    }
+
+
 def _native_field_hwnd_geometry_census(
     fields,
     native_windows,
@@ -1512,6 +1710,13 @@ def main() -> int:
             ),
             "document_tabs": document_tabs,
             "native_document_window_probe": native_document_window_summary,
+            "native_document_control_context_census": (
+                _native_control_document_context_census(
+                    native_child_windows,
+                    exact_native_document_windows,
+                    observed_root_handle=root_handle,
+                )
+            ),
             "native_child_window_control_census": (
                 _native_child_window_control_census(native_child_windows)
             ),
