@@ -367,6 +367,408 @@ def _field_diagnostic(
     }
 
 
+
+_UIA_DIAGNOSTIC_CONTROL_TYPES = (
+    "edit",
+    "combobox",
+    "button",
+    "tabitem",
+    "text",
+    "pane",
+    "window",
+    "custom",
+    "document",
+    "group",
+    "other",
+)
+_UIA_FORM_FIELD_TYPES = frozenset({"edit", "combobox"})
+_UIA_NONSTANDARD_CANDIDATE_TYPES = (
+    "custom",
+    "other",
+    "document",
+    "group",
+    "pane",
+    "window",
+    "button",
+    "text",
+)
+_UIA_PATTERN_NAMES = (
+    "value",
+    "legacy_iaccessible",
+    "text",
+    "range_value",
+    "selection_item",
+    "invoke",
+    "expand_collapse",
+)
+_UIA_CLASS_BUCKETS = (
+    "windows_forms",
+    "afx_mfc",
+    "win32_edit",
+    "win32_combobox",
+    "win32_button",
+    "win32_static_text",
+    "class_unavailable",
+    "other_class",
+)
+
+
+def _uia_class_bucket(class_name):
+    """Reduce a native class name to a coarse, non-identifying category."""
+    if not isinstance(class_name, str) or not class_name.strip():
+        return "class_unavailable"
+    normalized = class_name.strip().casefold()
+    if "windowsforms" in normalized:
+        return "windows_forms"
+    if "afx:" in normalized or "afx" in normalized:
+        return "afx_mfc"
+    if "combobox" in normalized or "combo" in normalized:
+        return "win32_combobox"
+    if "edit" in normalized:
+        return "win32_edit"
+    if "button" in normalized:
+        return "win32_button"
+    if "static" in normalized or "text" in normalized:
+        return "win32_static_text"
+    return "other_class"
+
+
+def _uia_pattern_available(item, pattern_name):
+    """Check UIA pattern availability without invoking or reading a value."""
+    try:
+        return getattr(item, f"iface_{pattern_name}", None) is not None
+    except Exception:
+        return False
+
+
+def _uia_nonstandard_candidate_summary(descendants, provider):
+    """Summarize nonstandard UIA nodes and supported patterns using counts only."""
+    counts = {
+        control_type: {
+            "count": 0,
+            "visible_count": 0,
+            "name_present_count": 0,
+            "automation_id_present_count": 0,
+            "positive_bounds_count": 0,
+            "native_handle_present_count": 0,
+            "window_text_method_present_count": 0,
+            **{f"{name}_pattern_count": 0 for name in _UIA_PATTERN_NAMES},
+            "value_pattern_current_value_read_count": 0,
+            "value_pattern_current_value_nonempty_string_count": 0,
+            "value_pattern_current_value_empty_string_count": 0,
+            "value_pattern_current_value_nonstring_count": 0,
+            "value_pattern_current_value_read_error_count": 0,
+            "legacy_current_value_read_count": 0,
+            "legacy_current_value_nonempty_string_count": 0,
+            "legacy_current_value_empty_string_count": 0,
+            "legacy_current_value_nonstring_count": 0,
+            "legacy_current_value_read_error_count": 0,
+        }
+        for control_type in _UIA_NONSTANDARD_CANDIDATE_TYPES
+    }
+    class_buckets = {
+        control_type: {bucket: 0 for bucket in _UIA_CLASS_BUCKETS}
+        for control_type in ("custom", "other", "document", "group", "pane")
+    }
+
+    for item in descendants:
+        try:
+            info = item.element_info
+            control_type = provider._normalize_control_type(
+                getattr(info, "control_type", None)
+            )
+        except Exception:
+            continue
+        if control_type not in counts:
+            continue
+
+        row = counts[control_type]
+        row["count"] += 1
+        try:
+            visible = bool(getattr(info, "visible", True))
+            name = provider._string(getattr(info, "name", None))
+            automation_id = provider._string(
+                getattr(info, "automation_id", None)
+            )
+            class_name = getattr(info, "class_name", None)
+            rectangle = item.rectangle()
+            positive_bounds = (
+                int(rectangle.width()) > 0 and int(rectangle.height()) > 0
+            )
+        except Exception:
+            visible = False
+            name = None
+            automation_id = None
+            class_name = None
+            positive_bounds = False
+
+        if visible:
+            row["visible_count"] += 1
+        if name:
+            row["name_present_count"] += 1
+        if automation_id:
+            row["automation_id_present_count"] += 1
+        if positive_bounds:
+            row["positive_bounds_count"] += 1
+        if provider._native_handle(item) is not None:
+            row["native_handle_present_count"] += 1
+        if callable(getattr(item, "window_text", None)):
+            row["window_text_method_present_count"] += 1
+        for pattern_name in _UIA_PATTERN_NAMES:
+            if _uia_pattern_available(item, pattern_name):
+                row[f"{pattern_name}_pattern_count"] += 1
+
+        # Read ValuePattern/LegacyIAccessible values only to count whether a
+        # value is retrievable. Never include the value itself in diagnostics.
+        for pattern_name, prefix in (
+            ("value", "value_pattern_current_value"),
+            ("legacy_iaccessible", "legacy_current_value"),
+        ):
+            # A missing/unavailable pattern is not a failed value read.
+            # Count a read error only after the pattern interface exists and
+            # CurrentValue itself could not be retrieved.
+            try:
+                pattern_iface = getattr(item, f"iface_{pattern_name}", None)
+            except Exception:
+                continue
+            if pattern_iface is None:
+                continue
+            try:
+                current_value = getattr(pattern_iface, "CurrentValue")
+            except Exception:
+                row[f"{prefix}_read_error_count"] += 1
+                continue
+            row[f"{prefix}_read_count"] += 1
+            if isinstance(current_value, str):
+                if current_value.strip():
+                    row[f"{prefix}_nonempty_string_count"] += 1
+                else:
+                    row[f"{prefix}_empty_string_count"] += 1
+            else:
+                row[f"{prefix}_nonstring_count"] += 1
+            del current_value
+
+        if control_type in class_buckets:
+            bucket = _uia_class_bucket(class_name)
+            class_buckets[control_type][bucket] += 1
+
+    return {
+        "by_control_type": counts,
+        "class_bucket_counts": class_buckets,
+    }
+
+
+def _summarize_uia_field_candidates(
+    descendants,
+    *,
+    provider,
+    origin_x=0,
+    origin_y=0,
+    label_candidates=(),
+    label_candidates_available=True,
+):
+    """Summarize UIA field-like descendants without returning private text."""
+    type_counts = {name: 0 for name in _UIA_DIAGNOSTIC_CONTROL_TYPES}
+    field_control_count = 0
+    visible_field_control_count = 0
+    visible_with_positive_bounds_count = 0
+    visible_with_direct_name_count = 0
+    visible_with_semantic_label_count = 0
+    visible_with_positive_bounds_and_label_count = 0
+    field_control_native_handle_present_count = 0
+    field_control_metadata_read_failure_count = 0
+
+    for item in descendants:
+        try:
+            element_info = item.element_info
+            control_type = provider._normalize_control_type(
+                getattr(element_info, "control_type", None)
+            )
+        except Exception:
+            type_counts["other"] += 1
+            continue
+
+        bucket = (
+            control_type
+            if control_type in type_counts and control_type != "other"
+            else "other"
+        )
+        type_counts[bucket] += 1
+
+        if control_type not in _UIA_FORM_FIELD_TYPES:
+            continue
+
+        field_control_count += 1
+        try:
+            visible = bool(getattr(element_info, "visible", True))
+            name = provider._string(getattr(element_info, "name", None))
+            rectangle = item.rectangle()
+            width = int(rectangle.width())
+            height = int(rectangle.height())
+            positive_bounds = width > 0 and height > 0
+        except Exception:
+            field_control_metadata_read_failure_count += 1
+            continue
+
+        if provider._native_handle(item) is not None:
+            field_control_native_handle_present_count += 1
+
+        if not visible:
+            continue
+
+        visible_field_control_count += 1
+        if name:
+            visible_with_direct_name_count += 1
+        if positive_bounds:
+            visible_with_positive_bounds_count += 1
+
+        semantic_label = None
+        try:
+            semantic_label, _ = provider._resolve_semantic_label(
+                item=item,
+                name=name,
+                control_type=control_type,
+                rectangle=rectangle,
+                origin_x=origin_x,
+                origin_y=origin_y,
+                label_candidates=label_candidates,
+            )
+        except Exception:
+            semantic_label = None
+
+        if semantic_label:
+            visible_with_semantic_label_count += 1
+        if positive_bounds and semantic_label:
+            visible_with_positive_bounds_and_label_count += 1
+
+    return {
+        "available": True,
+        "descendant_count": len(descendants),
+        "control_type_counts": type_counts,
+        "field_control_count": field_control_count,
+        "field_control_visible_count": visible_field_control_count,
+        "field_control_visible_with_positive_bounds_count": (
+            visible_with_positive_bounds_count
+        ),
+        "field_control_visible_with_direct_name_count": (
+            visible_with_direct_name_count
+        ),
+        "field_control_visible_with_semantic_label_count": (
+            visible_with_semantic_label_count
+        ),
+        "field_control_visible_with_positive_bounds_and_semantic_label_count": (
+            visible_with_positive_bounds_and_label_count
+        ),
+        "field_control_native_handle_present_count": (
+            field_control_native_handle_present_count
+        ),
+        "field_control_metadata_read_failure_count": (
+            field_control_metadata_read_failure_count
+        ),
+        "label_candidates_available": bool(label_candidates_available),
+    }
+
+
+def _uia_raw_field_candidate_census(root_handle, expected_title, window_rect=None):
+    """Enumerate raw UIA controls and return counts only, never names or values."""
+    root = _positive_handle(root_handle)
+    if os.name != "nt" or root is None:
+        return {
+            "available": False,
+            "failure_stage": "invalid_root_or_platform",
+        }
+
+    try:
+        from app.agent.platform.windows_com import ensure_windows_sta
+        ensure_windows_sta()
+
+        from pywinauto import Desktop
+        desktop = Desktop(backend="uia")
+        window_spec = desktop.window(handle=root)
+        wrapper = getattr(window_spec, "wrapper_object", None)
+        window = wrapper() if callable(wrapper) else window_spec
+        actual_title = window.window_text()
+        if (
+            isinstance(expected_title, str)
+            and expected_title.strip()
+            and actual_title.strip() != expected_title.strip()
+        ):
+            return {
+                "available": False,
+                "failure_stage": "window_title_mismatch",
+            }
+        descendants = tuple(window.descendants())
+    except Exception:
+        return {
+            "available": False,
+            "failure_stage": "uia_enumeration_failed",
+        }
+
+    origin_x = int(getattr(window_rect, "left", 0) or 0)
+    origin_y = int(getattr(window_rect, "top", 0) or 0)
+    from app.agent.perception.windowhub_ui_automation_provider import (
+        WindowHubUIAutomationProvider,
+    )
+    provider = WindowHubUIAutomationProvider()
+
+    try:
+        label_candidates = provider._collect_label_candidates(
+            descendants,
+            origin_x=origin_x,
+            origin_y=origin_y,
+        )
+        label_candidates_available = True
+    except Exception:
+        label_candidates = ()
+        label_candidates_available = False
+
+    summary = _summarize_uia_field_candidates(
+        descendants,
+        provider=provider,
+        origin_x=origin_x,
+        origin_y=origin_y,
+        label_candidates=label_candidates,
+        label_candidates_available=label_candidates_available,
+    )
+    summary["nonstandard_candidate_summary"] = (
+        _uia_nonstandard_candidate_summary(descendants, provider)
+    )
+    summary["failure_stage"] = None
+    return summary
+
+
+def _scene_field_element_census(elements):
+    """Compare provider-produced scene controls with the raw census."""
+    counts = {
+        "edit_count": 0,
+        "combobox_count": 0,
+        "ui_automation_edit_count": 0,
+        "ui_automation_combobox_count": 0,
+    }
+    for element in elements:
+        kind = str(getattr(element, "kind", "") or "").casefold()
+        if kind not in _UIA_FORM_FIELD_TYPES:
+            continue
+        key = "edit_count" if kind == "edit" else "combobox_count"
+        counts[key] += 1
+        metadata = getattr(element, "metadata", None) or {}
+        if metadata.get("source") == "windowhub_ui_automation":
+            uia_key = (
+                "ui_automation_edit_count"
+                if kind == "edit"
+                else "ui_automation_combobox_count"
+            )
+            counts[uia_key] += 1
+    counts["scene_field_control_count"] = (
+        counts["edit_count"] + counts["combobox_count"]
+    )
+    counts["ui_automation_field_control_count"] = (
+        counts["ui_automation_edit_count"]
+        + counts["ui_automation_combobox_count"]
+    )
+    return counts
+
+
 def main() -> int:
     if os.name != "nt":
         print("FAIL: WindowHub field-scope diagnostic requires Windows.", file=sys.stderr)
@@ -416,6 +818,14 @@ def main() -> int:
             raise RuntimeError("No valid WindowHub window handle was observed.")
 
         fields = WindowHubFormReader().read(scene)
+        uia_raw_field_candidate_census = _uia_raw_field_candidate_census(
+            root_handle,
+            title,
+            metadata.get("window_rect"),
+        )
+        scene_field_element_census = _scene_field_element_census(
+            scene.elements
+        )
         document_tab_elements = [
             element
             for element in scene.elements
@@ -491,6 +901,8 @@ def main() -> int:
             ),
             "document_tabs": document_tabs,
             "native_document_window_probe": native_document_window_summary,
+            "uia_raw_field_candidate_census": uia_raw_field_candidate_census,
+            "scene_field_element_census": scene_field_element_census,
             "readable_form_field_count": len(fields),
             "field_scope_diagnostics": [
                 _field_diagnostic(
