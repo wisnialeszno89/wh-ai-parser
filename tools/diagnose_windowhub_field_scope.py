@@ -453,6 +453,16 @@ def _uia_nonstandard_candidate_summary(descendants, provider):
             "native_handle_present_count": 0,
             "window_text_method_present_count": 0,
             **{f"{name}_pattern_count": 0 for name in _UIA_PATTERN_NAMES},
+            "value_pattern_current_value_read_count": 0,
+            "value_pattern_current_value_nonempty_string_count": 0,
+            "value_pattern_current_value_empty_string_count": 0,
+            "value_pattern_current_value_nonstring_count": 0,
+            "value_pattern_current_value_read_error_count": 0,
+            "legacy_current_value_read_count": 0,
+            "legacy_current_value_nonempty_string_count": 0,
+            "legacy_current_value_empty_string_count": 0,
+            "legacy_current_value_nonstring_count": 0,
+            "legacy_current_value_read_error_count": 0,
         }
         for control_type in _UIA_NONSTANDARD_CANDIDATE_TYPES
     }
@@ -507,6 +517,30 @@ def _uia_nonstandard_candidate_summary(descendants, provider):
         for pattern_name in _UIA_PATTERN_NAMES:
             if _uia_pattern_available(item, pattern_name):
                 row[f"{pattern_name}_pattern_count"] += 1
+
+        # Read ValuePattern/LegacyIAccessible values only to count whether a
+        # value is retrievable. Never include the value itself in diagnostics.
+        for pattern_name, prefix in (
+            ("value", "value_pattern_current_value"),
+            ("legacy_iaccessible", "legacy_current_value"),
+        ):
+            pattern_iface = getattr(item, f"iface_{pattern_name}", None)
+            if pattern_iface is None:
+                continue
+            try:
+                current_value = getattr(pattern_iface, "CurrentValue")
+            except Exception:
+                row[f"{prefix}_read_error_count"] += 1
+                continue
+            row[f"{prefix}_read_count"] += 1
+            if isinstance(current_value, str):
+                if current_value.strip():
+                    row[f"{prefix}_nonempty_string_count"] += 1
+                else:
+                    row[f"{prefix}_empty_string_count"] += 1
+            else:
+                row[f"{prefix}_nonstring_count"] += 1
+            del current_value
 
         if control_type in class_buckets:
             bucket = _uia_class_bucket(class_name)
