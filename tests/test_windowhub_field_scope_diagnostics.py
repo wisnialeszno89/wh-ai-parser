@@ -527,6 +527,7 @@ def test_coordinate_origin_probe_stays_unknown_without_unique_visible_client():
         field,
         exact_active_document_windows=(base_window, base_window),
         root_window_rect=root,
+        root_client_bounds_screen=(0, 0, 100, 100),
     ) == {
         "available": False,
         "root_relative_intersects": None,
@@ -540,4 +541,5 @@ def test_coordinate_origin_probe_stays_unknown_without_unique_visible_client():
             "client_bounds_screen": (0, 0, 50, 50),
         },),
         root_window_rect=root,
+        root_client_bounds_screen=(0, 0, 100, 100),
     )["available"] is False
