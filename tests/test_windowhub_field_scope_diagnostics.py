@@ -1025,6 +1025,116 @@ def test_uia_native_field_geometry_correlation_fails_closed_without_snapshot():
     assert result["document_context_native_field_like_control_count"] == 0
 
 
+def test_uia_structural_ancestor_census_reports_document_tab_relationships_only(monkeypatch):
+    def node(control_type, bounds, *, class_name="", name=None, parent=None):
+        left, top, right, bottom = bounds
+        rectangle = SimpleNamespace(
+            left=left, top=top, right=right, bottom=bottom,
+            width=lambda: right - left,
+            height=lambda: bottom - top,
+        )
+        result = SimpleNamespace(
+            element_info=SimpleNamespace(
+                control_type=control_type,
+                class_name=class_name,
+                name=name,
+                visible=True,
+            ),
+            rectangle=lambda: rectangle,
+        )
+        result.parent = lambda: parent
+        return result
+
+    tab_host = node(
+        "Tab", (90, 90, 510, 510),
+        class_name="Afx:TabWnd", name="PRIVATE_HOST",
+    )
+    doc_tab = node(
+        "TabItem", (100, 100, 500, 500),
+        name="PRIVATE_DOCUMENT_TAB", parent=tab_host,
+    )
+    tight_pane = node(
+        "Pane", (145, 145, 255, 185),
+        class_name="PRIVATE_PANE", parent=doc_tab,
+    )
+
+    def unrelated_parent():
+        return None
+
+    outside_container = node(
+        "Custom", (595, 595, 705, 645),
+        class_name="PRIVATE_OUTSIDE", parent=None,
+    )
+    outside_container.parent = unrelated_parent
+
+    document = {
+        "handle": 50,
+        "title": "PRIVATE_DOCUMENT",
+        "class_name": "Afx:MDIChild",
+        "visible": True,
+        "client_bounds_screen": (100, 100, 500, 500),
+    }
+    native_windows = (
+        {
+            "handle": 11,
+            "title": "PRIVATE_EDIT",
+            "class_name": "Edit",
+            "visible": True,
+            "client_bounds_screen": (150, 150, 250, 180),
+        },
+        {
+            "handle": 12,
+            "title": "PRIVATE_COMBO_OUTSIDE",
+            "class_name": "ComboBox",
+            "visible": True,
+            "client_bounds_screen": (600, 600, 700, 640),
+        },
+    )
+    from tools.diagnose_windowhub_field_scope import (
+        _uia_native_field_geometry_correlation_census,
+    )
+    # Keep the native ancestry synthetic and deterministic.
+    import tools.diagnose_windowhub_field_scope as diagnostic
+    monkeypatch.setattr(
+        diagnostic,
+        "_native_parent_chain",
+        lambda handle: {
+            11: (11, 50, 100),
+            12: (12, 100),
+        }.get(handle),
+    )
+    result = _uia_native_field_geometry_correlation_census(
+        (tight_pane, outside_container),
+        provider=WindowHubUIAutomationProvider(),
+        native_windows=native_windows,
+        exact_active_document_windows=(document,),
+    )
+
+    structural = result["uia_structural_ancestor_census"]
+    assert structural["available"] is True
+    assert structural["all_native_fields_with_unique_smallest_container_count"] == 2
+    assert structural["document_context_fields_with_unique_smallest_container_count"] == 1
+    assert structural["all_native_fields_with_parent_chain_checked_count"] == 2
+    assert structural["document_context_fields_with_parent_chain_checked_count"] == 1
+    assert structural["all_native_fields_with_tabitem_ancestor_count"] == 1
+    assert structural["document_context_fields_with_tabitem_ancestor_count"] == 1
+    assert structural["all_native_fields_with_document_tab_host_relation_count"] == 1
+    assert structural["document_context_fields_with_document_tab_host_relation_count"] == 1
+    assert structural["document_context_fields_smallest_container_type_counts"]["pane"] == 1
+    assert structural["document_context_fields_ancestor_control_type_counts"]["tabitem"] == 1
+    assert structural["document_context_fields_ancestor_control_type_counts"]["tab"] == 1
+
+    rendered = repr(result)
+    for private_value in (
+        "PRIVATE_HOST", "PRIVATE_DOCUMENT_TAB", "PRIVATE_PANE",
+        "PRIVATE_OUTSIDE", "PRIVATE_DOCUMENT", "PRIVATE_EDIT",
+        "PRIVATE_COMBO_OUTSIDE", "11", "(150, 150",
+    ):
+        assert private_value.casefold() not in rendered.casefold()
+    assert "handle" not in rendered.casefold()
+    assert "class_name" not in rendered.casefold()
+
+
 def test_uia_native_geometry_census_counts_nearby_text_without_emitting_text(monkeypatch):
     monkeypatch.setattr(
         "tools.diagnose_windowhub_field_scope._native_parent_chain",
