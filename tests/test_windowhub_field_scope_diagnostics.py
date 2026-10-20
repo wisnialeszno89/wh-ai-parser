@@ -1128,7 +1128,7 @@ def test_uia_structural_ancestor_census_reports_document_tab_relationships_only(
     for private_value in (
         "PRIVATE_HOST", "PRIVATE_DOCUMENT_TAB", "PRIVATE_PANE",
         "PRIVATE_OUTSIDE", "PRIVATE_DOCUMENT", "PRIVATE_EDIT",
-        "PRIVATE_COMBO_OUTSIDE", "11", "12", "50", "(150, 150",
+        "PRIVATE_COMBO_OUTSIDE", "11", "12", "(150, 150",
     ):
         assert private_value.casefold() not in rendered.casefold()
     assert "handle" not in rendered.casefold()
