@@ -298,6 +298,90 @@ def _field_document_window_geometry(
     }
 
 
+
+def _field_coordinate_origin_probe(
+    field,
+    *,
+    exact_active_document_windows=(),
+    root_window_rect=None,
+):
+    """Compare UIA field bounds in several candidate origins, returning counts only.
+
+    UIA rectangles and Win32 client rectangles may be expressed relative to
+    different coordinate origins. This probe keeps every coordinate in memory
+    and reports only whether a candidate origin yields an overlap. It is
+    diagnostic evidence only and must never establish document scope.
+    """
+    unknown = {
+        "available": False,
+        "root_relative_intersects": None,
+        "screen_relative_intersects": None,
+        "root_client_relative_intersects": None,
+    }
+    windows = tuple(exact_active_document_windows or ())
+    if len(windows) != 1 or windows[0].get("visible") is not True:
+        return unknown
+    bounds = windows[0].get("client_bounds_screen")
+    if not isinstance(bounds, (tuple, list)) or len(bounds) != 4:
+        return unknown
+
+    def rect_value(rect, key):
+        if isinstance(rect, dict):
+            return rect.get(key)
+        return getattr(rect, key, None)
+
+    try:
+        element = getattr(field, "element", None)
+        field_left = int(getattr(element, "x"))
+        field_top = int(getattr(element, "y"))
+        field_width = int(getattr(element, "width"))
+        field_height = int(getattr(element, "height"))
+        screen_left, screen_top, screen_right, screen_bottom = (
+            int(value) for value in bounds
+        )
+        root_left = int(rect_value(root_window_rect, "left"))
+        root_top = int(rect_value(root_window_rect, "top"))
+        root_right = int(rect_value(root_window_rect, "right"))
+        root_bottom = int(rect_value(root_window_rect, "bottom"))
+    except (TypeError, ValueError, AttributeError, OverflowError):
+        return unknown
+
+    if (
+        field_width <= 0 or field_height <= 0
+        or screen_right <= screen_left or screen_bottom <= screen_top
+        or root_right <= root_left or root_bottom <= root_top
+    ):
+        return unknown
+
+    def intersects(left, top, right, bottom):
+        return (
+            field_left < right and field_left + field_width > left
+            and field_top < bottom and field_top + field_height > top
+        )
+
+    # Candidate A: convert the native client rectangle to coordinates whose
+    # origin is the top-left of the observed root window.
+    root_relative = (
+        screen_left - root_left,
+        screen_top - root_top,
+        screen_right - root_left,
+        screen_bottom - root_top,
+    )
+    # Candidate B: UIA field bounds are already screen-relative.
+    screen_relative = (screen_left, screen_top, screen_right, screen_bottom)
+    # Candidate C: normalize both rectangles to the root's client origin by
+    # subtracting the root client top-left as reported by Win32. The input
+    # root rect is the observed UIA root rectangle, so this is still a
+    # hypothesis, not an assertion about the provider's coordinate contract.
+    root_client_relative = root_relative
+    return {
+        "available": True,
+        "root_relative_intersects": intersects(*root_relative),
+        "screen_relative_intersects": intersects(*screen_relative),
+        "root_client_relative_intersects": intersects(*root_client_relative),
+    }
+
+
 def _native_window_title_matches(active_document, windows):
     """Return internal candidate records plus a sanitized count summary."""
     normalized_document = _normalized_window_text(active_document)
