@@ -7,6 +7,7 @@ from app.agent.perception.windowhub_ui_automation_provider import (
 from tools.diagnose_windowhub_field_scope import (
     _scene_field_element_census,
     _summarize_uia_field_candidates,
+    _uia_nonstandard_candidate_summary,
 )
 
 
@@ -23,6 +24,8 @@ class FakeUIAItem:
         visible=True,
         handle=None,
         parent=None,
+        class_name="",
+        automation_id="",
     ):
         self.element_info = SimpleNamespace(
             name=name,
@@ -30,6 +33,8 @@ class FakeUIAItem:
             visible=visible,
             enabled=True,
             handle=handle,
+            class_name=class_name,
+            automation_id=automation_id,
         )
         self._rectangle = SimpleNamespace(
             left=left,
@@ -161,3 +166,82 @@ def test_scene_field_census_separates_uia_field_controls_from_other_sources():
         "scene_field_control_count": 3,
         "ui_automation_field_control_count": 2,
     }
+
+
+
+def test_nonstandard_uia_census_counts_value_patterns_without_emitting_text():
+    winforms_custom = FakeUIAItem(
+        name="SENSITIVE_CUSTOM_NAME",
+        control_type="Custom",
+        left=10,
+        top=100,
+        width=100,
+        height=24,
+        handle=501,
+        class_name="WindowsForms10.Window.8.app.0",
+        automation_id="SECRET_AUTOMATION_ID",
+    )
+    winforms_custom.iface_value = object()
+    winforms_custom.iface_text = object()
+
+    mfc_other = FakeUIAItem(
+        name="SENSITIVE_OTHER_NAME",
+        control_type="Other",
+        left=20,
+        top=140,
+        width=100,
+        height=24,
+        handle=502,
+        class_name="Afx:Wnd42",
+        automation_id="SECRET_OTHER_ID",
+    )
+    mfc_other.iface_legacy_iaccessible = object()
+    mfc_other.iface_value = object()
+
+    no_pattern = FakeUIAItem(
+        name="SENSITIVE_EMPTY_NAME",
+        control_type="Custom",
+        left=30,
+        top=180,
+        width=0,
+        height=0,
+        handle=None,
+        class_name="",
+    )
+
+    result = _uia_nonstandard_candidate_summary(
+        (winforms_custom, mfc_other, no_pattern),
+        WindowHubUIAutomationProvider(),
+    )
+
+    by_type = result["by_control_type"]
+    assert by_type["custom"]["count"] == 2
+    assert by_type["custom"]["visible_count"] == 2
+    assert by_type["custom"]["name_present_count"] == 2
+    assert by_type["custom"]["automation_id_present_count"] == 1
+    assert by_type["custom"]["positive_bounds_count"] == 1
+    assert by_type["custom"]["native_handle_present_count"] == 1
+    assert by_type["custom"]["value_pattern_count"] == 1
+    assert by_type["custom"]["text_pattern_count"] == 1
+    assert by_type["other"]["count"] == 1
+    assert by_type["other"]["value_pattern_count"] == 1
+    assert by_type["other"]["legacy_iaccessible_pattern_count"] == 1
+
+    class_buckets = result["class_bucket_counts"]
+    assert class_buckets["custom"]["windows_forms"] == 1
+    assert class_buckets["custom"]["class_unavailable"] == 1
+    assert class_buckets["other"]["afx_mfc"] == 1
+
+    rendered = repr(result)
+    for private_text in (
+        "SENSITIVE_CUSTOM_NAME",
+        "SENSITIVE_OTHER_NAME",
+        "SENSITIVE_EMPTY_NAME",
+        "SECRET_AUTOMATION_ID",
+        "SECRET_OTHER_ID",
+        "WindowsForms10",
+        "Afx:Wnd42",
+        "501",
+        "502",
+    ):
+        assert private_text not in rendered
