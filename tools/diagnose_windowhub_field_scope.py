@@ -273,6 +273,117 @@ def _native_document_window_geometry_summary(exact_windows):
     }
 
 
+def _native_window_class_bucket(class_name):
+    """Map native HWND class names to coarse, non-identifying buckets."""
+    if not isinstance(class_name, str) or not class_name.strip():
+        return "class_unavailable"
+    normalized = class_name.strip().casefold()
+    is_windows_forms = "windowsforms" in normalized
+
+    if "afx" in normalized:
+        return "afx_mfc"
+    if "combobox" in normalized or normalized == "combo":
+        return (
+            "windows_forms_combobox"
+            if is_windows_forms
+            else "win32_combobox"
+        )
+    if (
+        normalized == "edit"
+        or "richedit" in normalized
+        or (
+            is_windows_forms
+            and "edit" in normalized
+        )
+    ):
+        return "windows_forms_edit" if is_windows_forms else "win32_edit"
+    if "button" in normalized:
+        return "windows_forms_button" if is_windows_forms else "win32_button"
+    if "static" in normalized or normalized == "text":
+        return "win32_static_text"
+    if "listbox" in normalized:
+        return "win32_listbox"
+    if "systabcontrol32" in normalized or "tabcontrol" in normalized:
+        return "win32_tab_control"
+    if "scrollbar" in normalized:
+        return "win32_scrollbar"
+    if is_windows_forms:
+        return "windows_forms_other"
+    return "other_class"
+
+
+_NATIVE_WINDOW_CLASS_BUCKETS = (
+    "afx_mfc",
+    "windows_forms_edit",
+    "windows_forms_combobox",
+    "windows_forms_button",
+    "windows_forms_other",
+    "win32_edit",
+    "win32_combobox",
+    "win32_button",
+    "win32_static_text",
+    "win32_listbox",
+    "win32_tab_control",
+    "win32_scrollbar",
+    "class_unavailable",
+    "other_class",
+)
+
+
+def _native_child_window_control_census(windows):
+    """Summarize native descendant window classes without emitting names or handles."""
+    if windows is None:
+        return {
+            "available": False,
+            "descendant_count": None,
+            "field_like_native_control_count": None,
+            "by_class": {},
+        }
+
+    records = tuple(windows)
+    by_class = {
+        bucket: {
+            "count": 0,
+            "visible_count": 0,
+            "positive_bounds_count": 0,
+            "native_text_present_count": 0,
+        }
+        for bucket in _NATIVE_WINDOW_CLASS_BUCKETS
+    }
+    field_like_count = 0
+    for item in records:
+        bucket = _native_window_class_bucket(item.get("class_name"))
+        row = by_class[bucket]
+        row["count"] += 1
+        if item.get("visible") is True:
+            row["visible_count"] += 1
+        bounds = item.get("client_bounds_screen")
+        if isinstance(bounds, (tuple, list)) and len(bounds) == 4:
+            try:
+                positive_bounds = int(bounds[2]) > int(bounds[0]) and int(bounds[3]) > int(bounds[1])
+            except (TypeError, ValueError, OverflowError):
+                positive_bounds = False
+            if positive_bounds:
+                row["positive_bounds_count"] += 1
+        title = item.get("title")
+        if isinstance(title, str) and title.strip():
+            row["native_text_present_count"] += 1
+        if bucket in {
+            "windows_forms_edit",
+            "windows_forms_combobox",
+            "win32_edit",
+            "win32_combobox",
+        }:
+            field_like_count += 1
+
+    return {
+        "available": True,
+        "descendant_count": len(records),
+        "field_like_native_control_count": field_like_count,
+        "by_class": by_class,
+    }
+
+
 def _field_document_window_geometry(
     field,
     *,
@@ -1200,6 +1311,9 @@ def main() -> int:
             ),
             "document_tabs": document_tabs,
             "native_document_window_probe": native_document_window_summary,
+            "native_child_window_control_census": (
+                _native_child_window_control_census(native_child_windows)
+            ),
             "native_document_window_geometry_probe": (
                 _native_document_window_geometry_summary(
                     exact_native_document_windows
