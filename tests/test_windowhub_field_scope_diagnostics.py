@@ -1002,7 +1002,6 @@ def test_uia_native_field_geometry_correlation_matches_bounds_without_handles(mo
         "PRIVATE_COMBO_OUTSIDE",
         "11",
         "12",
-        "50",
         "(150, 150",
         "600",
     ):
@@ -1024,6 +1023,84 @@ def test_uia_native_field_geometry_correlation_fails_closed_without_snapshot():
     assert result["uia_descendant_count"] == 0
     assert result["native_visible_field_like_control_count"] == 0
     assert result["document_context_native_field_like_control_count"] == 0
+
+
+def test_uia_native_geometry_census_counts_nearby_text_without_emitting_text(monkeypatch):
+    monkeypatch.setattr(
+        "tools.diagnose_windowhub_field_scope._native_parent_chain",
+        lambda handle: {
+            11: (11, 50, 100),
+            12: (12, 100),
+            13: (13, 50, 100),
+        }.get(handle),
+    )
+    document = {
+        "handle": 50,
+        "title": "PRIVATE_DOCUMENT",
+        "class_name": "Afx:MDIChild",
+        "visible": True,
+        "client_bounds_screen": (100, 100, 500, 500),
+    }
+    native_windows = (
+        {
+            "handle": 11, "title": "PRIVATE_EDIT_ONE", "class_name": "Edit",
+            "visible": True, "client_bounds_screen": (150, 150, 250, 180),
+        },
+        {
+            "handle": 12, "title": "PRIVATE_EDIT_OUTSIDE", "class_name": "Edit",
+            "visible": True, "client_bounds_screen": (600, 600, 700, 640),
+        },
+        {
+            "handle": 13, "title": "PRIVATE_COMBO_TWO", "class_name": "ComboBox",
+            "visible": True, "client_bounds_screen": (300, 150, 400, 180),
+        },
+    )
+
+    def uia(control_type, bounds, *, name="PRIVATE_UIA_TEXT"):
+        left, top, right, bottom = bounds
+        rect = SimpleNamespace(
+            left=left, top=top, right=right, bottom=bottom,
+            width=lambda: right - left,
+            height=lambda: bottom - top,
+        )
+        return SimpleNamespace(
+            element_info=SimpleNamespace(
+                control_type=control_type, visible=True, name=name,
+            ),
+            rectangle=lambda: rect,
+        )
+
+    descendants = (
+        uia("Text", (110, 155, 145, 175), name="PRIVATE_LABEL_ONE"),
+        uia("Text", (260, 155, 295, 175), name="PRIVATE_LABEL_TWO"),
+        uia("Text", (550, 610, 590, 630), name="PRIVATE_LABEL_OUTSIDE"),
+    )
+    result = _uia_native_field_geometry_correlation_census(
+        descendants,
+        provider=WindowHubUIAutomationProvider(),
+        native_windows=native_windows,
+        exact_active_document_windows=(document,),
+    )
+
+    neighbors = result["uia_text_neighbor_census"]
+    assert neighbors["available"] is True
+    assert neighbors["visible_text_nodes_with_positive_bounds_count"] == 3
+    all_fields = neighbors["all_native_fields"]
+    doc_fields = neighbors["document_context_fields"]
+    assert all_fields["field_count"] == 3
+    assert doc_fields["field_count"] == 2
+    assert all_fields["fields_with_text_neighbor_by_side_within_gap_px"]["left"]["25"] == 3
+    assert doc_fields["fields_with_text_neighbor_by_side_within_gap_px"]["left"]["25"] == 2
+    assert doc_fields["fields_with_text_neighbor_by_side_within_gap_px"]["left"]["50"] == 2
+
+    rendered = repr(result)
+    for private_value in (
+        "PRIVATE_DOCUMENT", "PRIVATE_EDIT_ONE", "PRIVATE_EDIT_OUTSIDE",
+        "PRIVATE_COMBO_TWO", "PRIVATE_UIA_TEXT", "PRIVATE_LABEL_ONE",
+        "PRIVATE_LABEL_TWO", "PRIVATE_LABEL_OUTSIDE", "11", "12", "13",
+        "(150, 150", "550",
+    ):
+        assert private_value.casefold() not in rendered.casefold()
 
 
 def test_uia_native_geometry_census_identifies_tightest_container_by_counts(monkeypatch):
@@ -1102,7 +1179,7 @@ def test_uia_native_geometry_census_identifies_tightest_container_by_counts(monk
     rendered = repr(result)
     for private_value in (
         "PRIVATE_DOCUMENT", "PRIVATE_EDIT_ONE", "PRIVATE_EDIT_OUTSIDE",
-        "PRIVATE_COMBO_TWO", "11", "12", "13", "50", "(150, 150", "600",
+        "PRIVATE_COMBO_TWO", "11", "12", "13", "(150, 150", "600",
     ):
         assert private_value.casefold() not in rendered.casefold()
     assert "handle" not in rendered.casefold()
