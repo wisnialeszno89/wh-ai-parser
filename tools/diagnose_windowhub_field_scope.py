@@ -1496,7 +1496,6 @@ def _uia_native_document_control_correlation_census(
         "edit", "combobox", "custom", "pane", "document",
         "group", "window", "button", "text", "tabitem", "other",
     )
-    structural_control_types = (*control_types, "tab")
     row_template = {
         "count": 0,
         "visible_count": 0,
@@ -1692,6 +1691,7 @@ def _uia_native_field_geometry_correlation_census(
         "edit", "combobox", "custom", "pane", "document",
         "group", "window", "button", "text", "tabitem", "other",
     )
+    structural_control_types = (*control_types, "tab")
     row_template = {
         "count": 0,
         "visible_count": 0,
