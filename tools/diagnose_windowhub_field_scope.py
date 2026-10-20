@@ -524,7 +524,11 @@ def _uia_nonstandard_candidate_summary(descendants, provider):
             ("value", "value_pattern_current_value"),
             ("legacy_iaccessible", "legacy_current_value"),
         ):
-            pattern_iface = getattr(item, f"iface_{pattern_name}", None)
+            try:
+                pattern_iface = getattr(item, f"iface_{pattern_name}", None)
+            except Exception:
+                row[f"{prefix}_read_error_count"] += 1
+                continue
             if pattern_iface is None:
                 continue
             try:
