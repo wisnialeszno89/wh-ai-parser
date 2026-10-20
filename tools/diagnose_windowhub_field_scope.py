@@ -382,6 +382,140 @@ _UIA_DIAGNOSTIC_CONTROL_TYPES = (
     "other",
 )
 _UIA_FORM_FIELD_TYPES = frozenset({"edit", "combobox"})
+_UIA_NONSTANDARD_CANDIDATE_TYPES = (
+    "custom",
+    "other",
+    "document",
+    "group",
+    "pane",
+    "window",
+    "button",
+    "text",
+)
+_UIA_PATTERN_NAMES = (
+    "value",
+    "legacy_iaccessible",
+    "text",
+    "range_value",
+    "selection_item",
+    "invoke",
+    "expand_collapse",
+)
+_UIA_CLASS_BUCKETS = (
+    "windows_forms",
+    "afx_mfc",
+    "win32_edit",
+    "win32_combobox",
+    "win32_button",
+    "win32_static_text",
+    "class_unavailable",
+    "other_class",
+)
+
+
+def _uia_class_bucket(class_name):
+    """Reduce a native class name to a coarse, non-identifying category."""
+    if not isinstance(class_name, str) or not class_name.strip():
+        return "class_unavailable"
+    normalized = class_name.strip().casefold()
+    if "windowsforms" in normalized:
+        return "windows_forms"
+    if "afx:" in normalized or "afx" in normalized:
+        return "afx_mfc"
+    if "combobox" in normalized or "combo" in normalized:
+        return "win32_combobox"
+    if "edit" in normalized:
+        return "win32_edit"
+    if "button" in normalized:
+        return "win32_button"
+    if "static" in normalized or "text" in normalized:
+        return "win32_static_text"
+    return "other_class"
+
+
+def _uia_pattern_available(item, pattern_name):
+    """Check UIA pattern availability without invoking or reading a value."""
+    try:
+        return getattr(item, f"iface_{pattern_name}", None) is not None
+    except Exception:
+        return False
+
+
+def _uia_nonstandard_candidate_summary(descendants, provider):
+    """Summarize nonstandard UIA nodes and supported patterns using counts only."""
+    counts = {
+        control_type: {
+            "count": 0,
+            "visible_count": 0,
+            "name_present_count": 0,
+            "automation_id_present_count": 0,
+            "positive_bounds_count": 0,
+            "native_handle_present_count": 0,
+            "window_text_method_present_count": 0,
+            **{f"{name}_pattern_count": 0 for name in _UIA_PATTERN_NAMES},
+        }
+        for control_type in _UIA_NONSTANDARD_CANDIDATE_TYPES
+    }
+    class_buckets = {
+        control_type: {bucket: 0 for bucket in _UIA_CLASS_BUCKETS}
+        for control_type in ("custom", "other", "document", "group", "pane")
+    }
+
+    for item in descendants:
+        try:
+            info = item.element_info
+            control_type = provider._normalize_control_type(
+                getattr(info, "control_type", None)
+            )
+        except Exception:
+            continue
+        if control_type not in counts:
+            continue
+
+        row = counts[control_type]
+        row["count"] += 1
+        try:
+            visible = bool(getattr(info, "visible", True))
+            name = provider._string(getattr(info, "name", None))
+            automation_id = provider._string(
+                getattr(info, "automation_id", None)
+            )
+            class_name = getattr(info, "class_name", None)
+            rectangle = item.rectangle()
+            positive_bounds = (
+                int(rectangle.width()) > 0 and int(rectangle.height()) > 0
+            )
+        except Exception:
+            visible = False
+            name = None
+            automation_id = None
+            class_name = None
+            positive_bounds = False
+
+        if visible:
+            row["visible_count"] += 1
+        if name:
+            row["name_present_count"] += 1
+        if automation_id:
+            row["automation_id_present_count"] += 1
+        if positive_bounds:
+            row["positive_bounds_count"] += 1
+        if provider._native_handle(item) is not None:
+            row["native_handle_present_count"] += 1
+        if callable(getattr(item, "window_text", None)):
+            row["window_text_method_present_count"] += 1
+        for pattern_name in _UIA_PATTERN_NAMES:
+            if _uia_pattern_available(item, pattern_name):
+                row[f"{pattern_name}_pattern_count"] += 1
+
+        if control_type in class_buckets:
+            bucket = _uia_class_bucket(class_name)
+            class_buckets[control_type][bucket] += 1
+
+    return {
+        "by_control_type": counts,
+        "class_bucket_counts": class_buckets,
+    }
 
 
 def _summarize_uia_field_candidates(
@@ -555,6 +689,9 @@ def _uia_raw_field_candidate_census(root_handle, expected_title, window_rect=Non
         origin_y=origin_y,
         label_candidates=label_candidates,
         label_candidates_available=label_candidates_available,
+    )
+    summary["nonstandard_candidate_summary"] = (
+        _uia_nonstandard_candidate_summary(descendants, provider)
     )
     summary["failure_stage"] = None
     return summary
