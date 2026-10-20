@@ -438,6 +438,16 @@ def main() -> int:
             if len(selected_tab_handles) == 1
             else None
         )
+        native_child_windows = _native_child_window_snapshot(root_handle)
+        exact_native_document_windows, native_document_window_summary = (
+            _native_window_title_matches(
+                scene.active_document,
+                native_child_windows,
+            )
+        )
+        exact_native_document_window_handles = tuple(
+            item["handle"] for item in exact_native_document_windows
+        )
         document_tabs = []
         for index, element in enumerate(document_tab_elements):
             handle = document_tab_handles[index]
@@ -480,6 +490,7 @@ def main() -> int:
                 "selected_document_tab_count", 0
             ),
             "document_tabs": document_tabs,
+            "native_document_window_probe": native_document_window_summary,
             "readable_form_field_count": len(fields),
             "field_scope_diagnostics": [
                 _field_diagnostic(
@@ -488,6 +499,12 @@ def main() -> int:
                     active_document=scene.active_document,
                     selected_document_tab_native_handle=(
                         selected_document_tab_native_handle
+                    ),
+                    exact_active_document_window_handles=(
+                        exact_native_document_window_handles
+                    ),
+                    native_child_window_probe_available=(
+                        native_child_windows is not None
                     ),
                 )
                 for field in fields
