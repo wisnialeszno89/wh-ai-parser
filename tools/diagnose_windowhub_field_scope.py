@@ -112,7 +112,7 @@ def _native_child_window_snapshot(root_handle):
         user32 = ctypes.WinDLL("user32", use_last_error=True)
 
         enum_proc_type = ctypes.WINFUNCTYPE(
-            ctypes.c_bool,
+            ctypes.c_int,
             ctypes.c_void_p,
             ctypes.c_ssize_t,
         )
@@ -127,10 +127,10 @@ def _native_child_window_snapshot(root_handle):
         get_class.restype = ctypes.c_int
         is_visible = user32.IsWindowVisible
         is_visible.argtypes = (ctypes.c_void_p,)
-        is_visible.restype = ctypes.c_bool
+        is_visible.restype = ctypes.c_int
         enum_children = user32.EnumChildWindows
         enum_children.argtypes = (ctypes.c_void_p, enum_proc_type, ctypes.c_ssize_t)
-        enum_children.restype = ctypes.c_bool
+        enum_children.restype = ctypes.c_int
 
         windows = []
 
