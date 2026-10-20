@@ -286,7 +286,12 @@ def test_native_document_child_window_probe_stays_unknown_when_snapshot_unavaila
     }
 
 
-def test_native_child_window_matches_are_boolean_only_and_do_not_assign_scope():
+def test_native_child_window_matches_are_boolean_only_and_do_not_assign_scope(monkeypatch):
+    # Keep this unit test independent from unrelated HWNDs on the runner.
+    monkeypatch.setattr(
+        "tools.diagnose_windowhub_field_scope._native_parent_chain",
+        lambda _handle: None,
+    )
     active_document = "OFR/4306-4235"
     field = make_field(
         value="DO-NOT-PRINT-THIS",
