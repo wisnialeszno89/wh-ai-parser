@@ -128,6 +128,27 @@ def _native_child_window_snapshot(root_handle):
         is_visible = user32.IsWindowVisible
         is_visible.argtypes = (ctypes.c_void_p,)
         is_visible.restype = ctypes.c_int
+
+        class _RECT(ctypes.Structure):
+            _fields_ = (
+                ("left", ctypes.c_long),
+                ("top", ctypes.c_long),
+                ("right", ctypes.c_long),
+                ("bottom", ctypes.c_long),
+            )
+
+        class _POINT(ctypes.Structure):
+            _fields_ = (
+                ("x", ctypes.c_long),
+                ("y", ctypes.c_long),
+            )
+
+        get_client_rect = user32.GetClientRect
+        get_client_rect.argtypes = (ctypes.c_void_p, ctypes.POINTER(_RECT))
+        get_client_rect.restype = ctypes.c_int
+        client_to_screen = user32.ClientToScreen
+        client_to_screen.argtypes = (ctypes.c_void_p, ctypes.POINTER(_POINT))
+        client_to_screen.restype = ctypes.c_int
         enum_children = user32.EnumChildWindows
         enum_children.argtypes = (ctypes.c_void_p, enum_proc_type, ctypes.c_ssize_t)
         enum_children.restype = ctypes.c_int
@@ -148,11 +169,35 @@ def _native_child_window_snapshot(root_handle):
             class_buffer = ctypes.create_unicode_buffer(256)
             get_class(hwnd, class_buffer, len(class_buffer))
 
+            client_bounds_screen = None
+            client_rect = _RECT()
+            try:
+                if get_client_rect(hwnd, ctypes.byref(client_rect)):
+                    top_left = _POINT(client_rect.left, client_rect.top)
+                    bottom_right = _POINT(client_rect.right, client_rect.bottom)
+                    if (
+                        client_to_screen(hwnd, ctypes.byref(top_left))
+                        and client_to_screen(hwnd, ctypes.byref(bottom_right))
+                        and bottom_right.x > top_left.x
+                        and bottom_right.y > top_left.y
+                    ):
+                        client_bounds_screen = (
+                            int(top_left.x),
+                            int(top_left.y),
+                            int(bottom_right.x),
+                            int(bottom_right.y),
+                        )
+            except Exception:
+                client_bounds_screen = None
+
             windows.append({
                 "handle": handle,
                 "title": title_buffer.value,
                 "class_name": class_buffer.value,
                 "visible": bool(is_visible(hwnd)),
+                # Kept in memory for a boolean relation check only; the
+                # rectangle and HWND are never serialized into the report.
+                "client_bounds_screen": client_bounds_screen,
             })
             return True
 
@@ -163,6 +208,94 @@ def _native_child_window_snapshot(root_handle):
         return tuple(windows)
     except Exception:
         return None
+
+
+def _native_document_window_geometry_summary(exact_windows):
+    """Report counts for visible active-document client rectangles only."""
+    records = tuple(exact_windows or ())
+    return {
+        "exact_title_match_count": len(records),
+        "visible_exact_title_match_count": sum(
+            item.get("visible") is True for item in records
+        ),
+        "client_bounds_available_exact_title_match_count": sum(
+            isinstance(item.get("client_bounds_screen"), (tuple, list))
+            and len(item.get("client_bounds_screen")) == 4
+            for item in records
+        ),
+    }
+
+
+def _field_document_window_geometry(
+    field,
+    *,
+    exact_active_document_windows=(),
+    root_window_rect=None,
+):
+    """Compare field bounds to the unique document window without exposing geometry."""
+    unknown = {
+        "active_document_client_geometry_available": False,
+        "field_bounds_fully_within_active_document_client_area": None,
+        "field_bounds_intersect_active_document_client_area": None,
+    }
+    windows = tuple(exact_active_document_windows or ())
+    if len(windows) != 1:
+        return unknown
+
+    window = windows[0]
+    if window.get("visible") is not True:
+        return unknown
+    screen_bounds = window.get("client_bounds_screen")
+    if not isinstance(screen_bounds, (tuple, list)) or len(screen_bounds) != 4:
+        return unknown
+
+    def rect_value(rect, key):
+        if isinstance(rect, dict):
+            return rect.get(key)
+        return getattr(rect, key, None)
+
+    try:
+        root_left = int(rect_value(root_window_rect, "left"))
+        root_top = int(rect_value(root_window_rect, "top"))
+        field_element = getattr(field, "element", None)
+        field_left = int(getattr(field_element, "x"))
+        field_top = int(getattr(field_element, "y"))
+        field_width = int(getattr(field_element, "width"))
+        field_height = int(getattr(field_element, "height"))
+        doc_left = int(screen_bounds[0]) - root_left
+        doc_top = int(screen_bounds[1]) - root_top
+        doc_right = int(screen_bounds[2]) - root_left
+        doc_bottom = int(screen_bounds[3]) - root_top
+    except (TypeError, ValueError, AttributeError, OverflowError):
+        return unknown
+
+    if (
+        field_width <= 0
+        or field_height <= 0
+        or doc_right <= doc_left
+        or doc_bottom <= doc_top
+    ):
+        return unknown
+
+    field_right = field_left + field_width
+    field_bottom = field_top + field_height
+    intersects = (
+        field_left < doc_right
+        and field_right > doc_left
+        and field_top < doc_bottom
+        and field_bottom > doc_top
+    )
+    fully_contained = (
+        field_left >= doc_left
+        and field_top >= doc_top
+        and field_right <= doc_right
+        and field_bottom <= doc_bottom
+    )
+    return {
+        "active_document_client_geometry_available": True,
+        "field_bounds_fully_within_active_document_client_area": fully_contained,
+        "field_bounds_intersect_active_document_client_area": intersects,
+    }
 
 
 def _native_window_title_matches(active_document, windows):
@@ -229,6 +362,8 @@ def _field_diagnostic(
     selected_document_tab_native_handle=None,
     exact_active_document_window_handles=(),
     native_child_window_probe_available=False,
+    exact_active_document_windows=(),
+    observed_root_window_rect=None,
 ):
     """Return field scope facts while deliberately excluding all field values."""
     metadata = getattr(field.element, "metadata", None) or {}
@@ -318,6 +453,12 @@ def _field_diagnostic(
             elif observed_handles and len(known_chains) == len(observed_handles):
                 native_parent_chain_matches_active_document_window = False
 
+    geometry_diagnostic = _field_document_window_geometry(
+        field,
+        exact_active_document_windows=exact_active_document_windows,
+        root_window_rect=observed_root_window_rect,
+    )
+
     return {
         "label": field.label,
         "control_type": field.control_type,
@@ -333,6 +474,7 @@ def _field_diagnostic(
             root_handle is not None and observed_handle == root_handle
         ),
         **native_relationships,
+        **geometry_diagnostic,
         "owned_modal": metadata.get("uia_owned_modal") is True,
         "active_document_ancestor_name_exact_match": ancestor_name_exact_match,
         "active_document_window_ancestor_name_exact_match": (
@@ -901,6 +1043,11 @@ def main() -> int:
             ),
             "document_tabs": document_tabs,
             "native_document_window_probe": native_document_window_summary,
+            "native_document_window_geometry_probe": (
+                _native_document_window_geometry_summary(
+                    exact_native_document_windows
+                )
+            ),
             "uia_raw_field_candidate_census": uia_raw_field_candidate_census,
             "scene_field_element_census": scene_field_element_census,
             "readable_form_field_count": len(fields),
@@ -918,6 +1065,10 @@ def main() -> int:
                     native_child_window_probe_available=(
                         native_child_windows is not None
                     ),
+                    exact_active_document_windows=(
+                        exact_native_document_windows
+                    ),
+                    observed_root_window_rect=metadata.get("window_rect"),
                 )
                 for field in fields
             ],
