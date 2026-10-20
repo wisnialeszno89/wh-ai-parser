@@ -912,6 +912,119 @@ def test_native_control_document_context_census_fails_closed_without_unique_visi
     assert "11" not in rendered
     assert "50" not in rendered
 
+def test_uia_native_field_geometry_correlation_matches_bounds_without_handles(monkeypatch):
+    from tools.diagnose_windowhub_field_scope import (
+        _uia_native_field_geometry_correlation_census,
+    )
+
+    monkeypatch.setattr(
+        "tools.diagnose_windowhub_field_scope._native_parent_chain",
+        lambda handle: {
+            11: (11, 50, 100),
+            12: (12, 100),
+        }.get(handle),
+    )
+    document = {
+        "handle": 50,
+        "title": "PRIVATE_DOCUMENT",
+        "class_name": "Afx:MDIChild",
+        "visible": True,
+        "client_bounds_screen": (100, 100, 500, 500),
+    }
+    native_windows = (
+        {
+            "handle": 11,
+            "title": "PRIVATE_EDIT",
+            "class_name": "Edit",
+            "visible": True,
+            "client_bounds_screen": (150, 150, 250, 180),
+        },
+        {
+            "handle": 12,
+            "title": "PRIVATE_COMBO_OUTSIDE",
+            "class_name": "ComboBox",
+            "visible": True,
+            "client_bounds_screen": (600, 600, 700, 640),
+        },
+    )
+
+    def uia(control_type, bounds, *, visible=True):
+        left, top, right, bottom = bounds
+        rectangle = SimpleNamespace(
+            left=left,
+            top=top,
+            right=right,
+            bottom=bottom,
+            width=lambda: right - left,
+            height=lambda: bottom - top,
+        )
+        return SimpleNamespace(
+            element_info=SimpleNamespace(
+                control_type=control_type,
+                visible=visible,
+            ),
+            rectangle=lambda: rectangle,
+        )
+
+    descendants = (
+        uia("Pane", (140, 140, 260, 190)),
+        uia("Custom", (600, 600, 700, 640)),
+        uia("Text", (0, 0, 20, 20), visible=False),
+        uia("Button", (0, 0, 0, 0)),
+    )
+    result = _uia_native_field_geometry_correlation_census(
+        descendants,
+        provider=WindowHubUIAutomationProvider(),
+        native_windows=native_windows,
+        exact_active_document_windows=(document,),
+    )
+
+    assert result["available"] is True
+    assert result["uia_descendant_count"] == 4
+    assert result["uia_nodes_with_positive_bounds_count"] == 3
+    assert result["visible_uia_nodes_with_positive_bounds_count"] == 2
+    assert result["native_visible_field_like_control_count"] == 2
+    assert result["document_context_native_field_like_control_count"] == 1
+    assert result["visible_uia_nodes_intersecting_native_field_count"] == 2
+    assert result["visible_uia_nodes_containing_native_field_center_count"] == 2
+    assert result["visible_uia_nodes_edge_aligned_native_field_count"] == 1
+    assert result["visible_uia_nodes_containing_document_context_field_center_count"] == 1
+    assert result["visible_uia_nodes_edge_aligned_document_context_field_count"] == 0
+    assert result["native_field_centers_contained_by_visible_uia_bounds_count"] == 2
+    assert result["document_context_field_centers_contained_by_visible_uia_bounds_count"] == 1
+    assert result["by_uia_control_type"]["pane"]["visible_bounds_containing_document_context_field_center_count"] == 1
+    assert result["by_uia_control_type"]["custom"]["visible_bounds_edge_aligned_native_field_count"] == 1
+    rendered = repr(result)
+    for private_value in (
+        "PRIVATE_DOCUMENT",
+        "PRIVATE_EDIT",
+        "PRIVATE_COMBO_OUTSIDE",
+        "11",
+        "12",
+        "50",
+        "(150, 150",
+        "600",
+    ):
+        assert private_value not in rendered
+    assert "handle" not in rendered.casefold()
+
+
+def test_uia_native_field_geometry_correlation_fails_closed_without_snapshot():
+    from tools.diagnose_windowhub_field_scope import (
+        _uia_native_field_geometry_correlation_census,
+    )
+
+    result = _uia_native_field_geometry_correlation_census(
+        (),
+        provider=WindowHubUIAutomationProvider(),
+        native_windows=None,
+    )
+    assert result["available"] is False
+    assert result["uia_descendant_count"] == 0
+    assert result["native_visible_field_like_control_count"] == 0
+    assert result["document_context_native_field_like_control_count"] == 0
+
+
 def test_uia_native_document_control_correlation_links_nonstandard_nodes_by_handle(monkeypatch):
     parent_chains = {
         11: (11, 50, 100),
