@@ -1737,6 +1737,13 @@ def _uia_native_field_geometry_correlation_census(
         "document_window_identity_available": False,
         "document_client_bounds_available": False,
         "edge_alignment_tolerance_px": 8,
+        "uia_text_neighbor_census": {
+            "available": native_windows is not None,
+            "visible_text_nodes_with_positive_bounds_count": 0,
+            "max_neighbor_gap_px": 200,
+            "all_native_fields": {},
+            "document_context_fields": {},
+        },
         "by_uia_control_type": by_type,
     }
     if native_windows is None:
@@ -1934,6 +1941,8 @@ def _uia_native_field_geometry_correlation_census(
             "control_type": control_type,
             "area": (bounds[2] - bounds[0]) * (bounds[3] - bounds[1]),
         })
+        if control_type == "text":
+            summary["uia_text_neighbor_census"]["visible_text_nodes_with_positive_bounds_count"] += 1
 
     def smallest_container_counts(fields, *, document_context):
         unique_key = (
@@ -2001,6 +2010,54 @@ def _uia_native_field_geometry_correlation_census(
 
     smallest_container_counts(native_fields, document_context=False)
     smallest_container_counts(document_fields, document_context=True)
+
+    def text_neighbor_summary(fields):
+        sides = ("left", "right", "above", "below")
+        buckets = (25, 50, 100, 200)
+        result = {
+            "field_count": len(fields),
+            "fields_with_text_neighbor_by_side_within_gap_px": {
+                side: {str(limit): 0 for limit in buckets}
+                for side in sides
+            },
+        }
+        text_records = [
+            record for record in uia_bounds_records
+            if record["control_type"] == "text"
+        ]
+        for field in fields:
+            fb = field["bounds"]
+            candidates = {side: [] for side in sides}
+            for record in text_records:
+                tb = record["bounds"]
+                if intersects(tb, fb):
+                    continue
+                vertical_overlap = min(fb[3], tb[3]) - max(fb[1], tb[1])
+                horizontal_overlap = min(fb[2], tb[2]) - max(fb[0], tb[0])
+                if tb[2] <= fb[0] and vertical_overlap > 0:
+                    candidates["left"].append(fb[0] - tb[2])
+                if tb[0] >= fb[2] and vertical_overlap > 0:
+                    candidates["right"].append(tb[0] - fb[2])
+                if tb[3] <= fb[1] and horizontal_overlap > 0:
+                    candidates["above"].append(fb[1] - tb[3])
+                if tb[1] >= fb[3] and horizontal_overlap > 0:
+                    candidates["below"].append(tb[1] - fb[3])
+            for side in sides:
+                gaps = candidates[side]
+                if not gaps:
+                    continue
+                nearest_gap = min(gaps)
+                for limit in buckets:
+                    if nearest_gap <= limit:
+                        result["fields_with_text_neighbor_by_side_within_gap_px"][side][str(limit)] += 1
+        return result
+
+    summary["uia_text_neighbor_census"]["all_native_fields"] = (
+        text_neighbor_summary(native_fields)
+    )
+    summary["uia_text_neighbor_census"]["document_context_fields"] = (
+        text_neighbor_summary(document_fields)
+    )
     return summary
 
 
