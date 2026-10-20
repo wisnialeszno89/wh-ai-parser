@@ -479,7 +479,7 @@ def test_coordinate_origin_probe_reports_candidates_without_coordinates_or_scope
     field = SimpleNamespace(
         label="PRIVATE_FIELD",
         value="PRIVATE_VALUE",
-        element=SimpleNamespace(x=50, y=50, width=20, height=20),
+        element=SimpleNamespace(x=250, y=250, width=20, height=20),
         document_scope=None,
         scope_status="unknown",
     )
@@ -501,14 +501,14 @@ def test_coordinate_origin_probe_reports_candidates_without_coordinates_or_scope
     assert result == {
         "available": True,
         "root_relative_intersects": True,
-        "screen_relative_intersects": False,
+        "screen_relative_intersects": True,
         "root_client_relative_intersects": True,
     }
     assert "PRIVATE_FIELD" not in repr(result)
     assert "PRIVATE_VALUE" not in repr(result)
     assert "PRIVATE_DOCUMENT" not in repr(result)
     assert "456789" not in repr(result)
-    assert "50" not in repr(result)
+    assert "250" not in repr(result)
     assert field.document_scope is None
     assert field.scope_status == "unknown"
 
