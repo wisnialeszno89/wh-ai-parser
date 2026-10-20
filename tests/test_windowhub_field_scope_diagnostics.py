@@ -1397,6 +1397,51 @@ def test_uia_native_document_control_correlation_links_nonstandard_nodes_by_hand
         assert private_value.casefold() not in rendered.casefold()
 
 
+
+def test_document_context_uia_coverage_stays_unknown_without_document_identity(monkeypatch):
+    monkeypatch.setattr(
+        "tools.diagnose_windowhub_field_scope._native_parent_chain",
+        lambda _handle: (11, 100),
+    )
+    native_windows = (
+        {
+            "handle": 11,
+            "title": "PRIVATE_EDIT",
+            "class_name": "Edit",
+            "visible": True,
+            "client_bounds_screen": (10, 20, 100, 40),
+        },
+    )
+    descendant = SimpleNamespace(
+        element_info=SimpleNamespace(
+            control_type="Edit",
+            handle=11,
+            visible=True,
+            name="PRIVATE_UIA_FIELD",
+        )
+    )
+
+    result = _uia_native_document_control_correlation_census(
+        (descendant,),
+        provider=WindowHubUIAutomationProvider(),
+        native_windows=native_windows,
+        exact_active_document_windows=(),
+        observed_root_handle=100,
+    )
+
+    assert result["available"] is True
+    assert result["document_window_identity_available"] is False
+    assert result["document_client_bounds_available"] is False
+    assert result["document_context_native_field_like_control_count"] is None
+    assert result["document_context_native_field_like_uia_handle_match_count"] is None
+    assert result["document_context_native_field_like_uia_control_type_match_counts"] is None
+    rendered = repr(result)
+    assert "PRIVATE_EDIT" not in rendered
+    assert "PRIVATE_UIA_FIELD" not in rendered
+    assert "11" not in rendered
+    assert "(10, 20" not in rendered
+
+
 def test_document_context_native_fields_report_uia_coverage_without_scope_inference(monkeypatch):
     parent_chains = {
         11: (11, 50, 100),
@@ -1527,6 +1572,9 @@ def test_uia_native_document_control_correlation_fails_closed_without_native_sna
     assert result["uia_descendant_count"] == 1
     assert result["uia_nodes_matching_native_descendant_count"] == 0
     assert result["document_window_identity_available"] is False
+    assert result["document_context_native_field_like_control_count"] is None
+    assert result["document_context_native_field_like_uia_handle_match_count"] is None
+    assert result["document_context_native_field_like_uia_control_type_match_counts"] is None
     assert "PRIVATE_NAME" not in repr(result)
     assert "12345" not in repr(result)
     assert "999" not in repr(result)
