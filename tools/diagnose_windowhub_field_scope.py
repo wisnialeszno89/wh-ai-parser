@@ -1477,7 +1477,212 @@ def _summarize_uia_field_candidates(
     }
 
 
-def _uia_raw_field_candidate_census(root_handle, expected_title, window_rect=None):
+
+def _uia_native_document_control_correlation_census(
+    descendants,
+    *,
+    provider,
+    native_windows,
+    exact_active_document_windows=(),
+    observed_root_handle=None,
+):
+    """Correlate sanitized UIA type counts with native controls in a document.
+
+    No UIA names, automation IDs, values, HWNDs, or rectangles are emitted.
+    Handle equality, ancestry, and bounds are signals for diagnostics only;
+    they never set document_scope or authorize an action.
+    """
+    control_types = (
+        "edit", "combobox", "custom", "pane", "document",
+        "group", "window", "button", "text", "tabitem", "other",
+    )
+    row_template = {
+        "count": 0,
+        "visible_count": 0,
+        "native_handle_present_count": 0,
+        "native_descendant_handle_match_count": 0,
+        "matched_native_field_like_count": 0,
+        "matched_native_field_like_visible_count": 0,
+        "matched_native_field_like_parent_chain_checked_count": 0,
+        "matched_native_field_like_parent_chain_contains_document_count": 0,
+        "matched_native_field_like_bounds_intersect_document_client_count": 0,
+        "matched_native_field_like_bounds_fully_within_document_client_count": 0,
+        "matched_native_field_like_parent_and_bounds_match_count": 0,
+    }
+    by_type = {name: dict(row_template) for name in control_types}
+    summary = {
+        "available": native_windows is not None,
+        "uia_descendant_count": len(tuple(descendants or ())),
+        "uia_nodes_considered_count": 0,
+        "uia_nodes_with_native_handle_count": 0,
+        "uia_nodes_matching_native_descendant_count": 0,
+        "uia_nodes_matching_native_field_like_count": 0,
+        "uia_nodes_matching_visible_native_field_like_count": 0,
+        "matched_field_like_parent_chain_checked_count": 0,
+        "matched_field_like_parent_chain_contains_document_count": 0,
+        "matched_field_like_bounds_intersect_document_client_count": 0,
+        "matched_field_like_bounds_fully_within_document_client_count": 0,
+        "matched_field_like_parent_and_bounds_match_count": 0,
+        "document_window_identity_available": False,
+        "document_client_bounds_available": False,
+        "by_uia_control_type": by_type,
+    }
+    if native_windows is None:
+        return summary
+
+    records = tuple(native_windows)
+    by_handle = {}
+    for native in records:
+        handle = _positive_handle(native.get("handle"))
+        if handle is not None:
+            by_handle.setdefault(handle, native)
+
+    document_windows = tuple(exact_active_document_windows or ())
+    document = (
+        document_windows[0]
+        if len(document_windows) == 1
+        and document_windows[0].get("visible") is True
+        else None
+    )
+    document_handle = (
+        _positive_handle(document.get("handle"))
+        if document is not None
+        else None
+    )
+    document_bounds = None
+    if document is not None:
+        candidate = document.get("client_bounds_screen")
+        if isinstance(candidate, (tuple, list)) and len(candidate) == 4:
+            try:
+                normalized = tuple(int(value) for value in candidate)
+                if normalized[2] > normalized[0] and normalized[3] > normalized[1]:
+                    document_bounds = normalized
+            except (TypeError, ValueError, OverflowError):
+                pass
+
+    summary["document_window_identity_available"] = document_handle is not None
+    summary["document_client_bounds_available"] = document_bounds is not None
+
+    root_handle = _positive_handle(observed_root_handle)
+    field_like_buckets = {
+        "windows_forms_edit",
+        "windows_forms_combobox",
+        "win32_edit",
+        "win32_combobox",
+    }
+    chain_cache = {}
+
+    def valid_bounds(value):
+        if not isinstance(value, (tuple, list)) or len(value) != 4:
+            return None
+        try:
+            bounds = tuple(int(part) for part in value)
+        except (TypeError, ValueError, OverflowError):
+            return None
+        if bounds[2] <= bounds[0] or bounds[3] <= bounds[1]:
+            return None
+        return bounds
+
+    for item in tuple(descendants or ()):
+        summary["uia_nodes_considered_count"] += 1
+        try:
+            info = item.element_info
+            control_type = provider._normalize_control_type(
+                getattr(info, "control_type", None)
+            )
+            visible = bool(getattr(info, "visible", True))
+        except Exception:
+            control_type = "other"
+            visible = False
+
+        if control_type not in by_type:
+            control_type = "other"
+        row = by_type[control_type]
+        row["count"] += 1
+        if visible:
+            row["visible_count"] += 1
+
+        handle = provider._native_handle(item)
+        if handle is None:
+            continue
+        summary["uia_nodes_with_native_handle_count"] += 1
+        row["native_handle_present_count"] += 1
+
+        native = by_handle.get(handle)
+        if native is None:
+            continue
+        summary["uia_nodes_matching_native_descendant_count"] += 1
+        row["native_descendant_handle_match_count"] += 1
+
+        native_bucket = _native_window_class_bucket(native.get("class_name"))
+        if native_bucket not in field_like_buckets:
+            continue
+
+        summary["uia_nodes_matching_native_field_like_count"] += 1
+        row["matched_native_field_like_count"] += 1
+        is_visible = visible and native.get("visible") is True
+        if not is_visible:
+            continue
+
+        summary["uia_nodes_matching_visible_native_field_like_count"] += 1
+        row["matched_native_field_like_visible_count"] += 1
+
+        chain_contains_document = None
+        if document_handle is not None:
+            if handle not in chain_cache:
+                chain_cache[handle] = _native_parent_chain(handle)
+            chain = chain_cache[handle]
+            if chain is not None:
+                row["matched_native_field_like_parent_chain_checked_count"] += 1
+                summary["matched_field_like_parent_chain_checked_count"] += 1
+                chain_contains_document = document_handle in chain
+                if chain_contains_document:
+                    row["matched_native_field_like_parent_chain_contains_document_count"] += 1
+                    summary["matched_field_like_parent_chain_contains_document_count"] += 1
+
+        native_bounds = valid_bounds(native.get("client_bounds_screen"))
+        intersects_document = False
+        contained_in_document = False
+        if native_bounds is not None and document_bounds is not None:
+            intersects_document = (
+                native_bounds[0] < document_bounds[2]
+                and native_bounds[2] > document_bounds[0]
+                and native_bounds[1] < document_bounds[3]
+                and native_bounds[3] > document_bounds[1]
+            )
+            contained_in_document = (
+                native_bounds[0] >= document_bounds[0]
+                and native_bounds[1] >= document_bounds[1]
+                and native_bounds[2] <= document_bounds[2]
+                and native_bounds[3] <= document_bounds[3]
+            )
+            if intersects_document:
+                row["matched_native_field_like_bounds_intersect_document_client_count"] += 1
+                summary["matched_field_like_bounds_intersect_document_client_count"] += 1
+            if contained_in_document:
+                row["matched_native_field_like_bounds_fully_within_document_client_count"] += 1
+                summary["matched_field_like_bounds_fully_within_document_client_count"] += 1
+
+        if chain_contains_document is True and intersects_document:
+            row["matched_native_field_like_parent_and_bounds_match_count"] += 1
+            summary["matched_field_like_parent_and_bounds_match_count"] += 1
+
+    # Root identity is used only to ensure caller supplied a real observation;
+    # no raw handle is included in the serialized summary.
+    summary["observed_root_handle_available"] = root_handle is not None
+    return summary
+
+
+
+def _uia_raw_field_candidate_census(
+    root_handle,
+    expected_title,
+    window_rect=None,
+    *,
+    native_windows=None,
+    exact_active_document_windows=(),
+    observed_root_handle=None,
+):
     """Enumerate raw UIA controls and return counts only, never names or values."""
     root = _positive_handle(root_handle)
     if os.name != "nt" or root is None:
@@ -1540,6 +1745,15 @@ def _uia_raw_field_candidate_census(root_handle, expected_title, window_rect=Non
     )
     summary["nonstandard_candidate_summary"] = (
         _uia_nonstandard_candidate_summary(descendants, provider)
+    )
+    summary["native_document_control_correlation_census"] = (
+        _uia_native_document_control_correlation_census(
+            descendants,
+            provider=provider,
+            native_windows=native_windows,
+            exact_active_document_windows=exact_active_document_windows,
+            observed_root_handle=observed_root_handle,
+        )
     )
     summary["failure_stage"] = None
     return summary
@@ -1626,11 +1840,6 @@ def main() -> int:
             raise RuntimeError("No valid WindowHub window handle was observed.")
 
         fields = WindowHubFormReader().read(scene)
-        uia_raw_field_candidate_census = _uia_raw_field_candidate_census(
-            root_handle,
-            title,
-            metadata.get("window_rect"),
-        )
         scene_field_element_census = _scene_field_element_census(
             scene.elements
         )
@@ -1666,6 +1875,14 @@ def main() -> int:
         )
         exact_native_document_window_handles = tuple(
             item["handle"] for item in exact_native_document_windows
+        )
+        uia_raw_field_candidate_census = _uia_raw_field_candidate_census(
+            root_handle,
+            title,
+            metadata.get("window_rect"),
+            native_windows=native_child_windows,
+            exact_active_document_windows=exact_native_document_windows,
+            observed_root_handle=root_handle,
         )
         document_tabs = []
         for index, element in enumerate(document_tab_elements):
