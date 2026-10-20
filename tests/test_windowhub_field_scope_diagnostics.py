@@ -1,5 +1,9 @@
 from types import SimpleNamespace
 
+from app.agent.perception.windowhub_ui_automation_provider import (
+    WindowHubUIAutomationProvider,
+)
+
 from tools.diagnose_windowhub_field_scope import (
     _field_diagnostic,
     _field_document_window_geometry,
@@ -9,6 +13,7 @@ from tools.diagnose_windowhub_field_scope import (
     _native_field_hwnd_geometry_census,
     _native_document_window_geometry_summary,
     _native_window_title_matches,
+    _uia_native_document_control_correlation_census,
 )
 
 
@@ -906,4 +911,131 @@ def test_native_control_document_context_census_fails_closed_without_unique_visi
     assert "PRIVATE_DOCUMENT" not in rendered
     assert "11" not in rendered
     assert "50" not in rendered
+
+def test_uia_native_document_control_correlation_links_nonstandard_nodes_by_handle(monkeypatch):
+    parent_chains = {
+        11: (11, 50, 100),
+        12: (12, 100),
+        13: (13, 50, 100),
+    }
+    monkeypatch.setattr(
+        "tools.diagnose_windowhub_field_scope._native_parent_chain",
+        lambda handle: parent_chains.get(handle),
+    )
+
+    document = {
+        "handle": 50,
+        "title": "PRIVATE_ACTIVE_DOCUMENT",
+        "class_name": "Afx:MDIChild",
+        "visible": True,
+        "client_bounds_screen": (100, 200, 400, 500),
+    }
+    native_windows = (
+        {
+            "handle": 11,
+            "title": "PRIVATE_EDIT",
+            "class_name": "Edit",
+            "visible": True,
+            "client_bounds_screen": (120, 220, 200, 250),
+        },
+        {
+            "handle": 12,
+            "title": "PRIVATE_COMBO_OUTSIDE",
+            "class_name": "ComboBox",
+            "visible": True,
+            "client_bounds_screen": (500, 510, 600, 540),
+        },
+        {
+            "handle": 13,
+            "title": "PRIVATE_HIDDEN_COMBO",
+            "class_name": "ComboBox",
+            "visible": False,
+            "client_bounds_screen": (130, 260, 190, 285),
+        },
+        document,
+    )
+
+    def uia(control_type, handle, *, visible=True):
+        return SimpleNamespace(
+            element_info=SimpleNamespace(
+                control_type=control_type,
+                handle=handle,
+                visible=visible,
+            )
+        )
+
+    descendants = (
+        uia("Pane", 11),
+        uia("Custom", 12),
+        uia("ComboBox", 13),
+        uia("Edit", 99),
+        uia("Pane", 50),
+    )
+    result = _uia_native_document_control_correlation_census(
+        descendants,
+        provider=WindowHubUIAutomationProvider(),
+        native_windows=native_windows,
+        exact_active_document_windows=(document,),
+        observed_root_handle=100,
+    )
+
+    assert result["available"] is True
+    assert result["uia_descendant_count"] == 5
+    assert result["uia_nodes_with_native_handle_count"] == 5
+    assert result["uia_nodes_matching_native_descendant_count"] == 4
+    assert result["uia_nodes_matching_native_field_like_count"] == 3
+    assert result["uia_nodes_matching_visible_native_field_like_count"] == 2
+    assert result["document_window_identity_available"] is True
+    assert result["document_client_bounds_available"] is True
+    assert result["matched_field_like_parent_chain_checked_count"] == 2
+    assert result["matched_field_like_parent_chain_contains_document_count"] == 1
+    assert result["matched_field_like_bounds_intersect_document_client_count"] == 1
+    assert result["matched_field_like_bounds_fully_within_document_client_count"] == 1
+    assert result["matched_field_like_parent_and_bounds_match_count"] == 1
+
+    assert result["by_uia_control_type"]["pane"]["matched_native_field_like_count"] == 1
+    assert result["by_uia_control_type"]["pane"]["matched_native_field_like_parent_and_bounds_match_count"] == 1
+    assert result["by_uia_control_type"]["custom"]["matched_native_field_like_count"] == 1
+    assert result["by_uia_control_type"]["custom"]["matched_native_field_like_parent_chain_contains_document_count"] == 0
+    assert result["by_uia_control_type"]["combobox"]["matched_native_field_like_count"] == 1
+    assert result["by_uia_control_type"]["combobox"]["matched_native_field_like_visible_count"] == 0
+
+    rendered = repr(result)
+    for private_value in (
+        "PRIVATE_ACTIVE_DOCUMENT",
+        "PRIVATE_EDIT",
+        "PRIVATE_COMBO_OUTSIDE",
+        "PRIVATE_HIDDEN_COMBO",
+        "handle",
+        "(120, 220",
+        "11",
+        "50",
+        "500",
+    ):
+        assert private_value.casefold() not in rendered.casefold()
+
+
+def test_uia_native_document_control_correlation_fails_closed_without_native_snapshot():
+    descendant = SimpleNamespace(
+        element_info=SimpleNamespace(
+            control_type="Pane",
+            handle=12345,
+            visible=True,
+            name="PRIVATE_NAME",
+        )
+    )
+    result = _uia_native_document_control_correlation_census(
+        (descendant,),
+        provider=WindowHubUIAutomationProvider(),
+        native_windows=None,
+        exact_active_document_windows=(),
+        observed_root_handle=999,
+    )
+    assert result["available"] is False
+    assert result["uia_descendant_count"] == 1
+    assert result["uia_nodes_matching_native_descendant_count"] == 0
+    assert result["document_window_identity_available"] is False
+    assert "PRIVATE_NAME" not in repr(result)
+    assert "12345" not in repr(result)
+    assert "999" not in repr(result)
 
