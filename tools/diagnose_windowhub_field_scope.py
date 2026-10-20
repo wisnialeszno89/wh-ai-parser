@@ -102,6 +102,53 @@ def _normalized_window_text(value):
     return " ".join(value.split()).casefold()
 
 
+def _native_client_bounds_screen(handle):
+    """Return a Win32 client rectangle in screen coordinates, internally only."""
+    hwnd_value = _positive_handle(handle)
+    if os.name != "nt" or hwnd_value is None:
+        return None
+    try:
+        user32 = ctypes.WinDLL("user32", use_last_error=True)
+
+        class _RECT(ctypes.Structure):
+            _fields_ = (
+                ("left", ctypes.c_long),
+                ("top", ctypes.c_long),
+                ("right", ctypes.c_long),
+                ("bottom", ctypes.c_long),
+            )
+
+        class _POINT(ctypes.Structure):
+            _fields_ = (("x", ctypes.c_long), ("y", ctypes.c_long))
+
+        get_client_rect = user32.GetClientRect
+        get_client_rect.argtypes = (ctypes.c_void_p, ctypes.POINTER(_RECT))
+        get_client_rect.restype = ctypes.c_int
+        client_to_screen = user32.ClientToScreen
+        client_to_screen.argtypes = (ctypes.c_void_p, ctypes.POINTER(_POINT))
+        client_to_screen.restype = ctypes.c_int
+
+        hwnd = ctypes.c_void_p(hwnd_value)
+        rect = _RECT()
+        if not get_client_rect(hwnd, ctypes.byref(rect)):
+            return None
+        top_left = _POINT(rect.left, rect.top)
+        bottom_right = _POINT(rect.right, rect.bottom)
+        if not (
+            client_to_screen(hwnd, ctypes.byref(top_left))
+            and client_to_screen(hwnd, ctypes.byref(bottom_right))
+            and bottom_right.x > top_left.x
+            and bottom_right.y > top_left.y
+        ):
+            return None
+        return (
+            int(top_left.x), int(top_left.y),
+            int(bottom_right.x), int(bottom_right.y),
+        )
+    except Exception:
+        return None
+
+
 def _native_child_window_snapshot(root_handle):
     """Enumerate native child HWNDs without returning their names to callers."""
     root = _positive_handle(root_handle)
@@ -295,6 +342,98 @@ def _field_document_window_geometry(
         "active_document_client_geometry_available": True,
         "field_bounds_fully_within_active_document_client_area": fully_contained,
         "field_bounds_intersect_active_document_client_area": intersects,
+    }
+
+
+
+def _field_coordinate_origin_probe(
+    field,
+    *,
+    exact_active_document_windows=(),
+    root_window_rect=None,
+    root_client_bounds_screen=None,
+):
+    """Compare UIA field bounds in several candidate origins, returning counts only.
+
+    UIA rectangles and Win32 client rectangles may be expressed relative to
+    different coordinate origins. This probe keeps every coordinate in memory
+    and reports only whether a candidate origin yields an overlap. It is
+    diagnostic evidence only and must never establish document scope.
+    """
+    unknown = {
+        "available": False,
+        "root_relative_intersects": None,
+        "screen_relative_intersects": None,
+        "root_client_relative_intersects": None,
+    }
+    windows = tuple(exact_active_document_windows or ())
+    if len(windows) != 1 or windows[0].get("visible") is not True:
+        return unknown
+    bounds = windows[0].get("client_bounds_screen")
+    if not isinstance(bounds, (tuple, list)) or len(bounds) != 4:
+        return unknown
+
+    def rect_value(rect, key):
+        if isinstance(rect, dict):
+            return rect.get(key)
+        return getattr(rect, key, None)
+
+    try:
+        element = getattr(field, "element", None)
+        field_left = int(getattr(element, "x"))
+        field_top = int(getattr(element, "y"))
+        field_width = int(getattr(element, "width"))
+        field_height = int(getattr(element, "height"))
+        screen_left, screen_top, screen_right, screen_bottom = (
+            int(value) for value in bounds
+        )
+        root_left = int(rect_value(root_window_rect, "left"))
+        root_top = int(rect_value(root_window_rect, "top"))
+        root_right = int(rect_value(root_window_rect, "right"))
+        root_bottom = int(rect_value(root_window_rect, "bottom"))
+        if not (
+            isinstance(root_client_bounds_screen, (tuple, list))
+            and len(root_client_bounds_screen) == 4
+        ):
+            return unknown
+        client_left, client_top, client_right, client_bottom = (
+            int(value) for value in root_client_bounds_screen
+        )
+    except (TypeError, ValueError, AttributeError, OverflowError):
+        return unknown
+
+    if (
+        field_width <= 0 or field_height <= 0
+        or screen_right <= screen_left or screen_bottom <= screen_top
+        or root_right <= root_left or root_bottom <= root_top
+        or client_right <= client_left or client_bottom <= client_top
+    ):
+        return unknown
+
+    def intersects(left, top, right, bottom):
+        return (
+            field_left < right and field_left + field_width > left
+            and field_top < bottom and field_top + field_height > top
+        )
+
+    # Candidate A: convert the native client rectangle to coordinates whose
+    # origin is the top-left of the observed root window.
+    root_relative = (
+        screen_left - root_left,
+        screen_top - root_top,
+        screen_right - root_left,
+        screen_bottom - root_top,
+    )
+    # Candidate B: UIA field bounds are already screen-relative.
+    screen_relative = (screen_left, screen_top, screen_right, screen_bottom)
+    # Candidate C: the native child client rectangle as screen coordinates
+    # versus the UIA field bounds without translating either rectangle.
+    root_client_relative = screen_relative
+    return {
+        "available": True,
+        "root_relative_intersects": intersects(*root_relative),
+        "screen_relative_intersects": intersects(*screen_relative),
+        "root_client_relative_intersects": intersects(*root_client_relative),
     }
 
 
@@ -991,6 +1130,7 @@ def main() -> int:
             else None
         )
         native_child_windows = _native_child_window_snapshot(root_handle)
+        root_client_bounds_screen = _native_client_bounds_screen(root_handle)
         exact_native_document_windows, native_document_window_summary = (
             _native_window_title_matches(
                 scene.active_document,
@@ -1048,6 +1188,31 @@ def main() -> int:
                     exact_native_document_windows
                 )
             ),
+            "coordinate_origin_probe_available_field_count": sum(
+                _field_coordinate_origin_probe(
+                    field,
+                    exact_active_document_windows=exact_native_document_windows,
+                    root_window_rect=metadata.get("window_rect"),
+                    root_client_bounds_screen=root_client_bounds_screen,
+                )["available"] is True
+                for field in fields
+            ),
+            "coordinate_origin_candidate_intersection_counts": {
+                candidate: sum(
+                    _field_coordinate_origin_probe(
+                        field,
+                        exact_active_document_windows=exact_native_document_windows,
+                        root_window_rect=metadata.get("window_rect"),
+                        root_client_bounds_screen=root_client_bounds_screen,
+                    )[candidate] is True
+                    for field in fields
+                )
+                for candidate in (
+                    "root_relative_intersects",
+                    "screen_relative_intersects",
+                    "root_client_relative_intersects",
+                )
+            },
             "uia_raw_field_candidate_census": uia_raw_field_candidate_census,
             "scene_field_element_census": scene_field_element_census,
             "readable_form_field_count": len(fields),

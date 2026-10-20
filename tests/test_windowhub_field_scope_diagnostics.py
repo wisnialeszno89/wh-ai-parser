@@ -3,6 +3,7 @@ from types import SimpleNamespace
 from tools.diagnose_windowhub_field_scope import (
     _field_diagnostic,
     _field_document_window_geometry,
+    _field_coordinate_origin_probe,
     _native_document_window_geometry_summary,
     _native_window_title_matches,
 )
@@ -471,3 +472,75 @@ def test_document_geometry_summary_emits_counts_only():
     rendered = repr(result)
     assert "PRIVATE_ACTIVE_DOCUMENT" not in rendered
     assert "987654" not in rendered
+
+
+
+def test_coordinate_origin_probe_reports_candidates_without_coordinates_or_scope():
+    field = SimpleNamespace(
+        label="PRIVATE_FIELD",
+        value="PRIVATE_VALUE",
+        element=SimpleNamespace(x=250, y=250, width=20, height=20),
+        document_scope=None,
+        scope_status="unknown",
+    )
+    window = {
+        "handle": 456789,
+        "title": "PRIVATE_DOCUMENT",
+        "visible": True,
+        "client_bounds_screen": (120, 180, 420, 480),
+    }
+    root = SimpleNamespace(left=100, top=100, right=900, bottom=700)
+
+    result = _field_coordinate_origin_probe(
+        field,
+        exact_active_document_windows=(window,),
+        root_window_rect=root,
+        root_client_bounds_screen=(100, 100, 900, 700),
+    )
+
+    assert result == {
+        "available": True,
+        "root_relative_intersects": True,
+        "screen_relative_intersects": True,
+        "root_client_relative_intersects": True,
+    }
+    assert "PRIVATE_FIELD" not in repr(result)
+    assert "PRIVATE_VALUE" not in repr(result)
+    assert "PRIVATE_DOCUMENT" not in repr(result)
+    assert "456789" not in repr(result)
+    assert "250" not in repr(result)
+    assert field.document_scope is None
+    assert field.scope_status == "unknown"
+
+
+def test_coordinate_origin_probe_stays_unknown_without_unique_visible_client():
+    field = SimpleNamespace(
+        value="PRIVATE_VALUE",
+        element=SimpleNamespace(x=1, y=1, width=20, height=20),
+    )
+    root = SimpleNamespace(left=0, top=0, right=100, bottom=100)
+    base_window = {
+        "visible": True,
+        "client_bounds_screen": (0, 0, 50, 50),
+    }
+
+    assert _field_coordinate_origin_probe(
+        field,
+        exact_active_document_windows=(base_window, base_window),
+        root_window_rect=root,
+        root_client_bounds_screen=(0, 0, 100, 100),
+    ) == {
+        "available": False,
+        "root_relative_intersects": None,
+        "screen_relative_intersects": None,
+        "root_client_relative_intersects": None,
+    }
+    assert _field_coordinate_origin_probe(
+        field,
+        exact_active_document_windows=({
+            "visible": False,
+            "client_bounds_screen": (0, 0, 50, 50),
+        },),
+        root_window_rect=root,
+        root_client_bounds_screen=(0, 0, 100, 100),
+    )["available"] is False
