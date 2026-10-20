@@ -1716,6 +1716,24 @@ def _uia_native_field_geometry_correlation_census(
         "document_context_native_field_like_control_count": 0,
         "native_field_centers_contained_by_visible_uia_bounds_count": 0,
         "document_context_field_centers_contained_by_visible_uia_bounds_count": 0,
+        "native_field_centers_with_unique_smallest_uia_container_count": 0,
+        "document_context_field_centers_with_unique_smallest_uia_container_count": 0,
+        "native_field_centers_with_tied_smallest_uia_container_count": 0,
+        "document_context_field_centers_with_tied_smallest_uia_container_count": 0,
+        "smallest_uia_container_control_type_counts": {
+            name: 0 for name in control_types
+        },
+        "smallest_uia_container_document_context_control_type_counts": {
+            name: 0 for name in control_types
+        },
+        "smallest_uia_container_area_ratio_bucket_counts": {
+            "lt_1": 0, "1_to_1_5": 0, "1_5_to_3": 0,
+            "3_to_10": 0, "gt_10": 0,
+        },
+        "smallest_uia_container_document_context_area_ratio_bucket_counts": {
+            "lt_1": 0, "1_to_1_5": 0, "1_5_to_3": 0,
+            "3_to_10": 0, "gt_10": 0,
+        },
         "document_window_identity_available": False,
         "document_client_bounds_available": False,
         "edge_alignment_tolerance_px": 8,
@@ -1911,16 +1929,78 @@ def _uia_native_field_geometry_correlation_census(
         if document_edge_matches:
             summary["visible_uia_nodes_edge_aligned_document_context_field_count"] += 1
             row["visible_bounds_edge_aligned_document_context_field_count"] += 1
-        uia_bounds_records.append(bounds)
+        uia_bounds_records.append({
+            "bounds": bounds,
+            "control_type": control_type,
+            "area": (bounds[2] - bounds[0]) * (bounds[3] - bounds[1]),
+        })
 
-    summary["native_field_centers_contained_by_visible_uia_bounds_count"] = sum(
-        any(contains_center(bounds, field["center"]) for bounds in uia_bounds_records)
-        for field in native_fields
-    )
-    summary["document_context_field_centers_contained_by_visible_uia_bounds_count"] = sum(
-        any(contains_center(bounds, field["center"]) for bounds in uia_bounds_records)
-        for field in document_fields
-    )
+    def smallest_container_counts(fields, *, document_context):
+        unique_key = (
+            "document_context_field_centers_with_unique_smallest_uia_container_count"
+            if document_context
+            else "native_field_centers_with_unique_smallest_uia_container_count"
+        )
+        tied_key = (
+            "document_context_field_centers_with_tied_smallest_uia_container_count"
+            if document_context
+            else "native_field_centers_with_tied_smallest_uia_container_count"
+        )
+        type_key = (
+            "smallest_uia_container_document_context_control_type_counts"
+            if document_context
+            else "smallest_uia_container_control_type_counts"
+        )
+        ratio_key = (
+            "smallest_uia_container_document_context_area_ratio_bucket_counts"
+            if document_context
+            else "smallest_uia_container_area_ratio_bucket_counts"
+        )
+        covered_key = (
+            "document_context_field_centers_contained_by_visible_uia_bounds_count"
+            if document_context
+            else "native_field_centers_contained_by_visible_uia_bounds_count"
+        )
+        for field in fields:
+            containing = [
+                record for record in uia_bounds_records
+                if contains_center(record["bounds"], field["center"])
+            ]
+            if not containing:
+                continue
+            summary[covered_key] += 1
+            min_area = min(record["area"] for record in containing)
+            smallest = [
+                record for record in containing if record["area"] == min_area
+            ]
+            if len(smallest) == 1:
+                summary[unique_key] += 1
+                summary[type_key][smallest[0]["control_type"]] += 1
+            else:
+                summary[tied_key] += 1
+
+            native_bounds = field["bounds"]
+            native_area = (
+                (native_bounds[2] - native_bounds[0])
+                * (native_bounds[3] - native_bounds[1])
+            )
+            if native_area <= 0:
+                continue
+            ratio = min_area / native_area
+            if ratio < 1:
+                bucket = "lt_1"
+            elif ratio <= 1.5:
+                bucket = "1_to_1_5"
+            elif ratio <= 3:
+                bucket = "1_5_to_3"
+            elif ratio <= 10:
+                bucket = "3_to_10"
+            else:
+                bucket = "gt_10"
+            summary[ratio_key][bucket] += 1
+
+    smallest_container_counts(native_fields, document_context=False)
+    smallest_container_counts(document_fields, document_context=True)
     return summary
 
 
