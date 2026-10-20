@@ -219,6 +219,9 @@ def test_nonstandard_uia_census_counts_value_patterns_without_emitting_text():
     by_type = result["by_control_type"]
     assert by_type["custom"]["count"] == 2
     assert by_type["custom"]["visible_count"] == 2
+    # The second Custom node has no Value interface; its absence is not
+    # recorded as an attempted read error.
+    assert by_type["custom"]["value_pattern_current_value_read_error_count"] == 0
     assert by_type["custom"]["name_present_count"] == 2
     assert by_type["custom"]["automation_id_present_count"] == 1
     assert by_type["custom"]["positive_bounds_count"] == 1
@@ -228,6 +231,8 @@ def test_nonstandard_uia_census_counts_value_patterns_without_emitting_text():
     assert by_type["custom"]["value_pattern_current_value_read_count"] == 1
     assert by_type["custom"]["value_pattern_current_value_nonempty_string_count"] == 1
     assert by_type["custom"]["value_pattern_current_value_empty_string_count"] == 0
+    assert by_type["custom"]["value_pattern_current_value_read_error_count"] == 0
+    assert by_type["custom"]["value_pattern_current_value_read_count"] == 1
     assert by_type["other"]["count"] == 1
     assert by_type["other"]["value_pattern_count"] == 1
     assert by_type["other"]["legacy_iaccessible_pattern_count"] == 1
