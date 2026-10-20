@@ -475,11 +475,11 @@ def test_document_geometry_summary_emits_counts_only():
 
 
 
-def test_coordinate_origin_probe_reports_candidates_without_coordinates_or_scope():
+def test_coordinate_origin_probe_uses_windowrect_dimensions_and_distinguishes_origins():
     field = SimpleNamespace(
         label="PRIVATE_FIELD",
         value="PRIVATE_VALUE",
-        element=SimpleNamespace(x=250, y=250, width=20, height=20),
+        element=SimpleNamespace(x=15, y=60, width=20, height=20),
         document_scope=None,
         scope_status="unknown",
     )
@@ -489,26 +489,28 @@ def test_coordinate_origin_probe_reports_candidates_without_coordinates_or_scope
         "visible": True,
         "client_bounds_screen": (120, 180, 420, 480),
     }
-    root = SimpleNamespace(left=100, top=100, right=900, bottom=700)
+    # Match the real WindowRect shape: left/top/width/height, without
+    # right/bottom properties.
+    root = SimpleNamespace(left=100, top=100, width=800, height=600)
 
     result = _field_coordinate_origin_probe(
         field,
         exact_active_document_windows=(window,),
         root_window_rect=root,
-        root_client_bounds_screen=(100, 100, 900, 700),
+        root_client_bounds_screen=(110, 130, 890, 690),
     )
 
     assert result == {
         "available": True,
-        "root_relative_intersects": True,
-        "screen_relative_intersects": True,
+        "root_relative_intersects": False,
+        "screen_relative_intersects": False,
         "root_client_relative_intersects": True,
     }
     assert "PRIVATE_FIELD" not in repr(result)
     assert "PRIVATE_VALUE" not in repr(result)
     assert "PRIVATE_DOCUMENT" not in repr(result)
     assert "456789" not in repr(result)
-    assert "250" not in repr(result)
+    assert "15" not in repr(result)
     assert field.document_scope is None
     assert field.scope_status == "unknown"
 
