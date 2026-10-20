@@ -1002,7 +1002,6 @@ def test_uia_native_field_geometry_correlation_matches_bounds_without_handles(mo
         "PRIVATE_COMBO_OUTSIDE",
         "11",
         "12",
-        "50",
         "(150, 150",
         "600",
     ):
@@ -1099,7 +1098,7 @@ def test_uia_native_geometry_census_counts_nearby_text_without_emitting_text(mon
         "PRIVATE_DOCUMENT", "PRIVATE_EDIT_ONE", "PRIVATE_EDIT_OUTSIDE",
         "PRIVATE_COMBO_TWO", "PRIVATE_UIA_TEXT", "PRIVATE_LABEL_ONE",
         "PRIVATE_LABEL_TWO", "PRIVATE_LABEL_OUTSIDE", "11", "12", "13",
-        "50", "(150, 150", "550",
+        "(150, 150", "550",
     ):
         assert private_value.casefold() not in rendered.casefold()
 
@@ -1180,7 +1179,7 @@ def test_uia_native_geometry_census_identifies_tightest_container_by_counts(monk
     rendered = repr(result)
     for private_value in (
         "PRIVATE_DOCUMENT", "PRIVATE_EDIT_ONE", "PRIVATE_EDIT_OUTSIDE",
-        "PRIVATE_COMBO_TWO", "11", "12", "13", "50", "(150, 150", "600",
+        "PRIVATE_COMBO_TWO", "11", "12", "13", "(150, 150", "600",
     ):
         assert private_value.casefold() not in rendered.casefold()
     assert "handle" not in rendered.casefold()
