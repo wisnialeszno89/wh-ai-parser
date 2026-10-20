@@ -1496,6 +1496,7 @@ def _uia_native_document_control_correlation_census(
         "edit", "combobox", "custom", "pane", "document",
         "group", "window", "button", "text", "tabitem", "other",
     )
+    structural_control_types = (*control_types, "tab")
     row_template = {
         "count": 0,
         "visible_count": 0,
@@ -1746,7 +1747,6 @@ def _uia_native_field_geometry_correlation_census(
         },
         "uia_structural_ancestor_census": {
             "available": native_windows is not None,
-            "max_parent_depth": 12,
             "all_native_fields_with_unique_smallest_container_count": 0,
             "document_context_fields_with_unique_smallest_container_count": 0,
             "all_native_fields_with_parent_chain_checked_count": 0,
@@ -1758,16 +1758,16 @@ def _uia_native_field_geometry_correlation_census(
             "all_native_fields_parent_lookup_error_count": 0,
             "document_context_fields_parent_lookup_error_count": 0,
             "all_native_fields_smallest_container_type_counts": {
-                name: 0 for name in control_types
+                name: 0 for name in structural_control_types
             },
             "document_context_fields_smallest_container_type_counts": {
-                name: 0 for name in control_types
+                name: 0 for name in structural_control_types
             },
             "all_native_fields_ancestor_control_type_counts": {
-                name: 0 for name in control_types
+                name: 0 for name in structural_control_types
             },
             "document_context_fields_ancestor_control_type_counts": {
-                name: 0 for name in control_types
+                name: 0 for name in structural_control_types
             },
         },
         "by_uia_control_type": by_type,
@@ -2093,8 +2093,6 @@ def _uia_native_field_geometry_correlation_census(
     # node. This census reports aggregate relationship counts, never names,
     # class names, handles, or coordinates.
     structural = summary["uia_structural_ancestor_census"]
-    type_names = tuple(control_types)
-
     def inspect_structure(fields, *, document_context):
         prefix = "document_context_fields" if document_context else "all_native_fields"
         unique_key = (
@@ -2140,7 +2138,7 @@ def _uia_native_field_geometry_correlation_census(
             parent_chain = []
             had_parent_method = False
             lookup_failed = False
-            for _ in range(structural["max_parent_depth"]):
+            for _ in range(12):
                 parent_getter = getattr(current, "parent", None)
                 if not callable(parent_getter):
                     break
@@ -2158,7 +2156,11 @@ def _uia_native_field_geometry_correlation_census(
                     raw_type = provider._normalize_control_type(
                         getattr(info, "control_type", None)
                     )
-                    control_type = raw_type if raw_type in structural[ancestor_types_key] else "other"
+                    control_type = (
+                        raw_type
+                        if raw_type in structural[ancestor_types_key]
+                        else "other"
+                    )
                     class_name = getattr(info, "class_name", None)
                     class_name = (
                         class_name.casefold().replace(":", "")
@@ -2170,7 +2172,7 @@ def _uia_native_field_geometry_correlation_census(
                         "control_type": control_type,
                         "name_present": isinstance(name, str) and bool(name.strip()),
                         "document_tab_host": (
-                            control_type == "tab"
+                            raw_type == "tab"
                             and "afxtabwnd" in class_name
                         ),
                     })
