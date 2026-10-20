@@ -1530,8 +1530,8 @@ def _uia_native_document_control_correlation_census(
         "document_context_native_field_like_uia_field_type_match_count": None,
         "document_context_native_field_like_uia_non_field_type_only_match_count": None,
         "document_context_native_field_like_uia_handle_missing_count": None,
-        "document_context_native_field_like_uia_control_type_match_counts": {},
-        "document_context_native_field_like_by_class": {},
+        "document_context_native_field_like_uia_control_type_match_counts": None,
+        "document_context_native_field_like_by_class": None,
         "by_uia_control_type": by_type,
     }
     if native_windows is None:
@@ -1676,6 +1676,13 @@ def _uia_native_document_control_correlation_census(
         if chain_contains_document is True and intersects_document:
             row["matched_native_field_like_parent_and_bounds_match_count"] += 1
             summary["matched_field_like_parent_and_bounds_match_count"] += 1
+
+    # Document-context coverage cannot be evaluated unless both the unique
+    # visible document HWND and its client bounds were resolved. Leave these
+    # values unknown rather than reporting a misleading zero in that case.
+    if document_handle is None or document_bounds is None:
+        summary["observed_root_handle_available"] = root_handle is not None
+        return summary
 
     # Separately measure native document-context Edit/ComboBox HWNDs against
     # the UIA handles observed above. This exposes coverage gaps without
