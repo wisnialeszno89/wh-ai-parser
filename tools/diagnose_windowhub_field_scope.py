@@ -367,6 +367,231 @@ def _field_diagnostic(
     }
 
 
+
+_UIA_DIAGNOSTIC_CONTROL_TYPES = (
+    "edit",
+    "combobox",
+    "button",
+    "tabitem",
+    "text",
+    "pane",
+    "window",
+    "custom",
+    "document",
+    "group",
+    "other",
+)
+_UIA_FORM_FIELD_TYPES = frozenset({"edit", "combobox"})
+
+
+def _summarize_uia_field_candidates(
+    descendants,
+    *,
+    provider,
+    origin_x=0,
+    origin_y=0,
+    label_candidates=(),
+    label_candidates_available=True,
+):
+    """Summarize UIA field-like descendants without returning private text."""
+    type_counts = {name: 0 for name in _UIA_DIAGNOSTIC_CONTROL_TYPES}
+    field_control_count = 0
+    visible_field_control_count = 0
+    visible_with_positive_bounds_count = 0
+    visible_with_direct_name_count = 0
+    visible_with_semantic_label_count = 0
+    visible_with_positive_bounds_and_label_count = 0
+    field_control_native_handle_present_count = 0
+    field_control_metadata_read_failure_count = 0
+
+    for item in descendants:
+        try:
+            element_info = item.element_info
+            control_type = provider._normalize_control_type(
+                getattr(element_info, "control_type", None)
+            )
+        except Exception:
+            type_counts["other"] += 1
+            continue
+
+        bucket = (
+            control_type
+            if control_type in type_counts and control_type != "other"
+            else "other"
+        )
+        type_counts[bucket] += 1
+
+        if control_type not in _UIA_FORM_FIELD_TYPES:
+            continue
+
+        field_control_count += 1
+        try:
+            visible = bool(getattr(element_info, "visible", True))
+            name = provider._string(getattr(element_info, "name", None))
+            rectangle = item.rectangle()
+            width = int(rectangle.width())
+            height = int(rectangle.height())
+            positive_bounds = width > 0 and height > 0
+        except Exception:
+            field_control_metadata_read_failure_count += 1
+            continue
+
+        if provider._native_handle(item) is not None:
+            field_control_native_handle_present_count += 1
+
+        if not visible:
+            continue
+
+        visible_field_control_count += 1
+        if name:
+            visible_with_direct_name_count += 1
+        if positive_bounds:
+            visible_with_positive_bounds_count += 1
+
+        semantic_label = None
+        try:
+            semantic_label, _ = provider._resolve_semantic_label(
+                item=item,
+                name=name,
+                control_type=control_type,
+                rectangle=rectangle,
+                origin_x=origin_x,
+                origin_y=origin_y,
+                label_candidates=label_candidates,
+            )
+        except Exception:
+            semantic_label = None
+
+        if semantic_label:
+            visible_with_semantic_label_count += 1
+        if positive_bounds and semantic_label:
+            visible_with_positive_bounds_and_label_count += 1
+
+    return {
+        "available": True,
+        "descendant_count": len(descendants),
+        "control_type_counts": type_counts,
+        "field_control_count": field_control_count,
+        "field_control_visible_count": visible_field_control_count,
+        "field_control_visible_with_positive_bounds_count": (
+            visible_with_positive_bounds_count
+        ),
+        "field_control_visible_with_direct_name_count": (
+            visible_with_direct_name_count
+        ),
+        "field_control_visible_with_semantic_label_count": (
+            visible_with_semantic_label_count
+        ),
+        "field_control_visible_with_positive_bounds_and_semantic_label_count": (
+            visible_with_positive_bounds_and_label_count
+        ),
+        "field_control_native_handle_present_count": (
+            field_control_native_handle_present_count
+        ),
+        "field_control_metadata_read_failure_count": (
+            field_control_metadata_read_failure_count
+        ),
+        "label_candidates_available": bool(label_candidates_available),
+    }
+
+
+def _uia_raw_field_candidate_census(root_handle, expected_title, window_rect=None):
+    """Enumerate raw UIA controls and return counts only, never names or values."""
+    root = _positive_handle(root_handle)
+    if os.name != "nt" or root is None:
+        return {
+            "available": False,
+            "failure_stage": "invalid_root_or_platform",
+        }
+
+    try:
+        from app.agent.platform.windows_com import ensure_windows_sta
+        ensure_windows_sta()
+
+        from pywinauto import Desktop
+        desktop = Desktop(backend="uia")
+        window_spec = desktop.window(handle=root)
+        wrapper = getattr(window_spec, "wrapper_object", None)
+        window = wrapper() if callable(wrapper) else window_spec
+        actual_title = window.window_text()
+        if (
+            isinstance(expected_title, str)
+            and expected_title.strip()
+            and actual_title.strip() != expected_title.strip()
+        ):
+            return {
+                "available": False,
+                "failure_stage": "window_title_mismatch",
+            }
+        descendants = tuple(window.descendants())
+    except Exception:
+        return {
+            "available": False,
+            "failure_stage": "uia_enumeration_failed",
+        }
+
+    origin_x = int(getattr(window_rect, "left", 0) or 0)
+    origin_y = int(getattr(window_rect, "top", 0) or 0)
+    from app.agent.perception.windowhub_ui_automation_provider import (
+        WindowHubUIAutomationProvider,
+    )
+    provider = WindowHubUIAutomationProvider()
+
+    try:
+        label_candidates = provider._collect_label_candidates(
+            descendants,
+            origin_x=origin_x,
+            origin_y=origin_y,
+        )
+        label_candidates_available = True
+    except Exception:
+        label_candidates = ()
+        label_candidates_available = False
+
+    summary = _summarize_uia_field_candidates(
+        descendants,
+        provider=provider,
+        origin_x=origin_x,
+        origin_y=origin_y,
+        label_candidates=label_candidates,
+        label_candidates_available=label_candidates_available,
+    )
+    summary["failure_stage"] = None
+    return summary
+
+
+def _scene_field_element_census(elements):
+    """Compare provider-produced scene controls with the raw census."""
+    counts = {
+        "edit_count": 0,
+        "combobox_count": 0,
+        "ui_automation_edit_count": 0,
+        "ui_automation_combobox_count": 0,
+    }
+    for element in elements:
+        kind = str(getattr(element, "kind", "") or "").casefold()
+        if kind not in _UIA_FORM_FIELD_TYPES:
+            continue
+        key = "edit_count" if kind == "edit" else "combobox_count"
+        counts[key] += 1
+        metadata = getattr(element, "metadata", None) or {}
+        if metadata.get("source") == "windowhub_ui_automation":
+            uia_key = (
+                "ui_automation_edit_count"
+                if kind == "edit"
+                else "ui_automation_combobox_count"
+            )
+            counts[uia_key] += 1
+    counts["scene_field_control_count"] = (
+        counts["edit_count"] + counts["combobox_count"]
+    )
+    counts["ui_automation_field_control_count"] = (
+        counts["ui_automation_edit_count"]
+        + counts["ui_automation_combobox_count"]
+    )
+    return counts
+
+
 def main() -> int:
     if os.name != "nt":
         print("FAIL: WindowHub field-scope diagnostic requires Windows.", file=sys.stderr)
@@ -416,6 +641,14 @@ def main() -> int:
             raise RuntimeError("No valid WindowHub window handle was observed.")
 
         fields = WindowHubFormReader().read(scene)
+        uia_raw_field_candidate_census = _uia_raw_field_candidate_census(
+            root_handle,
+            title,
+            metadata.get("window_rect"),
+        )
+        scene_field_element_census = _scene_field_element_census(
+            scene.elements
+        )
         document_tab_elements = [
             element
             for element in scene.elements
