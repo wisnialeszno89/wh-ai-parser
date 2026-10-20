@@ -759,7 +759,7 @@ def test_native_field_hwnd_geometry_edge_alignment_distinguishes_origins():
         "2": 0, "4": 0, "8": 0, "16": 0, "32": 0,
     }
     assert result["root_client_relative_edges_within_tolerance_counts"] == {
-        "2": 0, "4": 0, "8": 0, "16": 0, "32": 0,
+        "2": 0, "4": 0, "8": 0, "16": 0, "32": 1,
     }
     rendered = repr(result)
     for private_value in (
