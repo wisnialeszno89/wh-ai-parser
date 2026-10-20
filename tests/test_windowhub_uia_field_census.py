@@ -260,3 +260,35 @@ def test_nonstandard_uia_census_counts_value_patterns_without_emitting_text():
         "502",
     ):
         assert private_text not in rendered
+
+
+
+def test_real_current_value_failure_is_counted_only_when_pattern_exists():
+    class BrokenValuePattern:
+        @property
+        def CurrentValue(self):
+            raise RuntimeError("PRIVATE_VALUE_ERROR")
+
+    control = FakeUIAItem(
+        name="SENSITIVE_FIELD",
+        control_type="Custom",
+        left=10,
+        top=100,
+        width=100,
+        height=24,
+    )
+    control.iface_value = BrokenValuePattern()
+
+    result = _uia_nonstandard_candidate_summary(
+        (control,),
+        WindowHubUIAutomationProvider(),
+    )
+    custom = result["by_control_type"]["custom"]
+
+    assert custom["value_pattern_count"] == 1
+    assert custom["value_pattern_current_value_read_count"] == 0
+    assert custom["value_pattern_current_value_read_error_count"] == 1
+
+    rendered = repr(result)
+    assert "SENSITIVE_FIELD" not in rendered
+    assert "PRIVATE_VALUE_ERROR" not in rendered
