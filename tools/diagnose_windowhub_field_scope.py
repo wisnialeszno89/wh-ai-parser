@@ -128,15 +128,6 @@ def _native_child_window_snapshot(root_handle):
         is_visible = user32.IsWindowVisible
         is_visible.argtypes = (ctypes.c_void_p,)
         is_visible.restype = ctypes.c_int
-        get_client_rect = user32.GetClientRect
-        get_client_rect.argtypes = (ctypes.c_void_p, ctypes.POINTER(_RECT))
-        get_client_rect.restype = ctypes.c_int
-        client_to_screen = user32.ClientToScreen
-        client_to_screen.argtypes = (ctypes.c_void_p, ctypes.POINTER(_POINT))
-        client_to_screen.restype = ctypes.c_int
-        enum_children = user32.EnumChildWindows
-        enum_children.argtypes = (ctypes.c_void_p, enum_proc_type, ctypes.c_ssize_t)
-        enum_children.restype = ctypes.c_int
 
         class _RECT(ctypes.Structure):
             _fields_ = (
@@ -151,6 +142,16 @@ def _native_child_window_snapshot(root_handle):
                 ("x", ctypes.c_long),
                 ("y", ctypes.c_long),
             )
+
+        get_client_rect = user32.GetClientRect
+        get_client_rect.argtypes = (ctypes.c_void_p, ctypes.POINTER(_RECT))
+        get_client_rect.restype = ctypes.c_int
+        client_to_screen = user32.ClientToScreen
+        client_to_screen.argtypes = (ctypes.c_void_p, ctypes.POINTER(_POINT))
+        client_to_screen.restype = ctypes.c_int
+        enum_children = user32.EnumChildWindows
+        enum_children.argtypes = (ctypes.c_void_p, enum_proc_type, ctypes.c_ssize_t)
+        enum_children.restype = ctypes.c_int
 
         windows = []
 
