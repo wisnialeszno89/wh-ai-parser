@@ -389,8 +389,20 @@ def _field_coordinate_origin_probe(
         )
         root_left = int(rect_value(root_window_rect, "left"))
         root_top = int(rect_value(root_window_rect, "top"))
-        root_right = int(rect_value(root_window_rect, "right"))
-        root_bottom = int(rect_value(root_window_rect, "bottom"))
+        root_right_value = rect_value(root_window_rect, "right")
+        root_bottom_value = rect_value(root_window_rect, "bottom")
+        # WindowRect currently exposes left/top/width/height rather than
+        # right/bottom. Accept both shape variants without guessing geometry.
+        if root_right_value is None:
+            root_width_value = rect_value(root_window_rect, "width")
+            if root_width_value is not None:
+                root_right_value = root_left + int(root_width_value)
+        if root_bottom_value is None:
+            root_height_value = rect_value(root_window_rect, "height")
+            if root_height_value is not None:
+                root_bottom_value = root_top + int(root_height_value)
+        root_right = int(root_right_value)
+        root_bottom = int(root_bottom_value)
         if not (
             isinstance(root_client_bounds_screen, (tuple, list))
             and len(root_client_bounds_screen) == 4
@@ -426,9 +438,14 @@ def _field_coordinate_origin_probe(
     )
     # Candidate B: UIA field bounds are already screen-relative.
     screen_relative = (screen_left, screen_top, screen_right, screen_bottom)
-    # Candidate C: the native child client rectangle as screen coordinates
-    # versus the UIA field bounds without translating either rectangle.
-    root_client_relative = screen_relative
+    # Candidate C: translate the native document client bounds to the
+    # observed root-client origin. UIA field bounds may use this origin.
+    root_client_relative = (
+        screen_left - client_left,
+        screen_top - client_top,
+        screen_right - client_left,
+        screen_bottom - client_top,
+    )
     return {
         "available": True,
         "root_relative_intersects": intersects(*root_relative),
