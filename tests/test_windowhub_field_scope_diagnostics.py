@@ -5,6 +5,7 @@ from tools.diagnose_windowhub_field_scope import (
     _field_document_window_geometry,
     _field_coordinate_origin_probe,
     _native_child_window_control_census,
+    _native_control_document_context_census,
     _native_field_hwnd_geometry_census,
     _native_document_window_geometry_summary,
     _native_window_title_matches,
@@ -771,4 +772,138 @@ def test_native_field_hwnd_geometry_edge_alignment_distinguishes_origins():
         "180",
     ):
         assert private_value not in rendered
+
+def test_native_control_document_context_census_reports_relationship_counts_only(monkeypatch):
+    parent_chains = {
+        11: (11, 50, 100),
+        12: (12, 100),
+    }
+    monkeypatch.setattr(
+        "tools.diagnose_windowhub_field_scope._native_parent_chain",
+        lambda handle: parent_chains.get(handle),
+    )
+    document = {
+        "handle": 50,
+        "title": "PRIVATE_ACTIVE_DOCUMENT_TITLE",
+        "class_name": "Afx:MDIChild",
+        "visible": True,
+        "client_bounds_screen": (100, 180, 400, 400),
+    }
+    windows = (
+        {
+            "handle": 11,
+            "title": "PRIVATE_EDIT_TITLE",
+            "class_name": "Edit",
+            "visible": True,
+            "client_bounds_screen": (120, 200, 200, 230),
+        },
+        {
+            "handle": 12,
+            "title": "PRIVATE_COMBO_TITLE",
+            "class_name": "ComboBox",
+            "visible": True,
+            "client_bounds_screen": (500, 500, 600, 550),
+        },
+        {
+            "handle": 13,
+            "title": "PRIVATE_HIDDEN_EDIT",
+            "class_name": "Edit",
+            "visible": False,
+            "client_bounds_screen": (130, 240, 220, 270),
+        },
+        document,
+    )
+
+    result = _native_control_document_context_census(
+        windows,
+        (document,),
+        observed_root_handle=100,
+    )
+
+    assert result["available"] is True
+    assert result["native_descendant_count"] == 4
+    assert result["field_like_native_control_count"] == 3
+    assert result["visible_field_like_native_control_count"] == 2
+    assert result["visible_field_like_with_bounds_count"] == 2
+    assert result["document_window_identity_available"] is True
+    assert result["document_client_bounds_available"] is True
+    assert result["visible_field_like_parent_chain_checked_count"] == 2
+    assert result["visible_field_like_parent_chain_contains_document_count"] == 1
+    assert result["visible_field_like_parent_chain_excludes_document_count"] == 1
+    assert result["visible_field_like_parent_chain_contains_root_count"] == 2
+    assert result["visible_field_like_bounds_intersect_document_client_count"] == 1
+    assert result["visible_field_like_bounds_fully_within_document_client_count"] == 1
+    assert result["visible_field_like_parent_and_bounds_match_count"] == 1
+    assert result["by_class"]["win32_edit"] == {
+        "count": 2,
+        "visible_count": 1,
+        "positive_bounds_count": 2,
+        "visible_parent_chain_checked_count": 1,
+        "visible_parent_chain_contains_document_count": 1,
+        "visible_parent_chain_excludes_document_count": 0,
+        "visible_parent_chain_contains_root_count": 1,
+        "visible_bounds_intersect_document_client_count": 1,
+        "visible_bounds_fully_within_document_client_count": 1,
+    }
+    assert result["by_class"]["win32_combobox"]["count"] == 1
+    assert result["by_class"]["win32_combobox"]["visible_parent_chain_excludes_document_count"] == 1
+
+    rendered = repr(result)
+    for private_value in (
+        "PRIVATE_ACTIVE_DOCUMENT_TITLE",
+        "PRIVATE_EDIT_TITLE",
+        "PRIVATE_COMBO_TITLE",
+        "PRIVATE_HIDDEN_EDIT",
+        "100",
+        "120",
+        "180",
+        "200",
+        "230",
+        "400",
+        "500",
+        "600",
+        "(120, 200",
+    ):
+        assert private_value not in rendered
+    assert "handle" not in rendered.casefold()
+
+
+def test_native_control_document_context_census_fails_closed_without_unique_visible_document(monkeypatch):
+    monkeypatch.setattr(
+        "tools.diagnose_windowhub_field_scope._native_parent_chain",
+        lambda _handle: None,
+    )
+    edit = {
+        "handle": 11,
+        "title": "PRIVATE_EDIT",
+        "class_name": "Edit",
+        "visible": True,
+        "client_bounds_screen": (10, 20, 100, 40),
+    }
+    hidden_document = {
+        "handle": 50,
+        "title": "PRIVATE_DOCUMENT",
+        "class_name": "Afx:MDIChild",
+        "visible": False,
+        "client_bounds_screen": (0, 0, 200, 200),
+    }
+
+    result = _native_control_document_context_census(
+        (edit, hidden_document),
+        (hidden_document,),
+        observed_root_handle=100,
+    )
+
+    assert result["available"] is True
+    assert result["document_window_identity_available"] is False
+    assert result["document_client_bounds_available"] is False
+    assert result["visible_field_like_parent_chain_checked_count"] == 0
+    assert result["visible_field_like_parent_chain_contains_document_count"] == 0
+    assert result["visible_field_like_bounds_intersect_document_client_count"] == 0
+    assert result["visible_field_like_parent_and_bounds_match_count"] == 0
+    rendered = repr(result)
+    assert "PRIVATE_EDIT" not in rendered
+    assert "PRIVATE_DOCUMENT" not in rendered
+    assert "11" not in rendered
+    assert "50" not in rendered
 
