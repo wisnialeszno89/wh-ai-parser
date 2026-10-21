@@ -3002,6 +3002,219 @@ def _native_document_rooted_win32_census(
     }
 
 
+def _native_document_field_label_candidate_census(
+    *,
+    native_windows,
+    exact_active_document_windows=(),
+):
+    """Count probable native static-text label candidates near document fields.
+
+    Text is inspected only in memory to count candidates. No text, HWNDs, or
+    bounds are emitted. Spatial/sibling proximity is candidate evidence only;
+    it never proves a semantic field label or authorizes actions.
+    """
+    unknown = {
+        "available": False,
+        "failure_stage": None,
+        "document_root_identity_verified": False,
+        "document_context_field_count": None,
+        "visible_static_text_candidate_count": None,
+        "document_context_fields_with_sibling_static_text_candidate_count": None,
+        "document_context_fields_with_nearby_static_text_candidate_count": None,
+        "document_context_fields_with_sibling_and_nearby_static_text_candidate_count": None,
+        "document_context_fields_with_unique_nearby_static_text_candidate_count": None,
+        "document_context_fields_with_ambiguous_nearby_static_text_candidate_count": None,
+        "max_left_label_gap_px": 220,
+        "max_above_label_gap_px": 90,
+        "by_native_field_class": None,
+    }
+    if os.name != "nt":
+        unknown["failure_stage"] = "platform_not_supported"
+        return unknown
+    if native_windows is None:
+        unknown["failure_stage"] = "native_snapshot_unavailable"
+        return unknown
+
+    document_windows = tuple(exact_active_document_windows or ())
+    document = (
+        document_windows[0]
+        if len(document_windows) == 1
+        and document_windows[0].get("visible") is True
+        else None
+    )
+    if document is None:
+        unknown["failure_stage"] = "document_window_not_unique_or_not_visible"
+        return unknown
+
+    document_handle = _positive_handle(document.get("handle"))
+    document_bounds = document.get("client_bounds_screen")
+    if document_handle is None:
+        unknown["failure_stage"] = "document_window_identity_unavailable"
+        return unknown
+    if not isinstance(document_bounds, (tuple, list)) or len(document_bounds) != 4:
+        unknown["failure_stage"] = "document_client_bounds_unavailable"
+        return unknown
+    try:
+        document_bounds = tuple(int(value) for value in document_bounds)
+    except (TypeError, ValueError, OverflowError):
+        unknown["failure_stage"] = "document_client_bounds_unavailable"
+        return unknown
+    if document_bounds[2] <= document_bounds[0] or document_bounds[3] <= document_bounds[1]:
+        unknown["failure_stage"] = "document_client_bounds_unavailable"
+        return unknown
+
+    field_buckets = {
+        "windows_forms_edit", "windows_forms_combobox",
+        "win32_edit", "win32_combobox",
+    }
+    field_candidates = []
+    static_candidates = []
+
+    def valid_bounds(value):
+        if not isinstance(value, (tuple, list)) or len(value) != 4:
+            return None
+        try:
+            bounds = tuple(int(part) for part in value)
+        except (TypeError, ValueError, OverflowError):
+            return None
+        return bounds if bounds[2] > bounds[0] and bounds[3] > bounds[1] else None
+
+    def document_control(item):
+        handle = _positive_handle(item.get("handle"))
+        if handle is None or item.get("visible") is not True:
+            return None
+        bounds = valid_bounds(item.get("client_bounds_screen"))
+        if bounds is None:
+            return None
+        try:
+            chain = _native_parent_chain(handle)
+        except Exception:
+            chain = None
+        if chain is None or document_handle not in chain:
+            return None
+        if not (
+            bounds[0] < document_bounds[2]
+            and bounds[2] > document_bounds[0]
+            and bounds[1] < document_bounds[3]
+            and bounds[3] > document_bounds[1]
+        ):
+            return None
+        return {
+            "handle": handle,
+            "bounds": bounds,
+            "chain": tuple(chain),
+            "parent": chain[1] if len(chain) > 1 else None,
+        }
+
+    for item in tuple(native_windows):
+        bucket = _native_window_class_bucket(item.get("class_name"))
+        if bucket in field_buckets:
+            control = document_control(item)
+            if control is not None:
+                control["field_class"] = bucket
+                field_candidates.append(control)
+        elif bucket == "win32_static_text":
+            control = document_control(item)
+            if control is not None:
+                # GetWindowTextW content is never retained beyond this boolean.
+                native_text = item.get("title")
+                control["text_present"] = (
+                    isinstance(native_text, str) and bool(native_text.strip())
+                )
+                if control["text_present"]:
+                    static_candidates.append(control)
+
+    by_class = {
+        bucket: {
+            "field_count": 0,
+            "fields_with_sibling_static_text_candidate_count": 0,
+            "fields_with_nearby_static_text_candidate_count": 0,
+            "fields_with_sibling_and_nearby_static_text_candidate_count": 0,
+            "fields_with_unique_nearby_static_text_candidate_count": 0,
+            "fields_with_ambiguous_nearby_static_text_candidate_count": 0,
+        }
+        for bucket in sorted(field_buckets)
+    }
+    for field in field_candidates:
+        by_class[field["field_class"]]["field_count"] += 1
+
+    total_sibling = total_nearby = total_combined = total_unique = total_ambiguous = 0
+
+    def label_relation(field_bounds, label_bounds):
+        fl, ft, fr, fb = field_bounds
+        ll, lt, lr, lb = label_bounds
+        same_row = abs(((ft + fb) / 2) - ((lt + lb) / 2)) <= max(
+            18, 1.5 * max(fb - ft, lb - lt)
+        )
+        left_gap = fl - lr
+        if same_row and -8 <= left_gap <= 220:
+            return True, max(0, left_gap)
+
+        horizontal_overlap = ll < fr and lr > fl
+        above_gap = ft - lb
+        if horizontal_overlap and -8 <= above_gap <= 90:
+            return True, 221 + max(0, above_gap)
+        return False, None
+
+    for field in field_candidates:
+        counters = by_class[field["field_class"]]
+        field_parent_chain = set(field["chain"][1:])
+        geometric_candidates = []
+        sibling_candidates = []
+
+        for label in static_candidates:
+            label_parent_chain = set(label["chain"][1:])
+            sibling = (
+                field["parent"] is not None
+                and field["parent"] == label["parent"]
+            ) or any(
+                ancestor != document_handle
+                for ancestor in field_parent_chain.intersection(label_parent_chain)
+            )
+            nearby, score = label_relation(field["bounds"], label["bounds"])
+
+            if sibling:
+                sibling_candidates.append(label["handle"])
+            if nearby:
+                geometric_candidates.append((label["handle"], score, sibling))
+
+        if sibling_candidates:
+            total_sibling += 1
+            counters["fields_with_sibling_static_text_candidate_count"] += 1
+        if geometric_candidates:
+            total_nearby += 1
+            counters["fields_with_nearby_static_text_candidate_count"] += 1
+        if any(candidate[2] for candidate in geometric_candidates):
+            total_combined += 1
+            counters["fields_with_sibling_and_nearby_static_text_candidate_count"] += 1
+
+        if geometric_candidates:
+            best_score = min(candidate[1] for candidate in geometric_candidates)
+            nearest = [candidate for candidate in geometric_candidates if candidate[1] == best_score]
+            if len(nearest) == 1:
+                total_unique += 1
+                counters["fields_with_unique_nearby_static_text_candidate_count"] += 1
+            else:
+                total_ambiguous += 1
+                counters["fields_with_ambiguous_nearby_static_text_candidate_count"] += 1
+
+    return {
+        "available": True,
+        "failure_stage": None,
+        "document_root_identity_verified": True,
+        "document_context_field_count": len(field_candidates),
+        "visible_static_text_candidate_count": len(static_candidates),
+        "document_context_fields_with_sibling_static_text_candidate_count": total_sibling,
+        "document_context_fields_with_nearby_static_text_candidate_count": total_nearby,
+        "document_context_fields_with_sibling_and_nearby_static_text_candidate_count": total_combined,
+        "document_context_fields_with_unique_nearby_static_text_candidate_count": total_unique,
+        "document_context_fields_with_ambiguous_nearby_static_text_candidate_count": total_ambiguous,
+        "max_left_label_gap_px": 220,
+        "max_above_label_gap_px": 90,
+        "by_native_field_class": by_class,
+    }
+
+
 def _uia_raw_field_candidate_census(
     root_handle,
     expected_title,
@@ -3107,6 +3320,12 @@ def _uia_raw_field_candidate_census(
     )
     summary["active_document_rooted_win32_census"] = (
         _native_document_rooted_win32_census(
+            native_windows=native_windows,
+            exact_active_document_windows=exact_active_document_windows,
+        )
+    )
+    summary["native_document_field_label_candidate_census"] = (
+        _native_document_field_label_candidate_census(
             native_windows=native_windows,
             exact_active_document_windows=exact_active_document_windows,
         )
