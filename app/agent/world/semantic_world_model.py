@@ -122,16 +122,31 @@ class SemanticWorldModel:
                         )
                     )
 
+        world_metadata: dict[str, object] = {
+            "entity_count": len(scene.elements),
+            "included_entity_count": len(entities),
+        }
+        scene_metadata = getattr(scene, "metadata", {}) or {}
+        reconstruction = scene_metadata.get("windowhub_ocr_table_reconstruction")
+        if reconstruction is None:
+            observation_metadata = getattr(scene.observation, "metadata", {}) or {}
+            reconstruction = observation_metadata.get("windowhub_ocr_table_reconstruction")
+        serializer = getattr(reconstruction, "to_payload", None)
+        if callable(serializer):
+            try:
+                table_payload = serializer()
+            except Exception:
+                table_payload = None
+            if isinstance(table_payload, dict):
+                world_metadata["windowhub_ocr_table"] = table_payload
+
         return cls(
             application=state.active_application,
             window_title=state.active_window_title,
             active_document=scene.active_document,
             entities=tuple(entities),
             affordances=tuple(affordances),
-            metadata={
-                "entity_count": len(scene.elements),
-                "included_entity_count": len(entities),
-            },
+            metadata=world_metadata,
         )
 
     @classmethod
