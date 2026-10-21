@@ -61,6 +61,35 @@ def test_conflicting_lp_detections_remain_unresolved():
     assert reports[0].accepted is False
     assert reports[0].reason == "conflicting_candidates"
 
+def test_row_local_consensus_resolves_conflicting_full_column_reads():
+    empty = SimpleNamespace(txts=[], scores=[], boxes=[])
+    observed_six = SimpleNamespace(txts=["6"], scores=[0.9995])
+    engine = BoxEngine([
+        # Two full-column variants disagree for this physical row.
+        result([("6", 0.999, 238.2)]),
+        result([("8", 0.998, 238.2)]),
+        # The high-resolution row-local crops agree on LP 6.
+        empty, empty, observed_six,
+        empty, empty, observed_six,
+    ])
+
+    refined, reports = refine_windowhub_ocr_table_lp(
+        (row(2, 238.2),),
+        np.zeros((400, 200, 3), dtype=np.uint8),
+        engine,
+    )
+
+    assert refined[0].lp == 6
+    assert refined[0].lp_source == "ocr_cell"
+    assert "lp" not in refined[0].missing_fields
+    assert reports[0].accepted is True
+    assert reports[0].candidate_value == 6
+    assert reports[0].reason == "unique_valid_candidate"
+    assert reports[0].sources == (
+        "cell_x100_180:otsu_sharpened",
+        "cell_x90_170:otsu_sharpened",
+    )
+
 
 def test_rejects_non_numeric_ocr_noise():
     noise = SimpleNamespace(txts=["一r"], scores=[0.99], boxes=[box_for_y(223.9)])
