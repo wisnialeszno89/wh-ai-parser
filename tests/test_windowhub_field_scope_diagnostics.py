@@ -1579,3 +1579,127 @@ def test_uia_native_document_control_correlation_fails_closed_without_native_sna
     assert "12345" not in repr(result)
     assert "999" not in repr(result)
 
+
+def test_document_context_field_center_candidate_census_counts_patterns_without_values(monkeypatch):
+    import tools.diagnose_windowhub_field_scope as diagnostic
+
+    monkeypatch.setattr(
+        diagnostic,
+        "_native_parent_chain",
+        lambda handle: {
+            11: (11, 50, 100),
+            12: (12, 50, 100),
+            50: (50, 100),
+        }.get(handle),
+    )
+
+    document = {
+        "handle": 50,
+        "title": "PRIVATE_DOCUMENT",
+        "class_name": "Afx:MDIChild",
+        "visible": True,
+        "client_bounds_screen": (100, 100, 400, 300),
+    }
+    native_windows = (
+        {
+            "handle": 11,
+            "title": "PRIVATE_EDIT",
+            "class_name": "Edit",
+            "visible": True,
+            "client_bounds_screen": (120, 120, 180, 150),
+        },
+        {
+            "handle": 12,
+            "title": "PRIVATE_COMBO",
+            "class_name": "ComboBox",
+            "visible": True,
+            "client_bounds_screen": (220, 120, 280, 150),
+        },
+        document,
+    )
+
+    def uia(control_type, bounds, *, name=None, automation_id=None, handle=None, patterns=()):
+        left, top, right, bottom = bounds
+        rectangle = SimpleNamespace(
+            left=left,
+            top=top,
+            right=right,
+            bottom=bottom,
+            width=lambda: right - left,
+            height=lambda: bottom - top,
+        )
+        attributes = {
+            f"iface_{pattern_name}": object()
+            for pattern_name in patterns
+        }
+        return SimpleNamespace(
+            element_info=SimpleNamespace(
+                control_type=control_type,
+                visible=True,
+                name=name,
+                automation_id=automation_id,
+                handle=handle,
+            ),
+            rectangle=lambda: rectangle,
+            **attributes,
+        )
+
+    descendants = (
+        uia("Pane", (90, 90, 310, 190)),
+        uia(
+            "Custom", (110, 110, 190, 160),
+            name="PRIVATE_VALUE_CONTROL",
+            automation_id="PRIVATE_ID",
+            handle=901,
+            patterns=("value", "text"),
+        ),
+        uia(
+            "Other", (210, 110, 290, 160),
+            patterns=("range_value",),
+        ),
+        # Unrelated value-capable node: it should not count because its bounds
+        # do not contain either native document-context field center.
+        uia("Custom", (500, 500, 600, 600), patterns=("value",)),
+    )
+
+    result = _uia_native_field_geometry_correlation_census(
+        descendants,
+        provider=WindowHubUIAutomationProvider(),
+        native_windows=native_windows,
+        exact_active_document_windows=(document,),
+    )
+    census = result["document_context_field_center_candidate_census"]
+
+    assert census["available"] is True
+    assert census["field_center_count"] == 2
+    assert census["field_centers_with_any_candidate_count"] == 2
+    assert census["field_centers_with_named_candidate_count"] == 1
+    assert census["field_centers_with_automation_id_candidate_count"] == 1
+    assert census["field_centers_with_native_handle_candidate_count"] == 1
+    assert census["field_centers_with_candidate_value_pattern_count"] == 1
+    assert census["field_centers_with_candidate_text_pattern_count"] == 1
+    assert census["field_centers_with_candidate_range_value_pattern_count"] == 1
+    assert census["field_centers_with_unique_smallest_container_count"] == 2
+    assert census["unique_smallest_container_type_counts"]["custom"] == 1
+    assert census["unique_smallest_container_type_counts"]["other"] == 1
+    assert census["field_centers_with_unique_smallest_container_pattern_counts"]["value"] == 1
+
+    by_type = census["by_control_type"]
+    assert by_type["pane"]["field_centers_with_candidate_count"] == 2
+    assert by_type["pane"]["field_centers_with_candidate_value_pattern_count"] == 0
+    assert by_type["custom"]["field_centers_with_candidate_value_pattern_count"] == 1
+    assert by_type["other"]["field_centers_with_candidate_range_value_pattern_count"] == 1
+
+    rendered = repr(result)
+    for private_value in (
+        "PRIVATE_DOCUMENT",
+        "PRIVATE_EDIT",
+        "PRIVATE_COMBO",
+        "PRIVATE_VALUE_CONTROL",
+        "PRIVATE_ID",
+        "901",
+        "(120, 120",
+        "(500, 500",
+    ):
+        assert private_value.casefold() not in rendered.casefold()
+

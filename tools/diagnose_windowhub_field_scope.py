@@ -1878,6 +1878,25 @@ def _uia_native_field_geometry_correlation_census(
                 name: 0 for name in structural_control_types
             },
         },
+        # Counts only: correlate non-sensitive UIA metadata and supported
+        # patterns with native document-field centers; never read field values
+        # or infer semantic document scope.
+        "document_context_field_center_candidate_census": {
+            "available": native_windows is not None,
+            "field_center_count": None,
+            "field_centers_with_any_candidate_count": None,
+            "field_centers_with_named_candidate_count": None,
+            "field_centers_with_automation_id_candidate_count": None,
+            "field_centers_with_native_handle_candidate_count": None,
+            **{
+                f"field_centers_with_candidate_{pattern}_pattern_count": None
+                for pattern in _UIA_PATTERN_NAMES
+            },
+            "field_centers_with_unique_smallest_container_count": None,
+            "unique_smallest_container_type_counts": None,
+            "field_centers_with_unique_smallest_container_pattern_counts": None,
+            "by_control_type": None,
+        },
         "by_uia_control_type": by_type,
     }
     if native_windows is None:
@@ -2070,16 +2089,143 @@ def _uia_native_field_geometry_correlation_census(
         if document_edge_matches:
             summary["visible_uia_nodes_edge_aligned_document_context_field_count"] += 1
             row["visible_bounds_edge_aligned_document_context_field_count"] += 1
+        try:
+            candidate_info = item.element_info
+            name_present = bool(
+                provider._string(getattr(candidate_info, "name", None))
+            )
+        except Exception:
+            name_present = False
+        try:
+            automation_id_present = bool(
+                provider._string(
+                    getattr(candidate_info, "automation_id", None)
+                )
+            )
+        except Exception:
+            automation_id_present = False
+        native_handle_present = provider._native_handle(item) is not None
+        pattern_availability = {
+            pattern_name: _uia_pattern_available(item, pattern_name)
+            for pattern_name in _UIA_PATTERN_NAMES
+        }
         uia_bounds_records.append({
             "bounds": bounds,
             "control_type": control_type,
             "area": (bounds[2] - bounds[0]) * (bounds[3] - bounds[1]),
-            # Kept in memory for parent traversal; the wrapper is never
-            # included in the returned diagnostic report.
+            "name_present": name_present,
+            "automation_id_present": automation_id_present,
+            "native_handle_present": native_handle_present,
+            "pattern_availability": pattern_availability,
+            # The wrapper and raw UIA metadata stay in memory only.
             "item": item,
         })
         if control_type == "text":
             summary["uia_text_neighbor_census"]["visible_text_nodes_with_positive_bounds_count"] += 1
+
+    # Geometry can surface candidate nodes, but can never prove field identity
+    # or establish document scope. Report only aggregate metadata/pattern counts.
+    center_candidate_census = {
+        "available": True,
+        "field_center_count": len(document_fields),
+        "field_centers_with_any_candidate_count": 0,
+        "field_centers_with_named_candidate_count": 0,
+        "field_centers_with_automation_id_candidate_count": 0,
+        "field_centers_with_native_handle_candidate_count": 0,
+        **{
+            f"field_centers_with_candidate_{pattern}_pattern_count": 0
+            for pattern in _UIA_PATTERN_NAMES
+        },
+        "field_centers_with_unique_smallest_container_count": 0,
+        "unique_smallest_container_type_counts": {
+            name: 0 for name in control_types
+        },
+        "field_centers_with_unique_smallest_container_pattern_counts": {
+            name: 0 for name in _UIA_PATTERN_NAMES
+        },
+        "by_control_type": {
+            name: {
+                "candidate_field_center_relation_count": 0,
+                "field_centers_with_candidate_count": 0,
+                "field_centers_with_named_candidate_count": 0,
+                "field_centers_with_automation_id_candidate_count": 0,
+                "field_centers_with_native_handle_candidate_count": 0,
+                **{
+                    f"field_centers_with_candidate_{pattern}_pattern_count": 0
+                    for pattern in _UIA_PATTERN_NAMES
+                },
+            }
+            for name in control_types
+        },
+    }
+
+    for field in document_fields:
+        containing = [
+            record for record in uia_bounds_records
+            if contains_center(record["bounds"], field["center"])
+        ]
+        if not containing:
+            continue
+
+        center_candidate_census["field_centers_with_any_candidate_count"] += 1
+        if any(record["name_present"] for record in containing):
+            center_candidate_census["field_centers_with_named_candidate_count"] += 1
+        if any(record["automation_id_present"] for record in containing):
+            center_candidate_census["field_centers_with_automation_id_candidate_count"] += 1
+        if any(record["native_handle_present"] for record in containing):
+            center_candidate_census["field_centers_with_native_handle_candidate_count"] += 1
+        for pattern_name in _UIA_PATTERN_NAMES:
+            if any(
+                record["pattern_availability"].get(pattern_name, False)
+                for record in containing
+            ):
+                center_candidate_census[
+                    f"field_centers_with_candidate_{pattern_name}_pattern_count"
+                ] += 1
+
+        for control_type in control_types:
+            typed = [
+                record for record in containing
+                if record["control_type"] == control_type
+            ]
+            if not typed:
+                continue
+            type_census = center_candidate_census["by_control_type"][control_type]
+            type_census["candidate_field_center_relation_count"] += len(typed)
+            type_census["field_centers_with_candidate_count"] += 1
+            if any(record["name_present"] for record in typed):
+                type_census["field_centers_with_named_candidate_count"] += 1
+            if any(record["automation_id_present"] for record in typed):
+                type_census["field_centers_with_automation_id_candidate_count"] += 1
+            if any(record["native_handle_present"] for record in typed):
+                type_census["field_centers_with_native_handle_candidate_count"] += 1
+            for pattern_name in _UIA_PATTERN_NAMES:
+                if any(
+                    record["pattern_availability"].get(pattern_name, False)
+                    for record in typed
+                ):
+                    type_census[
+                        f"field_centers_with_candidate_{pattern_name}_pattern_count"
+                    ] += 1
+
+        min_area = min(record["area"] for record in containing)
+        smallest = [
+            record for record in containing
+            if record["area"] == min_area
+        ]
+        if len(smallest) == 1:
+            smallest_record = smallest[0]
+            center_candidate_census["field_centers_with_unique_smallest_container_count"] += 1
+            center_candidate_census["unique_smallest_container_type_counts"][
+                smallest_record["control_type"]
+            ] += 1
+            for pattern_name in _UIA_PATTERN_NAMES:
+                if smallest_record["pattern_availability"].get(pattern_name, False):
+                    center_candidate_census[
+                        "field_centers_with_unique_smallest_container_pattern_counts"
+                    ][pattern_name] += 1
+
+    summary["document_context_field_center_candidate_census"] = center_candidate_census
 
     def smallest_container_counts(fields, *, document_context):
         unique_key = (
