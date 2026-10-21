@@ -556,14 +556,20 @@ def refine_windowhub_ocr_table_lp(
         if abs(input_rows[nearest].center_y - candidate[3]) <= row_tolerance:
             detections_by_row[nearest].append(candidate)
 
-    # If the full-column crop produced no valid token for a row, inspect that
-    # row's LP cell with wider overlapping crops. These observations are not
-    # accepted directly; they flow through the same conflict and uniqueness
-    # checks as full-column candidates.
+    # Inspect row-local crops whenever the full-column pass is missing or
+    # ambiguous. Full-column OCR can assign a plausible digit to the wrong row
+    # or produce conflicting readings; a row-bounded crop has stronger spatial
+    # context and can safely resolve that specific failure mode.
+    cell_detections_by_row: list[list[tuple[int, float, str, float]]] = [
+        [] for _ in input_rows
+    ]
     for index, row in enumerate(input_rows):
-        if row.lp is not None or detections_by_row[index]:
+        if row.lp is not None:
             continue
-        detections_by_row[index].extend(
+        column_values = {item[0] for item in detections_by_row[index]}
+        if len(column_values) == 1:
+            continue
+        cell_detections_by_row[index].extend(
             _read_lp_cell_candidates(
                 input_rows, row, image, engine, min_confidence=min_confidence
             )
@@ -578,7 +584,20 @@ def refine_windowhub_ocr_table_lp(
     for index, row in enumerate(input_rows):
         if row.lp is not None:
             continue
-        row_candidates = detections_by_row[index]
+        column_candidates = detections_by_row[index]
+        cell_candidates = cell_detections_by_row[index]
+        column_values = {item[0] for item in column_candidates}
+        cell_values = {item[0] for item in cell_candidates}
+
+        # Prefer one unambiguous cell-local value only when the full-column
+        # OCR itself is ambiguous or missing. If the column gave one stable
+        # value, a disagreeing local read remains a conflict rather than
+        # silently replacing either observation.
+        if len(column_values) != 1 and len(cell_values) == 1:
+            row_candidates = cell_candidates
+        else:
+            row_candidates = column_candidates + cell_candidates
+
         distinct_values = {item[0] for item in row_candidates}
         sources = tuple(sorted({item[2] for item in row_candidates}))
         confidence = max((item[1] for item in row_candidates), default=0.0)
