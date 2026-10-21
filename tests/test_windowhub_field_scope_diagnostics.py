@@ -1801,3 +1801,143 @@ def test_native_mdi_child_candidate_census_fails_closed_without_native_windows()
     assert census["native_mdi_child_window_count"] is None
     assert census["uia_document_centers_with_mdi_child_bounds_match_count"] is None
 
+
+
+
+def test_uia_active_document_rooted_control_census_directly_matches_document_fields(
+    monkeypatch,
+):
+    import sys
+    from types import ModuleType, SimpleNamespace
+
+    import tools.diagnose_windowhub_field_scope as diagnostics
+
+    monkeypatch.setattr(diagnostics, "os", SimpleNamespace(name="nt"))
+    monkeypatch.setattr(
+        "app.agent.platform.windows_com.ensure_windows_sta",
+        lambda: None,
+    )
+    monkeypatch.setattr(
+        "tools.diagnose_windowhub_field_scope._native_parent_chain",
+        lambda handle: {
+            8734391: (8734391, 8734321, 8734000),
+            8734392: (8734392, 8734321, 8734000),
+        }.get(handle),
+    )
+
+    document = {
+        "handle": 8734321,
+        "title": "PRIVATE_DOCUMENT",
+        "class_name": "Afx:MDIChild",
+        "visible": True,
+        "client_bounds_screen": (100, 100, 500, 500),
+    }
+    native_windows = (
+        document,
+        {
+            "handle": 8734391,
+            "title": "PRIVATE_EDIT",
+            "class_name": "Edit",
+            "visible": True,
+            "client_bounds_screen": (150, 150, 250, 180),
+        },
+        {
+            "handle": 8734392,
+            "title": "PRIVATE_COMBO",
+            "class_name": "ComboBox",
+            "visible": True,
+            "client_bounds_screen": (300, 150, 400, 180),
+        },
+    )
+
+    descendants = (
+        SimpleNamespace(
+            element_info=SimpleNamespace(
+                handle=8734391,
+                control_type="Edit",
+                visible=True,
+            )
+        ),
+        SimpleNamespace(
+            element_info=SimpleNamespace(
+                handle=8734392,
+                control_type="ComboBox",
+                visible=True,
+            )
+        ),
+    )
+    root = SimpleNamespace(
+        element_info=SimpleNamespace(handle=8734321),
+        window_text=lambda: "PRIVATE_DOCUMENT",
+        descendants=lambda: descendants,
+    )
+    window_spec = SimpleNamespace(wrapper_object=lambda: root)
+    fake_pywinauto = ModuleType("pywinauto")
+    fake_pywinauto.Desktop = lambda backend: SimpleNamespace(
+        window=lambda handle: window_spec
+    )
+    monkeypatch.setitem(sys.modules, "pywinauto", fake_pywinauto)
+
+    result = diagnostics._uia_active_document_rooted_control_census(
+        native_windows=native_windows,
+        exact_active_document_windows=(document,),
+        observed_root_handle=8734000,
+    )
+
+    assert result["available"] is True
+    assert result["failure_stage"] is None
+    assert result["document_root_identity_verified"] is True
+    assert result["direct_document_descendant_count"] == 2
+
+    census = result["correlation_census"]
+    assert census["document_context_native_field_like_control_count"] == 2
+    assert census[
+        "document_context_native_field_like_uia_handle_match_count"
+    ] == 2
+    assert census[
+        "document_context_native_field_like_uia_field_type_match_count"
+    ] == 2
+    assert census[
+        "document_context_native_field_like_uia_handle_missing_count"
+    ] == 0
+    assert census["document_context_native_field_like_uia_control_type_match_counts"][
+        "edit"
+    ] == 1
+    assert census["document_context_native_field_like_uia_control_type_match_counts"][
+        "combobox"
+    ] == 1
+
+    rendered = repr(result)
+    for private_value in (
+        "PRIVATE_DOCUMENT",
+        "PRIVATE_EDIT",
+        "PRIVATE_COMBO",
+        "8734321",
+        "8734391",
+        "8734392",
+        "(150, 150",
+    ):
+        assert private_value not in rendered
+
+
+def test_uia_active_document_rooted_control_census_fails_closed_without_unique_document(
+    monkeypatch,
+):
+    from types import SimpleNamespace
+
+    import tools.diagnose_windowhub_field_scope as diagnostics
+
+    monkeypatch.setattr(diagnostics, "os", SimpleNamespace(name="nt"))
+
+    result = diagnostics._uia_active_document_rooted_control_census(
+        native_windows=(),
+        exact_active_document_windows=(),
+    )
+
+    assert result["available"] is False
+    assert (
+        result["failure_stage"]
+        == "document_window_not_unique_or_not_visible"
+    )
+    assert result["direct_document_descendant_count"] is None
+    assert result["correlation_census"] is None
