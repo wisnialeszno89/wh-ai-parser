@@ -1887,7 +1887,7 @@ def _uia_native_field_geometry_correlation_census(
             "field_centers_with_any_candidate_count": None,
             "field_centers_with_named_candidate_count": None,
             "field_centers_with_automation_id_candidate_count": None,
-            "field_centers_with_native_handle_candidate_count": None,
+            "field_centers_with_native_reference_candidate_count": None,
             **{
                 f"field_centers_with_candidate_{pattern}_pattern_count": None
                 for pattern in _UIA_PATTERN_NAMES
@@ -2115,7 +2115,7 @@ def _uia_native_field_geometry_correlation_census(
             "area": (bounds[2] - bounds[0]) * (bounds[3] - bounds[1]),
             "name_present": name_present,
             "automation_id_present": automation_id_present,
-            "native_handle_present": native_handle_present,
+            "native_reference_present": native_handle_present,
             "pattern_availability": pattern_availability,
             # The wrapper and raw UIA metadata stay in memory only.
             "item": item,
@@ -2131,7 +2131,7 @@ def _uia_native_field_geometry_correlation_census(
         "field_centers_with_any_candidate_count": 0,
         "field_centers_with_named_candidate_count": 0,
         "field_centers_with_automation_id_candidate_count": 0,
-        "field_centers_with_native_handle_candidate_count": 0,
+        "field_centers_with_native_reference_candidate_count": 0,
         **{
             f"field_centers_with_candidate_{pattern}_pattern_count": 0
             for pattern in _UIA_PATTERN_NAMES
@@ -2149,7 +2149,7 @@ def _uia_native_field_geometry_correlation_census(
                 "field_centers_with_candidate_count": 0,
                 "field_centers_with_named_candidate_count": 0,
                 "field_centers_with_automation_id_candidate_count": 0,
-                "field_centers_with_native_handle_candidate_count": 0,
+                "field_centers_with_native_reference_candidate_count": 0,
                 **{
                     f"field_centers_with_candidate_{pattern}_pattern_count": 0
                     for pattern in _UIA_PATTERN_NAMES
@@ -2172,8 +2172,8 @@ def _uia_native_field_geometry_correlation_census(
             center_candidate_census["field_centers_with_named_candidate_count"] += 1
         if any(record["automation_id_present"] for record in containing):
             center_candidate_census["field_centers_with_automation_id_candidate_count"] += 1
-        if any(record["native_handle_present"] for record in containing):
-            center_candidate_census["field_centers_with_native_handle_candidate_count"] += 1
+        if any(record["native_reference_present"] for record in containing):
+            center_candidate_census["field_centers_with_native_reference_candidate_count"] += 1
         for pattern_name in _UIA_PATTERN_NAMES:
             if any(
                 record["pattern_availability"].get(pattern_name, False)
@@ -2197,8 +2197,8 @@ def _uia_native_field_geometry_correlation_census(
                 type_census["field_centers_with_named_candidate_count"] += 1
             if any(record["automation_id_present"] for record in typed):
                 type_census["field_centers_with_automation_id_candidate_count"] += 1
-            if any(record["native_handle_present"] for record in typed):
-                type_census["field_centers_with_native_handle_candidate_count"] += 1
+            if any(record["native_reference_present"] for record in typed):
+                type_census["field_centers_with_native_reference_candidate_count"] += 1
             for pattern_name in _UIA_PATTERN_NAMES:
                 if any(
                     record["pattern_availability"].get(pattern_name, False)
