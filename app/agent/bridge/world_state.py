@@ -67,10 +67,35 @@ class WorldState:
                 )
             )
 
+        # Structured table evidence is not exposed as a GUI affordance.
+        # Keep its model-safe payload in world metadata so the NaviMind bridge
+        # receives the same OCR table evidence as other task reasoners.
+        world_metadata: dict[str, object] = {}
+        scene_metadata = getattr(scene, "metadata", {}) or {}
+        reconstruction = scene_metadata.get(
+            "windowhub_ocr_table_reconstruction"
+        )
+        if reconstruction is None:
+            observation_metadata = (
+                getattr(scene.observation, "metadata", {}) or {}
+            )
+            reconstruction = observation_metadata.get(
+                "windowhub_ocr_table_reconstruction"
+            )
+        serializer = getattr(reconstruction, "to_payload", None)
+        if callable(serializer):
+            try:
+                table_payload = serializer()
+            except Exception:
+                table_payload = None
+            if isinstance(table_payload, dict):
+                world_metadata["windowhub_ocr_table"] = table_payload
+
         return cls(
             active_application=state.active_application,
             active_window_title=state.active_window_title,
             visible_elements=tuple(elements),
+            metadata=world_metadata,
         )
 
     @classmethod

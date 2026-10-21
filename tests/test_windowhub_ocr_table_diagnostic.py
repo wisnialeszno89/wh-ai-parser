@@ -1,0 +1,274 @@
+from types import SimpleNamespace
+
+from tools.inspect_windowhub_ocr_table import (
+    _classify_table_region_detections,
+    _configure_console_output,
+    _scan_dimensions_across_row_crops,
+    _scan_lp_column_across_row_crops,
+    _reasoning_handoff_audit,
+)
+
+
+def detection(text, x, center_y=220.0, *, confidence=0.99):
+    return SimpleNamespace(
+        label=text,
+        x=x,
+        y=center_y - 4,
+        width=max(8, len(text) * 7),
+        height=8,
+        confidence=confidence,
+    )
+
+
+def test_diagnostic_preserves_raw_detections_for_each_table_column():
+    elements = [
+        detection("4", 120),
+        detection("2 Okno", 210),
+        detection("1045,18", 420),
+        detection("522,59", 530),
+        detection("1320x1345", 1120),
+        detection("irrelevant UI label", 800),
+        detection("outside vertical table region", 420, 390),
+    ]
+
+    result = _classify_table_region_detections(elements)
+
+    assert [item["text"] for item in result["lp_column_ocr_detections"]] == ["4"]
+    assert [item["text"] for item in result["quantity_article_ocr_detections"]] == ["2 Okno"]
+    assert [item["text"] for item in result["total_value_ocr_detections"]] == ["1045,18"]
+    assert [item["text"] for item in result["unit_value_ocr_detections"]] == ["522,59"]
+    assert [item["text"] for item in result["dimensions_ocr_detections"]] == ["1320x1345"]
+    assert len(result["table_region_ocr_detections"]) == 5
+
+
+def test_diagnostic_skips_malformed_and_invalid_detections():
+    elements = [
+        object(),
+        SimpleNamespace(label="invalid", x=None, y=200, width=20, height=8, confidence=0.9),
+        detection("low area", 420, 380),
+        detection("outside x", 700, 220),
+    ]
+
+    result = _classify_table_region_detections(elements)
+
+    assert result["table_region_ocr_detections"] == []
+    assert result["total_value_ocr_detections"] == []
+
+def test_console_output_uses_backslash_replacement_for_legacy_code_pages():
+    class Stream:
+        def __init__(self):
+            self.options = []
+
+        def reconfigure(self, **kwargs):
+            self.options.append(kwargs)
+
+    stdout = Stream()
+    stderr = Stream()
+
+    _configure_console_output((stdout, stderr))
+
+    assert stdout.options == [{"errors": "backslashreplace"}]
+    assert stderr.options == [{"errors": "backslashreplace"}]
+
+
+def test_diagnostic_infers_shifted_price_columns_and_excludes_montage_from_unit_value():
+    elements = [
+        detection("1 Okno", 210),
+        detection("1045,18", 365),
+        detection("793,35", 464),
+        detection("0,00", 551),
+        detection("Montaż brutto", 521),
+        detection("1320x1345", 1280),
+        detection("1045,18", 365, 237),
+        detection("793,35", 464, 237),
+        detection("0,00", 551, 237),
+    ]
+
+    result = _classify_table_region_detections(elements)
+
+    assert "1045,18" in [item["text"] for item in result["total_value_ocr_detections"]]
+    assert "793,35" in [item["text"] for item in result["unit_value_ocr_detections"]]
+    assert "0,00" in [item["text"] for item in result["other_price_column_ocr_detections"]]
+    assert "1045,18" not in [item["text"] for item in result["quantity_article_ocr_detections"]]
+    assert [item["text"] for item in result["dimensions_ocr_detections"]] == ["1320x1345"]
+
+def test_diagnostic_scans_overlapping_high_resolution_dimension_crops():
+    import numpy as np
+
+    class FakeEngine:
+        def __init__(self):
+            self.calls = 0
+            self.shapes = []
+
+        def __call__(self, image):
+            self.calls += 1
+            self.shapes.append(image.shape[:2])
+            if self.calls == 1:
+                return SimpleNamespace(txts=["1320x1345"], scores=[0.97])
+            return SimpleNamespace(txts=[], scores=[])
+
+    rows = [
+        SimpleNamespace(row_index=1, center_y=30.0),
+        SimpleNamespace(row_index=2, center_y=50.0),
+    ]
+    image = np.zeros((100, 1936, 3), dtype=np.uint8)
+    engine = FakeEngine()
+
+    detections = _scan_dimensions_across_row_crops(rows, image, engine)
+
+    assert engine.calls == 24  # 2 rows x 4 overlapping bands x 3 variants
+    assert detections == [{
+        "row_index": 1,
+        "x_min": 850,
+        "x_max": 1350,
+        "variant": "color",
+        "scale": 6,
+        "text": "1320x1345",
+        "confidence": 0.97,
+    }]
+    # Row band: 20 px x scale 6 plus 40 px vertical white padding.
+    assert engine.shapes[0] == (160, 3096)
+    # Last image: 20 px x scale 6 and a 400 px horizontal band plus padding.
+    assert engine.shapes[-1] == (160, 2496)
+
+
+
+def test_diagnostic_scans_only_unresolved_lp_rows_without_promoting_candidates():
+    import numpy as np
+
+    class FakeEngine:
+        def __init__(self):
+            self.calls = 0
+            self.shapes = []
+
+        def __call__(self, image):
+            self.calls += 1
+            self.shapes.append(image.shape[:2])
+            if self.calls == 1:
+                return SimpleNamespace(txts=["1"], scores=[0.91])
+            return SimpleNamespace(txts=[], scores=[])
+
+    rows = [
+        SimpleNamespace(row_index=1, center_y=30.0, lp=None),
+        SimpleNamespace(row_index=2, center_y=50.0, lp=2),
+    ]
+    image = np.zeros((100, 300, 3), dtype=np.uint8)
+    engine = FakeEngine()
+
+    detections = _scan_lp_column_across_row_crops(rows, image, engine)
+
+    assert engine.calls == 6  # one unresolved row x two bands x three variants
+    assert detections == [{
+        "row_index": 1,
+        "x_min": 90,
+        "x_max": 170,
+        "variant": "color",
+        "scale": 6,
+        "text": "1",
+        "confidence": 0.91,
+    }]
+    # Local 20px high row crop scaled 6x with 32px vertical and 72px horizontal padding.
+    assert engine.shapes[0] == (152, 552)
+
+
+def test_reasoning_handoff_audit_includes_table_and_excludes_screen_geometry():
+    from app.agent.environment.environment_observation import EnvironmentObservation
+    from app.agent.environment.environment_state import EnvironmentState
+    from app.agent.perception.interaction_capability import InteractionCapability
+    from app.agent.perception.windowhub_ocr_table_parser import WindowHubOCRTableRow
+    from app.agent.perception.windowhub_ocr_table_pipeline import WindowHubOCRTableReconstruction
+
+    row = WindowHubOCRTableRow(
+        row_index=1,
+        lp=1,
+        lp_source="ocr_column",
+        quantity=1,
+        article="Okno",
+        total_value="1045.18",
+        unit_value="1045.18",
+        dimensions="1320 x 1345",
+        center_y=223.9,
+        missing_fields=(),
+    )
+    reconstruction = WindowHubOCRTableReconstruction(
+        rows=(row,),
+        field_refinements=(),
+        lp_refinements=(),
+    )
+    observation = EnvironmentObservation(
+        state=EnvironmentState(
+            active_application="WindowHub",
+            active_window_title="Okna - OFR/4170-",
+            screen_width=1920,
+            screen_height=1080,
+        ),
+        metadata={},
+    )
+    elements = (
+        SimpleNamespace(
+            kind="text",
+            label="1 Okno",
+            interaction_capability=InteractionCapability.UNKNOWN,
+            confidence=0.99,
+            metadata={"ocr_bounds": (10, 20, 30, 8)},
+        ),
+    )
+
+    audit = _reasoning_handoff_audit(observation, elements, reconstruction)
+
+    assert audit["source"] == "WorldState.from_scene -> NaviMindTaskReasoner"
+    assert audit["table_present"] is True
+    assert audit["table_status"] == "complete"
+    assert audit["row_count"] == 1
+    assert audit["complete_row_count"] == 1
+    assert audit["lp_values"] == [1]
+    assert audit["lp_values_unique_and_present"] is True
+    assert audit["rows_with_missing_fields"] == []
+    assert audit["coordinates_excluded"] is True
+    assert audit["ocr_elements_checked"] == 1
+    assert audit["ocr_elements_noninteractive"] is True
+
+
+def test_reasoning_handoff_audit_keeps_incomplete_rows_explicit():
+    from app.agent.environment.environment_observation import EnvironmentObservation
+    from app.agent.environment.environment_state import EnvironmentState
+    from app.agent.perception.windowhub_ocr_table_parser import WindowHubOCRTableRow
+    from app.agent.perception.windowhub_ocr_table_pipeline import WindowHubOCRTableReconstruction
+
+    row = WindowHubOCRTableRow(
+        row_index=1,
+        lp=None,
+        lp_source=None,
+        quantity=1,
+        article="Okno",
+        total_value="1045.18",
+        unit_value="1045.18",
+        dimensions="1320 x 1345",
+        center_y=223.9,
+        missing_fields=("lp",),
+    )
+    reconstruction = WindowHubOCRTableReconstruction(
+        rows=(row,),
+        field_refinements=(),
+        lp_refinements=(),
+    )
+    observation = EnvironmentObservation(
+        state=EnvironmentState(
+            active_application="WindowHub",
+            active_window_title="Okna - OFR/4170-",
+        ),
+        metadata={},
+    )
+
+    audit = _reasoning_handoff_audit(observation, (), reconstruction)
+
+    assert audit["table_present"] is True
+    assert audit["table_status"] == "partial"
+    assert audit["row_count"] == 1
+    assert audit["complete_row_count"] == 0
+    assert audit["lp_values"] == [None]
+    assert audit["lp_values_unique_and_present"] is False
+    assert audit["rows_with_missing_fields"] == [1]
+    assert audit["coordinates_excluded"] is True
+    assert audit["ocr_elements_noninteractive"] is False
+

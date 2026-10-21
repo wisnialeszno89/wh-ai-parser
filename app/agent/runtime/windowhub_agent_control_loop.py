@@ -43,6 +43,9 @@ from app.agent.perception.windowhub_vision_provider import (
 from app.agent.perception.windowhub_ui_automation_provider import (
     WindowHubUIAutomationProvider,
 )
+from app.agent.perception.windowhub_ocr_provider import (
+    WindowHubOCRProvider,
+)
 
 
 
@@ -91,5 +94,6 @@ def create_windowhub_agent_control_loop(
         perception_providers=(
             perception_provider,
             WindowHubUIAutomationProvider(),
+            WindowHubOCRProvider(),
         ),
     )
