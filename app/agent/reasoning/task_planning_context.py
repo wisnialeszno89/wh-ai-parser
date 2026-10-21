@@ -113,10 +113,28 @@ class TaskPlanningContext:
 
             elements.append(item)
 
-        return {
+        payload = {
             "active_application": state.active_application,
             "active_window_title": state.active_window_title,
             "visible_elements": elements,
             "element_count": len(self.scene.elements),
             "included_element_count": len(elements),
         }
+        metadata = getattr(self.scene, "metadata", {}) or {}
+        reconstruction = metadata.get("windowhub_ocr_table_reconstruction")
+        if reconstruction is None:
+            observation_metadata = getattr(self.scene.observation, "metadata", {}) or {}
+            reconstruction = observation_metadata.get("windowhub_ocr_table_reconstruction")
+        serializer = getattr(reconstruction, "to_payload", None)
+        if callable(serializer):
+            try:
+                table_payload = serializer()
+            except Exception:
+                table_payload = None
+            world_metadata = getattr(self.world, "metadata", {}) or {}
+            table_already_in_world = isinstance(
+                world_metadata.get("windowhub_ocr_table"), dict
+            )
+            if isinstance(table_payload, dict) and not table_already_in_world:
+                payload["structured_data"] = {"windowhub_ocr_table": table_payload}
+        return payload

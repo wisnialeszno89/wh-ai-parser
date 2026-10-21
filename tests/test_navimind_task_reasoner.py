@@ -1,5 +1,9 @@
 import json
 
+from types import SimpleNamespace
+
+import numpy as np
+
 from app.agent.reasoning.navimind_task_reasoner import (
     NaviMindTaskReasoner,
     NaviMindTaskReasonerConfig,
@@ -10,6 +14,14 @@ from app.agent.reasoning.knowledge_context import (
     KnowledgeSource,
 )
 from app.agent.reasoning.task_planning_context import TaskPlanningContext
+from app.agent.environment.environment_observation import EnvironmentObservation
+from app.agent.environment.environment_state import EnvironmentState
+from app.agent.perception.screen_scene import ScreenScene
+from app.agent.perception.interaction_capability import InteractionCapability
+from app.agent.perception.perception_engine import PerceptionEngine
+from app.agent.perception.windowhub_ocr_provider import WindowHubOCRProvider
+from app.agent.perception.windowhub_ocr_table_parser import WindowHubOCRTableRow
+from app.agent.perception.windowhub_ocr_table_pipeline import WindowHubOCRTableReconstruction
 
 
 class _Response:
@@ -406,3 +418,303 @@ def test_navimind_reasoner_captures_returned_external_knowledge():
     assert isinstance(external, dict)
     assert external["status"] == "complete"
     assert external["facts"][0]["fact_id"] == "synth-fact-1"
+
+def test_navimind_reasoner_sends_structured_windowhub_table_in_world_metadata():
+    captured = {}
+
+    def opener(request, timeout):
+        body = json.loads(request.data.decode("utf-8"))
+        captured["body"] = body
+        return _Response(
+            {
+                "version": "1",
+                "task_id": body["task_id"],
+                "status": "done",
+                "rationale": "The observed table data is sufficient.",
+                "confidence": 0.98,
+                "action": None,
+            }
+        )
+
+    row = WindowHubOCRTableRow(
+        row_index=1,
+        lp=4,
+        lp_source="ocr",
+        quantity=2,
+        article="Okno",
+        total_value="1045.18",
+        unit_value="522.59",
+        dimensions="1320 x 1345",
+        center_y=223.9,
+        missing_fields=(),
+    )
+    reconstruction = WindowHubOCRTableReconstruction((row,), (), ())
+    observation = EnvironmentObservation(
+        state=EnvironmentState(
+            active_application="WindowHub",
+            active_window_title="Okna - OFR/4170-",
+        ),
+        metadata={
+            "windowhub_ocr_table_reconstruction": reconstruction,
+        },
+    )
+    # The pipeline attaches reconstruction to observation metadata. The
+    # WorldState bridge must preserve it even if scene metadata is empty.
+    scene = ScreenScene(observation=observation, elements=(), metadata={})
+
+    reasoner = NaviMindTaskReasoner(
+        config=NaviMindTaskReasonerConfig(
+            url="http://localhost:3000/api/agent/task",
+        ),
+        opener=opener,
+    )
+    proposal = reasoner.reason(
+        TaskPlanningContext(
+            request_message="Odczytaj pozycje oferty",
+            intent="computer_use",
+            scene=scene,
+        )
+    )
+
+    assert proposal is not None
+    world = captured["body"]["world"]
+    table = world["metadata"]["windowhub_ocr_table"]
+    assert table["row_count"] == 1
+    assert table["rows"][0]["lp"] == 4
+    assert table["rows"][0]["total_value"] == "1045.18"
+    assert "center_y" not in table["rows"][0]
+    assert world["visible_elements"] == []
+    json.dumps(captured["body"], ensure_ascii=False)
+
+def test_navimind_reasoner_preserves_partial_windowhub_rows_without_geometry():
+    captured = {}
+
+    def opener(request, timeout):
+        body = json.loads(request.data.decode("utf-8"))
+        captured["body"] = body
+        return _Response(
+            {
+                "version": "1",
+                "task_id": body["task_id"],
+                "status": "done",
+                "rationale": "The observed table has an unresolved row.",
+                "confidence": 0.9,
+                "action": None,
+            }
+        )
+
+    rows = (
+        WindowHubOCRTableRow(
+            row_index=1,
+            lp=1,
+            lp_source="ocr_cell",
+            quantity=1,
+            article="Okno",
+            total_value="826.29",
+            unit_value="826.29",
+            dimensions="800 x 1220",
+            center_y=200.0,
+            missing_fields=(),
+        ),
+        WindowHubOCRTableRow(
+            row_index=2,
+            lp=None,
+            lp_source="missing",
+            quantity=None,
+            article="Okno",
+            total_value="2275.50",
+            unit_value="2275.50",
+            dimensions="800 x 1190",
+            center_y=300.0,
+            missing_fields=("lp", "quantity"),
+        ),
+    )
+    reconstruction = WindowHubOCRTableReconstruction(
+        rows=rows,
+        field_refinements=(),
+        lp_refinements=(),
+    )
+    observation = EnvironmentObservation(
+        state=EnvironmentState(
+            active_application="WindowHub",
+            active_window_title="Okna - OFR/4232-4202",
+            screen_width=1920,
+            screen_height=1080,
+        ),
+        metadata={"windowhub_ocr_table_reconstruction": reconstruction},
+    )
+    # Exercise the real NaviMind request builder without making a network call.
+    scene = ScreenScene(observation=observation, elements=(), metadata={})
+    reasoner = NaviMindTaskReasoner(
+        config=NaviMindTaskReasonerConfig(
+            url="http://localhost:3000/api/agent/task",
+        ),
+        opener=opener,
+    )
+
+    proposal = reasoner.reason(
+        TaskPlanningContext(
+            request_message="Odczytaj pozycje oferty",
+            intent="computer_use",
+            scene=scene,
+        )
+    )
+
+    assert proposal is not None
+    body = captured["body"]
+    table = body["world"]["metadata"]["windowhub_ocr_table"]
+    assert table["status"] == "partial"
+    assert table["row_count"] == 2
+    assert table["complete_row_count"] == 1
+    assert table["rows"][0]["lp"] == 1
+    assert table["rows"][0]["complete"] is True
+    assert table["rows"][1]["lp"] is None
+    assert table["rows"][1]["quantity"] is None
+    assert table["rows"][1]["missing_fields"] == ["lp", "quantity"]
+    assert table["rows"][1]["complete"] is False
+    assert table["rows"][1]["total_value"] == "2275.50"
+    assert body["world"]["visible_elements"] == []
+
+    encoded = json.dumps(body, ensure_ascii=False)
+    for forbidden in (
+        '"center_y"',
+        '"screen_width"',
+        '"screen_height"',
+        '"screenshot"',
+        '"window_handle"',
+        '"foreground_window_handle"',
+    ):
+        assert forbidden not in encoded
+
+def test_navimind_reasoner_sends_table_from_live_perception_scene(monkeypatch):
+    captured = {}
+
+    class FakeOCREngine:
+        def __init__(self):
+            self.calls = 0
+
+        def __call__(self, image):
+            self.calls += 1
+            return SimpleNamespace(
+                txts=["Dokument"],
+                boxes=[
+                    np.array(
+                        [[5, 5], [45, 5], [45, 20], [5, 20]],
+                        dtype=float,
+                    )
+                ],
+                scores=[0.99],
+            )
+
+    reconstruction = WindowHubOCRTableReconstruction(
+        rows=(
+            WindowHubOCRTableRow(
+                row_index=1,
+                lp=1,
+                lp_source="ocr_cell",
+                quantity=1,
+                article="Okno",
+                total_value="826.29",
+                unit_value="826.29",
+                dimensions="800 x 1220",
+                center_y=200.0,
+                missing_fields=(),
+            ),
+            WindowHubOCRTableRow(
+                row_index=2,
+                lp=None,
+                lp_source="missing",
+                quantity=None,
+                article="Okno",
+                total_value="2275.50",
+                unit_value="2275.50",
+                dimensions="800 x 1190",
+                center_y=300.0,
+                missing_fields=("lp", "quantity"),
+            ),
+        ),
+        field_refinements=(),
+        lp_refinements=(),
+    )
+
+    monkeypatch.setattr(
+        "app.agent.perception.windowhub_ocr_provider.reconstruct_windowhub_ocr_table_rows",
+        lambda elements, image, engine: reconstruction,
+    )
+    image = np.zeros((60, 100, 3), dtype=np.uint8)
+    observation = EnvironmentObservation(
+        state=EnvironmentState(
+            active_application="WindowHub",
+            active_window_title="Okna - OFR/4232-4202",
+            screen_width=100,
+            screen_height=60,
+        ),
+        metadata={
+            "source": "windowhub",
+            "window_focused": True,
+            "screenshot": image,
+        },
+    )
+    engine = FakeOCREngine()
+    provider = WindowHubOCRProvider(engine=engine)
+    scene = PerceptionEngine(providers=(provider,)).perceive(observation)
+
+    def opener(request, timeout):
+        body = json.loads(request.data.decode("utf-8"))
+        captured["body"] = body
+        return _Response(
+            {
+                "version": "1",
+                "task_id": body["task_id"],
+                "status": "done",
+                "rationale": "The perceived table was serialized.",
+                "confidence": 0.9,
+                "action": None,
+            }
+        )
+
+    reasoner = NaviMindTaskReasoner(
+        config=NaviMindTaskReasonerConfig(
+            url="http://localhost:3000/api/agent/task",
+        ),
+        opener=opener,
+    )
+    proposal = reasoner.reason(
+        TaskPlanningContext(
+            request_message="Odczytaj pozycje oferty",
+            intent="computer_use",
+            scene=scene,
+        )
+    )
+
+    assert proposal is not None
+    assert engine.calls == 1
+    assert scene.metadata["windowhub_ocr_table_reconstruction"] is reconstruction
+    assert scene.elements[0].interaction_capability is InteractionCapability.UNKNOWN
+
+    body = captured["body"]
+    world = body["world"]
+    table = world["metadata"]["windowhub_ocr_table"]
+    assert table["status"] == "partial"
+    assert table["row_count"] == 2
+    assert table["complete_row_count"] == 1
+    assert table["rows"][0]["lp"] == 1
+    assert table["rows"][1]["lp"] is None
+    assert table["rows"][1]["quantity"] is None
+    assert table["rows"][1]["missing_fields"] == ["lp", "quantity"]
+    assert world["visible_elements"][0]["label"] == "Dokument"
+    assert world["visible_elements"][0]["interaction_capability"] == "unknown"
+
+    encoded = json.dumps(body, ensure_ascii=False)
+    for forbidden in (
+        '"center_y"',
+        '"screen_width"',
+        '"screen_height"',
+        '"screenshot"',
+        '"ocr_bounds"',
+        '"window_handle"',
+    ):
+        assert forbidden not in encoded
+    for element in world["visible_elements"]:
+        assert not {"x", "y", "width", "height"}.intersection(element)
+
