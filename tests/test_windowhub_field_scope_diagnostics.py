@@ -2060,3 +2060,107 @@ def test_native_document_rooted_win32_census_fails_closed_without_unique_documen
     assert result["direct_document_descendant_count"] is None
     assert result["document_context_native_field_like_control_count"] is None
     assert result["by_native_class"] is None
+
+
+
+def test_native_document_field_label_candidate_census_counts_sibling_and_nearby_static_text(
+    monkeypatch,
+):
+    from types import SimpleNamespace
+
+    import tools.diagnose_windowhub_field_scope as diagnostics
+
+    monkeypatch.setattr(diagnostics, "os", SimpleNamespace(name="nt"))
+    chains = {
+        8734321: (8734321, 8734000),
+        8734391: (8734391, 8734321, 8734000),
+        8734392: (8734392, 8734321, 8734000),
+        8734401: (8734401, 8734321, 8734000),
+        8734402: (8734402, 8734321, 8734000),
+        8734499: (8734499, 8734000),
+    }
+    monkeypatch.setattr(
+        "tools.diagnose_windowhub_field_scope._native_parent_chain",
+        lambda handle: chains.get(handle),
+    )
+
+    document = {
+        "handle": 8734321, "title": "PRIVATE_DOCUMENT",
+        "class_name": "Afx:MDIChild", "visible": True,
+        "client_bounds_screen": (100, 100, 600, 600),
+    }
+    native_windows = (
+        document,
+        {
+            "handle": 8734391, "title": "PRIVATE_EDIT_VALUE",
+            "class_name": "Edit", "visible": True,
+            "client_bounds_screen": (300, 150, 400, 180),
+        },
+        {
+            "handle": 8734392, "title": "PRIVATE_COMBO_VALUE",
+            "class_name": "ComboBox", "visible": True,
+            "client_bounds_screen": (300, 220, 400, 250),
+        },
+        {
+            "handle": 8734401, "title": "PRIVATE_LABEL_ONE",
+            "class_name": "Static", "visible": True,
+            "client_bounds_screen": (205, 153, 285, 175),
+        },
+        {
+            "handle": 8734402, "title": "PRIVATE_LABEL_TWO",
+            "class_name": "Static", "visible": True,
+            "client_bounds_screen": (205, 223, 285, 245),
+        },
+        {
+            "handle": 8734499, "title": "PRIVATE_OUTSIDE_LABEL",
+            "class_name": "Static", "visible": True,
+            "client_bounds_screen": (10, 10, 90, 30),
+        },
+    )
+
+    result = diagnostics._native_document_field_label_candidate_census(
+        native_windows=native_windows,
+        exact_active_document_windows=(document,),
+    )
+
+    assert result["available"] is True
+    assert result["failure_stage"] is None
+    assert result["document_root_identity_verified"] is True
+    assert result["document_context_field_count"] == 2
+    assert result["visible_static_text_candidate_count"] == 2
+    assert result["document_context_fields_with_sibling_static_text_candidate_count"] == 2
+    assert result["document_context_fields_with_nearby_static_text_candidate_count"] == 2
+    assert result["document_context_fields_with_sibling_and_nearby_static_text_candidate_count"] == 2
+    assert result["document_context_fields_with_unique_nearby_static_text_candidate_count"] == 2
+    assert result["by_native_field_class"]["win32_edit"]["field_count"] == 1
+    assert result["by_native_field_class"]["win32_combobox"]["field_count"] == 1
+
+    rendered = repr(result)
+    for private_value in (
+        "PRIVATE_DOCUMENT", "PRIVATE_EDIT_VALUE", "PRIVATE_COMBO_VALUE",
+        "PRIVATE_LABEL_ONE", "PRIVATE_LABEL_TWO", "PRIVATE_OUTSIDE_LABEL",
+        "8734321", "8734391", "8734392", "8734401", "8734402", "8734499",
+        "(300, 150",
+    ):
+        assert private_value not in rendered
+
+
+def test_native_document_field_label_candidate_census_fails_closed_without_unique_document(
+    monkeypatch,
+):
+    from types import SimpleNamespace
+
+    import tools.diagnose_windowhub_field_scope as diagnostics
+
+    monkeypatch.setattr(diagnostics, "os", SimpleNamespace(name="nt"))
+
+    result = diagnostics._native_document_field_label_candidate_census(
+        native_windows=(),
+        exact_active_document_windows=(),
+    )
+
+    assert result["available"] is False
+    assert result["failure_stage"] == "document_window_not_unique_or_not_visible"
+    assert result["document_context_field_count"] is None
+    assert result["visible_static_text_candidate_count"] is None
+    assert result["by_native_field_class"] is None
