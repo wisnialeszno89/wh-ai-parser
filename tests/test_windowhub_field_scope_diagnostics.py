@@ -1675,7 +1675,7 @@ def test_document_context_field_center_candidate_census_counts_patterns_without_
     assert census["field_centers_with_any_candidate_count"] == 2
     assert census["field_centers_with_named_candidate_count"] == 1
     assert census["field_centers_with_automation_id_candidate_count"] == 1
-    assert census["field_centers_with_native_handle_candidate_count"] == 1
+    assert census["field_centers_with_native_reference_candidate_count"] == 1
     assert census["field_centers_with_candidate_value_pattern_count"] == 1
     assert census["field_centers_with_candidate_text_pattern_count"] == 1
     assert census["field_centers_with_candidate_range_value_pattern_count"] == 1
