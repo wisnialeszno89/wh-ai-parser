@@ -14,3 +14,5 @@ openpyxl
 
 playwright
 pypdf>=5.0.0
+rapidocr
+onnxruntime
