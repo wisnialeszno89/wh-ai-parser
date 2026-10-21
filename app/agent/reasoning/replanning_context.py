@@ -101,6 +101,18 @@ class ReplanningContext:
                         self.scene.metadata[key]
                     )
 
+            reconstruction = self.scene.metadata.get("windowhub_ocr_table_reconstruction")
+            serializer = getattr(reconstruction, "to_payload", None)
+            if callable(serializer):
+                try:
+                    table_payload = serializer()
+                except Exception:
+                    table_payload = None
+                if isinstance(table_payload, dict):
+                    scene_metadata["structured_data"] = {
+                        "windowhub_ocr_table": table_payload
+                    }
+
             scene_payload = {
                 "metadata": scene_metadata,
                 "elements": [
