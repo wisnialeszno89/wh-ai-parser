@@ -995,6 +995,225 @@ def _native_window_title_matches(active_document, windows):
     }
 
 
+def _native_mdi_child_candidate_census(
+    native_windows,
+    uia_descendants,
+    *,
+    observed_root_handle=None,
+):
+    """Count candidate MDI child windows without matching tab captions or exposing identities.
+
+    This is a diagnostic correlation only. MDI class, HWND ancestry, and
+    containment of UIA Document bounds do not establish semantic document
+    scope and never authorize field reads or GUI actions.
+    """
+    result = {
+        "available": native_windows is not None,
+        "native_mdi_child_window_count": None,
+        "visible_mdi_child_window_count": None,
+        "visible_mdi_child_with_bounds_count": None,
+        "visible_mdi_child_title_present_count": None,
+        "visible_mdi_child_root_chain_checked_count": None,
+        "visible_mdi_child_root_chain_contains_observed_root_count": None,
+        "visible_mdi_child_with_native_field_like_descendant_count": None,
+        "visible_mdi_child_native_field_like_descendant_count": None,
+        "uia_visible_document_node_count": None,
+        "uia_visible_document_node_with_positive_bounds_count": None,
+        "uia_document_centers_with_mdi_child_bounds_match_count": None,
+        "uia_document_centers_with_unique_mdi_child_bounds_match_count": None,
+        "uia_document_centers_with_ambiguous_mdi_child_bounds_match_count": None,
+        "visible_mdi_children_containing_uia_document_center_count": None,
+    }
+    if native_windows is None:
+        return result
+
+    records = tuple(native_windows)
+    root_handle = _positive_handle(observed_root_handle)
+
+    def valid_bounds(value):
+        if not isinstance(value, (tuple, list)) or len(value) != 4:
+            return None
+        try:
+            bounds = tuple(int(part) for part in value)
+        except (TypeError, ValueError, OverflowError):
+            return None
+        if bounds[2] <= bounds[0] or bounds[3] <= bounds[1]:
+            return None
+        return bounds
+
+    mdi_children = []
+    for item in records:
+        class_name = item.get("class_name")
+        normalized_class = (
+            class_name.casefold().replace(":", "").replace(" ", "")
+            if isinstance(class_name, str)
+            else ""
+        )
+        if "mdi" not in normalized_class or "child" not in normalized_class:
+            continue
+        mdi_children.append({
+            "handle": _positive_handle(item.get("handle")),
+            "visible": item.get("visible") is True,
+            "title_present": (
+                isinstance(item.get("title"), str)
+                and bool(item.get("title").strip())
+            ),
+            "bounds": valid_bounds(item.get("client_bounds_screen")),
+        })
+
+    visible_children = [
+        child for child in mdi_children
+        if child["visible"] is True
+    ]
+    children_with_bounds = [
+        child for child in visible_children
+        if child["bounds"] is not None
+    ]
+
+    visible_native_fields = [
+        item for item in records
+        if (
+            item.get("visible") is True
+            and _native_window_class_bucket(item.get("class_name")) in {
+                "windows_forms_edit",
+                "windows_forms_combobox",
+                "win32_edit",
+                "win32_combobox",
+            }
+            and _positive_handle(item.get("handle")) is not None
+        )
+    ]
+
+    child_controls = {id(child): 0 for child in visible_children}
+    child_parent_checked = {}
+    for child in visible_children:
+        handle = child["handle"]
+        chain = _native_parent_chain(handle) if handle is not None else None
+        child_parent_checked[id(child)] = (
+            chain is not None,
+            bool(root_handle is not None and chain is not None and root_handle in chain),
+        )
+
+    for control in visible_native_fields:
+        control_handle = _positive_handle(control.get("handle"))
+        chain = _native_parent_chain(control_handle) if control_handle is not None else None
+        if chain is None:
+            continue
+        for child in visible_children:
+            child_handle = child["handle"]
+            if child_handle is not None and child_handle != control_handle and child_handle in chain:
+                child_controls[id(child)] += 1
+                break
+
+    # Only visible UIA Document nodes with positive bounds are considered.
+    # The node wrappers stay in memory; serialized output is counts only.
+    uia_documents = []
+    for item in tuple(uia_descendants or ()):
+        try:
+            info = item.element_info
+            raw_type = getattr(info, "control_type", "")
+            control_type = str(getattr(raw_type, "value", raw_type) or "").strip().casefold()
+            visible = bool(getattr(info, "visible", True))
+        except Exception:
+            continue
+        if control_type != "document" or not visible:
+            continue
+        try:
+            rectangle = item.rectangle()
+            left = int(getattr(rectangle, "left"))
+            top = int(getattr(rectangle, "top"))
+            right = getattr(rectangle, "right", None)
+            bottom = getattr(rectangle, "bottom", None)
+            right = int(right) if right is not None else left + int(rectangle.width())
+            bottom = int(bottom) if bottom is not None else top + int(rectangle.height())
+            bounds = valid_bounds((left, top, right, bottom))
+        except Exception:
+            bounds = None
+        if bounds is not None:
+            uia_documents.append({
+                "bounds": bounds,
+                "center": (
+                    (bounds[0] + bounds[2]) / 2,
+                    (bounds[1] + bounds[3]) / 2,
+                ),
+            })
+
+    center_any_count = 0
+    center_unique_count = 0
+    center_ambiguous_count = 0
+    children_containing_center_count = 0
+    for document in uia_documents:
+        cx, cy = document["center"]
+        matches = [
+            child for child in children_with_bounds
+            if (
+                child["bounds"][0] <= cx <= child["bounds"][2]
+                and child["bounds"][1] <= cy <= child["bounds"][3]
+            )
+        ]
+        if matches:
+            center_any_count += 1
+        if len(matches) == 1:
+            center_unique_count += 1
+        elif len(matches) > 1:
+            center_ambiguous_count += 1
+        for child in matches:
+            # Count a native child window once even when its bounds contain
+            # more than one UIA Document center.
+            child.setdefault("_contains_uia_document_center", False)
+            child["_contains_uia_document_center"] = True
+
+    children_containing_center_count = sum(
+        child.get("_contains_uia_document_center", False)
+        for child in children_with_bounds
+    )
+
+    result.update({
+        "native_mdi_child_window_count": len(mdi_children),
+        "visible_mdi_child_window_count": len(visible_children),
+        "visible_mdi_child_with_bounds_count": len(children_with_bounds),
+        "visible_mdi_child_title_present_count": sum(
+            child["title_present"] for child in visible_children
+        ),
+        "visible_mdi_child_root_chain_checked_count": sum(
+            checked for checked, _contains_root in child_parent_checked.values()
+        ),
+        "visible_mdi_child_root_chain_contains_observed_root_count": sum(
+            contains_root for _checked, contains_root in child_parent_checked.values()
+        ),
+        "visible_mdi_child_with_native_field_like_descendant_count": sum(
+            count > 0 for count in child_controls.values()
+        ),
+        "visible_mdi_child_native_field_like_descendant_count": sum(
+            child_controls.values()
+        ),
+        "uia_visible_document_node_count": sum(
+            1
+            for item in tuple(uia_descendants or ())
+            if _uia_control_is_visible_document(item)
+        ),
+        "uia_visible_document_node_with_positive_bounds_count": len(uia_documents),
+        "uia_document_centers_with_mdi_child_bounds_match_count": center_any_count,
+        "uia_document_centers_with_unique_mdi_child_bounds_match_count": center_unique_count,
+        "uia_document_centers_with_ambiguous_mdi_child_bounds_match_count": center_ambiguous_count,
+        "visible_mdi_children_containing_uia_document_center_count": (
+            children_containing_center_count
+        ),
+    })
+    return result
+
+
+def _uia_control_is_visible_document(item):
+    """Return a visibility/type predicate for diagnostic counting only."""
+    try:
+        info = item.element_info
+        raw_type = getattr(info, "control_type", "")
+        control_type = str(getattr(raw_type, "value", raw_type) or "").strip().casefold()
+        return control_type == "document" and bool(getattr(info, "visible", True))
+    except Exception:
+        return False
+
+
 def _native_parent_chain(handle):
     """Return an internal HWND parent chain, or None when Win32 lookup fails."""
     start = _positive_handle(handle)
@@ -2542,6 +2761,13 @@ def _uia_raw_field_candidate_census(
             provider=provider,
             native_windows=native_windows,
             exact_active_document_windows=exact_active_document_windows,
+            observed_root_handle=observed_root_handle,
+        )
+    )
+    summary["native_mdi_child_candidate_census"] = (
+        _native_mdi_child_candidate_census(
+            native_windows,
+            descendants,
             observed_root_handle=observed_root_handle,
         )
     )

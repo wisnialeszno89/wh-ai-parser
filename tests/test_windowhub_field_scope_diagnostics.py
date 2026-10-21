@@ -1703,3 +1703,101 @@ def test_document_context_field_center_candidate_census_counts_patterns_without_
     ):
         assert private_value.casefold() not in rendered.casefold()
 
+
+def test_native_mdi_child_candidate_census_correlates_ui_document_bounds_without_title_match(monkeypatch):
+    import tools.diagnose_windowhub_field_scope as diagnostic
+
+    parent_chains = {
+        11: (11, 50, 100),
+        12: (12, 50, 100),
+        13: (13, 60, 100),
+        50: (50, 100),
+        60: (60, 100),
+    }
+    monkeypatch.setattr(
+        diagnostic,
+        "_native_parent_chain",
+        lambda handle: parent_chains.get(handle),
+    )
+
+    native_windows = (
+        {
+            "handle": 50, "title": "", "class_name": "Afx:MDIChild",
+            "visible": True, "client_bounds_screen": (100, 100, 400, 400),
+        },
+        {
+            "handle": 60, "title": "PRIVATE_OTHER_TITLE", "class_name": "AfxMDIChildWnd",
+            "visible": True, "client_bounds_screen": (500, 100, 800, 400),
+        },
+        {
+            "handle": 11, "title": "", "class_name": "Edit",
+            "visible": True, "client_bounds_screen": (120, 120, 180, 150),
+        },
+        {
+            "handle": 12, "title": "", "class_name": "ComboBox",
+            "visible": True, "client_bounds_screen": (220, 120, 280, 150),
+        },
+        {
+            "handle": 13, "title": "", "class_name": "Edit",
+            "visible": True, "client_bounds_screen": (520, 120, 580, 150),
+        },
+    )
+
+    def uia_document(bounds):
+        left, top, right, bottom = bounds
+        rectangle = SimpleNamespace(
+            left=left, top=top, right=right, bottom=bottom,
+            width=lambda: right - left,
+            height=lambda: bottom - top,
+        )
+        return SimpleNamespace(
+            element_info=SimpleNamespace(control_type="Document", visible=True),
+            rectangle=lambda: rectangle,
+        )
+
+    census = diagnostic._native_mdi_child_candidate_census(
+        native_windows,
+        (
+            uia_document((110, 110, 390, 390)),
+            uia_document((510, 110, 790, 390)),
+        ),
+        observed_root_handle=100,
+    )
+
+    assert census["available"] is True
+    assert census["native_mdi_child_window_count"] == 2
+    assert census["visible_mdi_child_window_count"] == 2
+    assert census["visible_mdi_child_with_bounds_count"] == 2
+    assert census["visible_mdi_child_title_present_count"] == 1
+    assert census["visible_mdi_child_root_chain_checked_count"] == 2
+    assert census["visible_mdi_child_root_chain_contains_observed_root_count"] == 2
+    assert census["visible_mdi_child_with_native_field_like_descendant_count"] == 2
+    assert census["visible_mdi_child_native_field_like_descendant_count"] == 3
+    assert census["uia_visible_document_node_count"] == 2
+    assert census["uia_visible_document_node_with_positive_bounds_count"] == 2
+    assert census["uia_document_centers_with_mdi_child_bounds_match_count"] == 2
+    assert census["uia_document_centers_with_unique_mdi_child_bounds_match_count"] == 2
+    assert census["uia_document_centers_with_ambiguous_mdi_child_bounds_match_count"] == 0
+    assert census["visible_mdi_children_containing_uia_document_center_count"] == 2
+
+    rendered = repr(census).casefold()
+    for private_value in (
+        "PRIVATE_OTHER_TITLE", "50", "60", "100", "120, 120",
+        "500, 100", "class_name", "handle",
+    ):
+        assert private_value.casefold() not in rendered
+
+
+def test_native_mdi_child_candidate_census_fails_closed_without_native_windows():
+    import tools.diagnose_windowhub_field_scope as diagnostic
+
+    census = diagnostic._native_mdi_child_candidate_census(
+        None,
+        (),
+        observed_root_handle=100,
+    )
+
+    assert census["available"] is False
+    assert census["native_mdi_child_window_count"] is None
+    assert census["uia_document_centers_with_mdi_child_bounds_match_count"] is None
+
