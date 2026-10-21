@@ -2791,6 +2791,217 @@ def _uia_active_document_rooted_control_census(
     }
 
 
+def _native_document_rooted_win32_census(
+    *,
+    native_windows,
+    exact_active_document_windows=(),
+):
+    """Enumerate Win32 wrappers rooted at the uniquely resolved document HWND.
+
+    This is a read-only, aggregate-only diagnostic. It checks whether the
+    native Edit/ComboBox controls already observed by Win32 APIs are also
+    surfaced by pywinauto's Win32 backend when enumeration starts at the
+    active document. It never assigns semantic document scope or authorizes
+    form reads or GUI actions.
+    """
+    unknown = {
+        "available": False,
+        "failure_stage": None,
+        "document_root_identity_verified": False,
+        "direct_document_descendant_count": None,
+        "descendants_with_native_handle_count": None,
+        "descendant_native_window_handle_match_count": None,
+        "document_context_native_field_like_control_count": None,
+        "document_context_native_field_like_win32_handle_match_count": None,
+        "document_context_native_field_like_win32_edit_match_count": None,
+        "document_context_native_field_like_win32_combobox_match_count": None,
+        "document_context_native_field_like_win32_handle_missing_count": None,
+        "by_native_class": None,
+    }
+    if os.name != "nt":
+        unknown["failure_stage"] = "platform_not_supported"
+        return unknown
+    if native_windows is None:
+        unknown["failure_stage"] = "native_snapshot_unavailable"
+        return unknown
+
+    document_windows = tuple(exact_active_document_windows or ())
+    document = (
+        document_windows[0]
+        if len(document_windows) == 1
+        and document_windows[0].get("visible") is True
+        else None
+    )
+    if document is None:
+        unknown["failure_stage"] = "document_window_not_unique_or_not_visible"
+        return unknown
+
+    document_handle = _positive_handle(document.get("handle"))
+    expected_title = document.get("title")
+    if document_handle is None:
+        unknown["failure_stage"] = "document_window_identity_unavailable"
+        return unknown
+    if not isinstance(expected_title, str) or not expected_title.strip():
+        unknown["failure_stage"] = "document_window_title_unavailable"
+        return unknown
+
+    document_bounds = document.get("client_bounds_screen")
+    if not (
+        isinstance(document_bounds, (tuple, list))
+        and len(document_bounds) == 4
+    ):
+        unknown["failure_stage"] = "document_client_bounds_unavailable"
+        return unknown
+    try:
+        document_bounds = tuple(int(value) for value in document_bounds)
+    except (TypeError, ValueError, OverflowError):
+        unknown["failure_stage"] = "document_client_bounds_unavailable"
+        return unknown
+    if document_bounds[2] <= document_bounds[0] or document_bounds[3] <= document_bounds[1]:
+        unknown["failure_stage"] = "document_client_bounds_unavailable"
+        return unknown
+
+    field_buckets = {
+        "windows_forms_edit",
+        "windows_forms_combobox",
+        "win32_edit",
+        "win32_combobox",
+    }
+    native_by_handle = {}
+    context_fields = {}
+    for native in tuple(native_windows):
+        handle = _positive_handle(native.get("handle"))
+        if handle is not None:
+            native_by_handle.setdefault(handle, native)
+
+        if (
+            handle is None
+            or native.get("visible") is not True
+            or _native_window_class_bucket(native.get("class_name")) not in field_buckets
+        ):
+            continue
+
+        bounds = native.get("client_bounds_screen")
+        if not isinstance(bounds, (tuple, list)) or len(bounds) != 4:
+            continue
+        try:
+            bounds = tuple(int(value) for value in bounds)
+        except (TypeError, ValueError, OverflowError):
+            continue
+        if bounds[2] <= bounds[0] or bounds[3] <= bounds[1]:
+            continue
+
+        try:
+            chain = _native_parent_chain(handle)
+        except Exception:
+            chain = None
+        if chain is None or document_handle not in chain:
+            continue
+        intersects_document = (
+            bounds[0] < document_bounds[2]
+            and bounds[2] > document_bounds[0]
+            and bounds[1] < document_bounds[3]
+            and bounds[3] > document_bounds[1]
+        )
+        if intersects_document:
+            context_fields[handle] = _native_window_class_bucket(
+                native.get("class_name")
+            )
+
+    by_class = {
+        bucket: {
+            "count": 0,
+            "win32_handle_match_count": 0,
+            "win32_handle_missing_count": 0,
+        }
+        for bucket in sorted(field_buckets)
+    }
+    for bucket in context_fields.values():
+        by_class[bucket]["count"] += 1
+
+    try:
+        from app.agent.platform.windows_com import ensure_windows_sta
+        ensure_windows_sta()
+
+        from pywinauto import Desktop
+        from app.agent.perception.windowhub_ui_automation_provider import (
+            WindowHubUIAutomationProvider,
+        )
+
+        desktop = Desktop(backend="win32")
+        window_spec = desktop.window(handle=document_handle)
+        wrapper = getattr(window_spec, "wrapper_object", None)
+        window = wrapper() if callable(wrapper) else window_spec
+    except Exception:
+        unknown["failure_stage"] = "document_win32_root_creation_failed"
+        unknown["document_context_native_field_like_control_count"] = len(context_fields)
+        unknown["by_native_class"] = by_class
+        for bucket in context_fields.values():
+            by_class[bucket]["win32_handle_missing_count"] += 1
+        unknown["document_context_native_field_like_win32_handle_missing_count"] = len(context_fields)
+        return unknown
+
+    provider = WindowHubUIAutomationProvider()
+    if provider._native_handle(window) != document_handle:
+        unknown["failure_stage"] = "document_win32_root_identity_mismatch"
+        return unknown
+
+    try:
+        actual_title = window.window_text()
+    except Exception:
+        unknown["failure_stage"] = "document_win32_root_title_unavailable"
+        return unknown
+    if _normalized_window_text(actual_title) != _normalized_window_text(expected_title):
+        unknown["failure_stage"] = "document_win32_root_title_mismatch"
+        return unknown
+
+    try:
+        descendants = tuple(window.descendants())
+    except Exception:
+        unknown["failure_stage"] = "document_win32_descendant_enumeration_failed"
+        return unknown
+
+    descendant_handles = set()
+    descendant_match_handles = set()
+    for item in descendants:
+        handle = provider._native_handle(item)
+        if handle is None:
+            continue
+        descendant_handles.add(handle)
+        if handle in native_by_handle:
+            descendant_match_handles.add(handle)
+
+    matched_context_handles = set(context_fields).intersection(descendant_handles)
+    for handle, bucket in context_fields.items():
+        if handle in matched_context_handles:
+            by_class[bucket]["win32_handle_match_count"] += 1
+        else:
+            by_class[bucket]["win32_handle_missing_count"] += 1
+
+    edit_buckets = {"windows_forms_edit", "win32_edit"}
+    combo_buckets = {"windows_forms_combobox", "win32_combobox"}
+    return {
+        "available": True,
+        "failure_stage": None,
+        "document_root_identity_verified": True,
+        "direct_document_descendant_count": len(descendants),
+        "descendants_with_native_handle_count": len(descendant_handles),
+        "descendant_native_window_handle_match_count": len(descendant_match_handles),
+        "document_context_native_field_like_control_count": len(context_fields),
+        "document_context_native_field_like_win32_handle_match_count": len(matched_context_handles),
+        "document_context_native_field_like_win32_edit_match_count": sum(
+            1 for handle in matched_context_handles if context_fields[handle] in edit_buckets
+        ),
+        "document_context_native_field_like_win32_combobox_match_count": sum(
+            1 for handle in matched_context_handles if context_fields[handle] in combo_buckets
+        ),
+        "document_context_native_field_like_win32_handle_missing_count": (
+            len(context_fields) - len(matched_context_handles)
+        ),
+        "by_native_class": by_class,
+    }
+
+
 def _uia_raw_field_candidate_census(
     root_handle,
     expected_title,
@@ -2892,6 +3103,12 @@ def _uia_raw_field_candidate_census(
             native_windows=native_windows,
             exact_active_document_windows=exact_active_document_windows,
             observed_root_handle=observed_root_handle,
+        )
+    )
+    summary["active_document_rooted_win32_census"] = (
+        _native_document_rooted_win32_census(
+            native_windows=native_windows,
+            exact_active_document_windows=exact_active_document_windows,
         )
     )
     summary["failure_stage"] = None
