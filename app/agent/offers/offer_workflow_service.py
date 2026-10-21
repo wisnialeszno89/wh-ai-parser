@@ -1,3 +1,5 @@
+from app.agent.offers.offer_context import OfferContext
+
 from app.agent.offers.offer_agent_session import (
     OfferAgentSession,
 )
@@ -102,3 +104,24 @@ class OfferWorkflowService:
             ),
             action=handled_action,
         )
+
+    def process_context(
+        self,
+        session: OfferAgentSession,
+        context: OfferContext,
+    ) -> OfferWorkflowResult:
+        """Process a validated typed context without reparsing untrusted prose."""
+        session_result = self.session_service.process_context(
+            session,
+            context,
+        )
+        action = self.action_resolver.resolve(
+            session_result.session.workflow_state
+        )
+        handled_action = self.action_handler.handle(action)
+        return OfferWorkflowResult(
+            session=session_result.session,
+            agent_result=session_result.agent_result,
+            action=handled_action,
+        )
+

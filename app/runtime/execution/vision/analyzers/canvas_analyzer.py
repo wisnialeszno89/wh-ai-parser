@@ -4,6 +4,9 @@ import numpy as np
 import cv2
 
 from app.runtime.execution.native_toolbar_resolver import NativeToolbarResolver
+from app.runtime.execution.vision.analyzers.hough_line_normalizer import (
+    normalize_hough_line_segments,
+)
 from app.runtime.execution.vision.models.canvas import Canvas
 from app.runtime.execution.vision.models.rect import Rect
 
@@ -264,12 +267,13 @@ class CanvasAnalyzer:
             minLineLength=min_line_length,
             maxLineGap=12,
         )
-        if lines is None:
+        normalized_lines = normalize_hough_line_segments(lines)
+        if not normalized_lines:
             return None
 
         horizontals = []
         verticals = []
-        for raw in lines[:, 0]:
+        for raw in normalized_lines:
             x1, y1, x2, y2 = map(int, raw)
             dx = abs(x2 - x1)
             dy = abs(y2 - y1)

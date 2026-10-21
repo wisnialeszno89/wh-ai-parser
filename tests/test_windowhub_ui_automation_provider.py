@@ -53,6 +53,7 @@ class FakeUIAItem:
         value=None,
         parent=None,
         class_name="",
+        handle=None,
     ):
         self.element_info = SimpleNamespace(
             name=name,
@@ -63,6 +64,7 @@ class FakeUIAItem:
             runtime_id=runtime_id,
             rich_text=value,
             class_name=class_name,
+            handle=handle,
         )
         self._parent = parent
         self._rectangle = SimpleNamespace(
@@ -103,10 +105,10 @@ class FakeDesktop:
         return self._windows_by_handle[handle]
 
 
-def make_observation(tracked_objects=()):
+def make_observation(tracked_objects=(), *, title="Okna - WindowHub"):
     return EnvironmentObservation(
         state=EnvironmentState(
-            active_window_title="Okna - WindowHub",
+            active_window_title=title,
         ),
         metadata={
             "window_rect": SimpleNamespace(
@@ -447,6 +449,33 @@ def test_ui_automation_provider_exposes_current_editor_value():
     assert elements[0].metadata["current_value"] == "1230"
 
 
+def test_ui_automation_provider_records_native_handle_separately_from_enumeration_window():
+    item = FakeUIAItem(
+        name="Typ pakietu szybowego",
+        control_type="ComboBox",
+        handle=701,
+    )
+    window = FakeUIAWindow(
+        (item,),
+        title="Okna - OFR/4300-",
+    )
+    observation = make_observation(title="Okna - OFR/4300-")
+    observation.metadata["window_handle"] = 200
+    desktop = FakeDesktop(
+        window,
+        windows_by_handle={200: window},
+    )
+
+    elements = WindowHubUIAutomationProvider(
+        desktop_factory=lambda: desktop,
+    ).perceive(observation)
+
+    assert len(elements) == 1
+    metadata = elements[0].metadata
+    assert metadata["uia_window_handle"] == 200
+    assert metadata["uia_native_handle"] == 701
+
+
 def test_ui_automation_provider_exposes_explicit_document_scope():
     tab_host = FakeUIAItem(
         name="",
@@ -515,6 +544,7 @@ def test_ui_automation_provider_exposes_bounded_ancestor_context():
         name="Konstrukcja",
         control_type="Pane",
         class_name="Afx:Pane",
+        handle=501,
     )
     item = FakeUIAItem(
         name="Szerokość",
@@ -537,7 +567,7 @@ def test_ui_automation_provider_exposes_bounded_ancestor_context():
 
     assert len(elements) == 1
     assert elements[0].metadata["uia_ancestor_context"] == (
-        ("Pane", "Afx:Pane", "Konstrukcja"),
+        ("Pane", "Afx:Pane", "Konstrukcja", 501),
     )
 
 

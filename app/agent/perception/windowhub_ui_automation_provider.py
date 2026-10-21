@@ -437,7 +437,11 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
                 if tab_scope == "document"
                 else None
             ),
+            # Enumeration context and the native HWND of the control are
+            # distinct. Keep both so diagnostics can validate actual Win32
+            # ownership instead of assuming every descendant belongs to root.
             "uia_window_handle": window_handle,
+            "uia_native_handle": self._native_handle(item),
             "uia_owned_modal": owned_modal,
             "correlation": (
                 "unique_visual_center_inside_uia_bounds"
@@ -472,7 +476,7 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
         item,
         *,
         max_depth: int = 8,
-    ) -> tuple[tuple[str | None, str | None, str | None], ...]:
+    ) -> tuple[tuple[str | None, str | None, str | None, int | None], ...]:
         """
         Capture a bounded semantic UIA ancestry path.
 
@@ -511,15 +515,37 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
             except Exception:
                 break
 
+            # Preserve the native handle separately from the descriptive
+            # ancestry. The consumer may compare identities privately, but
+            # should not treat ancestry alone as document ownership.
             context.append(
                 (
                     control_type,
                     class_name,
                     name,
+                    WindowHubUIAutomationProvider._native_handle(current),
                 )
             )
 
         return tuple(context)
+
+    @staticmethod
+    def _native_handle(item) -> int | None:
+        """Return the native HWND for this UIA element when exposed by pywinauto."""
+        try:
+            element_info = getattr(item, "element_info", None)
+            raw_handle = getattr(element_info, "handle", None)
+            if raw_handle is None:
+                raw_handle = getattr(item, "handle", None)
+                if callable(raw_handle):
+                    raw_handle = raw_handle()
+            handle = int(raw_handle)
+        except (AttributeError, TypeError, ValueError, OSError):
+            return None
+        except Exception:
+            return None
+
+        return handle if handle > 0 else None
 
     @staticmethod
     def _document_scope(item) -> str | None:

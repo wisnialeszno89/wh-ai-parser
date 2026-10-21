@@ -2,6 +2,7 @@ from app.agent.adapters.default_adapters import create_default_adapter_registry
 from app.agent.adapters.email_draft_adapter import EmailDraftAdapter
 from app.agent.adapters.excel_workbook_adapter import ExcelWorkbookAdapter
 from app.agent.adapters.filesystem_adapter import FileSystemAdapter
+from app.agent.adapters.pdf_document_adapter import PdfDocumentAdapter
 from app.agent.adapters.word_document_adapter import WordDocumentAdapter
 
 
@@ -15,6 +16,12 @@ def test_default_registry_exposes_core_file_adapters(tmp_path):
         capability="read",
     )
     assert isinstance(filesystem, FileSystemAdapter)
+
+    pdf = registry.resolve(
+        application="PDF",
+        capability="extract_text",
+    )
+    assert isinstance(pdf, PdfDocumentAdapter)
 
     word = registry.resolve(
         application="Word",
