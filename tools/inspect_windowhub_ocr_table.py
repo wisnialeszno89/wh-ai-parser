@@ -1,0 +1,763 @@
+from __future__ import annotations
+
+import ctypes
+from ctypes import wintypes
+import json
+import os
+import sys
+import time
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+
+from app.agent.perception.windowhub_ocr_table_parser import (
+    infer_windowhub_ocr_table_column_layout,
+)
+
+
+def _reasoning_handoff_audit(
+    observation: object,
+    elements: object,
+    reconstruction: object,
+) -> dict[str, object]:
+    """Audit model-safe table metadata forwarded by NaviMind's world contract."""
+    from app.agent.bridge.world_state import WorldState
+    from app.agent.perception.interaction_capability import InteractionCapability
+    from app.agent.perception.screen_scene import ScreenScene
+
+    element_tuple = tuple(elements or ())
+    scene_metadata = (
+        {"windowhub_ocr_table_reconstruction": reconstruction}
+        if reconstruction is not None
+        else {}
+    )
+    scene = ScreenScene(
+        observation=observation,
+        elements=element_tuple,
+        metadata=scene_metadata,
+    )
+
+    # This is the same WorldState serializer used by NaviMindTaskReasoner when
+    # it builds AgentTaskContract.world. The diagnostic does not send a request.
+    world_payload = WorldState.from_scene(scene).to_payload()
+    world_metadata = world_payload.get("metadata")
+    table_payload = (
+        world_metadata.get("windowhub_ocr_table")
+        if isinstance(world_metadata, dict)
+        else None
+    )
+    rows = table_payload.get("rows", []) if isinstance(table_payload, dict) else []
+    if not isinstance(rows, list):
+        rows = []
+
+    lp_values = [
+        row.get("lp")
+        for row in rows
+        if isinstance(row, dict)
+    ]
+    lp_values_valid = (
+        len(lp_values) == len(rows)
+        and all(
+            isinstance(value, int) and not isinstance(value, bool)
+            for value in lp_values
+        )
+    )
+    forbidden_geometry_keys = {
+        "x",
+        "y",
+        "width",
+        "height",
+        "center_x",
+        "center_y",
+        "bounds",
+        "ocr_bounds",
+        "window_handle",
+        "foreground_window_handle",
+        "foreground_root_owner_handle",
+        "screen_width",
+        "screen_height",
+        "screenshot",
+        "hwnd",
+    }
+
+    def contains_geometry(value: object) -> bool:
+        if isinstance(value, dict):
+            return any(
+                str(key).casefold() in forbidden_geometry_keys
+                for key in value
+            ) or any(contains_geometry(item) for item in value.values())
+        if isinstance(value, (tuple, list)):
+            return any(contains_geometry(item) for item in value)
+        return False
+
+    return {
+        "source": "WorldState.from_scene -> NaviMindTaskReasoner",
+        "table_present": isinstance(table_payload, dict),
+        "table_status": (
+            table_payload.get("status")
+            if isinstance(table_payload, dict)
+            else None
+        ),
+        "row_count": (
+            table_payload.get("row_count")
+            if isinstance(table_payload, dict)
+            else 0
+        ),
+        "complete_row_count": (
+            table_payload.get("complete_row_count")
+            if isinstance(table_payload, dict)
+            else 0
+        ),
+        "lp_values": lp_values,
+        "lp_values_unique_and_present": (
+            bool(rows)
+            and lp_values_valid
+            and len(set(lp_values)) == len(lp_values)
+        ),
+        "rows_with_missing_fields": [
+            row.get("row_index")
+            for row in rows
+            if isinstance(row, dict) and row.get("missing_fields")
+        ],
+        "coordinates_excluded": not contains_geometry(world_payload),
+        "ocr_elements_checked": len(element_tuple),
+        "ocr_elements_noninteractive": (
+            bool(element_tuple)
+            and all(
+                getattr(element, "interaction_capability", None)
+                == InteractionCapability.UNKNOWN
+                for element in element_tuple
+            )
+        ),
+    }
+
+
+def _format_hwnd(value: int) -> str:
+    """Format a Windows handle for unambiguous diagnostic output."""
+    return f"0x{value:X}" if value > 0 else "0x0"
+
+
+def _window_title(user32: object, window_handle: int) -> str:
+    """Read a window title for diagnostics without changing window state."""
+    if window_handle <= 0:
+        return ""
+    try:
+        get_length = user32.GetWindowTextLengthW
+        get_length.argtypes = (wintypes.HWND,)
+        get_length.restype = ctypes.c_int
+        get_text = user32.GetWindowTextW
+        get_text.argtypes = (wintypes.HWND, wintypes.LPWSTR, ctypes.c_int)
+        get_text.restype = ctypes.c_int
+        length = max(0, int(get_length(wintypes.HWND(window_handle))))
+        buffer = ctypes.create_unicode_buffer(min(length + 1, 2048))
+        get_text(wintypes.HWND(window_handle), buffer, len(buffer))
+        return buffer.value
+    except Exception as exc:
+        return f"<title read failed: {type(exc).__name__}: {exc}>"
+
+
+def _foreground_snapshot(user32: object) -> tuple[int, int, str]:
+    """Return foreground HWND, root-owner HWND and foreground title."""
+    get_foreground = user32.GetForegroundWindow
+    get_foreground.restype = wintypes.HWND
+    get_ancestor = user32.GetAncestor
+    get_ancestor.argtypes = (wintypes.HWND, wintypes.UINT)
+    get_ancestor.restype = wintypes.HWND
+    foreground_handle = int(get_foreground() or 0)
+    root_owner_handle = (
+        int(get_ancestor(wintypes.HWND(foreground_handle), 3) or 0)
+        if foreground_handle > 0
+        else 0
+    )
+    return (
+        foreground_handle,
+        root_owner_handle,
+        _window_title(user32, foreground_handle),
+    )
+
+
+def _wait_for_window_foreground(window_handle: int, timeout_seconds: float = 45.0) -> bool:
+    """Wait for the user to focus the target WindowHub window; never set focus."""
+    if window_handle <= 0:
+        print("[FOCUS] Target WindowHub HWND is missing or invalid.")
+        return False
+
+    user32 = ctypes.WinDLL("user32", use_last_error=True)
+    from app.agent.environment.window_focus import is_target_window_focused
+
+    deadline = time.monotonic() + timeout_seconds
+    next_report = time.monotonic()
+    last_snapshot = (0, 0, "")
+    last_error = None
+    while time.monotonic() < deadline:
+        try:
+            last_snapshot = _foreground_snapshot(user32)
+            foreground_handle, root_owner_handle, _ = last_snapshot
+            if is_target_window_focused(
+                window_handle, foreground_handle, root_owner_handle
+            ):
+                print(
+                    "[FOCUS] Confirmed target: "
+                    f"target={_format_hwnd(window_handle)}, "
+                    f"foreground={_format_hwnd(foreground_handle)}, "
+                    f"root_owner={_format_hwnd(root_owner_handle)}, "
+                    f"title={last_snapshot[2]!r}"
+                )
+                return True
+            last_error = None
+        except Exception as exc:
+            last_error = f"{type(exc).__name__}: {exc}"
+
+        now = time.monotonic()
+        if now >= next_report:
+            print(
+                "[FOCUS] Waiting: "
+                f"target={_format_hwnd(window_handle)}, "
+                f"foreground={_format_hwnd(last_snapshot[0])}, "
+                f"root_owner={_format_hwnd(last_snapshot[1])}, "
+                f"title={last_snapshot[2]!r}"
+                + (f", win32_error={last_error}" if last_error else "")
+            )
+            next_report = now + 5.0
+        time.sleep(0.25)
+
+    print(
+        "[FOCUS] Timeout snapshot: "
+        f"target={_format_hwnd(window_handle)}, "
+        f"foreground={_format_hwnd(last_snapshot[0])}, "
+        f"root_owner={_format_hwnd(last_snapshot[1])}, "
+        f"title={last_snapshot[2]!r}"
+        + (f", win32_error={last_error}" if last_error else "")
+    )
+    return False
+
+
+
+def _classify_table_region_detections(elements: object) -> dict[str, list[dict[str, object]]]:
+    """Keep raw OCR observations grouped by detected columns, not fixed x offsets."""
+    elements = tuple(elements)
+    layout = infer_windowhub_ocr_table_column_layout(elements, max_center_y=380)
+    detections: list[dict[str, object]] = []
+    row_band_all_detections: list[dict[str, object]] = []
+    for element in elements:
+        try:
+            x = int(element.x)
+            y = int(element.y)
+            width = int(element.width)
+            height = int(element.height)
+            confidence = float(element.confidence)
+            center_y = y + height / 2
+        except (AttributeError, TypeError, ValueError):
+            continue
+
+        detection = {
+            "text": str(element.label),
+            "x": x,
+            "y": y,
+            "width": width,
+            "height": height,
+            "confidence": round(confidence, 4),
+        }
+        # Preserve every OCR item across the physical table's vertical band.
+        # The older column filter intentionally omitted x=650..999, which can
+        # hide a real dimensions column when WindowHub layouts differ.
+        if 170 <= center_y <= 410:
+            row_band_all_detections.append(detection)
+
+        in_table_columns = (90 <= x < 650) or (1000 <= x < 1700)
+        if not in_table_columns or not 190 <= center_y <= 370:
+            continue
+        detections.append(detection)
+
+    adaptive = bool(layout["adaptive_price_columns"])
+    centers = list(layout["price_column_centers"])
+    if adaptive and centers:
+        article_max = int(layout["article_x_max"])
+        total_min = max(0, int(centers[0] - 42))
+        total_max = (centers[0] + centers[1]) / 2 if len(centers) >= 2 else centers[0] + 55
+        unit_min = total_max
+        unit_max = (
+            int(centers[1] + 42)
+            if len(centers) >= 2
+            else 600
+        )
+        other_min = unit_max if len(centers) >= 3 else 650
+        total_detections = [item for item in detections if total_min <= item["x"] + item["width"] / 2 < total_max]
+        unit_detections = [item for item in detections if unit_min <= item["x"] + item["width"] / 2 < unit_max]
+        other_detections = [
+            item for item in detections if len(centers) >= 3 and other_min <= item["x"] + item["width"] / 2 < 650
+        ]
+        article_detections = [
+            item for item in detections if 185 <= item["x"] + item["width"] / 2 < article_max
+        ]
+    else:
+        total_detections = [item for item in detections if 380 <= item["x"] < 500]
+        unit_detections = [item for item in detections if 500 <= item["x"] < 600]
+        other_detections = []
+        article_detections = [item for item in detections if 185 <= item["x"] < 380]
+
+    return {
+        "row_band_all_ocr_detections": row_band_all_detections,
+        "table_region_ocr_detections": detections,
+        "lp_column_ocr_detections": [
+            item for item in detections if 90 <= item["x"] < 180
+        ],
+        "quantity_article_ocr_detections": article_detections,
+        "total_value_ocr_detections": total_detections,
+        "unit_value_ocr_detections": unit_detections,
+        "other_price_column_ocr_detections": other_detections,
+        "dimensions_ocr_detections": [
+            item for item in detections if 1000 <= item["x"] < 1700
+        ],
+    }
+
+
+def _scan_dimensions_across_row_crops(
+    rows: object,
+    screenshot_or_image: object,
+    engine: object,
+) -> list[dict[str, object]]:
+    """High-resolution diagnostic scan for clipped/misread dimension strings.
+
+    Uses overlapping horizontal crops and multiple preprocessing variants.
+    Results are observations only; this diagnostic never promotes candidates
+    into the table reconstruction or executes GUI actions.
+    """
+    import cv2
+    import numpy as np
+
+    from app.agent.perception.windowhub_ocr_table_refiner import (
+        _normalize_image,
+        _row_crop_bounds,
+    )
+
+    input_rows = tuple(rows or ())
+    if not input_rows:
+        return []
+
+    image = _normalize_image(screenshot_or_image)
+    height, width = image.shape[:2]
+    # Overlap the likely dimension-cell band so the first digit is not clipped
+    # by a single hard-coded left edge. The final crop is bounded by the image.
+    configured_bands = (
+        (850, 1350),
+        (900, 1300),
+        (950, 1350),
+        (1000, 1400),
+    )
+    bands = [
+        (max(0, x0), min(width, x1))
+        for x0, x1 in configured_bands
+        if min(width, x1) > max(0, x0)
+    ]
+    detections: list[dict[str, object]] = []
+    scale = 6
+    border_x = 48
+    border_y = 20
+
+    for row in input_rows:
+        y0, y1 = _row_crop_bounds(
+            input_rows,
+            row,
+            image_height=height,
+            row_half_height=9,
+        )
+        for x0, x1 in bands:
+            crop = image[y0:y1, x0:x1]
+            if crop.size == 0:
+                continue
+            enlarged = cv2.resize(
+                crop, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC
+            )
+            gray = cv2.cvtColor(enlarged, cv2.COLOR_BGR2GRAY)
+            clahe = cv2.createCLAHE(
+                clipLimit=2.0, tileGridSize=(8, 8)
+            ).apply(gray)
+            sharpened = cv2.addWeighted(
+                clahe, 1.6,
+                cv2.GaussianBlur(clahe, (0, 0), 1.0), -0.6,
+                0,
+            )
+            _, otsu = cv2.threshold(
+                sharpened, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU
+            )
+
+            variants = (
+                ("color", cv2.copyMakeBorder(
+                    enlarged, border_y, border_y, border_x, border_x,
+                    cv2.BORDER_CONSTANT, value=(255, 255, 255),
+                )),
+                ("clahe_sharpened", cv2.copyMakeBorder(
+                    sharpened, border_y, border_y, border_x, border_x,
+                    cv2.BORDER_CONSTANT, value=255,
+                )),
+                ("otsu_sharpened", cv2.copyMakeBorder(
+                    otsu, border_y, border_y, border_x, border_x,
+                    cv2.BORDER_CONSTANT, value=255,
+                )),
+            )
+            for variant, variant_image in variants:
+                try:
+                    result = engine(variant_image)
+                except Exception as exc:
+                    detections.append({
+                        "row_index": int(row.row_index),
+                        "x_min": x0,
+                        "x_max": x1,
+                        "variant": variant,
+                        "scale": scale,
+                        "error": f"{type(exc).__name__}: {exc}",
+                    })
+                    continue
+
+                texts = getattr(result, "txts", None)
+                scores = getattr(result, "scores", None)
+                if texts is None:
+                    continue
+                for index, raw_text in enumerate(texts):
+                    if raw_text is None or not str(raw_text).strip():
+                        continue
+                    try:
+                        confidence = (
+                            float(scores[index])
+                            if scores is not None and index < len(scores)
+                            else 0.0
+                        )
+                    except (TypeError, ValueError, IndexError):
+                        confidence = 0.0
+                    if not np.isfinite(confidence) or not 0.0 <= confidence <= 1.0:
+                        continue
+                    detections.append({
+                        "row_index": int(row.row_index),
+                        "x_min": x0,
+                        "x_max": x1,
+                        "variant": variant,
+                        "scale": scale,
+                        "text": str(raw_text).strip(),
+                        "confidence": round(confidence, 4),
+                    })
+    return detections
+
+
+def _scan_lp_column_across_row_crops(
+    rows: object,
+    screenshot_or_image: object,
+    engine: object,
+) -> list[dict[str, object]]:
+    """Inspect unresolved LP cells using overlapping, high-resolution crops.
+
+    This emits OCR observations for diagnosis only. Candidates are never
+    promoted into reconstructed rows; the LP refiner remains responsible for
+    validation, row matching, duplicate rejection, and acceptance.
+    """
+    import cv2
+    import numpy as np
+
+    from app.agent.perception.windowhub_ocr_table_refiner import (
+        _normalize_image,
+        _row_crop_bounds,
+    )
+
+    input_rows = tuple(rows or ())
+    unresolved_rows = tuple(row for row in input_rows if getattr(row, "lp", None) is None)
+    if not unresolved_rows:
+        return []
+
+    image = _normalize_image(screenshot_or_image)
+    height, width = image.shape[:2]
+    # Keep the LP cell near the crop center while overlapping neighbouring
+    # text just enough to preserve punctuation/row context for OCR.
+    configured_bands = ((90, 170), (100, 180))
+    bands = [
+        (max(0, x0), min(width, x1))
+        for x0, x1 in configured_bands
+        if min(width, x1) > max(0, x0)
+    ]
+    detections: list[dict[str, object]] = []
+    scale = 6
+    border_x, border_y = 36, 16
+
+    for row in unresolved_rows:
+        y0, y1 = _row_crop_bounds(
+            input_rows, row, image_height=height, row_half_height=10
+        )
+        for x0, x1 in bands:
+            crop = image[y0:y1, x0:x1]
+            if crop.size == 0:
+                continue
+            enlarged = cv2.resize(
+                crop, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC
+            )
+            gray = cv2.cvtColor(enlarged, cv2.COLOR_BGR2GRAY)
+            clahe = cv2.createCLAHE(
+                clipLimit=2.0, tileGridSize=(8, 8)
+            ).apply(gray)
+            sharpened = cv2.addWeighted(
+                clahe, 1.6,
+                cv2.GaussianBlur(clahe, (0, 0), 1.0), -0.6,
+                0,
+            )
+            _, otsu = cv2.threshold(
+                sharpened, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU
+            )
+            variants = (
+                ("color", cv2.copyMakeBorder(
+                    enlarged, border_y, border_y, border_x, border_x,
+                    cv2.BORDER_CONSTANT, value=(255, 255, 255),
+                )),
+                ("clahe_sharpened", cv2.copyMakeBorder(
+                    sharpened, border_y, border_y, border_x, border_x,
+                    cv2.BORDER_CONSTANT, value=255,
+                )),
+                ("otsu_sharpened", cv2.copyMakeBorder(
+                    otsu, border_y, border_y, border_x, border_x,
+                    cv2.BORDER_CONSTANT, value=255,
+                )),
+            )
+            for variant, variant_image in variants:
+                try:
+                    result = engine(variant_image)
+                except Exception as exc:
+                    detections.append({
+                        "row_index": int(row.row_index),
+                        "x_min": x0,
+                        "x_max": x1,
+                        "variant": variant,
+                        "scale": scale,
+                        "error": f"{type(exc).__name__}: {exc}",
+                    })
+                    continue
+                texts = getattr(result, "txts", None)
+                scores = getattr(result, "scores", None)
+                if texts is None:
+                    continue
+                for index, raw_text in enumerate(texts):
+                    if raw_text is None or not str(raw_text).strip():
+                        continue
+                    try:
+                        confidence = (
+                            float(scores[index])
+                            if scores is not None and index < len(scores)
+                            else 0.0
+                        )
+                    except (TypeError, ValueError, IndexError):
+                        confidence = 0.0
+                    if not np.isfinite(confidence) or not 0.0 <= confidence <= 1.0:
+                        continue
+                    detections.append({
+                        "row_index": int(row.row_index),
+                        "x_min": x0,
+                        "x_max": x1,
+                        "variant": variant,
+                        "scale": scale,
+                        "text": str(raw_text).strip(),
+                        "confidence": round(confidence, 4),
+                    })
+    return detections
+
+
+def _configure_console_output(streams=None) -> None:
+    """Avoid crashes when PowerShell pipes native output through a legacy code page."""
+    targets = streams if streams is not None else (sys.stdout, sys.stderr)
+    for stream in targets:
+        reconfigure = getattr(stream, "reconfigure", None)
+        if not callable(reconfigure):
+            continue
+        try:
+            reconfigure(errors="backslashreplace")
+        except (OSError, ValueError):
+            # Keep diagnostics best-effort when the stream disallows reconfiguration.
+            continue
+
+
+def main() -> int:
+    """Run a read-only OCR/table observation on the already focused WindowHub."""
+    _configure_console_output()
+    if os.name != "nt":
+        print("ABORTED: this diagnostic requires Windows.")
+        return 2
+
+    # Import Windows-specific repository modules only after the platform guard.
+    from app.agent.environment.windowhub_environment_adapter import (
+        WindowHubEnvironmentAdapter,
+    )
+    from app.agent.perception.windowhub_ocr_provider import WindowHubOCRProvider
+
+    print("WindowHub OCR table inspection (READ ONLY)")
+    print("==========================================")
+    print("No focus changes, clicks, typing, or other GUI actions will be performed.")
+    print()
+
+    environment = WindowHubEnvironmentAdapter()
+    try:
+        observation = environment.observe()
+    except Exception as exc:
+        print(
+            "ABORTED: could not capture WindowHub observation: "
+            f"{type(exc).__name__}: {exc}"
+        )
+        return 3
+
+    title = str(getattr(observation.state, "active_window_title", "") or "")
+    focused = observation.metadata.get("window_focused") is True
+    print(f"window_title={title!r}")
+    print(f"window_focused={focused}")
+    print(f"screenshot_source={observation.metadata.get('source')!r}")
+    for key in (
+        "window_handle",
+        "foreground_window_handle",
+        "foreground_root_owner_handle",
+    ):
+        value = observation.metadata.get(key)
+        try:
+            value = int(value)
+        except (TypeError, ValueError):
+            value = 0
+        print(f"{key}={_format_hwnd(value)}")
+    try:
+        initial_user32 = ctypes.WinDLL("user32", use_last_error=True)
+        foreground_handle, root_owner_handle, foreground_title = _foreground_snapshot(
+            initial_user32
+        )
+        print(f"foreground_window_title={foreground_title!r}")
+        print(f"foreground_hwnd_verified={_format_hwnd(foreground_handle)}")
+        print(f"foreground_root_owner_verified={_format_hwnd(root_owner_handle)}")
+    except Exception as exc:
+        print(f"foreground_diagnostics_error={type(exc).__name__}: {exc}")
+
+    if not focused:
+        if "OFR/" not in title.upper():
+            print()
+            print("ABORTED: the detected WindowHub title does not identify an OFR/ offer.")
+            print("Open the intended offer table and rerun.")
+            return 5
+
+        window_handle = observation.metadata.get("window_handle")
+        try:
+            window_handle = int(window_handle)
+        except (TypeError, ValueError):
+            window_handle = 0
+
+        print()
+        print("WindowHub is not currently the foreground window.")
+        print("Click the intended WindowHub offer now; waiting up to 45 seconds.")
+        print("This tool will not activate or focus the window for you.")
+        if not _wait_for_window_foreground(window_handle):
+            print("ABORTED: WindowHub did not become the foreground window in time.")
+            return 4
+
+        # Capture a fresh frame after the user has focused the exact target HWND.
+        try:
+            observation = environment.observe()
+        except Exception as exc:
+            print(
+                "ABORTED: could not recapture focused WindowHub: "
+                f"{type(exc).__name__}: {exc}"
+            )
+            return 3
+
+        title = str(getattr(observation.state, "active_window_title", "") or "")
+        focused = observation.metadata.get("window_focused") is True
+        print(f"window_title={title!r}")
+        print(f"window_focused={focused}")
+        if not focused:
+            print("ABORTED: the fresh observation still does not confirm WindowHub focus.")
+            return 4
+
+    if "OFR/" not in title.upper():
+        print()
+        print("ABORTED: the active WindowHub title does not identify an OFR/ offer.")
+        print("Open the intended offer table, keep it in the foreground, and rerun.")
+        return 5
+
+    provider = WindowHubOCRProvider()
+    try:
+        elements = provider.perceive(observation)
+    except Exception as exc:
+        print(
+            f"ABORTED: OCR provider failed unexpectedly: "
+            f"{type(exc).__name__}: {exc}"
+        )
+        return 6
+
+    metadata = observation.metadata
+    reconstruction = metadata.get("windowhub_ocr_table_reconstruction")
+    payload = reconstruction.to_payload() if reconstruction is not None else None
+
+    # Coordinates/confidence are observations for diagnosis, not actions.
+    table_detections = _classify_table_region_detections(elements)
+    dimensions_crop_scan: list[dict[str, object]] = []
+    lp_crop_scan: list[dict[str, object]] = []
+    if reconstruction is not None:
+        engine = provider._get_engine()
+        try:
+            dimensions_crop_scan = _scan_dimensions_across_row_crops(
+                reconstruction.rows,
+                metadata.get("screenshot"),
+                engine,
+            )
+        except Exception as exc:
+            dimensions_crop_scan = [{
+                "error": f"{type(exc).__name__}: {exc}",
+            }]
+        try:
+            lp_crop_scan = _scan_lp_column_across_row_crops(
+                reconstruction.rows,
+                metadata.get("screenshot"),
+                engine,
+            )
+        except Exception as exc:
+            lp_crop_scan = [{
+                "error": f"{type(exc).__name__}: {exc}",
+            }]
+
+    reasoning_handoff_audit = _reasoning_handoff_audit(
+        observation, elements, reconstruction
+    )
+
+    summary = {
+        "dimensions_crop_scan": dimensions_crop_scan,
+        "lp_crop_scan": lp_crop_scan,
+        "reasoning_handoff_audit": reasoning_handoff_audit,
+        "table_payload_status": payload.get("status") if isinstance(payload, dict) else None,
+        "window_title": title,
+        "window_focused": focused,
+        "ocr_status": metadata.get("windowhub_ocr_status"),
+        **table_detections,
+        "ocr_element_count": metadata.get("windowhub_ocr_element_count", len(elements)),
+        "table_status": metadata.get("windowhub_ocr_table_status", "not_available"),
+        "table_error_type": metadata.get("windowhub_ocr_table_error"),
+        "table_row_count": metadata.get("windowhub_ocr_table_row_count", 0),
+        "table_complete_row_count": metadata.get(
+            "windowhub_ocr_table_complete_row_count", 0
+        ),
+        "table_field_refinement_count": metadata.get(
+            "windowhub_ocr_table_field_refinement_count", 0
+        ),
+        "table_lp_refinement_count": metadata.get(
+            "windowhub_ocr_table_lp_refinement_count", 0
+        ),
+        "table": payload,
+        "safety_note": (
+            "OCR-derived values are observations, not independently verified facts. "
+            "This diagnostic does not execute GUI actions."
+        ),
+    }
+
+    print()
+    print(json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True))
+
+    if summary["ocr_status"] == "error":
+        return 9
+    if summary["table_status"] == "error":
+        return 7
+    if summary["table_row_count"] <= 0:
+        return 8
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
