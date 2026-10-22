@@ -403,3 +403,221 @@ def test_active_document_resolution_ignores_selected_application_tabs():
     assert active_document == "Offer A"
     assert document_count == 1
     assert selected_count == 1
+
+
+
+def make_mdi_tab(name, mdi_client, *, selected, runtime_id):
+    tab_host = FakeUIAItem(
+        name="",
+        control_type="Tab",
+        class_name="Afx:TabWnd:6e0000:8:10003:10",
+        parent=mdi_client,
+        width=500,
+        height=24,
+        runtime_id=(runtime_id, 1),
+    )
+    return FakeUIAItem(
+        name=name,
+        control_type="TabItem",
+        parent=tab_host,
+        selected=selected,
+        left=130,
+        top=205,
+        width=124,
+        height=21,
+        runtime_id=(runtime_id, 2),
+    )
+
+
+def test_windows_uia_assigns_document_scope_by_unique_mdi_tab_caption_match():
+    from app.agent.perception.perception_engine import PerceptionEngine
+
+    mdi_client = FakeUIAItem(
+        name="",
+        control_type="Pane",
+        class_name="MDIClient",
+        width=1200,
+        height=800,
+        runtime_id=(50,),
+    )
+    document_tab = make_mdi_tab(
+        "OFR/4330- <>",
+        mdi_client,
+        selected=True,
+        runtime_id=51,
+    )
+    document_window = FakeUIAItem(
+        name="OFR/4330- <>",
+        control_type="Window",
+        class_name="Afx:006E0000:b:00010003:00000006:2C912341",
+        parent=mdi_client,
+        width=1100,
+        height=700,
+        runtime_id=(52,),
+    )
+    document_pane = FakeUIAItem(
+        name="",
+        control_type="Pane",
+        class_name="DocumentForm",
+        parent=document_window,
+        width=700,
+        height=500,
+        runtime_id=(53,),
+    )
+    document_button = FakeUIAItem(
+        name="Dodaj artykuł do konstrukcji",
+        control_type="Button",
+        parent=document_pane,
+        runtime_id=(54,),
+    )
+
+    home_window = FakeUIAItem(
+        name="Start1",
+        control_type="Window",
+        class_name="Afx:006E0000:b:00010003:00000006:12345678",
+        parent=mdi_client,
+        width=1100,
+        height=700,
+        runtime_id=(55,),
+    )
+    home_button = FakeUIAItem(
+        name="NOWA OFERTA",
+        control_type="Button",
+        parent=home_window,
+        runtime_id=(56,),
+    )
+
+    window = FakeUIAWindow(
+        (
+            mdi_client,
+            document_tab.parent(),
+            document_tab,
+            document_window,
+            document_pane,
+            document_button,
+            home_window,
+            home_button,
+        ),
+        title="Visual Studio Code",
+    )
+    desktop = FakeDesktop({200: window})
+    elements = WindowsUIAutomationProvider(
+        desktop_factory=lambda: desktop,
+    ).perceive(make_observation())
+
+    observed_document_button = next(
+        element for element in elements
+        if element.label == "Dodaj artykuł do konstrukcji"
+    )
+    observed_home_button = next(
+        element for element in elements
+        if element.label == "NOWA OFERTA"
+    )
+    observed_document_tab = next(
+        element for element in elements
+        if element.label == "OFR/4330- <>"
+    )
+
+    assert observed_document_button.metadata["document_scope"] == "OFR/4330- <>"
+    assert "document_scope" not in observed_home_button.metadata
+    assert observed_document_tab.metadata["uia_tab_scope"] == "document"
+
+    active_document, document_count, selected_count = (
+        PerceptionEngine._resolve_active_document(elements)
+    )
+    assert active_document == "OFR/4330- <>"
+    assert document_count == 1
+    assert selected_count == 1
+
+
+def test_windows_uia_leaves_mdi_children_unscoped_when_caption_does_not_match_tab():
+    mdi_client = FakeUIAItem(
+        name="",
+        control_type="Pane",
+        class_name="MDIClient",
+        width=1200,
+        height=800,
+        runtime_id=(60,),
+    )
+    document_tab = make_mdi_tab(
+        "Offer A",
+        mdi_client,
+        selected=True,
+        runtime_id=61,
+    )
+    document_window = FakeUIAItem(
+        name="Offer B",
+        control_type="Window",
+        class_name="Afx:MDIChild",
+        parent=mdi_client,
+        width=1100,
+        height=700,
+        runtime_id=(62,),
+    )
+    button = FakeUIAItem(
+        name="Add",
+        control_type="Button",
+        parent=document_window,
+        runtime_id=(63,),
+    )
+    window = FakeUIAWindow(
+        (mdi_client, document_tab.parent(), document_tab, document_window, button),
+        title="Visual Studio Code",
+    )
+    elements = WindowsUIAutomationProvider(
+        desktop_factory=lambda: FakeDesktop({200: window}),
+    ).perceive(make_observation())
+
+    observed_button = next(element for element in elements if element.label == "Add")
+    assert "document_scope" not in observed_button.metadata
+
+
+def test_windows_uia_leaves_mdi_children_unscoped_when_tab_caption_is_ambiguous():
+    mdi_client = FakeUIAItem(
+        name="",
+        control_type="Pane",
+        class_name="MDIClient",
+        width=1200,
+        height=800,
+        runtime_id=(70,),
+    )
+    tab1 = make_mdi_tab(
+        "Offer A",
+        mdi_client,
+        selected=True,
+        runtime_id=71,
+    )
+    tab2 = make_mdi_tab(
+        "Offer A",
+        mdi_client,
+        selected=False,
+        runtime_id=72,
+    )
+    child = FakeUIAItem(
+        name="Offer A",
+        control_type="Window",
+        class_name="Afx:MDIChild",
+        parent=mdi_client,
+        width=1100,
+        height=700,
+        runtime_id=(73,),
+    )
+    button = FakeUIAItem(
+        name="Add",
+        control_type="Button",
+        parent=child,
+        runtime_id=(74,),
+    )
+    window = FakeUIAWindow(
+        (
+            mdi_client, tab1.parent(), tab1, tab2.parent(), tab2,
+            child, button,
+        ),
+        title="Visual Studio Code",
+    )
+    elements = WindowsUIAutomationProvider(
+        desktop_factory=lambda: FakeDesktop({200: window}),
+    ).perceive(make_observation())
+
+    observed_button = next(element for element in elements if element.label == "Add")
+    assert "document_scope" not in observed_button.metadata

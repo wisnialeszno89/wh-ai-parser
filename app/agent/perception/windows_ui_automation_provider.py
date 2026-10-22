@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import unicodedata
+from collections import defaultdict
 from typing import Callable
 
 from app.agent.environment.environment_observation import (
@@ -196,6 +198,9 @@ class WindowsUIAutomationProvider(PerceptionProvider):
             label_candidates = self._collect_text_labels(
                 descendants
             )
+            document_scope_index = (
+                self._mdi_document_scope_index(descendants)
+            )
 
             for item in descendants:
                 element = self._to_screen_element(
@@ -205,6 +210,7 @@ class WindowsUIAutomationProvider(PerceptionProvider):
                     window_handle=window_handle,
                     owned_modal=owned_modal,
                     label_candidates=label_candidates,
+                    document_scope_index=document_scope_index,
                 )
 
                 if element is not None:
@@ -263,6 +269,7 @@ class WindowsUIAutomationProvider(PerceptionProvider):
         window_handle: int,
         owned_modal: bool,
         label_candidates,
+        document_scope_index: dict[str, str] | None = None,
     ) -> ScreenElement | None:
 
         try:
@@ -390,6 +397,13 @@ class WindowsUIAutomationProvider(PerceptionProvider):
             metadata["uia_tab_scope"] = tab_scope
             if tab_scope == "document":
                 metadata["uia_document_tab_selected"] = selected
+
+        document_scope = self._document_scope_for_item(
+            item,
+            document_scope_index or {},
+        )
+        if document_scope is not None:
+            metadata["document_scope"] = document_scope
 
         evidence = (
             SemanticEvidence(
@@ -577,6 +591,140 @@ class WindowsUIAutomationProvider(PerceptionProvider):
             return None
 
         return ranked[0][1]
+
+    @staticmethod
+    def _normalized_document_key(value: str | None) -> str:
+        """Normalize a document caption for a conservative exact match."""
+        if not isinstance(value, str):
+            return ""
+        normalized = unicodedata.normalize(
+            "NFKC",
+            value,
+        ).casefold()
+        return "".join(
+            character
+            for character in normalized
+            if character.isalnum()
+        )
+
+    @classmethod
+    def _parent_class_is_mdi_client(cls, item) -> bool:
+        parent = cls._parent_item(item)
+        if parent is None:
+            return False
+        try:
+            info = parent.element_info
+            return (
+                cls._normalize_control_type(
+                    getattr(info, "control_type", None)
+                ) == "pane"
+                and (
+                    cls._string(
+                        getattr(info, "class_name", None)
+                    ) or ""
+                ).casefold() == "mdiclient"
+            )
+        except Exception:
+            return False
+
+    @classmethod
+    def _mdi_document_scope_index(
+        cls,
+        descendants,
+    ) -> dict[str, str]:
+        """Index uniquely matched document captions from the MDI structure.
+
+        Only exact normalized caption matches between a structurally
+        recognized document TabItem and a unique MDI child Window are
+        accepted. Duplicate tab labels or duplicate MDI captions are
+        intentionally left unscoped.
+        """
+        tabs_by_key: dict[str, list[str]] = defaultdict(list)
+        windows_by_key: dict[str, list[object]] = defaultdict(list)
+
+        for item in descendants:
+            try:
+                info = item.element_info
+                control_type = cls._normalize_control_type(
+                    getattr(info, "control_type", None)
+                )
+                name = cls._string(
+                    getattr(info, "name", None)
+                )
+            except Exception:
+                continue
+
+            if not name:
+                continue
+
+            key = cls._normalized_document_key(name)
+            if not key:
+                continue
+
+            if (
+                control_type == "tabitem"
+                and cls._tab_scope(
+                    item,
+                    control_type=control_type,
+                ) == "document"
+            ):
+                tabs_by_key[key].append(name)
+                continue
+
+            if (
+                control_type == "window"
+                and cls._parent_class_is_mdi_client(item)
+            ):
+                windows_by_key[key].append(item)
+
+        result: dict[str, str] = {}
+        for key, tab_names in tabs_by_key.items():
+            matching_windows = windows_by_key.get(key, [])
+            if len(tab_names) == 1 and len(matching_windows) == 1:
+                result[key] = tab_names[0]
+
+        return result
+
+    @classmethod
+    def _document_scope_for_item(
+        cls,
+        item,
+        document_scope_index: dict[str, str],
+    ) -> str | None:
+        """Find the nearest MDI child ancestor with a unique tab mapping."""
+        current = item
+        visited: set[int] = set()
+
+        for _ in range(40):
+            if current is None or id(current) in visited:
+                return None
+            visited.add(id(current))
+
+            try:
+                info = current.element_info
+                control_type = cls._normalize_control_type(
+                    getattr(info, "control_type", None)
+                )
+                name = cls._string(
+                    getattr(info, "name", None)
+                )
+            except Exception:
+                info = None
+                control_type = ""
+                name = None
+
+            if (
+                info is not None
+                and control_type == "window"
+                and cls._parent_class_is_mdi_client(current)
+                and name
+            ):
+                key = cls._normalized_document_key(name)
+                return document_scope_index.get(key)
+
+            current = cls._parent_item(current)
+
+        return None
 
     @staticmethod
     def _parent_item(item):
