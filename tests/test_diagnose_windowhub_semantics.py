@@ -5,7 +5,10 @@ from types import SimpleNamespace
 
 import pytest
 
-from tools.diagnose_windowhub_semantics import build_read_only_report
+from tools.diagnose_windowhub_semantics import (
+    _select_target_window,
+    build_read_only_report,
+)
 
 
 def make_scene():
@@ -170,3 +173,107 @@ def test_read_only_report_rejects_invalid_element_limit(limit):
             window_focused=True,
             max_elements=limit,
         )
+
+
+
+def make_window(
+    title,
+    handle,
+    *,
+    left=10,
+    top=20,
+    width=900,
+    height=700,
+    minimized=False,
+    visible=True,
+):
+    return SimpleNamespace(
+        title=title,
+        _hWnd=handle,
+        left=left,
+        top=top,
+        width=width,
+        height=height,
+        isMinimized=minimized,
+        visible=visible,
+    )
+
+
+def test_window_selector_finds_windowhub_when_powershell_is_foreground():
+    powershell = make_window("Windows PowerShell", 100)
+    windowhub = make_window("WindowHub - Oferta", 200)
+
+    selected, stop_reason = _select_target_window(
+        (powershell, windowhub),
+        title_contains="WindowHub",
+    )
+
+    assert selected is windowhub
+    assert stop_reason is None
+
+
+def test_window_selector_fails_closed_when_multiple_visible_windows_match():
+    main_window = make_window("WindowHub - Oferta", 200)
+    second_window = make_window("WindowHub - Ustawienia", 201)
+
+    selected, stop_reason = _select_target_window(
+        (main_window, second_window),
+        title_contains="WindowHub",
+    )
+
+    assert selected is None
+    assert stop_reason is not None
+    assert "2 visible top-level windows" in stop_reason
+    assert "ambiguous target" in stop_reason
+
+
+def test_window_selector_skips_minimized_and_invisible_matches():
+    minimized = make_window("WindowHub - Stare", 200, minimized=True)
+    invisible = make_window("WindowHub - Ukryte", 201, visible=False)
+    visible = make_window("WindowHub - Oferta", 202)
+
+    selected, stop_reason = _select_target_window(
+        (minimized, invisible, visible),
+        title_contains="WindowHub",
+    )
+
+    assert selected is visible
+    assert stop_reason is None
+
+
+def test_window_selector_supports_a_custom_unique_title_fragment():
+    other = make_window("Notepad", 100)
+    target = make_window("WH - Oferta", 200)
+
+    selected, stop_reason = _select_target_window(
+        (other, target),
+        title_contains="WH -",
+    )
+
+    assert selected is target
+    assert stop_reason is None
+
+
+def test_window_selector_reports_no_match_without_exposing_other_window_title():
+    selected, stop_reason = _select_target_window(
+        (make_window("Windows PowerShell - customer secret", 100),),
+        title_contains="WindowHub",
+    )
+
+    assert selected is None
+    assert stop_reason is not None
+    assert "No visible" in stop_reason
+    assert "customer secret" not in stop_reason
+
+
+def test_report_can_match_custom_selector_without_claiming_windowhub_literal():
+    report = build_read_only_report(
+        make_scene(),
+        active_window_title="WH - Oferta",
+        window_focused=False,
+        window_title_contains="WH -",
+    )
+
+    assert report["active_window"]["title_matches_selector"] is True
+    assert report["active_window"]["title_contains_windowhub"] is False
+    assert report["active_window"]["focused"] is False
