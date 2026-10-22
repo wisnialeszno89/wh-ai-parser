@@ -361,6 +361,10 @@ class WindowsUIAutomationProvider(PerceptionProvider):
         )
 
         selected = self._selected_state(item)
+        tab_scope = self._tab_scope(
+            item,
+            control_type=control_type,
+        )
 
         metadata = {
             "source": "windows_ui_automation",
@@ -382,6 +386,10 @@ class WindowsUIAutomationProvider(PerceptionProvider):
             "uia_owned_modal": owned_modal,
             "interaction_capability_confidence": 0.99,
         }
+        if tab_scope is not None:
+            metadata["uia_tab_scope"] = tab_scope
+            if tab_scope == "document":
+                metadata["uia_document_tab_selected"] = selected
 
         evidence = (
             SemanticEvidence(
@@ -569,6 +577,78 @@ class WindowsUIAutomationProvider(PerceptionProvider):
             return None
 
         return ranked[0][1]
+
+    @staticmethod
+    def _parent_item(item):
+        """Return the UIA parent wrapper when it can be read safely."""
+        try:
+            parent = getattr(item, "parent", None)
+            return parent() if callable(parent) else None
+        except Exception:
+            return None
+
+    @classmethod
+    def _tab_scope(
+        cls,
+        item,
+        *,
+        control_type: str,
+    ) -> str | None:
+        """Classify a TabItem from its UIA structural ancestry.
+
+        Application/panel tabs (for example a native SysTabControl32 inside
+        an MFC control bar) must not be confused with document tabs. A
+        document tab is recognized only when the Afx:TabWnd control is a
+        direct child of the MDIClient pane. Unknown structures remain
+        unclassified instead of being guessed from the tab label.
+        """
+        if control_type != "tabitem":
+            return None
+
+        tab = cls._parent_item(item)
+        if tab is None:
+            return None
+
+        try:
+            tab_info = tab.element_info
+            tab_type = cls._normalize_control_type(
+                getattr(tab_info, "control_type", None)
+            )
+            tab_class = cls._string(
+                getattr(tab_info, "class_name", None)
+            ) or ""
+        except Exception:
+            return None
+
+        if tab_type != "tab":
+            return None
+
+        if tab_class.casefold() == "systabcontrol32":
+            return "application"
+
+        parent = cls._parent_item(tab)
+        if parent is None:
+            return None
+
+        try:
+            parent_info = parent.element_info
+            parent_type = cls._normalize_control_type(
+                getattr(parent_info, "control_type", None)
+            )
+            parent_class = cls._string(
+                getattr(parent_info, "class_name", None)
+            ) or ""
+        except Exception:
+            return None
+
+        if (
+            tab_class.casefold().startswith("afx:tabwnd")
+            and parent_type == "pane"
+            and parent_class.casefold() == "mdiclient"
+        ):
+            return "document"
+
+        return None
 
     @staticmethod
     def _current_value(item):
