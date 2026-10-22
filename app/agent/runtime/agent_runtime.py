@@ -22,6 +22,8 @@ from app.agent.learning.learned_workflow_service import (
 )
 from app.agent.memory.agent_memory import AgentExperience
 
+from app.agent.offers.pdf_quote_fact_extractor import PdfQuoteFactExtractor
+
 from app.agent.offers.offer_workflow_service import (
     OfferWorkflowService,
 )
@@ -233,6 +235,21 @@ class AgentRuntime:
         )
         self.pdf_source_registry[extraction.source_alias] = extraction
         return extraction
+
+    def extract_pdf_quote_facts(self, source_alias: str) -> dict[str, object]:
+        """Build evidence-linked quote facts from a previously ingested PDF.
+
+        This method reads only a source already present in the runtime's
+        trusted extraction registry. OCR-needed pages are reported and skipped.
+        The returned envelope is still untrusted input until the normal
+        QuoteFactValidator gate validates it before any GUI execution.
+        """
+        extraction = self.pdf_source_registry.get(source_alias)
+        if not isinstance(extraction, PdfDocumentExtraction):
+            raise ValueError(
+                "No trusted, ingested PDF source exists for this source alias."
+            )
+        return PdfQuoteFactExtractor().extract(extraction).to_payload()
 
     def remove_pdf_source(self, source_alias: str) -> bool:
         """Revoke one trusted PDF source alias from future fact validation."""
