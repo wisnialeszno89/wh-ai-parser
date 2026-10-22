@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import unicodedata
-from collections import Counter
+from collections import defaultdict
 from typing import Callable
 
 from app.agent.environment.environment_observation import (
@@ -639,8 +639,6 @@ class WindowsUIAutomationProvider(PerceptionProvider):
         accepted. Duplicate tab labels or duplicate MDI captions are
         intentionally left unscoped.
         """
-        from collections import defaultdict
-
         tabs_by_key: dict[str, list[str]] = defaultdict(list)
         windows_by_key: dict[str, list[object]] = defaultdict(list)
 
