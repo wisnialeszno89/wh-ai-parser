@@ -70,6 +70,13 @@ class ResumableTaskService:
         self.repository.save(updated)
         return updated
 
+    def approve_task_execution(self, task_id: str) -> TaskCheckpoint:
+        """Persist the user's approval to begin a gated task."""
+        checkpoint = self._require(task_id)
+        updated = checkpoint.approve_task_execution()
+        self.repository.save(updated)
+        return updated
+
     def approve_pending_action(
         self, task_id: str, *, approve_submission: bool = False
     ) -> TaskCheckpoint:

@@ -218,6 +218,7 @@ Recent work and CI-validated capabilities:
 - **PR #115** — preserve the agreed product vision, architecture, roadmap, and continuation context in this document and the README.
 - **PR #116** — add deterministic extraction of explicitly labelled product type, width, height, and quantity facts with exact page evidence; report OCR-needed pages and block facts from incomplete sources.
 - **PR #117** — add a non-executing PDF quote-preparation API that returns a validated `OfferContext` only when facts are valid, otherwise reporting missing fields/conflicts/OCR gaps. Its CI passed on the implementation head before this documentation-only update.
+- **PR #118** — connect validated PDF quote preparation to persisted resumable task checkpoints, with a new task-level `waiting_for_approval` gate. Advancing an unapproved checkpoint returns before desktop observation; task approval is persisted separately from per-action confirmation and explicit submit/send approval. Synthetic integration tests cover valid, incomplete, OCR-needed, and conflicting PDF sources.
 
 Current known implementation boundaries:
 
@@ -225,6 +226,7 @@ Current known implementation boundaries:
 - PR #116 adds deterministic extraction of explicitly labelled product type, width, height, and quantity facts with exact evidence lines, source alias, page number, and extraction method.
 - The quote-fact validator rejects facts from a PDF source if any page in that source still needs OCR. Multiple explicit values are preserved so conflicting dimensions trigger manual review rather than being silently resolved.
 - PR #117 adds `AgentRuntime.prepare_pdf_quote(...)`: a non-executing preparation path that connects extraction, the trusted validator, and `OfferContext`. Its structured result reports validation state, missing fields, conflicts, OCR gaps, and a normalized context preview. It does not observe or control the GUI and does not calculate prices.
+- PR #118 adds `AgentRuntime.start_pdf_quote_task(...)` and `approve_resumable_task_execution(...)`. A valid preparation can be persisted as a draft-only WindowHub checkpoint in `WAITING_FOR_APPROVAL`; invalid/incomplete sources create no checkpoint. The generic runner blocks before scene observation until approval is persisted. CI verifies this with simulated scenes; it does not verify a physical WindowHub workflow.
 - This is still not the complete PDF-to-WindowHub workflow. Complex table layouts, OCR itself, broader field coverage, approved pricing, an approval-aware resumable execution path, and a real user-facing preview still require subsequent work.
 - WindowHub still requires validation in the user's actual local environment; GitHub CI does not prove a physical desktop run occurred.
 - README documents learned semantic workflows, compact experience memory, NaviMind task reasoning, the knowledge envelope, and the adapter contracts.
@@ -234,9 +236,9 @@ Current known implementation boundaries:
 
 1. Refresh the current branch head and PR/CI state before making changes.
 2. Read this document and `README.md`; consult epic issue #59 and issues #60/#61 for the end-to-end workflow and task-level contracts.
-3. Continue Phase A with an approval-aware, resumable dry-run from a prepared PDF quote to the existing WindowHub semantic workflow; keep the preparation preview separate from any action execution.
-4. Ensure the task path reports the exact validation result and source evidence, asks for missing/conflicting data, and cannot begin GUI actions before the quote is valid and the user has explicitly approved proceeding.
-5. Run simulated end-to-end tests first, then prepare the bounded WindowHub local smoke procedure and obtain actual console output from the user where physical Windows access is required.
+3. Extend the simulated approval-gated task into an action-by-action WindowHub draft-fill E2E, verifying field mapping, each semantic action and final field values after re-observation.
+4. Preserve the task-level approval gate and existing per-action confirmation; submissions remain separately approved. The draft-fill workflow must stop on stale targets, conflicting facts, missing fields, or failed verification.
+5. Once the simulated E2E is complete, prepare the bounded WindowHub local smoke procedure and obtain actual console output from the user where physical Windows access is required.
 6. Expand field/table formats and plan a separate OCR fallback with explicit confidence and provenance; never infer prices or technical rules without approved evidence.
 7. Keep changes isolated in a feature branch, submit a PR to `feature/browser-navimind-bridge`, check CI, and update this checkpoint after each milestone.
 

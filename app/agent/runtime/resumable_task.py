@@ -12,6 +12,7 @@ from typing import Callable, Mapping
 class TaskStatus(str, Enum):
     READY = "ready"
     WAITING_FOR_INPUT = "waiting_for_input"
+    WAITING_FOR_APPROVAL = "waiting_for_approval"
     WAITING_FOR_CONFIRMATION = "waiting_for_confirmation"
     COMPLETED = "completed"
     STOPPED = "stopped"
@@ -130,6 +131,8 @@ class TaskCheckpoint:
     final_evidence: tuple[Mapping[str, object], ...] = ()
     stop_reason: str | None = None
     draft_only: bool = True
+    approval_required: bool = False
+    execution_approved: bool = False
     schema_version: int = 1
 
     def __post_init__(self):
@@ -139,6 +142,10 @@ class TaskCheckpoint:
         if min(self.actions_used, self.reasoning_calls) < 0: raise ValueError("Budget counters cannot be negative.")
         if self.actions_used > self.max_actions or self.reasoning_calls > self.max_reasoning_calls:
             raise ValueError("Budget counters cannot exceed configured budgets.")
+        if not isinstance(self.approval_required, bool) or not isinstance(self.execution_approved, bool):
+            raise ValueError("Task approval flags must be boolean.")
+        if self.execution_approved and not self.approval_required:
+            raise ValueError("execution_approved requires approval_required.")
 
     @property
     def missing_fields(self) -> tuple[str, ...]:
@@ -167,6 +174,21 @@ class TaskCheckpoint:
         return replace(self, unresolved_issues=issues, status=TaskStatus.READY if ready else self.status,
                        stop_reason=None if ready else self.stop_reason)
 
+    def approve_task_execution(self) -> "TaskCheckpoint":
+        """Release a task-level approval gate before any GUI observation/action."""
+        if not self.approval_required:
+            raise ValueError("This task does not require task-level approval.")
+        if self.execution_approved:
+            raise ValueError("Task execution has already been approved.")
+        if self.status != TaskStatus.WAITING_FOR_APPROVAL:
+            raise ValueError("Task is not waiting for execution approval.")
+        return replace(
+            self,
+            status=TaskStatus.READY,
+            execution_approved=True,
+            stop_reason=None,
+        )
+
     def approve_pending_action(self, *, approve_submission: bool = False) -> "TaskCheckpoint":
         a = self.pending_action
         if self.status != TaskStatus.WAITING_FOR_CONFIRMATION or a is None:
@@ -191,7 +213,8 @@ class TaskCheckpoint:
                 "pending_action": _action_payload(a) if a else None,
                 "approved_action_id": self.approved_action_id, "scene_fingerprint": self.scene_fingerprint,
                 "final_evidence": _plain(self.final_evidence), "stop_reason": self.stop_reason,
-                "draft_only": self.draft_only}
+                "draft_only": self.draft_only, "approval_required": self.approval_required,
+                "execution_approved": self.execution_approved}
 
     @classmethod
     def from_payload(cls, p: Mapping[str, object]) -> "TaskCheckpoint":
@@ -211,7 +234,9 @@ class TaskCheckpoint:
                    approved_action_id=_optional_str(p.get("approved_action_id")),
                    scene_fingerprint=_optional_str(p.get("scene_fingerprint")),
                    final_evidence=tuple(dict(x) for x in p.get("final_evidence", ()) if isinstance(x, Mapping)),
-                   stop_reason=_optional_str(p.get("stop_reason")), draft_only=bool(p.get("draft_only", True)))
+                   stop_reason=_optional_str(p.get("stop_reason")), draft_only=bool(p.get("draft_only", True)),
+                   approval_required=bool(p.get("approval_required", False)),
+                   execution_approved=bool(p.get("execution_approved", False)))
 
 
 class ResumableTaskRunner:
@@ -226,7 +251,15 @@ class ResumableTaskRunner:
         self.validate_action = validate_action or validate_semantic_target
 
     def advance(self, state: TaskCheckpoint) -> TaskCheckpoint:
-        if state.status in (TaskStatus.COMPLETED, TaskStatus.STOPPED, TaskStatus.WAITING_FOR_CONFIRMATION): return state
+        if state.approval_required and not state.execution_approved:
+            if state.status == TaskStatus.WAITING_FOR_APPROVAL:
+                return state
+            return replace(
+                state,
+                status=TaskStatus.WAITING_FOR_APPROVAL,
+                stop_reason="task_execution_approval_required",
+            )
+        if state.status in (TaskStatus.COMPLETED, TaskStatus.STOPPED, TaskStatus.WAITING_FOR_APPROVAL, TaskStatus.WAITING_FOR_CONFIRMATION): return state
         if state.missing_fields:
             issues = tuple(dict.fromkeys((*state.unresolved_issues, *(f"Missing required input: {x}" for x in state.missing_fields))))
             return replace(state, status=TaskStatus.WAITING_FOR_INPUT, unresolved_issues=issues, stop_reason="missing_required_fields")
