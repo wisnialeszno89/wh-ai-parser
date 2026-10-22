@@ -191,8 +191,30 @@ class WindowHubWin32FormProvider(PerceptionProvider):
                 if isinstance(text, str) and text.strip() and not cls._is_generic_label(text):
                     native_labels.append((record, bounds, chain, text.strip()))
 
-        elements = []
-        for field_record, field_bounds, field_chain, class_bucket in native_fields:
+        # A Win32 ComboBox can expose its editable child as a separate Edit HWND.
+        # Prefer the logical ComboBox surface and omit any Edit descendant of it.
+        combo_handles = {
+            handle
+            for record, _bounds, _chain, bucket in native_fields
+            if bucket == "combobox"
+            and (handle := cls._positive_handle(record.get("handle"))) is not None
+        }
+        logical_fields = [
+            field
+            for field in native_fields
+            if not (
+                field[3] == "edit"
+                and any(
+                    combo_handle in field[2][1:]
+                    for combo_handle in combo_handles
+                )
+            )
+        ]
+
+        # Label selection is calculated before ScreenElements are emitted.
+        # A single static label HWND cannot label two different native fields.
+        matches = []
+        for field_record, field_bounds, field_chain, class_bucket in logical_fields:
             candidates = []
             for label_record, label_bounds, label_chain, label in native_labels:
                 if not cls._same_native_group(
@@ -203,18 +225,42 @@ class WindowHubWin32FormProvider(PerceptionProvider):
                     continue
                 score = cls._label_relation_score(field_bounds, label_bounds)
                 if score is not None:
-                    candidates.append((score, label, label_record))
+                    label_handle = cls._positive_handle(label_record.get("handle"))
+                    if label_handle is not None:
+                        candidates.append((score, label, label_handle))
 
             if not candidates:
                 continue
 
             best_score = min(candidate[0] for candidate in candidates)
             best = [candidate for candidate in candidates if candidate[0] == best_score]
-            # If two labels are equally plausible, do not invent a semantic field.
+            # If the closest label is tied, do not invent a semantic field.
             if len(best) != 1:
                 continue
 
-            _score, label, _label_record = best[0]
+            _score, label, label_handle = best[0]
+            matches.append(
+                (field_record, field_bounds, field_chain, class_bucket, label, label_handle)
+            )
+
+        label_use_counts = {}
+        for _record, _bounds, _chain, _bucket, _label, label_handle in matches:
+            label_use_counts[label_handle] = label_use_counts.get(label_handle, 0) + 1
+
+        elements = []
+        for (
+            field_record,
+            field_bounds,
+            _field_chain,
+            class_bucket,
+            label,
+            label_handle,
+        ) in matches:
+            # If one label is the best candidate for multiple fields, fail closed
+            # rather than manufacturing duplicate semantic fields.
+            if label_use_counts.get(label_handle) != 1:
+                continue
+
             handle = cls._positive_handle(field_record.get("handle"))
             if handle is None:
                 continue
@@ -286,7 +332,6 @@ class WindowHubWin32FormProvider(PerceptionProvider):
                 )
             )
 
-        return tuple(elements)
 
     @staticmethod
     def _resolve_selected_document_label(
@@ -539,13 +584,30 @@ class WindowHubWin32FormProvider(PerceptionProvider):
         *,
         document_handle: int,
     ) -> bool:
+        """Require actual sibling/shared container within the document.
+
+        The WindowHub root is a common ancestor of every control and therefore
+        is not sufficient evidence that a static label belongs to a field.
+        Direct children of the selected document may share the document HWND;
+        nested controls must share a more specific ancestor before that HWND.
+        """
         if len(left_chain) < 2 or len(right_chain) < 2:
             return False
-        # Sibling controls are allowed to share the document itself as parent.
-        if left_chain[1] == right_chain[1]:
+        if document_handle not in left_chain or document_handle not in right_chain:
+            return False
+
+        # Direct children of the selected document can share its HWND as parent.
+        if left_chain[1] == document_handle and right_chain[1] == document_handle:
             return True
-        common = set(left_chain[1:]).intersection(right_chain[1:])
-        return any(handle != document_handle for handle in common)
+
+        left_document_index = left_chain.index(document_handle)
+        right_document_index = right_chain.index(document_handle)
+        left_scoped_ancestors = set(left_chain[1:left_document_index])
+        right_scoped_ancestors = set(right_chain[1:right_document_index])
+
+        # Do not treat the main WindowHub root or any ancestor above the document
+        # as a shared control container.
+        return bool(left_scoped_ancestors.intersection(right_scoped_ancestors))
 
     @classmethod
     def _label_relation_score(
