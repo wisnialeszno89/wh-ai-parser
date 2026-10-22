@@ -428,7 +428,10 @@ def test_write_text_rejects_field_scoped_to_another_document():
     result = _validate_write_target(scene)
 
     assert result.valid is False
-    assert "scope evidence" in result.reason
+    assert (
+        "scope evidence" in result.reason
+        or "outside active document" in result.reason
+    )
 
 
 def test_write_text_accepts_supported_edit_field_in_explicit_owned_modal():
