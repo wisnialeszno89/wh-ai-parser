@@ -53,13 +53,18 @@ def build_read_only_report(
     include_sensitive_values: bool = False,
     max_elements: int = 100,
     stop_reason: str | None = None,
+    window_title_contains: str = "WindowHub",
 ) -> dict[str, object]:
     """Build a JSON-safe report without exposing UIA runtime identifiers/handles."""
     if not isinstance(max_elements, int) or isinstance(max_elements, bool) or not 1 <= max_elements <= 500:
         raise ValueError("max_elements must be an integer between 1 and 500.")
 
     title = active_window_title.strip() if isinstance(active_window_title, str) else ""
-    title_matches = "windowhub" in title.casefold()
+    selector = window_title_contains.strip()
+    if not selector:
+        raise ValueError("window_title_contains must not be empty.")
+    title_matches = selector.casefold() in title.casefold()
+    title_contains_windowhub = "windowhub" in title.casefold()
     metadata = getattr(scene, "metadata", None) or {}
     if not isinstance(metadata, Mapping):
         metadata = {}
@@ -123,7 +128,8 @@ def build_read_only_report(
         "files_written": False,
         "screenshot_saved": False,
         "active_window": {
-            "title_contains_windowhub": title_matches,
+            "title_contains_windowhub": title_contains_windowhub,
+            "title_matches_selector": title_matches,
             "title_available": bool(title),
             "focused": window_focused,
             "title": title if include_sensitive_values and title else "<redacted>",
@@ -156,40 +162,125 @@ def build_read_only_report(
     return report
 
 
-def observe_windowhub_scene() -> tuple[object | None, str | None, bool | None, str | None]:
-    """Observe active WindowHub via UIA; never constructs a plan or executor."""
+def _select_target_window(
+    windows,
+    *,
+    title_contains: str = "WindowHub",
+    visibility_checker=None,
+) -> tuple[object | None, str | None]:
+    """Select exactly one visible, non-minimized top-level window by title.
+
+    The interactive PowerShell console does not need to be foregrounded away
+    from the application: this selector can identify the WindowHub top-level
+    window while the console launches the read-only diagnostic. It never
+    changes focus or interacts with the selected window.
+    """
+    selector = title_contains.strip()
+    if not selector:
+        raise ValueError("title_contains must not be empty.")
+
+    candidates: dict[int, object] = {}
+    for window in windows:
+        title = (getattr(window, "title", None) or "").strip()
+        if not title or selector.casefold() not in title.casefold():
+            continue
+
+        try:
+            handle = int(getattr(window, "_hWnd", 0) or 0)
+            width = int(getattr(window, "width", 0) or 0)
+            height = int(getattr(window, "height", 0) or 0)
+        except (TypeError, ValueError):
+            continue
+        if handle <= 0 or width <= 0 or height <= 0:
+            continue
+
+        minimized = getattr(window, "isMinimized", False)
+        try:
+            if callable(minimized):
+                minimized = minimized()
+        except Exception:
+            # If minimized state cannot be resolved, don't select this window.
+            continue
+        if minimized is True:
+            continue
+
+        if visibility_checker is not None:
+            try:
+                if not visibility_checker(handle):
+                    continue
+            except Exception:
+                # Fail closed if OS visibility cannot be established.
+                continue
+        else:
+            visible_hint = getattr(window, "visible", True)
+            if visible_hint is False:
+                continue
+
+        candidates[handle] = window
+
+    if len(candidates) == 1:
+        return next(iter(candidates.values())), None
+    if not candidates:
+        return (
+            None,
+            "No visible, non-minimized top-level window matched the requested title fragment. "
+            "No UI Automation inventory was collected.",
+        )
+    return (
+        None,
+        f"{len(candidates)} visible top-level windows matched the title fragment; "
+        "refusing to select an ambiguous target. No UI Automation inventory was collected.",
+    )
+
+
+def observe_windowhub_scene(
+    *,
+    window_title_contains: str = "WindowHub",
+) -> tuple[object | None, str | None, bool | None, str | None]:
+    """Observe one uniquely matched WindowHub window via UIA, without interaction."""
     if os.name != "nt":
         raise RuntimeError("This diagnostic must be run on Windows.")
 
     import ctypes
     import pygetwindow as gw
 
-    window = gw.getActiveWindow()
+    # Do not require WindowHub to be foreground: running this command from
+    # PowerShell otherwise causes the diagnostic to inspect PowerShell itself.
+    def is_visible(window_handle: int) -> bool:
+        return bool(ctypes.windll.user32.IsWindowVisible(int(window_handle)))
+
+    window, stop_reason = _select_target_window(
+        gw.getAllWindows(),
+        title_contains=window_title_contains,
+        visibility_checker=is_visible,
+    )
     if window is None:
-        raise RuntimeError("No active top-level window was found.")
+        return None, None, None, stop_reason
 
     title = (getattr(window, "title", None) or "").strip()
-    if "windowhub" not in title.casefold():
-        return (
-            None,
-            title or None,
-            None,
-            "The active window title does not contain 'WindowHub'; UI Automation inventory was skipped.",
-        )
-
     left = int(window.left)
     top = int(window.top)
     width = int(window.width)
     height = int(window.height)
     if width <= 0 or height <= 0:
-        raise RuntimeError("The active WindowHub window has invalid bounds.")
+        return (
+            None,
+            None,
+            None,
+            "The matched WindowHub window has invalid bounds; UI Automation inventory was skipped.",
+        )
 
     try:
         window_handle = int(getattr(window, "_hWnd", 0) or 0)
     except (TypeError, ValueError):
         window_handle = 0
     if window_handle <= 0:
-        raise RuntimeError("The active WindowHub window has no usable top-level handle.")
+        return (
+            None,
+            None,
+            None,
+            "The matched WindowHub window has no usable top-level handle; UI Automation inventory was skipped.",
+        )
 
     try:
         foreground_handle = int(ctypes.windll.user32.GetForegroundWindow())
@@ -231,13 +322,17 @@ def observe_windowhub_scene() -> tuple[object | None, str | None, bool | None, s
     ).perceive(observation)
     return scene, title or None, focused, None
 
-
 def main() -> int:
     parser = argparse.ArgumentParser(
         description=(
             "Read-only inventory of the active WindowHub semantic UI. "
             "This diagnostic never plans or executes actions."
         )
+    )
+    parser.add_argument(
+        "--window-title-contains",
+        default="WindowHub",
+        help="Unique title fragment used to find the WindowHub top-level window (default: WindowHub).",
     )
     parser.add_argument(
         "--max-elements",
@@ -256,7 +351,9 @@ def main() -> int:
     args = parser.parse_args()
 
     try:
-        scene, title, focused, stop_reason = observe_windowhub_scene()
+        scene, title, focused, stop_reason = observe_windowhub_scene(
+            window_title_contains=args.window_title_contains,
+        )
         report = build_read_only_report(
             scene,
             active_window_title=title,
@@ -264,6 +361,7 @@ def main() -> int:
             include_sensitive_values=args.include_sensitive_values,
             max_elements=args.max_elements,
             stop_reason=stop_reason,
+            window_title_contains=args.window_title_contains,
         )
     except Exception as exc:
         print(json.dumps({
