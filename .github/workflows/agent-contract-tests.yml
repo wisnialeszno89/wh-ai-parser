@@ -31,6 +31,7 @@ jobs:
             tests/test_navimind_task_reasoner.py \
             tests/test_autonomous_agent_runtime.py \
             tests/test_windowhub_ui_automation_provider.py \
+            tests/test_windowhub_win32_form_provider.py \
             tests/test_windowhub_ocr_provider.py \
             tests/test_windowhub_ocr_table_parser.py \
             tests/test_windowhub_ocr_table_refiner.py \
@@ -109,11 +110,13 @@ jobs:
             app/agent/runtime/agent_runtime.py \
             app/agent/runtime/windowhub_agent_runtime.py \
             app/agent/runtime/windowhub_resumable_task_host.py \
+            app/agent/perception/windowhub_win32_form_provider.py \
             app/runtime/execution/vision/analyzers/canvas_analyzer.py \
             app/runtime/execution/vision/analyzers/hough_line_normalizer.py \
             tools/smoke_windowhub_readonly.py \
             tools/diagnose_windowhub_field_scope.py \
             tests/test_windowhub_agent_runtime.py \
+            tests/test_windowhub_win32_form_provider.py \
             tests/test_hough_line_normalizer.py \
             tests/test_windowhub_field_scope_diagnostics.py
 
