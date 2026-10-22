@@ -3,7 +3,6 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
-from decimal import Decimal
 
 from app.agent.adapters.pdf_document_adapter import PdfDocumentExtraction
 from app.agent.offers.offer_context import OfferContext
