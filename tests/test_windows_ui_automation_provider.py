@@ -29,16 +29,22 @@ class FakeUIAItem:
         height=40,
         runtime_id=(1, 2, 3),
         value=None,
+        class_name=None,
+        parent=None,
+        selected=None,
     ):
         self.element_info = SimpleNamespace(
             name=name,
             control_type=control_type,
+            class_name=class_name or control_type,
             automation_id=automation_id,
             enabled=enabled,
             visible=visible,
             runtime_id=runtime_id,
             rich_text=value,
         )
+        self._parent = parent
+        self._selected = selected
 
         self._rectangle = SimpleNamespace(
             left=left,
@@ -49,6 +55,14 @@ class FakeUIAItem:
 
     def rectangle(self):
         return self._rectangle
+
+    def parent(self):
+        return self._parent
+
+    def is_selected(self):
+        if self._selected is None:
+            raise RuntimeError("Selection state not supported by this fake item.")
+        return self._selected
 
 
 class FakeUIAWindow:
@@ -231,3 +245,161 @@ def test_windows_uia_rejects_unlabelled_interactive_control():
     )
 
     assert elements == ()
+
+
+
+def test_windows_uia_classifies_document_tab_by_mdi_ancestry():
+    mdi_client = FakeUIAItem(
+        name="",
+        control_type="Pane",
+        class_name="MDIClient",
+        width=1200,
+        height=800,
+        runtime_id=(10,),
+    )
+    document_tab = FakeUIAItem(
+        name="",
+        control_type="Tab",
+        class_name="Afx:TabWnd:6e0000:8:10003:10",
+        parent=mdi_client,
+        width=500,
+        height=24,
+        runtime_id=(11,),
+    )
+    tab_item = FakeUIAItem(
+        name="OFR/4330- <>",
+        control_type="TabItem",
+        parent=document_tab,
+        selected=True,
+        left=130,
+        top=205,
+        width=124,
+        height=21,
+        runtime_id=(12,),
+    )
+    application_tab_container = FakeUIAItem(
+        name="",
+        control_type="Tab",
+        class_name="SysTabControl32",
+        parent=FakeUIAItem(
+            name="",
+            control_type="Pane",
+            class_name="Afx:ControlBar:6e0000:8:10003:10",
+            width=1200,
+            height=100,
+            runtime_id=(20,),
+        ),
+        width=1200,
+        height=30,
+        runtime_id=(21,),
+    )
+    panel_tab = FakeUIAItem(
+        name="Notatka",
+        control_type="TabItem",
+        parent=application_tab_container,
+        selected=True,
+        left=130,
+        top=240,
+        width=61,
+        height=21,
+        runtime_id=(22,),
+    )
+
+    window = FakeUIAWindow(
+        (tab_item, panel_tab),
+        title="Visual Studio Code",
+    )
+    desktop = FakeDesktop({200: window})
+    elements = WindowsUIAutomationProvider(
+        desktop_factory=lambda: desktop,
+    ).perceive(make_observation())
+
+    document_element = next(
+        element for element in elements
+        if element.label == "OFR/4330- <>"
+    )
+    panel_element = next(
+        element for element in elements
+        if element.label == "Notatka"
+    )
+
+    assert document_element.metadata["uia_tab_scope"] == "document"
+    assert document_element.metadata["uia_document_tab_selected"] is True
+    assert panel_element.metadata["uia_tab_scope"] == "application"
+    assert "uia_document_tab_selected" not in panel_element.metadata
+
+
+def test_windows_uia_leaves_unknown_tab_ancestry_unclassified():
+    unknown_tab = FakeUIAItem(
+        name="Unknown",
+        control_type="TabItem",
+        selected=True,
+        runtime_id=(31,),
+    )
+    window = FakeUIAWindow(
+        (unknown_tab,),
+        title="Visual Studio Code",
+    )
+    desktop = FakeDesktop({200: window})
+
+    elements = WindowsUIAutomationProvider(
+        desktop_factory=lambda: desktop,
+    ).perceive(make_observation())
+
+    assert len(elements) == 1
+    assert "uia_tab_scope" not in elements[0].metadata
+    assert "uia_document_tab_selected" not in elements[0].metadata
+
+
+def test_active_document_resolution_ignores_selected_application_tabs():
+    from app.agent.perception.perception_engine import PerceptionEngine
+
+    document_tab = FakeUIAItem(
+        name="Offer A",
+        control_type="TabItem",
+        parent=FakeUIAItem(
+            name="",
+            control_type="Tab",
+            class_name="Afx:TabWnd:abc",
+            parent=FakeUIAItem(
+                name="",
+                control_type="Pane",
+                class_name="MDIClient",
+            ),
+        ),
+        selected=True,
+        runtime_id=(41,),
+    )
+    selected_panel_tab = FakeUIAItem(
+        name="Notatka",
+        control_type="TabItem",
+        parent=FakeUIAItem(
+            name="",
+            control_type="Tab",
+            class_name="SysTabControl32",
+            parent=FakeUIAItem(
+                name="",
+                control_type="Pane",
+                class_name="Afx:ControlBar:abc",
+            ),
+        ),
+        selected=True,
+        runtime_id=(42,),
+        top=270,
+    )
+    window = FakeUIAWindow(
+        (document_tab, selected_panel_tab),
+        title="Visual Studio Code",
+    )
+    desktop = FakeDesktop({200: window})
+    elements = WindowsUIAutomationProvider(
+        desktop_factory=lambda: desktop,
+    ).perceive(make_observation())
+
+    active_document, document_count, selected_count = (
+        PerceptionEngine._resolve_active_document(elements)
+    )
+
+    assert active_document == "Offer A"
+    assert document_count == 1
+    assert selected_count == 1
