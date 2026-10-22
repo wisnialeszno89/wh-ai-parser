@@ -207,21 +207,25 @@ Every milestone should name the relevant test evidence and remaining gaps.
 
 ## 12. Engineering checkpoint as of 2026-10-22
 
-The primary working integration branch is `feature/browser-navimind-bridge`. Its last confirmed integration state in this work was commit `03132b2e8b0376ec59407bb7975d45476584d044` (PR #114). Re-check GitHub before relying on the branch head in future work.
+The primary working integration branch is `feature/browser-navimind-bridge`. Always refresh its live head and PR/CI state before continuing; commit references recorded here are historical checkpoints, not a substitute for checking the current branch.
 
-Merged work with successful CI at the time of this checkpoint:
+Recent work and CI-validated capabilities:
 
 - **PR #110** — protect native WindowHub fields from OCR text fusion.
 - **PR #112** — require appropriately scoped targets for WindowHub `write_text`.
 - **PR #113** — add trusted local PDF ingestion service based on the existing PDF adapter; preserve provenance; reject unsafe paths and alias replacement; expose a read-only view.
-- **PR #114** — wire the PDF ingestion service and source registry into `AgentRuntime`, with fail-closed behavior when ingestion is not configured and tests that untrusted request metadata cannot register trusted PDF sources.
+- **PR #114** — wire PDF ingestion and its source registry into `AgentRuntime`; request metadata cannot register trusted PDF sources.
+- **PR #115** — preserve the agreed product vision, architecture, roadmap, and continuation context in this document and the README.
+- **PR #116** — add deterministic extraction of explicitly labelled product type, width, height, and quantity facts with exact page evidence; report OCR-needed pages and block facts from incomplete sources.
+- **PR #117** — add a non-executing PDF quote-preparation API that returns a validated `OfferContext` only when facts are valid, otherwise reporting missing fields/conflicts/OCR gaps. Its CI passed on the implementation head before this documentation-only update.
 
 Current known implementation boundaries:
 
 - PRs #113 and #114 added trusted local PDF ingestion and wired its source registry into `AgentRuntime`; untrusted request metadata cannot register trusted PDF sources.
-- **PR #116 adds the first deterministic PDF-to-quote-facts bridge:** explicitly labelled product type, width, height, and quantity values are converted to typed facts with exact evidence lines, source alias, page number, and extraction method. It skips OCR-needed pages and records their page numbers.
-- The quote-fact validator now rejects facts from a PDF source if any page in that source still needs OCR. Multiple explicit values are preserved so conflicting dimensions trigger manual review instead of being silently resolved.
-- This is deliberately an initial labelled-line extractor, not the complete PDF-to-quote workflow. Complex table layouts, unlabelled prose, OCR itself, broader field coverage, and a user-facing validated quote draft still need subsequent work. No price is inferred.
+- PR #116 adds deterministic extraction of explicitly labelled product type, width, height, and quantity facts with exact evidence lines, source alias, page number, and extraction method.
+- The quote-fact validator rejects facts from a PDF source if any page in that source still needs OCR. Multiple explicit values are preserved so conflicting dimensions trigger manual review rather than being silently resolved.
+- PR #117 adds `AgentRuntime.prepare_pdf_quote(...)`: a non-executing preparation path that connects extraction, the trusted validator, and `OfferContext`. Its structured result reports validation state, missing fields, conflicts, OCR gaps, and a normalized context preview. It does not observe or control the GUI and does not calculate prices.
+- This is still not the complete PDF-to-WindowHub workflow. Complex table layouts, OCR itself, broader field coverage, approved pricing, an approval-aware resumable execution path, and a real user-facing preview still require subsequent work.
 - WindowHub still requires validation in the user's actual local environment; GitHub CI does not prove a physical desktop run occurred.
 - README documents learned semantic workflows, compact experience memory, NaviMind task reasoning, the knowledge envelope, and the adapter contracts.
 - Legacy `app/ai/analyze_pdf.py` and similar scripts have import-time side effects and unsafe placeholder configuration. Treat replacement/deprecation as a separate, tested task; do not re-import these scripts into the runtime as a shortcut.
@@ -230,11 +234,11 @@ Current known implementation boundaries:
 
 1. Refresh the current branch head and PR/CI state before making changes.
 2. Read this document and `README.md`; consult epic issue #59 and issues #60/#61 for the end-to-end workflow and task-level contracts.
-3. Finish Phase A by wiring extracted candidates through the trusted validator into the existing `OfferContext` path, producing a clear reviewable result that lists missing fields, conflicts, and OCR gaps before any GUI action.
-4. Add/extend runtime tests for valid extraction -> accepted quote context and incomplete/OCR/conflicting sources -> manual review with zero GUI actions.
-5. Then prepare/run the bounded WindowHub dry-run/local smoke procedure, gathering actual console output from the user wherever physical Windows/WindowHub access is required.
-6. Keep changes isolated in a feature branch and submit a PR to `feature/browser-navimind-bridge`; check GitHub Actions and report what was actually tested.
-7. Update this checkpoint whenever a PR merges, a milestone changes, or a new blocker is discovered.
+3. Continue Phase A with an approval-aware, resumable dry-run from a prepared PDF quote to the existing WindowHub semantic workflow; keep the preparation preview separate from any action execution.
+4. Ensure the task path reports the exact validation result and source evidence, asks for missing/conflicting data, and cannot begin GUI actions before the quote is valid and the user has explicitly approved proceeding.
+5. Run simulated end-to-end tests first, then prepare the bounded WindowHub local smoke procedure and obtain actual console output from the user where physical Windows access is required.
+6. Expand field/table formats and plan a separate OCR fallback with explicit confidence and provenance; never infer prices or technical rules without approved evidence.
+7. Keep changes isolated in a feature branch, submit a PR to `feature/browser-navimind-bridge`, check CI, and update this checkpoint after each milestone.
 
 ### Handoff rules for future ChatGPT sessions
 
