@@ -293,47 +293,39 @@ class WindowHubWin32FormProvider(PerceptionProvider):
         observation: EnvironmentObservation,
         root_handle: int,
     ) -> str | None:
-        """Resolve exactly one selected WindowHub document tab from UIA."""
+        """Resolve the selected document using the same semantic UIA contract.
+
+        Reuse the existing UIA provider's labels and selection metadata so the
+        native scope key exactly matches the active-document label later used
+        by PerceptionEngine and WindowHubFormReader.
+        """
+        if WindowHubWin32FormProvider._positive_handle(
+            (observation.metadata or {}).get("window_handle")
+        ) != root_handle:
+            return None
         try:
-            from pywinauto import Desktop
             from app.agent.perception.windowhub_ui_automation_provider import (
                 WindowHubUIAutomationProvider,
             )
 
-            desktop = Desktop(backend="uia")
-            spec = desktop.window(handle=root_handle)
-            wrapper = getattr(spec, "wrapper_object", None)
-            root = wrapper() if callable(wrapper) else spec
-
-            expected_title = observation.state.active_window_title
-            actual_title = root.window_text()
-            if (
-                not isinstance(expected_title, str)
-                or actual_title.strip() != expected_title.strip()
-            ):
-                return None
-
-            provider = WindowHubUIAutomationProvider()
-            selected = []
-            for item in tuple(root.descendants()):
-                info = item.element_info
-                if provider._normalize_control_type(
-                    getattr(info, "control_type", None)
-                ) != "tabitem":
-                    continue
-                if provider._tab_scope(item) != "document":
-                    continue
-                if provider._selection_state(item) is not True:
-                    continue
-
-                label = provider._best_text_value(item)
-                if isinstance(label, str) and label.strip():
-                    selected.append(label.strip())
-
-            # A field may only be scoped if one selected document tab exists.
-            return selected[0] if len(selected) == 1 else None
+            elements = WindowHubUIAutomationProvider().perceive(observation)
         except Exception:
             return None
+
+        selected = [
+            element.label.strip()
+            for element in elements
+            if (
+                element.kind.casefold() == "tabitem"
+                and isinstance(element.label, str)
+                and element.label.strip()
+                and isinstance(element.metadata, dict)
+                and element.metadata.get("uia_tab_scope") == "document"
+                and element.metadata.get("uia_document_tab_selected") is True
+            )
+        ]
+        # Fail closed unless UIA resolves exactly one selected document tab.
+        return selected[0] if len(selected) == 1 else None
 
     @classmethod
     def _snapshot_native_windows(
