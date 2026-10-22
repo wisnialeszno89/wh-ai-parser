@@ -69,6 +69,10 @@ from app.agent.runtime.reasoning_budget import ReasoningBudget
 from app.agent.runtime.resumable_task import TaskCheckpoint, Verification
 from app.agent.runtime.resumable_task_repository import TaskCheckpointRepository
 from app.agent.runtime.resumable_task_service import ResumableTaskService
+from app.agent.runtime.pdf_quote_task import (
+    PdfQuoteTaskStartResult,
+    create_pdf_quote_task_checkpoint,
+)
 from app.agent.runtime.reasoning_usage import (
     ReasoningCostTracker,
     ReasoningUsage,
@@ -254,6 +258,46 @@ class AgentRuntime:
                 "No trusted, ingested PDF source exists for this source alias."
             )
         return PdfQuoteFactExtractor().extract(extraction).to_payload()
+
+    def start_pdf_quote_task(
+        self,
+        source_alias: str,
+        *,
+        request_message: str,
+        task_id: str | None = None,
+        max_actions: int = 12,
+        max_reasoning_calls: int = 12,
+    ) -> PdfQuoteTaskStartResult:
+        """Prepare a PDF quote and persist a checkpoint behind task approval.
+
+        Invalid/incomplete source data returns a review result and creates no
+        task checkpoint. A valid result is persisted in WAITING_FOR_APPROVAL;
+        no desktop observation or action occurs until the caller separately
+        approves task execution and advances the resumable runner.
+        """
+        preparation = self.prepare_pdf_quote(
+            source_alias,
+            request_message=request_message,
+        )
+        if not preparation.can_continue_to_offer_workflow:
+            return PdfQuoteTaskStartResult(
+                preparation=preparation,
+                checkpoint=None,
+            )
+
+        service = self._require_resumable_task_service()
+        selected_task_id = task_id or f"pdf-quote-{uuid4().hex}"
+        checkpoint = create_pdf_quote_task_checkpoint(
+            preparation,
+            task_id=selected_task_id,
+            max_actions=max_actions,
+            max_reasoning_calls=max_reasoning_calls,
+        )
+        persisted = service.create(checkpoint)
+        return PdfQuoteTaskStartResult(
+            preparation=preparation,
+            checkpoint=persisted,
+        )
 
     def prepare_pdf_quote(
         self,
@@ -1818,6 +1862,13 @@ class AgentRuntime:
         values: Mapping[str, object],
     ) -> TaskCheckpoint:
         return self._require_resumable_task_service().supply_facts(task_id, values)
+
+    def approve_resumable_task_execution(
+        self,
+        task_id: str,
+    ) -> TaskCheckpoint:
+        """Persist explicit user approval before a gated task can observe or act."""
+        return self._require_resumable_task_service().approve_task_execution(task_id)
 
     def approve_resumable_task_action(
         self,
