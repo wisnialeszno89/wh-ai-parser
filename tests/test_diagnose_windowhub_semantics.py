@@ -6,6 +6,7 @@ from types import SimpleNamespace
 import pytest
 
 from tools.diagnose_windowhub_semantics import (
+    _normalize_process_name,
     _select_target_window,
     build_read_only_report,
 )
@@ -277,3 +278,96 @@ def test_report_can_match_custom_selector_without_claiming_windowhub_literal():
     assert report["active_window"]["title_matches_selector"] is True
     assert report["active_window"]["title_contains_windowhub"] is False
     assert report["active_window"]["focused"] is False
+
+
+
+def test_process_name_selector_finds_application_when_title_has_no_product_name():
+    unrelated = make_window("Unrelated document", 100)
+    target = make_window("Oferta - klient", 200)
+    process_names = {100: "Code", 200: "Okna.exe"}
+
+    selected, stop_reason = _select_target_window(
+        (unrelated, target),
+        process_name="Okna",
+        process_name_checker=lambda handle: process_names.get(handle),
+    )
+
+    assert selected is target
+    assert stop_reason is None
+
+
+def test_process_name_selector_fails_closed_when_multiple_windows_match():
+    first = make_window("Oferta", 200)
+    second = make_window("Konstrukcja", 201)
+    process_names = {200: "Okna", 201: "OKNA.EXE"}
+
+    selected, stop_reason = _select_target_window(
+        (first, second),
+        process_name="okna.exe",
+        process_name_checker=lambda handle: process_names.get(handle),
+    )
+
+    assert selected is None
+    assert stop_reason is not None
+    assert "2 visible top-level windows" in stop_reason
+    assert "ambiguous target" in stop_reason
+
+
+def test_process_name_selector_does_not_fall_back_to_title_when_lookup_fails():
+    target = make_window("WindowHub - Offer", 200)
+
+    selected, stop_reason = _select_target_window(
+        (target,),
+        process_name="Okna",
+        process_name_checker=lambda handle: None,
+    )
+
+    assert selected is None
+    assert stop_reason is not None
+    assert "process name 'okna'" in stop_reason
+
+
+def test_process_name_selector_skips_minimized_or_invisible_windows():
+    minimized = make_window("Stare", 200, minimized=True)
+    invisible = make_window("Ukryte", 201, visible=False)
+    visible = make_window("Oferta", 202)
+    process_names = {200: "Okna", 201: "Okna", 202: "Okna"}
+
+    selected, stop_reason = _select_target_window(
+        (minimized, invisible, visible),
+        process_name="Okna",
+        process_name_checker=lambda handle: process_names.get(handle),
+    )
+
+    assert selected is visible
+    assert stop_reason is None
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("Okna", "okna"),
+        ("Okna.exe", "okna"),
+        (r"C:\Program Files\Okna\Okna.exe", "okna"),
+        ("  OKNA.EXE  ", "okna"),
+        ("", ""),
+        (None, ""),
+    ],
+)
+def test_process_name_normalization(raw, expected):
+    assert _normalize_process_name(raw) == expected
+
+
+def test_report_explains_process_name_selector_without_unredacting_window_title():
+    report = build_read_only_report(
+        make_scene(),
+        active_window_title="Oferta - Klient Kowalski",
+        window_focused=False,
+        process_name="Okna.exe",
+    )
+
+    assert report["target_selection"]["mode"] == "process_name"
+    assert report["target_selection"]["selector"] == "okna"
+    assert report["target_selection"]["target_matched"] is True
+    assert report["active_window"]["title_contains_windowhub"] is False
+    assert report["active_window"]["title"] == "<redacted>"
