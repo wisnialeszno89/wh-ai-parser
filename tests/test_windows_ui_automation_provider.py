@@ -92,6 +92,17 @@ class FakeDesktop:
         return self._windows[handle]
 
 
+class FakeMDIChildWindow(FakeUIAItem):
+    """Fake MDI child with an independently enumerated descendant subtree."""
+
+    def __init__(self, items, **kwargs):
+        super().__init__(**kwargs)
+        self._descendant_items = tuple(items)
+
+    def descendants(self):
+        return self._descendant_items
+
+
 def make_observation():
     return EnvironmentObservation(
         state=EnvironmentState(
@@ -528,6 +539,146 @@ def test_windows_uia_assigns_document_scope_by_unique_mdi_tab_caption_match():
     assert active_document == "OFR/4330- <>"
     assert document_count == 1
     assert selected_count == 1
+
+
+def test_windows_uia_scopes_wpf_descendant_by_runtime_id_when_parent_chain_stops():
+    mdi_client = FakeUIAItem(
+        name="",
+        control_type="Pane",
+        class_name="MDIClient",
+        width=1200,
+        height=800,
+        runtime_id=(80,),
+    )
+    document_tab = make_mdi_tab(
+        "Offer A",
+        mdi_client,
+        selected=True,
+        runtime_id=81,
+    )
+
+    # Simulate a WPF content boundary: descendants are enumerable beneath
+    # the MDI child, but the wrapper parent chain ends at the Expander.
+    expander = FakeUIAItem(
+        name="",
+        control_type="Group",
+        class_name="Expander",
+        runtime_id=(82,),
+    )
+    document_button = FakeUIAItem(
+        name="Add to offer",
+        control_type="Button",
+        parent=expander,
+        runtime_id=(83,),
+    )
+    document_window = FakeMDIChildWindow(
+        (expander, document_button),
+        name="Offer A",
+        control_type="Window",
+        class_name="Afx:MDIChild",
+        parent=mdi_client,
+        width=1100,
+        height=700,
+        runtime_id=(84,),
+    )
+
+    home_button = FakeUIAItem(
+        name="New offer",
+        control_type="Button",
+        runtime_id=(85,),
+    )
+    window = FakeUIAWindow(
+        (
+            mdi_client,
+            document_tab.parent(),
+            document_tab,
+            document_window,
+            expander,
+            document_button,
+            home_button,
+        ),
+        title="Visual Studio Code",
+    )
+    desktop = FakeDesktop({200: window})
+    elements = WindowsUIAutomationProvider(
+        desktop_factory=lambda: desktop,
+    ).perceive(make_observation())
+
+    observed_document_button = next(
+        element for element in elements
+        if element.label == "Add to offer"
+    )
+    observed_home_button = next(
+        element for element in elements
+        if element.label == "New offer"
+    )
+
+    assert observed_document_button.metadata["document_scope"] == "Offer A"
+    assert "document_scope" not in observed_home_button.metadata
+
+
+def test_windows_uia_leaves_runtime_id_unscoped_when_shared_across_documents():
+    mdi_client = FakeUIAItem(
+        name="",
+        control_type="Pane",
+        class_name="MDIClient",
+        width=1200,
+        height=800,
+        runtime_id=(90,),
+    )
+    tab_a = make_mdi_tab(
+        "Offer A", mdi_client, selected=True, runtime_id=91
+    )
+    tab_b = make_mdi_tab(
+        "Offer B", mdi_client, selected=False, runtime_id=92
+    )
+
+    expander_a = FakeUIAItem(
+        name="", control_type="Group", class_name="Expander", runtime_id=(93,)
+    )
+    button_a = FakeUIAItem(
+        name="Add A", control_type="Button", parent=expander_a,
+        runtime_id=(999,),
+    )
+    child_a = FakeMDIChildWindow(
+        (expander_a, button_a),
+        name="Offer A", control_type="Window", class_name="Afx:MDIChild",
+        parent=mdi_client, width=1100, height=700, runtime_id=(94,),
+    )
+
+    expander_b = FakeUIAItem(
+        name="", control_type="Group", class_name="Expander", runtime_id=(95,)
+    )
+    button_b = FakeUIAItem(
+        name="Add B", control_type="Button", parent=expander_b,
+        runtime_id=(999,),
+    )
+    child_b = FakeMDIChildWindow(
+        (expander_b, button_b),
+        name="Offer B", control_type="Window", class_name="Afx:MDIChild",
+        parent=mdi_client, width=1100, height=700, runtime_id=(96,),
+    )
+
+    window = FakeUIAWindow(
+        (
+            mdi_client,
+            tab_a.parent(), tab_a,
+            tab_b.parent(), tab_b,
+            child_a, expander_a, button_a,
+            child_b, expander_b, button_b,
+        ),
+        title="Visual Studio Code",
+    )
+    desktop = FakeDesktop({200: window})
+    elements = WindowsUIAutomationProvider(
+        desktop_factory=lambda: desktop,
+    ).perceive(make_observation())
+
+    observed_a = next(element for element in elements if element.label == "Add A")
+    observed_b = next(element for element in elements if element.label == "Add B")
+
+    assert "document_scope" not in observed_a.metadata
+    assert "document_scope" not in observed_b.metadata
 
 
 def test_windows_uia_leaves_mdi_children_unscoped_when_caption_does_not_match_tab():
