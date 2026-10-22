@@ -54,6 +54,7 @@ def build_read_only_report(
     max_elements: int = 100,
     stop_reason: str | None = None,
     window_title_contains: str = "WindowHub",
+    process_name: str | None = None,
 ) -> dict[str, object]:
     """Build a JSON-safe report without exposing UIA runtime identifiers/handles."""
     if not isinstance(max_elements, int) or isinstance(max_elements, bool) or not 1 <= max_elements <= 500:
@@ -63,6 +64,9 @@ def build_read_only_report(
     selector = window_title_contains.strip()
     if not selector:
         raise ValueError("window_title_contains must not be empty.")
+    process_selector = _normalize_process_name(process_name) if process_name else None
+    if process_name is not None and not process_selector:
+        raise ValueError("process_name must not be empty.")
     title_matches = selector.casefold() in title.casefold()
     title_contains_windowhub = "windowhub" in title.casefold()
     metadata = getattr(scene, "metadata", None) or {}
@@ -127,6 +131,11 @@ def build_read_only_report(
         "network_calls_made": False,
         "files_written": False,
         "screenshot_saved": False,
+        "target_selection": {
+            "mode": "process_name" if process_selector else "window_title",
+            "selector": process_selector or selector,
+            "target_matched": stop_reason is None and bool(title),
+        },
         "active_window": {
             "title_contains_windowhub": title_contains_windowhub,
             "title_matches_selector": title_matches,
@@ -162,28 +171,118 @@ def build_read_only_report(
     return report
 
 
+def _normalize_process_name(value: str | None) -> str:
+    """Normalize an executable/process name without its optional .exe suffix."""
+    if not isinstance(value, str):
+        return ""
+    leaf = value.strip().replace("\\", "/").rsplit("/", 1)[-1]
+    if leaf.casefold().endswith(".exe"):
+        leaf = leaf[:-4]
+    return leaf.strip().casefold()
+
+
+def _window_process_name(window_handle: int) -> str | None:
+    """Return the executable stem owning a window using Win32 read-only APIs."""
+    if os.name != "nt":
+        return None
+
+    import ctypes
+    from ctypes import wintypes
+
+    try:
+        user32 = ctypes.windll.user32
+        kernel32 = ctypes.windll.kernel32
+
+        get_window_process_id = user32.GetWindowThreadProcessId
+        get_window_process_id.argtypes = (
+            wintypes.HWND,
+            ctypes.POINTER(wintypes.DWORD),
+        )
+        get_window_process_id.restype = wintypes.DWORD
+
+        process_id = wintypes.DWORD()
+        thread_id = get_window_process_id(
+            wintypes.HWND(int(window_handle)),
+            ctypes.byref(process_id),
+        )
+        if not thread_id or not process_id.value:
+            return None
+
+        open_process = kernel32.OpenProcess
+        open_process.argtypes = (
+            wintypes.DWORD,
+            wintypes.BOOL,
+            wintypes.DWORD,
+        )
+        open_process.restype = wintypes.HANDLE
+
+        query_image = kernel32.QueryFullProcessImageNameW
+        query_image.argtypes = (
+            wintypes.HANDLE,
+            wintypes.DWORD,
+            wintypes.LPWSTR,
+            ctypes.POINTER(wintypes.DWORD),
+        )
+        query_image.restype = wintypes.BOOL
+
+        close_handle = kernel32.CloseHandle
+        close_handle.argtypes = (wintypes.HANDLE,)
+        close_handle.restype = wintypes.BOOL
+
+        # PROCESS_QUERY_LIMITED_INFORMATION; no process memory is read or changed.
+        process_handle = open_process(0x1000, False, process_id.value)
+        if not process_handle:
+            return None
+
+        try:
+            image_path = ctypes.create_unicode_buffer(32768)
+            image_path_size = wintypes.DWORD(len(image_path))
+            if not query_image(
+                process_handle,
+                0,
+                image_path,
+                ctypes.byref(image_path_size),
+            ):
+                return None
+            return Path(image_path.value).stem
+        finally:
+            close_handle(process_handle)
+    except Exception:
+        # If Windows cannot establish the owner process, fail closed.
+        return None
+
+
 def _select_target_window(
     windows,
     *,
     title_contains: str = "WindowHub",
+    process_name: str | None = None,
+    process_name_checker=None,
     visibility_checker=None,
 ) -> tuple[object | None, str | None]:
-    """Select exactly one visible, non-minimized top-level window by title.
+    """Select exactly one visible, non-minimized top-level window.
 
-    The interactive PowerShell console does not need to be foregrounded away
-    from the application: this selector can identify the WindowHub top-level
-    window while the console launches the read-only diagnostic. It never
-    changes focus or interacts with the selected window.
+    Selection uses either a title fragment or a process name. The checker is
+    injected for unit tests and must only inspect the owning process identity.
+    No focus change or application interaction is performed.
     """
     selector = title_contains.strip()
     if not selector:
         raise ValueError("title_contains must not be empty.")
 
+    normalized_process_name = (
+        _normalize_process_name(process_name)
+        if process_name is not None
+        else None
+    )
+    if process_name is not None and not normalized_process_name:
+        raise ValueError("process_name must not be empty.")
+    if normalized_process_name is not None and process_name_checker is None:
+        raise ValueError("process_name_checker is required when process_name is set.")
+
     candidates: dict[int, object] = {}
     for window in windows:
         title = (getattr(window, "title", None) or "").strip()
-        if not title or selector.casefold() not in title.casefold():
-            continue
 
         try:
             handle = int(getattr(window, "_hWnd", 0) or 0)
@@ -192,6 +291,17 @@ def _select_target_window(
         except (TypeError, ValueError):
             continue
         if handle <= 0 or width <= 0 or height <= 0:
+            continue
+
+        if normalized_process_name is not None:
+            try:
+                actual_process_name = process_name_checker(handle)
+            except Exception:
+                # A process lookup failure must not turn into a broad title match.
+                continue
+            if _normalize_process_name(actual_process_name) != normalized_process_name:
+                continue
+        elif not title or selector.casefold() not in title.casefold():
             continue
 
         minimized = getattr(window, "isMinimized", False)
@@ -218,17 +328,22 @@ def _select_target_window(
 
         candidates[handle] = window
 
+    description = (
+        f"process name '{normalized_process_name}'"
+        if normalized_process_name is not None
+        else "requested title fragment"
+    )
     if len(candidates) == 1:
         return next(iter(candidates.values())), None
     if not candidates:
         return (
             None,
-            "No visible, non-minimized top-level window matched the requested title fragment. "
+            f"No visible, non-minimized top-level window matched the {description}. "
             "No UI Automation inventory was collected.",
         )
     return (
         None,
-        f"{len(candidates)} visible top-level windows matched the title fragment; "
+        f"{len(candidates)} visible top-level windows matched the {description}; "
         "refusing to select an ambiguous target. No UI Automation inventory was collected.",
     )
 
@@ -236,8 +351,9 @@ def _select_target_window(
 def observe_windowhub_scene(
     *,
     window_title_contains: str = "WindowHub",
+    process_name: str | None = None,
 ) -> tuple[object | None, str | None, bool | None, str | None]:
-    """Observe one uniquely matched WindowHub window via UIA, without interaction."""
+    """Observe one uniquely matched application window via UIA, without interaction."""
     if os.name != "nt":
         raise RuntimeError("This diagnostic must be run on Windows.")
 
@@ -252,6 +368,8 @@ def observe_windowhub_scene(
     window, stop_reason = _select_target_window(
         gw.getAllWindows(),
         title_contains=window_title_contains,
+        process_name=process_name,
+        process_name_checker=_window_process_name if process_name is not None else None,
         visibility_checker=is_visible,
     )
     if window is None:
@@ -332,7 +450,15 @@ def main() -> int:
     parser.add_argument(
         "--window-title-contains",
         default="WindowHub",
-        help="Unique title fragment used to find the WindowHub top-level window (default: WindowHub).",
+        help="Unique title fragment used to find the target top-level window (default: WindowHub).",
+    )
+    parser.add_argument(
+        "--process-name",
+        default=None,
+        help=(
+            "Alternatively select the target window by its owning executable/process name, "
+            "for example Okna or Okna.exe. Must match exactly."
+        ),
     )
     parser.add_argument(
         "--max-elements",
@@ -353,6 +479,7 @@ def main() -> int:
     try:
         scene, title, focused, stop_reason = observe_windowhub_scene(
             window_title_contains=args.window_title_contains,
+            process_name=args.process_name,
         )
         report = build_read_only_report(
             scene,
@@ -362,6 +489,7 @@ def main() -> int:
             max_elements=args.max_elements,
             stop_reason=stop_reason,
             window_title_contains=args.window_title_contains,
+            process_name=args.process_name,
         )
     except Exception as exc:
         print(json.dumps({
