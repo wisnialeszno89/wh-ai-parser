@@ -32,6 +32,7 @@ jobs:
             tests/test_autonomous_agent_runtime.py \
             tests/test_windowhub_ui_automation_provider.py \
             tests/test_windowhub_win32_form_provider.py \
+            tests/runtime/test_screen_element_fusion.py \
             tests/test_windowhub_ocr_provider.py \
             tests/test_windowhub_ocr_table_parser.py \
             tests/test_windowhub_ocr_table_refiner.py \

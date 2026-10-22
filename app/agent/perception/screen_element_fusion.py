@@ -99,6 +99,7 @@ class ScreenElementFusion:
                 index=index,
                 identity=identity,
                 identities=identities,
+                elements=elements,
                 shared_id_counts=shared_id_counts,
                 tracked_object_id_counts=tracked_object_id_counts,
                 provider_id_counts=provider_id_counts,
@@ -136,6 +137,7 @@ class ScreenElementFusion:
         index: int,
         identity: ScreenElementIdentity,
         identities: tuple[ScreenElementIdentity, ...],
+        elements: tuple[ScreenElement, ...],
         shared_id_counts,
         tracked_object_id_counts,
         provider_id_counts,
@@ -149,6 +151,15 @@ class ScreenElementFusion:
         )
 
         for group_index, group in enumerate(groups):
+            if any(
+                self._is_protected_native_field_text_pair(
+                    elements[index],
+                    elements[member_index],
+                )
+                for member_index in group
+            ):
+                continue
+
             representative_index = group[0]
             representative_identity = identities[representative_index]
             representative_source = self._source_for_identity(
@@ -306,6 +317,27 @@ class ScreenElementFusion:
             return f"provider:{identity.provider_id}"
 
         return f"anonymous:{index}"
+
+    @staticmethod
+    def _is_protected_native_field_text_pair(
+        left: ScreenElement,
+        right: ScreenElement,
+    ) -> bool:
+        left_protected = (
+            (left.metadata or {}).get(
+                "protect_control_type_from_text_fusion"
+            ) is True
+        )
+        right_protected = (
+            (right.metadata or {}).get(
+                "protect_control_type_from_text_fusion"
+            ) is True
+        )
+        return (
+            left_protected and right.kind.casefold() == "text"
+        ) or (
+            right_protected and left.kind.casefold() == "text"
+        )
 
     def _merge_group(
         self,
