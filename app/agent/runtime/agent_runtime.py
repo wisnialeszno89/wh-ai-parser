@@ -71,6 +71,7 @@ from app.agent.runtime.resumable_task_repository import TaskCheckpointRepository
 from app.agent.runtime.resumable_task_service import ResumableTaskService
 from app.agent.runtime.pdf_quote_task import (
     PdfQuoteTaskStartResult,
+    UnsupportedWindowHubQuoteFields,
     create_pdf_quote_task_checkpoint,
 )
 from app.agent.runtime.reasoning_usage import (
@@ -287,12 +288,19 @@ class AgentRuntime:
 
         service = self._require_resumable_task_service()
         selected_task_id = task_id or f"pdf-quote-{uuid4().hex}"
-        checkpoint = create_pdf_quote_task_checkpoint(
-            preparation,
-            task_id=selected_task_id,
-            max_actions=max_actions,
-            max_reasoning_calls=max_reasoning_calls,
-        )
+        try:
+            checkpoint = create_pdf_quote_task_checkpoint(
+                preparation,
+                task_id=selected_task_id,
+                max_actions=max_actions,
+                max_reasoning_calls=max_reasoning_calls,
+            )
+        except UnsupportedWindowHubQuoteFields as exc:
+            return PdfQuoteTaskStartResult(
+                preparation=preparation,
+                checkpoint=None,
+                task_block_reason=str(exc),
+            )
         persisted = service.create(checkpoint)
         return PdfQuoteTaskStartResult(
             preparation=preparation,
