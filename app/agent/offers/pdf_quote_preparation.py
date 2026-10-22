@@ -11,7 +11,7 @@ from app.agent.offers.pdf_quote_fact_extractor import (
     PdfQuoteFactExtractor,
 )
 from app.agent.offers.quote_facts import (
-    QuoteFactValidationResult,
+    QuoteFactsValidationResult,
     QuoteFactValidator,
     QuoteRuleEvidence,
 )
@@ -23,7 +23,7 @@ class PdfQuotePreparationResult:
 
     source_alias: str
     extraction: PdfQuoteFactExtractionResult
-    validation: QuoteFactValidationResult
+    validation: QuoteFactsValidationResult
     offer_context: OfferContext | None
 
     @property
