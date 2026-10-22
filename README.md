@@ -158,6 +158,24 @@ state and does not observe, click, type into, or otherwise control the desktop:
 python tools/smoke_windows_desktop_navimind.py
 ```
 
+### Read-only WindowHub semantic diagnostic
+
+Before a local WindowHub workflow is tested, run an observation-only inventory from the repository root:
+
+```powershell
+python tools/diagnose_windowhub_semantics.py
+```
+
+The diagnostic only reads the currently active top-level window when its title contains `WindowHub`; otherwise it skips UI Automation inventory. It uses the existing Windows UI Automation perception provider but does not instantiate an action executor, create a task, invoke a planner, send network requests, or save screenshots/reports. It reports control labels, control kinds, enabled/selected state, whether field values exist, active-document resolution, and document-scope coverage.
+
+For privacy, current field values, active document name, window title, and raw document scopes are redacted by default. Element labels may still contain customer/business data, so inspect the JSON before sharing it. Only use this opt-in when those values are necessary and safe to disclose:
+
+```powershell
+python tools/diagnose_windowhub_semantics.py --include-sensitive-values
+```
+
+The report is diagnostic evidence, not proof that a field is safe to edit. If active-document or document-scope evidence is missing, keep the live task blocked until perception provides sufficient evidence.
+
 Start the generic Windows agent with a natural-language goal:
 
 ```powershell
