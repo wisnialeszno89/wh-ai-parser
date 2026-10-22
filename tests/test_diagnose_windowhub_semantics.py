@@ -7,6 +7,7 @@ import pytest
 
 from tools.diagnose_windowhub_semantics import (
     _normalize_process_name,
+    _parse_window_handle,
     _select_target_window,
     build_read_only_report,
 )
@@ -370,4 +371,78 @@ def test_report_explains_process_name_selector_without_unredacting_window_title(
     assert report["target_selection"]["selector"] == "okna"
     assert report["target_selection"]["target_matched"] is True
     assert report["active_window"]["title_contains_windowhub"] is False
+    assert report["active_window"]["title"] == "<redacted>"
+
+
+
+def test_explicit_window_handle_disambiguates_process_windows():
+    first = make_window("Offer", 200)
+    second = make_window("Settings", 201)
+    process_names = {200: "Okna", 201: "Okna.exe"}
+
+    selected, stop_reason = _select_target_window(
+        (first, second),
+        process_name="Okna",
+        window_handle=201,
+        process_name_checker=lambda handle: process_names.get(handle),
+    )
+
+    assert selected is second
+    assert stop_reason is None
+
+
+def test_explicit_window_handle_never_falls_back_to_another_window_of_same_process():
+    first = make_window("Offer", 200)
+    second = make_window("Settings", 201)
+    process_names = {200: "Okna", 201: "Okna"}
+
+    selected, stop_reason = _select_target_window(
+        (first, second),
+        process_name="Okna",
+        window_handle=999,
+        process_name_checker=lambda handle: process_names.get(handle),
+    )
+
+    assert selected is None
+    assert stop_reason is not None
+    assert "window handle 0x3E7 owned by process 'okna'" in stop_reason
+
+
+def test_explicit_window_handle_requires_process_identity_verification():
+    with pytest.raises(ValueError, match="requires process_name"):
+        _select_target_window(
+            (make_window("Offer", 200),),
+            window_handle=200,
+        )
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("200", 200),
+        ("0xC8", 200),
+    ],
+)
+def test_parse_window_handle_accepts_decimal_and_hex(raw, expected):
+    assert _parse_window_handle(raw) == expected
+
+
+@pytest.mark.parametrize("raw", ("0", "-1", "not-a-handle"))
+def test_parse_window_handle_rejects_invalid_values(raw):
+    with pytest.raises(Exception):
+        _parse_window_handle(raw)
+
+
+def test_report_identifies_explicit_handle_selection_without_unredacting_title():
+    report = build_read_only_report(
+        make_scene(),
+        active_window_title="Offer - Klient Kowalski",
+        window_focused=False,
+        process_name="Okna.exe",
+        window_handle=0x1770436,
+    )
+
+    assert report["target_selection"]["mode"] == "window_handle"
+    assert report["target_selection"]["selector"] == "0x1770436"
+    assert report["target_selection"]["target_matched"] is True
     assert report["active_window"]["title"] == "<redacted>"
