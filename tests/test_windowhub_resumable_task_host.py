@@ -5,7 +5,7 @@ from app.agent.agent_action import AgentAction
 from app.agent.agent_intent import AgentIntent
 from app.agent.planning.action_plan import ActionPlan
 from app.agent.planning.action_step import ActionStep
-from app.agent.runtime.resumable_task import TaskCheckpoint, TaskStatus, Verification
+from app.agent.runtime.resumable_task import TaskAction, TaskCheckpoint, TaskStatus, Verification
 from app.agent.runtime.resumable_task_repository import TaskCheckpointRepository
 from app.agent.runtime.windowhub_resumable_task_host import (
     WindowHubResumableTaskHost,
@@ -376,3 +376,92 @@ def test_final_verification_ignores_matching_fields_with_unknown_document_scope(
     assert set(result.missing_fields) == {"width", "height"}
     assert "missing or ambiguous fields" in result.reason
 
+
+
+def _make_write_validation_scene(*, active_document="Oferta robocza", target_scope="Oferta robocza",
+                                 metadata=None, kind="edit", capability="writable"):
+    element_metadata = dict(metadata or {})
+    if target_scope is not None:
+        element_metadata["document_scope"] = target_scope
+    return FakeScene(
+        [FakeElement(kind, "Szerokość", capability, metadata=element_metadata)],
+        active_document=active_document,
+    )
+
+
+def _validate_write_target(scene):
+    return WindowHubResumableTaskHost._validate_target(
+        TaskAction(
+            action_id="scope-check",
+            name="write_text",
+            target="Szerokość",
+            scene_fingerprint="synthetic-scene",
+            value="1200",
+        ),
+        scene,
+    )
+
+
+def test_write_text_accepts_edit_field_scoped_to_active_document():
+    scene = _make_write_validation_scene(
+        metadata={"current_value": "", "source": "windowhub_ui_automation"},
+    )
+
+    result = _validate_write_target(scene)
+
+    assert result.valid is True
+    assert result.target == "Szerokość"
+
+
+def test_write_text_rejects_unique_unscoped_edit_with_active_document():
+    scene = _make_write_validation_scene(target_scope=None)
+
+    result = _validate_write_target(scene)
+
+    assert result.valid is False
+    assert "scope evidence" in result.reason
+
+
+def test_write_text_rejects_field_scoped_to_another_document():
+    scene = _make_write_validation_scene(target_scope="Inna oferta")
+
+    result = _validate_write_target(scene)
+
+    assert result.valid is False
+    assert (
+        "scope evidence" in result.reason
+        or "outside active document" in result.reason
+    )
+
+
+def test_write_text_accepts_supported_edit_field_in_explicit_owned_modal():
+    scene = _make_write_validation_scene(
+        target_scope=None,
+        metadata={"uia_owned_modal": True, "current_value": ""},
+    )
+
+    result = _validate_write_target(scene)
+
+    assert result.valid is True
+
+
+def test_write_text_rejects_unscoped_edit_when_active_document_is_unresolved():
+    scene = _make_write_validation_scene(active_document=None, target_scope="Oferta robocza")
+
+    result = _validate_write_target(scene)
+
+    assert result.valid is False
+    assert "requires a resolved active document" in result.reason
+
+
+def test_write_text_rejects_non_editable_target_even_when_document_scoped():
+    scene = _make_write_validation_scene(
+        metadata={},
+        kind="button",
+        capability="clickable",
+    )
+
+    result = _validate_write_target(scene)
+
+    assert result.valid is False
+    assert "not an evidenced editable text field" in result.reason

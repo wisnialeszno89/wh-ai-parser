@@ -234,14 +234,51 @@ class WindowHubResumableTaskHost:
         if not resolution.resolved or resolution.element is None:
             return Validation(False, reason=resolution.reason or "semantic target unresolved")
         if action.name == "write_text":
+            metadata = getattr(resolution.element, "metadata", None) or {}
+            if not isinstance(metadata, Mapping):
+                metadata = {}
+
             kind = str(getattr(resolution.element, "kind", "") or "").strip().casefold()
             capability = getattr(getattr(resolution.element, "interaction_capability", None), "value",
                                  getattr(resolution.element, "interaction_capability", None))
             capability = str(capability or "").strip().casefold()
-            if kind not in {"edit", "textbox", "text_box", "combobox"} and capability not in {
+            editable_kind = kind in {"edit", "textbox", "text_box", "combobox"}
+            editable_capability = capability in {
                 "writable", "editable", "text_entry", "textentry",
-            }:
-                return Validation(False, reason="write_text target is not an evidenced editable text field")
+            }
+            if not (editable_kind or editable_capability):
+                return Validation(
+                    False,
+                    reason="write_text target is not an evidenced editable text field",
+                )
+
+            # WindowHub needs a stricter write policy than the shared generic
+            # resolver: unique-but-unscoped controls are not enough evidence
+            # to type into a commercial document field.
+            active_document = getattr(scene, "active_document", None)
+            if isinstance(active_document, str) and active_document.strip():
+                document_scope = metadata.get("document_scope")
+                is_active_document_field = (
+                    isinstance(document_scope, str)
+                    and document_scope.strip() == active_document.strip()
+                )
+                is_owned_modal_field = metadata.get("uia_owned_modal") is True
+                if not (is_active_document_field or is_owned_modal_field):
+                    return Validation(
+                        False,
+                        reason=(
+                            "write_text target lacks active-document or "
+                            "explicit owned-modal scope evidence"
+                        ),
+                    )
+            elif not metadata.get("uia_owned_modal") is True:
+                return Validation(
+                    False,
+                    reason=(
+                        "write_text target requires a resolved active document "
+                        "or explicit owned-modal scope evidence"
+                    ),
+                )
         return Validation(
             True,
             target=resolution.element.label,
