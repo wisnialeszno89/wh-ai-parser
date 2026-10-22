@@ -1,5 +1,9 @@
 # wh-ai-parser
 
+## Project direction
+
+The agreed product vision, architecture, roadmap, safety principles, and continuation checkpoint live in [docs/PROJECT_VISION_AND_ROADMAP.md](docs/PROJECT_VISION_AND_ROADMAP.md). Read it alongside this README when continuing the project.
+
 ## Universal Agent Reasoning
 
 The Universal Agent Core can optionally use an OpenAI-backed
@@ -45,10 +49,10 @@ replayed through the same observation, target-resolution, safety, execution
 and verification control loop.
 
 Teaching can also infer text entry from semantic field value changes. The
-first text-learning path observes UI state, coalesces rapid changes until the
-value is stable, and records a semantic `write_text` action targeted to the
-field label. No raw keyboard events, scan codes or clipboard contents are
-captured.
+first text-learning path observes UI state, coalesces rapid changes until
+the value is stable, and records a semantic `write_text` action targeted to
+the field label. No raw keyboard events, scan codes or clipboard contents
+are captured.
 
 The workflow data intentionally excludes coordinates, window handles,
 runtime/provider identifiers and other machine-specific execution details.
@@ -164,4 +168,3 @@ Physical GUI execution remains disabled by default. Only set
 `COMPUTER_REAL=1` for an explicitly scoped live test. Even in live mode,
 NaviMind proposes semantic actions only; local target validation, execution
 policy and post-action verification remain authoritative.
-
