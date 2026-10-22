@@ -242,3 +242,121 @@ def test_provider_never_marks_native_fields_as_interaction_authorized():
 
     assert elements
     assert all(element.interaction_capability.value == "unknown" for element in elements)
+
+
+def test_provider_prefers_combobox_over_its_native_edit_child():
+    document = native_record(
+        DOCUMENT_HANDLE,
+        title=DOCUMENT_TITLE,
+        class_name="Afx:MDIChild",
+        bounds=(100, 80, 900, 700),
+        client_bounds=(110, 110, 890, 690),
+        parent_chain=(DOCUMENT_HANDLE, ROOT_HANDLE),
+    )
+    combo = native_record(
+        302,
+        title="",
+        class_name="ComboBox",
+        bounds=(200, 250, 360, 280),
+        client_bounds=(202, 252, 358, 278),
+        parent_chain=(302, DOCUMENT_HANDLE, ROOT_HANDLE),
+    )
+    edit_child = native_record(
+        301,
+        title="",
+        class_name="Edit",
+        bounds=(205, 252, 345, 278),
+        client_bounds=(207, 253, 343, 277),
+        parent_chain=(301, 302, DOCUMENT_HANDLE, ROOT_HANDLE),
+    )
+    label = native_record(
+        401,
+        title="Rodzaj transportu",
+        class_name="Static",
+        bounds=(125, 250, 190, 280),
+        client_bounds=(125, 250, 190, 280),
+        parent_chain=(401, DOCUMENT_HANDLE, ROOT_HANDLE),
+    )
+
+    elements = make_provider((document, combo, edit_child, label)).perceive(
+        make_observation()
+    )
+
+    assert len(elements) == 1
+    assert elements[0].kind == "combobox"
+    assert elements[0].label == "Rodzaj transportu"
+
+
+def test_provider_does_not_reuse_one_native_label_for_two_fields():
+    document = native_record(
+        DOCUMENT_HANDLE,
+        title=DOCUMENT_TITLE,
+        class_name="Afx:MDIChild",
+        bounds=(100, 80, 900, 700),
+        client_bounds=(110, 110, 890, 690),
+        parent_chain=(DOCUMENT_HANDLE, ROOT_HANDLE),
+    )
+    edit = native_record(
+        301,
+        title="",
+        class_name="Edit",
+        bounds=(200, 200, 320, 230),
+        client_bounds=(202, 202, 318, 228),
+        parent_chain=(301, DOCUMENT_HANDLE, ROOT_HANDLE),
+    )
+    combo = native_record(
+        302,
+        title="",
+        class_name="ComboBox",
+        bounds=(205, 200, 325, 230),
+        client_bounds=(207, 202, 323, 228),
+        parent_chain=(302, DOCUMENT_HANDLE, ROOT_HANDLE),
+    )
+    shared_label = native_record(
+        401,
+        title="Rodzaj transportu",
+        class_name="Static",
+        bounds=(125, 200, 190, 230),
+        client_bounds=(125, 200, 190, 230),
+        parent_chain=(401, DOCUMENT_HANDLE, ROOT_HANDLE),
+    )
+
+    elements = make_provider((document, edit, combo, shared_label)).perceive(
+        make_observation()
+    )
+
+    # One static HWND cannot independently identify two different fields.
+    assert elements == ()
+
+
+def test_provider_does_not_use_main_window_as_shared_label_container():
+    document = native_record(
+        DOCUMENT_HANDLE,
+        title=DOCUMENT_TITLE,
+        class_name="Afx:MDIChild",
+        bounds=(100, 80, 900, 700),
+        client_bounds=(110, 110, 890, 690),
+        parent_chain=(DOCUMENT_HANDLE, ROOT_HANDLE),
+    )
+    field = native_record(
+        301,
+        title="",
+        class_name="Edit",
+        bounds=(200, 200, 320, 230),
+        client_bounds=(202, 202, 318, 228),
+        # The edit has no shared container with the label before the
+        # selected document HWND; sharing only the app root is insufficient.
+        parent_chain=(301, 500, DOCUMENT_HANDLE, ROOT_HANDLE),
+    )
+    label = native_record(
+        401,
+        title="Szerokość",
+        class_name="Static",
+        bounds=(125, 200, 190, 230),
+        client_bounds=(125, 200, 190, 230),
+        parent_chain=(401, 600, DOCUMENT_HANDLE, ROOT_HANDLE),
+    )
+
+    elements = make_provider((document, field, label)).perceive(make_observation())
+
+    assert elements == ()
