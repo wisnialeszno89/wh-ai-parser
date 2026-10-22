@@ -5,7 +5,7 @@ from app.agent.agent_action import AgentAction
 from app.agent.agent_intent import AgentIntent
 from app.agent.planning.action_plan import ActionPlan
 from app.agent.planning.action_step import ActionStep
-from app.agent.runtime.resumable_task import TaskCheckpoint, TaskStatus, Verification
+from app.agent.runtime.resumable_task import TaskAction, TaskCheckpoint, TaskStatus, Verification
 from app.agent.runtime.resumable_task_repository import TaskCheckpointRepository
 from app.agent.runtime.windowhub_resumable_task_host import (
     WindowHubResumableTaskHost,
@@ -391,7 +391,7 @@ def _make_write_validation_scene(*, active_document="Oferta robocza", target_sco
 
 def _validate_write_target(scene):
     return WindowHubResumableTaskHost._validate_target(
-        __import__("app.agent.runtime.resumable_task", fromlist=["TaskAction"]).TaskAction(
+        TaskAction(
             action_id="scope-check",
             name="write_text",
             target="Szerokość",
