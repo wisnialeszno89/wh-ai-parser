@@ -141,7 +141,9 @@ def build_read_only_report(
             "truncated": len(elements) > max_elements,
             "elements_with_document_scope": scoped_count,
             "elements_without_document_scope": len(elements) - scoped_count,
-            "elements_with_current_value": current_value_available_count,
+            "elements_with_current_value": sum(
+                1 for item in inventory if item["current_value_available"] is True
+            ),
         },
         "elements": inventory,
         "sharing_warning": (
@@ -149,10 +151,6 @@ def build_read_only_report(
             "Current values, active document name, window title, and raw document scopes are redacted by default."
         ),
     }
-    # Count is derived from the emitted redacted inventory, not an unfiltered payload.
-    report["inventory"]["elements_with_current_value"] = sum(
-        1 for item in inventory if item["current_value_available"] is True
-    )
     if stop_reason:
         report["observation_skipped_reason"] = stop_reason
     return report
