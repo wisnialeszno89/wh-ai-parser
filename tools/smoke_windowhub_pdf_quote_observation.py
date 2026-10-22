@@ -11,7 +11,6 @@ import os
 import re
 import sys
 import unicodedata
-from typing import Any
 
 
 _FIELD_ALIASES = {
@@ -25,6 +24,10 @@ _FIELD_ALIASES = {
     "width": {"width", "szerokosc", "szer"},
     "height": {"height", "wysokosc", "wys"},
 }
+_PRODUCT_CHOICE_LABELS = {
+    "okno", "okna", "window", "windows", "drzwi", "door",
+    "drzwi balkonowe", "balcony door", "przesuwne", "sliding door", "hs",
+}
 _CONTROL_LABELS = {
     "nowa oferta",
     "dodaj artykul do konstrukcji",
@@ -35,17 +38,7 @@ _CONTROL_LABELS = {
     "zapisz",
     "save draft",
     "finish",
-    "okno",
-    "okna",
-    "window",
-    "windows",
-    "drzwi",
-    "door",
-    "drzwi balkonowe",
-    "balcony door",
-    "przesuwne",
-    "sliding door",
-    "hs",
+    *_PRODUCT_CHOICE_LABELS,
 }
 _NUMERIC_VALUE = re.compile(
     r"^[+-]?\d+(?:[.,]\d+)?"
@@ -141,6 +134,11 @@ def build_report(scene: object) -> dict[str, object]:
         ):
             controls.append({
                 "label": label,
+                "role": (
+                    "product_choice"
+                    if normalized_label in {_canonical(item) for item in _PRODUCT_CHOICE_LABELS}
+                    else "workflow_control"
+                ),
                 "control_kind": kind,
                 "enabled": metadata.get("uia_enabled"),
                 "selected": metadata.get("uia_selected"),
@@ -154,20 +152,32 @@ def build_report(scene: object) -> dict[str, object]:
     windowhub_title_match = "windowhub" in _canonical(title_text)
     focus_value = observation_metadata.get("window_focused")
 
-    all_expected_fields_seen = all(
-        any(item["field"] == field_name for item in fields)
-        for field_name in ("product_type", "quantity", "width", "height")
+    product_choice_seen = any(
+        item["role"] == "product_choice" for item in controls
     )
-    all_seen_fields_scoped = bool(fields) and all(
-        item["write_scope_proven"] is True for item in fields
+    seen_roles = {str(item["field"]) for item in fields}
+    if product_choice_seen or "product_type" in seen_roles:
+        seen_roles.add("product_type")
+    expected_roles = {"product_type", "quantity", "width", "height"}
+    missing_roles = sorted(expected_roles.difference(seen_roles))
+
+    editable_field_roles = {"quantity", "width", "height"}
+    observed_text_fields = [
+        item for item in fields
+        if item["field"] in editable_field_roles
+    ]
+    all_text_fields_scoped = bool(observed_text_fields) and all(
+        item["write_scope_proven"] is True for item in observed_text_fields
     )
 
     if not windowhub_title_match:
         next_step = "Activate the WindowHub main window and run this read-only probe again."
-    elif not all_expected_fields_seen:
-        next_step = "Review the reported labels; missing fields may be hidden, on another screen, or not exposed by UI Automation."
-    elif not all_seen_fields_scoped:
-        next_step = "Do not run live text entry yet; target document/modal scope is not proven for every observed field."
+    elif not observed_text_fields:
+        next_step = "Open the offer editor screen showing quantity/width/height, then run this read-only probe again."
+    elif not all_text_fields_scoped:
+        next_step = "Do not run live text entry yet; active-document or owned-modal scope is not proven for every observed quantity/dimension field."
+    elif missing_roles:
+        next_step = "Some basic quote controls are not visible on this screen. Inspect the current screen and run this probe again at the relevant workflow stage."
     else:
         next_step = "Observation contract looks promising; review the labels and scope, then perform a separately approved low-risk draft test."
 
@@ -193,8 +203,9 @@ def build_report(scene: object) -> dict[str, object]:
         "quote_field_candidates": fields,
         "workflow_control_candidates": controls,
         "redacted_value_count": redacted_value_count,
-        "all_basic_quote_fields_seen": all_expected_fields_seen,
-        "all_observed_fields_have_write_scope": all_seen_fields_scoped,
+        "basic_quote_field_roles_seen": sorted(seen_roles),
+        "basic_quote_field_roles_missing_on_current_screen": missing_roles,
+        "all_observed_text_fields_have_write_scope": all_text_fields_scoped,
         "recommended_next_step": next_step,
     }
 
