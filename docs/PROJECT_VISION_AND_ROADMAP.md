@@ -218,8 +218,10 @@ Merged work with successful CI at the time of this checkpoint:
 
 Current known implementation boundaries:
 
-- Trusted local PDF ingestion and the runtime source registry are wired, but a unified, user-facing PDF -> extracted facts -> validated quote task is **not yet complete**.
-- The runtime's quote-fact gate validates submitted facts against trusted PDF evidence. A general field extractor that constructs those facts from PDF material is still needed.
+- PRs #113 and #114 added trusted local PDF ingestion and wired its source registry into `AgentRuntime`; untrusted request metadata cannot register trusted PDF sources.
+- **PR #116 adds the first deterministic PDF-to-quote-facts bridge:** explicitly labelled product type, width, height, and quantity values are converted to typed facts with exact evidence lines, source alias, page number, and extraction method. It skips OCR-needed pages and records their page numbers.
+- The quote-fact validator now rejects facts from a PDF source if any page in that source still needs OCR. Multiple explicit values are preserved so conflicting dimensions trigger manual review instead of being silently resolved.
+- This is deliberately an initial labelled-line extractor, not the complete PDF-to-quote workflow. Complex table layouts, unlabelled prose, OCR itself, broader field coverage, and a user-facing validated quote draft still need subsequent work. No price is inferred.
 - WindowHub still requires validation in the user's actual local environment; GitHub CI does not prove a physical desktop run occurred.
 - README documents learned semantic workflows, compact experience memory, NaviMind task reasoning, the knowledge envelope, and the adapter contracts.
 - Legacy `app/ai/analyze_pdf.py` and similar scripts have import-time side effects and unsafe placeholder configuration. Treat replacement/deprecation as a separate, tested task; do not re-import these scripts into the runtime as a shortcut.
@@ -227,11 +229,12 @@ Current known implementation boundaries:
 ### Immediate continuation checklist
 
 1. Refresh the current branch head and PR/CI state before making changes.
-2. Read this document and `README.md`; consult epic issue #59 for the broad end-to-end workflow and related issues for task-level scope.
-3. Continue Phase A with the smallest testable change: connect trusted PDF page extractions to typed facts and exact evidence, with synthetic-PDF tests and fail-closed behavior.
-4. Then prepare/run the bounded WindowHub dry-run/local smoke procedure, gathering actual console output from the user wherever physical Windows/WindowHub access is required.
-5. Keep changes isolated in a feature branch and submit a PR to `feature/browser-navimind-bridge`; check GitHub Actions and report what was actually tested.
-6. Update this checkpoint whenever a PR merges, a milestone changes, or a new blocker is discovered.
+2. Read this document and `README.md`; consult epic issue #59 and issues #60/#61 for the end-to-end workflow and task-level contracts.
+3. Finish Phase A by wiring extracted candidates through the trusted validator into the existing `OfferContext` path, producing a clear reviewable result that lists missing fields, conflicts, and OCR gaps before any GUI action.
+4. Add/extend runtime tests for valid extraction -> accepted quote context and incomplete/OCR/conflicting sources -> manual review with zero GUI actions.
+5. Then prepare/run the bounded WindowHub dry-run/local smoke procedure, gathering actual console output from the user wherever physical Windows/WindowHub access is required.
+6. Keep changes isolated in a feature branch and submit a PR to `feature/browser-navimind-bridge`; check GitHub Actions and report what was actually tested.
+7. Update this checkpoint whenever a PR merges, a milestone changes, or a new blocker is discovered.
 
 ### Handoff rules for future ChatGPT sessions
 
