@@ -13,7 +13,8 @@ import os
 import sys
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any
+
+sys.dont_write_bytecode = True
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 if str(REPOSITORY_ROOT) not in sys.path:
@@ -69,7 +70,6 @@ def build_read_only_report(
 
     inventory: list[dict[str, object]] = []
     scoped_count = 0
-    current_value_available_count = 0
     for index, element in enumerate(elements[:max_elements], start=1):
         element_metadata = getattr(element, "metadata", None) or {}
         if not isinstance(element_metadata, Mapping):
@@ -84,6 +84,13 @@ def build_read_only_report(
         if isinstance(scope_raw, str) and scope_raw.strip():
             scoped_count += 1
 
+        tab_scope = element_metadata.get("uia_tab_scope")
+        tab_scope = (
+            tab_scope
+            if isinstance(tab_scope, str)
+            and tab_scope in {"document", "application", "unknown"}
+            else None
+        )
         item: dict[str, object] = {
             "index": index,
             "label": label or "<no semantic label>",
@@ -97,11 +104,7 @@ def build_read_only_report(
             "current_value_nonempty": bool(current_value.strip()) if value_available else None,
             "document_scope_status": _document_scope_status(element_metadata, active_document),
             "raw_document_scope_available": isinstance(scope_raw, str) and bool(scope_raw.strip()),
-            "tab_scope": (
-                element_metadata.get("uia_tab_scope")
-                if element_metadata.get("uia_tab_scope") in {"document", "application", "unknown"}
-                else None
-            ),
+            "tab_scope": tab_scope,
             "document_tab_selected": _optional_bool(element_metadata, "uia_document_tab_selected"),
         }
         if include_sensitive_values:
@@ -273,7 +276,7 @@ def main() -> int:
             "files_written": False,
             "ok": False,
             "error_type": type(exc).__name__,
-            "error": str(exc),
+            "error": "The read-only inventory failed before completion. No computer action was attempted.",
         }, ensure_ascii=False, indent=2))
         return 2
 
