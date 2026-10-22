@@ -87,6 +87,23 @@ WINDOWHUB_OFFER_KNOWLEDGE: dict[str, object] = {
         },
     ),
     "field_synonyms": {
+        "product_type": (
+            "rodzaj produktu",
+            "typ produktu",
+            "produkt",
+            "product type",
+            "okno",
+            "okna",
+            "window",
+            "windows",
+            "drzwi",
+            "door",
+            "drzwi balkonowe",
+            "balcony door",
+            "przesuwne",
+            "sliding door",
+            "hs",
+        ),
         "customer": (
             "klient",
             "kontrahent",
