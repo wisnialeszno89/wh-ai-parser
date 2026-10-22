@@ -238,9 +238,9 @@ Current known implementation boundaries:
 
 1. Refresh the current branch head and PR/CI state before making changes.
 2. Read this document and `README.md`; consult epic issue #59 and issues #60/#61 for the end-to-end workflow and task-level contracts.
-3. Prepare the bounded local WindowHub smoke: confirm the foreground app/document, UIA product-selection state, exact labels/scopes for quantity/width/height, and the draft-save postcondition. Start with observation-only diagnostics, then use a user-approved low-risk test offer only after the screen contract matches the simulation.
-4. Capture the actual PowerShell/log output from the local machine and adapt the semantic aliases/final verifier to observed evidence, not assumptions. Do not claim a live E2E success until this local output proves it.
-5. Add the next field groups (profile, configuration, glazing, opening, colours) only after their controls and final state can be independently observed; unsupported fields must continue to stop before automatic task creation.
+3. Run `python tools/diagnose_windowhub_semantics.py` from the user's local Windows checkout with WindowHub focused. This command uses read-only UI Automation, redacts field values/document names by default, and does not instantiate an action executor. Inspect the JSON to determine whether selected-document state, product selection, and document-scope metadata are actually available.
+4. Capture the actual PowerShell output and adapt semantic aliases/final verification to observed evidence, not assumptions. If active-document or field-scope evidence is missing, implement and test that perception contract before attempting a live draft. Do not claim a live E2E success until local output proves it.
+5. Only after observation and scoping are sound, perform a user-approved low-risk test offer; add profile, configuration, glazing, opening, and colours only when their controls and final state can be independently observed. Unsupported fields must remain blocked.
 6. Expand field/table formats and plan a separate OCR fallback with explicit confidence and provenance; never infer prices or technical rules without approved evidence.
 7. Keep changes isolated in a feature branch, submit a PR to `feature/browser-navimind-bridge`, check CI, and update this checkpoint after each milestone.
 
