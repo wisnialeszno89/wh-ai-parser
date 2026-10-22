@@ -113,6 +113,16 @@ def test_extractor_skips_ocr_needed_page_and_reports_the_gap(tmp_path):
     assert payload["needs_ocr"] is True
     assert payload["ocr_required_pages"] == [2]
 
+    validation = QuoteFactValidator().validate_payload(
+        payload,
+        pdf_sources={"mixed": mixed},
+    )
+    assert validation.requires_manual_review is True
+    assert any(
+        conflict.code == "unverified_source_provenance"
+        for conflict in validation.conflicts
+    )
+
 
 def test_unlabelled_prose_does_not_become_guessed_quote_facts(tmp_path):
     root = tmp_path / "approved"
