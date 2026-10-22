@@ -332,6 +332,7 @@ class WindowHubWin32FormProvider(PerceptionProvider):
                 )
             )
 
+        return tuple(elements)
 
     @staticmethod
     def _resolve_selected_document_label(
