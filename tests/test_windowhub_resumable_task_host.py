@@ -465,3 +465,126 @@ def test_write_text_rejects_non_editable_target_even_when_document_scoped():
 
     assert result.valid is False
     assert "not an evidenced editable text field" in result.reason
+
+
+
+def test_final_verification_accepts_product_type_only_from_selected_active_document_item():
+    scene = FakeScene(
+        [
+            FakeElement(
+                "list_item",
+                "Okno",
+                metadata={
+                    "uia_selected": True,
+                    "document_scope": "Oferta robocza",
+                },
+            ),
+            FakeElement(
+                "edit",
+                "Szerokość",
+                "writable",
+                metadata={
+                    "current_value": "1200",
+                    "document_scope": "Oferta robocza",
+                },
+            ),
+            FakeElement(
+                "edit",
+                "Wysokość",
+                "writable",
+                metadata={
+                    "current_value": "1500",
+                    "document_scope": "Oferta robocza",
+                },
+            ),
+        ],
+        active_document="Oferta robocza",
+    )
+    checkpoint = TaskCheckpoint(
+        "product-type-selected",
+        "Verify selected product and dimensions",
+        facts={"product_type": "window", "width": 1200, "height": 1500},
+        required_fields=("product_type", "width", "height"),
+    )
+
+    result = verify_windowhub_final_state(checkpoint, scene)
+
+    assert result.verified is True
+    product = next(item for item in result.evidence if item["field"] == "product_type")
+    assert product["verification"] == "selected_product_item"
+    assert product["observed_value"] == "window"
+
+
+def test_final_verification_rejects_unselected_product_item():
+    scene = FakeScene(
+        [
+            FakeElement(
+                "list_item",
+                "Okno",
+                metadata={"uia_selected": False, "document_scope": "Oferta robocza"},
+            ),
+            FakeElement(
+                "edit",
+                "Szerokość",
+                "writable",
+                metadata={"current_value": "1200", "document_scope": "Oferta robocza"},
+            ),
+            FakeElement(
+                "edit",
+                "Wysokość",
+                "writable",
+                metadata={"current_value": "1500", "document_scope": "Oferta robocza"},
+            ),
+        ],
+        active_document="Oferta robocza",
+    )
+    checkpoint = TaskCheckpoint(
+        "product-type-not-selected",
+        "Verify selected product and dimensions",
+        facts={"product_type": "window", "width": 1200, "height": 1500},
+        required_fields=("product_type", "width", "height"),
+    )
+
+    result = verify_windowhub_final_state(checkpoint, scene)
+
+    assert result.verified is False
+    assert "product_type" in result.missing_fields
+    assert "selected_product_missing_or_ambiguous" in str(result.evidence)
+
+
+def test_final_verification_rejects_wrong_selected_product_type():
+    scene = FakeScene(
+        [
+            FakeElement(
+                "list_item",
+                "Drzwi",
+                metadata={"uia_selected": True, "document_scope": "Oferta robocza"},
+            ),
+            FakeElement(
+                "edit",
+                "Szerokość",
+                "writable",
+                metadata={"current_value": "1200", "document_scope": "Oferta robocza"},
+            ),
+            FakeElement(
+                "edit",
+                "Wysokość",
+                "writable",
+                metadata={"current_value": "1500", "document_scope": "Oferta robocza"},
+            ),
+        ],
+        active_document="Oferta robocza",
+    )
+    checkpoint = TaskCheckpoint(
+        "wrong-product-selected",
+        "Verify selected product and dimensions",
+        facts={"product_type": "window", "width": 1200, "height": 1500},
+        required_fields=("product_type", "width", "height"),
+    )
+
+    result = verify_windowhub_final_state(checkpoint, scene)
+
+    assert result.verified is False
+    assert "product_type" in result.missing_fields
+    product = next(item for item in result.evidence if item["field"] == "product_type")
+    assert product["observed_value"] == "door"
