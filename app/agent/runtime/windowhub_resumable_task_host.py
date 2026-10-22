@@ -169,10 +169,24 @@ class WindowHubResumableTaskHost:
                     required_fields=(matched_field,),
                 )
             expected = checkpoint.facts[matched_field]
-            if not _values_match(expected, proposed.value):
+            if not _values_match_for_field(matched_field, expected, proposed.value):
                 return PlanDecision(
                     unresolved_issues=(
                         f"Proposed value for {matched_field!r} conflicts with the task's supplied fact; no text was entered.",
+                    )
+                )
+        if proposed.name == "click_screen_element" and matched_field == "product_type":
+            expected_code = _product_type_code(checkpoint.facts.get("product_type"))
+            selected_code = _product_type_code(proposed.target)
+            if (
+                expected_code is not None
+                and selected_code is not None
+                and selected_code != expected_code
+            ):
+                return PlanDecision(
+                    unresolved_issues=(
+                        f"Proposed product selection {proposed.target!r} conflicts with "
+                        f"the task's supplied product_type; no selection was made.",
                     )
                 )
 
@@ -483,6 +497,20 @@ def verify_windowhub_final_state(
         if field_name not in checkpoint.facts:
             missing.append(field_name)
             continue
+        if field_name == "product_type":
+            status, product_evidence = _verify_product_type(
+                expected=checkpoint.facts[field_name],
+                scene=scene,
+                form_fields=form_fields,
+                active_document=active_document,
+            )
+            evidence.append(product_evidence)
+            if status == "missing":
+                missing.append(field_name)
+            elif status != "matched":
+                conflicts.append(field_name)
+            continue
+
         aliases = _aliases_for_field(field_name)
         candidates = [
             item for item in form_fields
@@ -546,6 +574,123 @@ def _aliases_for_field(field_name: str) -> set[str]:
 def _canonical(value: str) -> str:
     decomposed = unicodedata.normalize("NFKD", value.strip().casefold())
     return "".join(char for char in decomposed if not unicodedata.combining(char))
+
+
+def _product_type_code(value: object) -> str | None:
+    if not isinstance(value, str):
+        return None
+    normalized = _canonical(value)
+    aliases = {
+        "window": "window",
+        "windows": "window",
+        "okno": "window",
+        "okna": "window",
+        "door": "door",
+        "drzwi": "door",
+        "balcony door": "balcony_door",
+        "drzwi balkonowe": "balcony_door",
+        "sliding door": "sliding_door",
+        "drzwi przesuwne": "sliding_door",
+        "przesuwne": "sliding_door",
+        "hs": "sliding_door",
+        "h.s.": "sliding_door",
+    }
+    return aliases.get(normalized)
+
+
+def _values_match_for_field(
+    field_name: str | None,
+    expected: object,
+    actual: object,
+) -> bool:
+    if field_name == "product_type":
+        left = _product_type_code(expected)
+        right = _product_type_code(actual)
+        return left is not None and right is not None and left == right
+    return _values_match(expected, actual)
+
+
+def _verify_product_type(
+    *,
+    expected: object,
+    scene: object,
+    form_fields: tuple[object, ...],
+    active_document: str,
+) -> tuple[str, dict[str, object]]:
+    expected_code = _product_type_code(expected)
+    if expected_code is None:
+        return "conflict", {
+            "field": "product_type",
+            "expected_value": expected,
+            "status": "unsupported_expected_product_type",
+        }
+
+    field_label_aliases = {
+        "rodzaj produktu",
+        "typ produktu",
+        "produkt",
+        "product type",
+    }
+    labelled_fields = [
+        item
+        for item in form_fields
+        if _canonical(getattr(item, "label", "")) in field_label_aliases
+        and _product_type_code(getattr(item, "value", None)) is not None
+    ]
+    if len(labelled_fields) == 1:
+        item = labelled_fields[0]
+        observed = getattr(item, "value", None)
+        observed_code = _product_type_code(observed)
+        evidence = {
+            "field": "product_type",
+            "label": getattr(item, "label", None),
+            "observed_value": observed,
+            "expected_value": expected,
+            "scope_status": getattr(item, "scope_status", None),
+            "verification": "active_document_product_field",
+        }
+        return ("matched" if observed_code == expected_code else "conflict", evidence)
+    if len(labelled_fields) > 1:
+        return "missing", {
+            "field": "product_type",
+            "candidate_count": len(labelled_fields),
+            "status": "ambiguous_product_fields",
+        }
+
+    selected_items: list[tuple[object, str]] = []
+    for element in getattr(scene, "elements", ()) or ():
+        metadata = getattr(element, "metadata", None) or {}
+        if not isinstance(metadata, Mapping):
+            continue
+        if metadata.get("document_scope") != active_document:
+            continue
+        is_selected = any(
+            metadata.get(key) is True
+            for key in ("uia_selected", "selected", "checked")
+        )
+        if not is_selected:
+            continue
+        code = _product_type_code(getattr(element, "label", None))
+        if code is not None:
+            selected_items.append((element, code))
+
+    if len(selected_items) != 1:
+        return "missing", {
+            "field": "product_type",
+            "candidate_count": len(selected_items),
+            "status": "selected_product_missing_or_ambiguous",
+        }
+
+    element, observed_code = selected_items[0]
+    evidence = {
+        "field": "product_type",
+        "label": getattr(element, "label", None),
+        "observed_value": observed_code,
+        "expected_value": expected,
+        "scope_status": "active_document",
+        "verification": "selected_product_item",
+    }
+    return ("matched" if observed_code == expected_code else "conflict", evidence)
 
 
 def _values_match(expected: object, actual: object) -> bool:
