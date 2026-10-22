@@ -317,6 +317,7 @@ class WindowHubWin32FormProvider(PerceptionProvider):
                     confidence=0.96,
                     metadata={
                         "source": "windowhub_win32_form_provider",
+                        "protect_control_type_from_text_fusion": True,
                         "provider_element_id": element_id,
                         "semantic_name": label,
                         "current_value": current_value,

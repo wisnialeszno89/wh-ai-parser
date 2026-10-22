@@ -3,6 +3,8 @@ from types import SimpleNamespace
 from app.agent.environment.environment_observation import EnvironmentObservation
 from app.agent.environment.environment_state import EnvironmentState
 from app.agent.perception.windowhub_form_reader import WindowHubFormReader
+from app.agent.perception.screen_element import ScreenElement
+from app.agent.perception.screen_element_fusion import ScreenElementFusion
 from app.agent.perception.windowhub_win32_form_provider import (
     WindowHubWin32FormProvider,
 )
@@ -360,3 +362,36 @@ def test_provider_does_not_use_main_window_as_shared_label_container():
     elements = make_provider((document, field, label)).perceive(make_observation())
 
     assert elements == ()
+
+def test_native_form_field_does_not_fuse_with_ocr_label_text():
+    native_elements = make_provider(make_records()).perceive(make_observation())
+
+    ocr_label = ScreenElement(
+        kind="text",
+        label="Kolor",
+        x=125,
+        y=250,
+        width=65,
+        height=30,
+        confidence=0.99,
+        metadata={
+            "source": "windowhub_ocr",
+            "provider_id": "windowhub_ocr",
+            "ocr_text": "Kolor",
+        },
+    )
+
+    fusion_result = ScreenElementFusion().fuse((*native_elements, ocr_label))
+
+    assert len(fusion_result.elements) == 3
+
+    fields = WindowHubFormReader().read_active_document(
+        make_scene(fusion_result.elements)
+    )
+    assert [
+        (field.control_type, field.label, field.value)
+        for field in fields
+    ] == [
+        ("edit", "Szerokość", "1230"),
+        ("combobox", "Kolor", "Biały"),
+    ]

@@ -298,3 +298,51 @@ def test_same_shared_id_duplicate_within_one_provider_is_not_fused_cross_provide
 
     assert len(result.elements) == 3
     assert result.merged_group_count == 0
+
+def test_native_form_control_does_not_fuse_with_same_label_ocr_text():
+    items = (
+        element(
+            source="windowhub_win32_form_provider",
+            kind="combobox",
+            label="Kolor",
+            metadata={"protect_control_type_from_text_fusion": True},
+        ),
+        element(
+            source="windowhub_ocr",
+            kind="text",
+            label="Kolor",
+        ),
+    )
+
+    result = ScreenElementFusion().fuse(items)
+
+    assert len(result.elements) == 2
+    assert {(item.kind, item.label) for item in result.elements} == {
+        ("combobox", "Kolor"),
+        ("text", "Kolor"),
+    }
+
+
+def test_native_form_control_can_fuse_with_same_type_uia_control():
+    items = (
+        element(
+            source="windowhub_win32_form_provider",
+            kind="combobox",
+            label="Kolor",
+            confidence=0.96,
+            metadata={"protect_control_type_from_text_fusion": True},
+        ),
+        element(
+            source="windowhub_ui_automation",
+            kind="combobox",
+            label="Kolor",
+            confidence=0.99,
+        ),
+    )
+
+    result = ScreenElementFusion().fuse(items)
+
+    assert len(result.elements) == 1
+    assert result.merged_group_count == 1
+    assert result.elements[0].kind == "combobox"
+    assert result.elements[0].metadata["fused_provider_count"] == 2
