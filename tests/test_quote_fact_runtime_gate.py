@@ -10,9 +10,11 @@ from app.agent.offers.quote_facts import (
     QuoteFactValidator,
 )
 from app.agent.adapters.pdf_document_adapter import (
+    PdfDocumentAdapter,
     PdfDocumentExtraction,
     PdfPageFinding,
 )
+from app.agent.adapters.pdf_ingestion_service import PdfIngestionService
 from app.agent.offers.offer_context import OfferContext
 from app.agent.offers.offer_agent_session import OfferAgentSession
 from app.agent.offers.offer_workflow_service import OfferWorkflowService
@@ -259,3 +261,182 @@ def test_request_metadata_cannot_register_its_own_trusted_pdf_source():
         for conflict in validation["conflicts"]
     )
 
+
+
+
+def test_runtime_pdf_ingestion_registers_sources_for_quote_fact_validation(tmp_path):
+    from tests.test_pdf_document_adapter import write_text_pdf
+
+    root = tmp_path / "approved"
+    root.mkdir()
+    source = root / "offer.pdf"
+    write_text_pdf(
+        source,
+        ["Product: window. Width: 1200 mm. Height: 1500 mm."],
+    )
+    ingestion = PdfIngestionService(
+        adapter=PdfDocumentAdapter(allowed_roots=(root,)),
+    )
+    runtime = AgentRuntime(
+        orchestrator=object(),
+        plan_executor=object(),
+        session_store=AgentSessionStore(),
+        control_loop=SpyControlLoop(),
+        pdf_ingestion_service=ingestion,
+    )
+
+    extraction = runtime.ingest_pdf(source, source_alias="offer-source")
+
+    assert runtime.registered_pdf_sources()["offer-source"] is extraction
+    facts = (
+        QuoteFact(
+            field_name="product_type",
+            raw_value="window",
+            source=QuoteFactSource(
+                source_alias="offer-source",
+                page_number=1,
+                extraction_method="pypdf_text",
+            ),
+            confidence=0.99,
+            evidence_text="Product: window",
+        ),
+        QuoteFact(
+            field_name="width",
+            raw_value="1200 mm",
+            source=QuoteFactSource(
+                source_alias="offer-source",
+                page_number=1,
+                extraction_method="pypdf_text",
+            ),
+            confidence=0.99,
+            unit="mm",
+            evidence_text="Width: 1200 mm",
+        ),
+        QuoteFact(
+            field_name="height",
+            raw_value="1500 mm",
+            source=QuoteFactSource(
+                source_alias="offer-source",
+                page_number=1,
+                extraction_method="pypdf_text",
+            ),
+            confidence=0.99,
+            unit="mm",
+            evidence_text="Height: 1500 mm",
+        ),
+    )
+    validation = QuoteFactValidator().validate(
+        facts,
+        known_sources=runtime.registered_pdf_sources(),
+    )
+    assert validation.can_execute is True
+    assert validation.to_offer_context("Przygotuj ofertę").width == 1200
+
+    assert runtime.remove_pdf_source("offer-source") is True
+    blocked = QuoteFactValidator().validate(
+        facts,
+        known_sources=runtime.registered_pdf_sources(),
+    )
+    assert blocked.can_execute is False
+    assert any(
+        item.code == "unverified_source_provenance"
+        for item in blocked.conflicts
+    )
+
+
+def test_runtime_pdf_ingestion_fails_closed_when_not_configured(tmp_path):
+    runtime = AgentRuntime(
+        orchestrator=object(),
+        plan_executor=object(),
+        session_store=AgentSessionStore(),
+        control_loop=SpyControlLoop(),
+    )
+
+    try:
+        runtime.ingest_pdf(tmp_path / "missing.pdf")
+    except RuntimeError as exc:
+        assert "PDF ingestion is not configured" in str(exc)
+    else:
+        raise AssertionError("Unconfigured PDF ingestion must fail closed.")
+
+
+def test_runtime_pdf_registry_does_not_accept_request_metadata_as_trusted_source(tmp_path):
+    alias = "request-metadata.pdf"
+    extraction = PdfDocumentExtraction(
+        source_alias=alias,
+        page_count=1,
+        file_size_bytes=200,
+        status="complete",
+        pages=(
+            PdfPageFinding(
+                source_alias=alias,
+                page_number=1,
+                text="Product: window. Width: 1200 mm. Height: 1500 mm.",
+                extraction_method="pypdf_text",
+                extraction_confidence=None,
+                needs_ocr=False,
+            ),
+        ),
+    )
+    ingestion = PdfIngestionService(
+        adapter=PdfDocumentAdapter(allowed_roots=(tmp_path,)),
+    )
+    runtime = AgentRuntime(
+        orchestrator=object(),
+        plan_executor=object(),
+        session_store=AgentSessionStore(),
+        control_loop=SpyControlLoop(),
+        pdf_ingestion_service=ingestion,
+    )
+
+    assert dict(runtime.registered_pdf_sources()) == {}
+    result = runtime.run(
+        AgentRequest(
+            message="Przygotuj ofertę",
+            metadata={
+                "quote_facts": QuoteFactValidator.envelope(
+                    (
+                        QuoteFact(
+                            field_name="product_type",
+                            raw_value="window",
+                            source=QuoteFactSource(
+                                source_alias=alias,
+                                page_number=1,
+                                extraction_method="pypdf_text",
+                            ),
+                            confidence=0.99,
+                            evidence_text="Product: window",
+                        ),
+                        QuoteFact(
+                            field_name="width",
+                            raw_value="1200 mm",
+                            source=QuoteFactSource(
+                                source_alias=alias,
+                                page_number=1,
+                                extraction_method="pypdf_text",
+                            ),
+                            confidence=0.99,
+                            unit="mm",
+                            evidence_text="Width: 1200 mm",
+                        ),
+                        QuoteFact(
+                            field_name="height",
+                            raw_value="1500 mm",
+                            source=QuoteFactSource(
+                                source_alias=alias,
+                                page_number=1,
+                                extraction_method="pypdf_text",
+                            ),
+                            confidence=0.99,
+                            unit="mm",
+                            evidence_text="Height: 1500 mm",
+                        ),
+                    )
+                ),
+                "pdf_sources": {alias: extraction},
+            },
+        )
+    )
+    assert result.requires_manual_review is True
+    assert result.executed is False
+    assert runtime.registered_pdf_sources() == {}
