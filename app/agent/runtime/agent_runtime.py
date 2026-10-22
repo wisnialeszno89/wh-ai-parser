@@ -23,6 +23,10 @@ from app.agent.learning.learned_workflow_service import (
 from app.agent.memory.agent_memory import AgentExperience
 
 from app.agent.offers.pdf_quote_fact_extractor import PdfQuoteFactExtractor
+from app.agent.offers.pdf_quote_preparation import (
+    PdfQuotePreparationResult,
+    PdfQuotePreparationService,
+)
 
 from app.agent.offers.offer_workflow_service import (
     OfferWorkflowService,
@@ -250,6 +254,30 @@ class AgentRuntime:
                 "No trusted, ingested PDF source exists for this source alias."
             )
         return PdfQuoteFactExtractor().extract(extraction).to_payload()
+
+    def prepare_pdf_quote(
+        self,
+        source_alias: str,
+        *,
+        request_message: str,
+    ) -> PdfQuotePreparationResult:
+        """Prepare and validate a PDF quote without observing or controlling the GUI.
+
+        Only a source already ingested into this runtime's trusted registry is
+        accepted. The result contains either a validated OfferContext or
+        explicit missing fields/conflicts/OCR gaps for manual review.
+        """
+        extraction = self.pdf_source_registry.get(source_alias)
+        if not isinstance(extraction, PdfDocumentExtraction):
+            raise ValueError(
+                "No trusted, ingested PDF source exists for this source alias."
+            )
+        return PdfQuotePreparationService().prepare(
+            extraction,
+            known_sources=self.pdf_source_registry,
+            request_message=request_message,
+            approved_rules=self.approved_quote_rules,
+        )
 
     def remove_pdf_source(self, source_alias: str) -> bool:
         """Revoke one trusted PDF source alias from future fact validation."""
