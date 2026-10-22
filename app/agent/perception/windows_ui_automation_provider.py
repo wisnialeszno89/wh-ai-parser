@@ -201,6 +201,12 @@ class WindowsUIAutomationProvider(PerceptionProvider):
             document_scope_index = (
                 self._mdi_document_scope_index(descendants)
             )
+            document_runtime_scope_index = (
+                self._mdi_document_runtime_scope_index(
+                    descendants,
+                    document_scope_index,
+                )
+            )
 
             for item in descendants:
                 element = self._to_screen_element(
@@ -211,6 +217,7 @@ class WindowsUIAutomationProvider(PerceptionProvider):
                     owned_modal=owned_modal,
                     label_candidates=label_candidates,
                     document_scope_index=document_scope_index,
+                    document_runtime_scope_index=document_runtime_scope_index,
                 )
 
                 if element is not None:
@@ -270,6 +277,7 @@ class WindowsUIAutomationProvider(PerceptionProvider):
         owned_modal: bool,
         label_candidates,
         document_scope_index: dict[str, str] | None = None,
+        document_runtime_scope_index: dict[str, str] | None = None,
     ) -> ScreenElement | None:
 
         try:
@@ -401,6 +409,7 @@ class WindowsUIAutomationProvider(PerceptionProvider):
         document_scope = self._document_scope_for_item(
             item,
             document_scope_index or {},
+            document_runtime_scope_index or {},
         )
         if document_scope is not None:
             metadata["document_scope"] = document_scope
@@ -686,12 +695,76 @@ class WindowsUIAutomationProvider(PerceptionProvider):
         return result
 
     @classmethod
+    def _mdi_document_runtime_scope_index(
+        cls,
+        descendants,
+        document_scope_index: dict[str, str],
+    ) -> dict[str, str]:
+        """Map uniquely scoped MDI-subtree runtime IDs to document captions.
+
+        Some WPF wrappers expose a complete descendant tree while parent()
+        stops at a content boundary such as Expander. Runtime IDs let us
+        reconcile the independently enumerated MDI child subtree with the
+        top-level tree. Conflicting IDs across document scopes fail closed.
+        """
+        scopes_by_runtime_id: dict[str, set[str]] = defaultdict(set)
+
+        for item in descendants:
+            try:
+                info = item.element_info
+                control_type = cls._normalize_control_type(
+                    getattr(info, "control_type", None)
+                )
+                name = cls._string(getattr(info, "name", None))
+            except Exception:
+                continue
+
+            if (
+                control_type != "window"
+                or not name
+                or not cls._parent_class_is_mdi_client(item)
+            ):
+                continue
+
+            key = cls._normalized_document_key(name)
+            document_scope = document_scope_index.get(key)
+            if document_scope is None:
+                continue
+
+            subtree = [item]
+            descendants_getter = getattr(item, "descendants", None)
+            if callable(descendants_getter):
+                try:
+                    subtree.extend(tuple(descendants_getter()))
+                except Exception:
+                    # Do not infer descendants from a partial subtree.
+                    continue
+
+            for descendant in subtree:
+                runtime_id = cls._runtime_id(descendant)
+                if runtime_id is not None:
+                    scopes_by_runtime_id[runtime_id].add(document_scope)
+
+        return {
+            runtime_id: next(iter(scopes))
+            for runtime_id, scopes in scopes_by_runtime_id.items()
+            if len(scopes) == 1
+        }
+
+    @classmethod
     def _document_scope_for_item(
         cls,
         item,
         document_scope_index: dict[str, str],
+        document_runtime_scope_index: dict[str, str] | None = None,
     ) -> str | None:
-        """Find the nearest MDI child ancestor with a unique tab mapping."""
+        """Resolve from subtree runtime identity, then safe parent ancestry."""
+        runtime_id = cls._runtime_id(item)
+        if runtime_id is not None and document_runtime_scope_index:
+            runtime_scope = document_runtime_scope_index.get(runtime_id)
+            if runtime_scope is not None:
+                return runtime_scope
+
         current = item
         visited: set[int] = set()
 
