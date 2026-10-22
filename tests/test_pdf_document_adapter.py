@@ -240,3 +240,87 @@ def test_pdf_adapter_rejects_encrypted_pdf_without_password_guessing(tmp_path):
         adapter_for(root).extract(encrypted)
 
     assert exc_info.value.code == "encrypted_pdf"
+
+
+
+def test_pdf_ingestion_service_registers_only_real_adapter_extractions(tmp_path):
+    from app.agent.adapters.pdf_ingestion_service import PdfIngestionService
+
+    root = tmp_path / "approved"
+    root.mkdir()
+    source = root / "offer.pdf"
+    write_text_pdf(source, ["Product: window. Width: 1200 mm. Height: 1500 mm."])
+
+    service = PdfIngestionService(adapter=adapter_for(root))
+    extraction = service.ingest(source, source_alias="offer-source")
+
+    assert extraction.source_alias == "offer-source"
+    assert service.source_registry["offer-source"] is extraction
+    assert service.source_registry["offer-source"].pages[0].page_number == 1
+    assert str(root) not in json.dumps(extraction.to_payload())
+
+
+def test_pdf_ingestion_service_rejects_alias_collision_without_replacing_trusted_source(tmp_path):
+    from app.agent.adapters.pdf_ingestion_service import PdfIngestionService
+
+    root = tmp_path / "approved"
+    root.mkdir()
+    first_path = root / "first.pdf"
+    second_path = root / "second.pdf"
+    write_text_pdf(first_path, ["Product: window. Width: 1200 mm."])
+    write_text_pdf(second_path, ["Product: door. Width: 900 mm."])
+
+    service = PdfIngestionService(adapter=adapter_for(root))
+    first = service.ingest(first_path, source_alias="source-alias")
+
+    with pytest.raises(PdfDocumentError) as collision:
+        service.ingest(second_path, source_alias="source-alias")
+
+    assert collision.value.code == "source_alias_collision"
+    assert service.source_registry["source-alias"] is first
+    assert "1200 mm" in service.source_registry["source-alias"].pages[0].text
+
+
+def test_pdf_ingestion_service_does_not_register_rejected_paths(tmp_path):
+    from app.agent.adapters.pdf_ingestion_service import PdfIngestionService
+
+    root = tmp_path / "approved"
+    root.mkdir()
+    outside = tmp_path / "outside.pdf"
+    write_text_pdf(outside, ["Do not read"])
+
+    service = PdfIngestionService(adapter=adapter_for(root))
+    with pytest.raises(PdfDocumentError):
+        service.ingest(outside, source_alias="outside")
+
+    assert dict(service.source_registry) == {}
+
+
+def test_pdf_ingestion_service_registry_is_read_only(tmp_path):
+    from app.agent.adapters.pdf_ingestion_service import PdfIngestionService
+
+    root = tmp_path / "approved"
+    root.mkdir()
+    source = root / "offer.pdf"
+    write_text_pdf(source, ["Offer source"])
+    service = PdfIngestionService(adapter=adapter_for(root))
+    service.ingest(source, source_alias="offer")
+
+    with pytest.raises(TypeError):
+        service.source_registry["forged"] = service.source_registry["offer"]
+
+
+def test_pdf_ingestion_service_remove_only_changes_registry(tmp_path):
+    from app.agent.adapters.pdf_ingestion_service import PdfIngestionService
+
+    root = tmp_path / "approved"
+    root.mkdir()
+    source = root / "offer.pdf"
+    original = write_text_pdf(source, ["Offer source"])
+    service = PdfIngestionService(adapter=adapter_for(root))
+    service.ingest(source, source_alias="offer")
+
+    assert service.remove("offer") is True
+    assert service.remove("offer") is False
+    assert dict(service.source_registry) == {}
+    assert source.read_bytes() == original
