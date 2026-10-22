@@ -55,6 +55,7 @@ def build_read_only_report(
     stop_reason: str | None = None,
     window_title_contains: str = "WindowHub",
     process_name: str | None = None,
+    window_handle: int | None = None,
 ) -> dict[str, object]:
     """Build a JSON-safe report without exposing UIA runtime identifiers/handles."""
     if not isinstance(max_elements, int) or isinstance(max_elements, bool) or not 1 <= max_elements <= 500:
@@ -67,6 +68,14 @@ def build_read_only_report(
     process_selector = _normalize_process_name(process_name) if process_name else None
     if process_name is not None and not process_selector:
         raise ValueError("process_name must not be empty.")
+    if window_handle is not None and (
+        not isinstance(window_handle, int)
+        or isinstance(window_handle, bool)
+        or window_handle <= 0
+    ):
+        raise ValueError("window_handle must be a positive integer.")
+    if window_handle is not None and process_selector is None:
+        raise ValueError("window_handle requires process_name to verify the owning process.")
     title_matches = selector.casefold() in title.casefold()
     title_contains_windowhub = "windowhub" in title.casefold()
     metadata = getattr(scene, "metadata", None) or {}
@@ -132,8 +141,16 @@ def build_read_only_report(
         "files_written": False,
         "screenshot_saved": False,
         "target_selection": {
-            "mode": "process_name" if process_selector else "window_title",
-            "selector": process_selector or selector,
+            "mode": (
+                "window_handle"
+                if window_handle is not None
+                else ("process_name" if process_selector else "window_title")
+            ),
+            "selector": (
+                f"0x{window_handle:X}"
+                if window_handle is not None
+                else (process_selector or selector)
+            ),
             "target_matched": stop_reason is None and bool(title),
         },
         "active_window": {
@@ -257,6 +274,7 @@ def _select_target_window(
     *,
     title_contains: str = "WindowHub",
     process_name: str | None = None,
+    window_handle: int | None = None,
     process_name_checker=None,
     visibility_checker=None,
 ) -> tuple[object | None, str | None]:
@@ -279,6 +297,14 @@ def _select_target_window(
         raise ValueError("process_name must not be empty.")
     if normalized_process_name is not None and process_name_checker is None:
         raise ValueError("process_name_checker is required when process_name is set.")
+    if window_handle is not None and (
+        not isinstance(window_handle, int)
+        or isinstance(window_handle, bool)
+        or window_handle <= 0
+    ):
+        raise ValueError("window_handle must be a positive integer.")
+    if window_handle is not None and normalized_process_name is None:
+        raise ValueError("window_handle requires process_name to verify the owning process.")
 
     candidates: dict[int, object] = {}
     for window in windows:
@@ -291,6 +317,9 @@ def _select_target_window(
         except (TypeError, ValueError):
             continue
         if handle <= 0 or width <= 0 or height <= 0:
+            continue
+
+        if window_handle is not None and handle != window_handle:
             continue
 
         if normalized_process_name is not None:
@@ -329,9 +358,13 @@ def _select_target_window(
         candidates[handle] = window
 
     description = (
-        f"process name '{normalized_process_name}'"
-        if normalized_process_name is not None
-        else "requested title fragment"
+        f"window handle 0x{window_handle:X} owned by process '{normalized_process_name}'"
+        if window_handle is not None
+        else (
+            f"process name '{normalized_process_name}'"
+            if normalized_process_name is not None
+            else "requested title fragment"
+        )
     )
     if len(candidates) == 1:
         return next(iter(candidates.values())), None
@@ -352,6 +385,7 @@ def observe_windowhub_scene(
     *,
     window_title_contains: str = "WindowHub",
     process_name: str | None = None,
+    window_handle: int | None = None,
 ) -> tuple[object | None, str | None, bool | None, str | None]:
     """Observe one uniquely matched application window via UIA, without interaction."""
     if os.name != "nt":
@@ -369,6 +403,7 @@ def observe_windowhub_scene(
         gw.getAllWindows(),
         title_contains=window_title_contains,
         process_name=process_name,
+        window_handle=window_handle,
         process_name_checker=_window_process_name if process_name is not None else None,
         visibility_checker=is_visible,
     )
@@ -440,6 +475,19 @@ def observe_windowhub_scene(
     ).perceive(observation)
     return scene, title or None, focused, None
 
+def _parse_window_handle(value: str) -> int:
+    """Parse a positive decimal or 0x-prefixed Windows window handle."""
+    try:
+        parsed = int(value, 0)
+    except (TypeError, ValueError) as exc:
+        raise argparse.ArgumentTypeError(
+            "window handle must be a decimal integer or 0x-prefixed hexadecimal value"
+        ) from exc
+    if parsed <= 0:
+        raise argparse.ArgumentTypeError("window handle must be positive")
+    return parsed
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description=(
@@ -458,6 +506,15 @@ def main() -> int:
         help=(
             "Alternatively select the target window by its owning executable/process name, "
             "for example Okna or Okna.exe. Must match exactly."
+        ),
+    )
+    parser.add_argument(
+        "--window-handle",
+        type=_parse_window_handle,
+        default=None,
+        help=(
+            "Disambiguate a process that owns multiple visible windows by exact handle "
+            "(decimal or 0x-prefixed hex); requires --process-name."
         ),
     )
     parser.add_argument(
@@ -480,6 +537,7 @@ def main() -> int:
         scene, title, focused, stop_reason = observe_windowhub_scene(
             window_title_contains=args.window_title_contains,
             process_name=args.process_name,
+            window_handle=args.window_handle,
         )
         report = build_read_only_report(
             scene,
@@ -490,6 +548,7 @@ def main() -> int:
             stop_reason=stop_reason,
             window_title_contains=args.window_title_contains,
             process_name=args.process_name,
+            window_handle=args.window_handle,
         )
     except Exception as exc:
         print(json.dumps({
