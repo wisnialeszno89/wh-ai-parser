@@ -4,6 +4,12 @@ from uuid import uuid4
 
 from app.agent.agent_request import AgentRequest
 from app.agent.adapters.browser_adapter import BrowserAdapter, BrowserPage
+from app.agent.adapters.pdf_document_adapter import (
+    PdfDocumentAdapter,
+    PdfDocumentError,
+    PdfDocumentExtraction,
+)
+from app.agent.adapters.pdf_ingestion_service import PdfIngestionService
 from app.agent.session.agent_session_store import AgentSessionStore
 
 from app.agent.agent_intent import AgentIntent
@@ -129,6 +135,7 @@ class AgentRuntime:
         learned_parameter_resolver=None,
         approved_quote_rules: Mapping[str, QuoteRuleEvidence] | None = None,
         pdf_source_registry: Mapping[str, object] | None = None,
+        pdf_ingestion_service: PdfIngestionService | None = None,
         browser_adapter: BrowserAdapter | None = None,
         browser_context_enabled: bool = False,
         confirmation_ttl_seconds: float = 300.0,
@@ -148,9 +155,18 @@ class AgentRuntime:
         self.resumable_task_service = resumable_task_service
         self.learned_parameter_resolver = learned_parameter_resolver
         self.approved_quote_rules = dict(approved_quote_rules or {})
-        # Only the host/runtime can register extracted source objects. Request
-        # metadata is untrusted and cannot assert its own PDF provenance.
-        self.pdf_source_registry = dict(pdf_source_registry or {})
+        # Only actual local adapter extractions may satisfy PDF provenance.
+        # Request metadata is untrusted and cannot assert its own source objects.
+        self.pdf_ingestion_service = pdf_ingestion_service
+        self.pdf_source_registry = dict(
+            pdf_source_registry
+            if pdf_source_registry is not None
+            else (
+                pdf_ingestion_service.source_registry
+                if pdf_ingestion_service is not None
+                else {}
+            )
+        )
         self.browser_adapter = browser_adapter
         self.browser_context_enabled = browser_context_enabled
 
@@ -193,6 +209,44 @@ class AgentRuntime:
             self.plan_executor = PlanExecutor(
                 engine=engine
             )
+
+    def ingest_pdf(
+        self,
+        path: str,
+        *,
+        source_alias: str | None = None,
+    ) -> PdfDocumentExtraction:
+        """Extract a user-approved local PDF and register its source provenance.
+
+        The service must be injected with an adapter configured for approved
+        filesystem roots. The source is kept local; only callers that explicitly
+        construct a fact payload may send selected excerpts to remote reasoning.
+        """
+        if self.pdf_ingestion_service is None:
+            raise RuntimeError(
+                "PDF ingestion is not configured for this runtime. "
+                "Inject PdfIngestionService with approved local roots."
+            )
+        extraction = self.pdf_ingestion_service.ingest(
+            path,
+            source_alias=source_alias,
+        )
+        self.pdf_source_registry[extraction.source_alias] = extraction
+        return extraction
+
+    def remove_pdf_source(self, source_alias: str) -> bool:
+        """Revoke one trusted PDF source alias from future fact validation."""
+        removed = False
+        if self.pdf_ingestion_service is not None:
+            removed = self.pdf_ingestion_service.remove(source_alias)
+        removed_runtime = self.pdf_source_registry.pop(source_alias, None) is not None
+        return removed or removed_runtime
+
+    def registered_pdf_sources(self) -> Mapping[str, PdfDocumentExtraction]:
+        """Return a read-only view of locally ingested PDF sources."""
+        from types import MappingProxyType
+
+        return MappingProxyType(self.pdf_source_registry)
 
     @staticmethod
     def _is_gui_reasoning_plan(plan) -> bool:
