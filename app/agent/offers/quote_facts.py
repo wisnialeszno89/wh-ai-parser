@@ -807,6 +807,11 @@ class QuoteFactValidator:
             return "PDF source registry entry is not a trusted PdfDocumentExtraction object."
         if extraction.source_alias != fact.source.source_alias:
             return "PDF source alias does not match the extraction result."
+        if extraction.needs_ocr:
+            return (
+                "Trusted PDF source contains one or more pages requiring OCR; "
+                "the document must be fully inspected before quote facts can be accepted."
+            )
         if fact.source.page_number is None:
             return "PDF fact provenance must identify a 1-based page number."
         page = next(
