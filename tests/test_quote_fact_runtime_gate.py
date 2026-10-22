@@ -440,3 +440,41 @@ def test_runtime_pdf_registry_does_not_accept_request_metadata_as_trusted_source
     assert result.requires_manual_review is True
     assert result.executed is False
     assert runtime.registered_pdf_sources() == {}
+
+
+def test_runtime_pdf_alias_collision_keeps_original_registered_source(tmp_path):
+    from tests.test_pdf_document_adapter import write_text_pdf
+
+    root = tmp_path / "approved"
+    root.mkdir()
+    first_path = root / "first.pdf"
+    second_path = root / "second.pdf"
+    write_text_pdf(
+        first_path,
+        ["Product: window. Width: 1200 mm. Height: 1500 mm."],
+    )
+    write_text_pdf(
+        second_path,
+        ["Product: door. Width: 900 mm. Height: 2100 mm."],
+    )
+    ingestion = PdfIngestionService(
+        adapter=PdfDocumentAdapter(allowed_roots=(root,)),
+    )
+    runtime = AgentRuntime(
+        orchestrator=object(),
+        plan_executor=object(),
+        session_store=AgentSessionStore(),
+        control_loop=SpyControlLoop(),
+        pdf_ingestion_service=ingestion,
+    )
+
+    first = runtime.ingest_pdf(first_path, source_alias="shared-alias")
+    try:
+        runtime.ingest_pdf(second_path, source_alias="shared-alias")
+    except ValueError as exc:
+        assert "source alias" in str(exc).casefold()
+    else:
+        raise AssertionError("Conflicting PDF source aliases must be rejected.")
+
+    assert runtime.registered_pdf_sources()["shared-alias"] is first
+    assert "1200 mm" in runtime.registered_pdf_sources()["shared-alias"].pages[0].text
