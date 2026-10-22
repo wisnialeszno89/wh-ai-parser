@@ -9,7 +9,6 @@ from __future__ import annotations
 import json
 import os
 import re
-import sys
 import unicodedata
 
 
@@ -88,7 +87,6 @@ def build_report(scene: object) -> dict[str, object]:
     fields: list[dict[str, object]] = []
     controls: list[dict[str, object]] = []
     redacted_value_count = 0
-    scope_ready_field_count = 0
 
     for element in elements:
         label = getattr(element, "label", None)
@@ -113,7 +111,6 @@ def build_report(scene: object) -> dict[str, object]:
                 and scope.strip() == active_document.strip()
             )
             scope_proven = active_scoped or owned_modal
-            scope_ready_field_count += int(scope_proven)
             fields.append({
                 "field": field_name,
                 "label": label,
