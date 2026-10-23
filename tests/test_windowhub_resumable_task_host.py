@@ -42,8 +42,10 @@ class SimulatedWindowHubControlLoop:
     def __init__(self):
         self.scene = FakeScene([FakeElement("button", "Nowa oferta")])
         self.executed_targets = []
+        self.observe_calls = 0
 
     def observe_scene(self):
+        self.observe_calls += 1
         return self.scene
 
     def run(self, *, plan, context):
@@ -588,3 +590,120 @@ def test_final_verification_rejects_wrong_selected_product_type():
     assert "product_type" in result.missing_fields
     product = next(item for item in result.evidence if item["field"] == "product_type")
     assert product["observed_value"] == "door"
+
+class PdfQuoteDraftControlLoop(SimulatedWindowHubControlLoop):
+    """Synthetic WindowHub surface with an explicitly selected window product."""
+
+    def run(self, *, plan, context):
+        action = plan.steps[0].action
+        result = super().run(plan=plan, context=context)
+        if (
+            action.name == "click_screen_element"
+            and action.target == "Nowa oferta"
+            and result.success
+        ):
+            self.scene.elements = [
+                FakeElement(
+                    "list_item",
+                    "Okno",
+                    metadata={
+                        "uia_selected": True,
+                        "document_scope": "Oferta robocza",
+                    },
+                ),
+                *self.scene.elements,
+            ]
+        return result
+
+
+def test_pdf_to_windowhub_draft_e2e_requires_approval_then_verifies_saved_draft(tmp_path):
+    from app.agent.adapters.pdf_document_adapter import PdfDocumentAdapter
+    from app.agent.adapters.pdf_ingestion_service import PdfIngestionService
+    from app.agent.runtime.agent_runtime import AgentRuntime
+    from app.agent.session.agent_session_store import AgentSessionStore
+    from tests.test_pdf_document_adapter import write_text_pdf
+
+    root = tmp_path / "approved"
+    root.mkdir()
+    source = root / "offer.pdf"
+    write_text_pdf(
+        source,
+        [
+            "Product: window",
+            "Width: 1200 mm",
+            "Height: 1500 mm",
+        ],
+    )
+
+    control = PdfQuoteDraftControlLoop()
+    orchestrator = SimulatedOfferOrchestrator()
+    runtime = AgentRuntime(
+        orchestrator=orchestrator,
+        plan_executor=object(),
+        session_store=AgentSessionStore(),
+        control_loop=control,
+        pdf_ingestion_service=PdfIngestionService(
+            adapter=PdfDocumentAdapter(allowed_roots=(root,)),
+        ),
+    )
+    runtime.configure_windowhub_resumable_tasks(
+        repository=TaskCheckpointRepository(tmp_path / "checkpoints"),
+    )
+    runtime.ingest_pdf(source, source_alias="e2e-offer")
+
+    task_id = "pdf-to-windowhub-draft-e2e"
+    started = runtime.start_pdf_quote_task(
+        "e2e-offer",
+        request_message="Prepare a draft WindowHub offer from the supplied PDF.",
+        task_id=task_id,
+    )
+
+    assert started.task_created is True
+    assert started.requires_manual_review is False
+    pending = started.checkpoint
+    assert pending is not None
+    assert pending.status is TaskStatus.WAITING_FOR_APPROVAL
+    assert pending.approval_required is True
+    assert pending.execution_approved is False
+    assert pending.draft_only is True
+    assert pending.facts["product_type"] == "window"
+    assert pending.facts["width"] == 1200
+    assert pending.facts["height"] == 1500
+    assert control.observe_calls == 0
+    assert control.executed_targets == []
+
+    approved = runtime.approve_resumable_task_execution(task_id)
+    assert approved.status is TaskStatus.READY
+    assert approved.execution_approved is True
+
+    current = approved
+    for _ in range(8):
+        current = runtime.advance_resumable_task(task_id)
+        if current.status in {
+            TaskStatus.COMPLETED,
+            TaskStatus.STOPPED,
+            TaskStatus.WAITING_FOR_INPUT,
+            TaskStatus.WAITING_FOR_CONFIRMATION,
+        }:
+            break
+
+    assert current.status is TaskStatus.COMPLETED
+    assert control.executed_targets == [
+        "Nowa oferta",
+        "Szerokość",
+        "Wysokość",
+        "Zapisz szkic",
+    ]
+    assert control.observe_calls > len(control.executed_targets)
+    assert len(current.completed_steps) == 4
+    assert all(step.executed and step.execution_success and step.verified for step in current.completed_steps)
+    assert current.draft_only is True
+    assert current.stop_reason is None
+    assert {
+        item["field"]
+        for item in current.final_evidence
+    } == {"product_type", "width", "height"}
+    assert current.final_evidence
+    assert runtime.get_resumable_task(task_id) == current
+    assert orchestrator.application_knowledge["application"] == "WindowHub"
+
