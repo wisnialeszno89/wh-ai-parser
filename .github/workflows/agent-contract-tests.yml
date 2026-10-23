@@ -115,6 +115,7 @@ jobs:
         run: |
           python -m compileall -q \
             app/agent/perception/windowhub_ui_automation_provider.py \
+            app/agent/perception/perception_engine.py \
             app/agent/perception/screen_element_fusion.py \
             app/agent/perception/target_resolver.py \
             app/agent/perception/windowhub_grid_reader.py \

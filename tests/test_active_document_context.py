@@ -111,3 +111,44 @@ def test_perception_engine_reports_not_observed_without_document_tabs():
     assert scene.metadata["document_tab_count"] == 0
     assert scene.metadata["selected_document_tab_count"] == 0
     assert scene.metadata["active_document_resolution"] == "not_observed"
+
+
+
+def test_perception_engine_preserves_selected_document_after_fusion_changes_primary_kind():
+    scene = PerceptionEngine(
+        providers=(
+            StaticProvider(
+                (
+                    ScreenElement(
+                        kind="button",
+                        label="Visual representative",
+                        metadata={
+                            "fused": True,
+                            "uia_control_type": "tabitem",
+                            "uia_tab_scope": "document",
+                            "uia_document_tab_selected": True,
+                            "name": "Start1",
+                            "semantic_name": "Start1",
+                        },
+                    ),
+                    ScreenElement(
+                        kind="text",
+                        label="Other visual representative",
+                        metadata={
+                            "fused": True,
+                            "uia_control_type": "tabitem",
+                            "uia_tab_scope": "document",
+                            "uia_document_tab_selected": False,
+                            "name": "OFR/4024",
+                            "semantic_name": "OFR/4024",
+                        },
+                    ),
+                )
+            ),
+        ),
+    ).perceive(make_observation())
+
+    assert scene.active_document == "Start1"
+    assert scene.metadata["document_tab_count"] == 2
+    assert scene.metadata["selected_document_tab_count"] == 1
+    assert scene.metadata["active_document_resolution"] == "resolved"

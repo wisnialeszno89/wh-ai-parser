@@ -40,26 +40,40 @@ class PerceptionEngine:
 
     @staticmethod
     def _resolve_active_document(elements):
+        # UIA tab metadata remains authoritative even if multimodal fusion
+        # chooses a visual/OCR representative whose ScreenElement.kind is no
+        # longer "tabitem". Do not discard the original control type carried
+        # in metadata, but require explicit document scope from UIA.
         document_tabs = tuple(
             element
             for element in elements
             if (
-                element.kind.casefold() == "tabitem"
-                and isinstance(element.metadata, dict)
+                isinstance(element.metadata, dict)
                 and element.metadata.get("uia_tab_scope") == "document"
+                and (
+                    element.kind.casefold() == "tabitem"
+                    or str(
+                        element.metadata.get("uia_control_type", "")
+                    ).casefold() == "tabitem"
+                )
             )
         )
 
+        def tab_caption(element) -> str | None:
+            metadata = element.metadata if isinstance(element.metadata, dict) else {}
+            for key in ("name", "semantic_name"):
+                value = metadata.get(key)
+                if isinstance(value, str) and value.strip():
+                    return value.strip()
+            label = element.label
+            return label.strip() if isinstance(label, str) and label.strip() else None
+
         selected_documents = tuple(
-            element.label.strip()
+            caption
             for element in document_tabs
-            if (
-                isinstance(element.label, str)
-                and element.label.strip()
-                and element.metadata.get(
-                    "uia_document_tab_selected"
-                ) is True
-            )
+            if element.metadata.get("uia_document_tab_selected") is True
+            for caption in (tab_caption(element),)
+            if caption is not None
         )
 
         active_document = (
