@@ -900,6 +900,11 @@ class ExcelAnnualXYAggregationService:
                 suffix += 1
         else:
             candidate = Path(output_path).expanduser().resolve(strict=False)
+        if candidate == source:
+            raise AnnualXYAggregationError(
+                "source_overwrite_blocked",
+                "The output path cannot be the source file.",
+            )
         if candidate.suffix.casefold() != ".xlsx":
             raise AnnualXYAggregationError("invalid_output_type", "The output path must use the .xlsx extension.")
         if not any(candidate.is_relative_to(root) for root in self.adapter.allowed_roots):
