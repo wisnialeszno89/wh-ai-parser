@@ -90,7 +90,7 @@ class TaskPlanningContext:
         state = self.scene.observation.state
         elements = []
 
-        for element in self.scene.elements[:80]:
+        for element in self.scene.elements:
             metadata = element.metadata or {}
             # Structured grid data is serialized separately below. Do not
             # advertise table cells as visible targets for executable actions.
@@ -99,6 +99,8 @@ class TaskPlanningContext:
                 or metadata.get("uia_grid_cell_observation") is True
             ):
                 continue
+            if len(elements) >= 80:
+                break
 
             item: dict[str, object] = {
                 "kind": element.kind,

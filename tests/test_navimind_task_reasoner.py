@@ -14,6 +14,7 @@ from app.agent.reasoning.knowledge_context import (
     KnowledgeSource,
 )
 from app.agent.reasoning.task_planning_context import TaskPlanningContext
+from app.agent.bridge.world_state import WorldState
 from app.agent.environment.environment_observation import EnvironmentObservation
 from app.agent.environment.environment_state import EnvironmentState
 from app.agent.perception.screen_scene import ScreenScene
@@ -824,3 +825,68 @@ def test_navimind_reasoner_receives_active_windowhub_grid_as_structured_data():
     assert "private-runtime-grid-identity" not in json.dumps(world_metadata)
     assert "uia_window_handle" not in json.dumps(world_metadata)
     json.dumps(captured["body"], ensure_ascii=False)
+
+
+
+def test_grid_cells_do_not_consume_visible_control_budget_in_reasoning_contexts():
+    elements = []
+    for column in range(101):
+        elements.append(
+            ScreenElement(
+                kind="gridcell",
+                label=f"Cell {column}",
+                confidence=0.99,
+                interaction_capability=InteractionCapability.UNKNOWN,
+                metadata={
+                    "source": "windowhub_ui_automation",
+                    "uia_grid_cell_observation": True,
+                    "uia_grid_id": "private-grid",
+                    "uia_grid_row_index": 0,
+                    "uia_grid_column_index": column,
+                    "uia_grid_row_count": 1,
+                    "uia_grid_column_count": 101,
+                    "uia_grid_enumeration_truncated": False,
+                    "document_scope": "OFR/4170",
+                    "current_value": str(column),
+                    "current_value_available": True,
+                },
+            )
+        )
+    elements.append(
+        ScreenElement(
+            kind="button",
+            label="OK",
+            confidence=0.99,
+            interaction_capability=InteractionCapability.CLICKABLE,
+            metadata={"source": "windowhub_ui_automation"},
+        )
+    )
+    scene = ScreenScene(
+        observation=EnvironmentObservation(
+            state=EnvironmentState(
+                active_application="WindowHub",
+                active_window_title="Okna - OFR/4170",
+            ),
+        ),
+        elements=tuple(elements),
+        metadata={"active_document": "OFR/4170"},
+    )
+
+    context_payload = TaskPlanningContext(
+        request_message="Continue the current task",
+        intent="computer_use",
+        scene=scene,
+    ).to_payload()["scene"]
+    visible_kinds = [
+        item["kind"] for item in context_payload["visible_elements"]
+    ]
+    assert visible_kinds == ["button"]
+    assert context_payload["visible_elements"][0]["label"] == "OK"
+
+    world = WorldState.from_scene(scene)
+    visible_world_kinds = [
+        item["kind"] for item in world.to_payload()["visible_elements"]
+    ]
+    assert visible_world_kinds == ["button"]
+    assert len(world.metadata["windowhub_grids"]) == 1
+    assert world.metadata["windowhub_grids"][0]["observed_cell_count"] == 101

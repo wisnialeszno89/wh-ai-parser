@@ -48,7 +48,7 @@ class WorldState:
         state = scene.observation.state
         elements: list[WorldElement] = []
 
-        for element in scene.elements[:100]:
+        for element in scene.elements:
             metadata = element.metadata or {}
             # Grid cells are structured data, not executable visible affordances.
             # They are serialized below through the scoped grid reader instead.
@@ -57,6 +57,8 @@ class WorldState:
                 or metadata.get("uia_grid_cell_observation") is True
             ):
                 continue
+            if len(elements) >= 100:
+                break
 
             current_value = metadata.get("current_value")
 
