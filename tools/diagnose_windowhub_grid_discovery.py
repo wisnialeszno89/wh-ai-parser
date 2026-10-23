@@ -150,12 +150,13 @@ def _detail_cell_filter_counts(matched_documents, provider) -> dict[str, int]:
                     offscreen = provider._uia_cell_offscreen(cell)
                     if offscreen is True:
                         counts["detail_cell_offscreen_true"] += 1
-                        continue
-                    if offscreen is False:
+                    elif offscreen is False:
                         counts["detail_cell_offscreen_false"] += 1
                     else:
                         counts["detail_cell_offscreen_unknown"] += 1
 
+                    # Mirror provider behavior: offscreen is advisory; the
+                    # grid-viewport intersection is the hard acceptance gate.
                     cell_rect = provider._uia_element_bounds(cell)
                     if cell_rect is None:
                         counts["detail_cell_bounds_errors"] += 1
@@ -166,6 +167,8 @@ def _detail_cell_filter_counts(matched_documents, provider) -> dict[str, int]:
                         continue
 
                     counts["detail_cells_intersecting_grid_rect"] += 1
+                    if offscreen is True:
+                        counts["detail_cells_offscreen_hint_true_but_intersecting"] += 1
                     legacy = provider._get_grid_pattern(cell, "LegacyIAccessible")
                     if legacy is None:
                         counts["detail_legacy_pattern_missing"] += 1
