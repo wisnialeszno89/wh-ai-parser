@@ -329,7 +329,8 @@ class ScreenElementFusion:
     @staticmethod
     def _is_grid_cell_observation(element: ScreenElement) -> bool:
         return (
-            (element.metadata or {}).get("uia_grid_cell_observation") is True
+            element.kind.casefold() == "gridcell"
+            or (element.metadata or {}).get("uia_grid_cell_observation") is True
         )
 
     @staticmethod

@@ -341,6 +341,24 @@ def test_grid_cell_observation_never_fuses_with_visual_text_or_controls():
     )
 
 
+def test_gridcell_kind_alone_does_not_fuse_with_ocr_text():
+    grid_cell = element(
+        source="windowhub_ui_automation",
+        kind="gridcell",
+        label="1230",
+    )
+    ocr_text = element(
+        source="windowhub_ocr",
+        kind="text",
+        label="1230",
+    )
+
+    result = ScreenElementFusion().fuse((grid_cell, ocr_text))
+
+    assert len(result.elements) == 2
+    assert result.merged_group_count == 0
+
+
 def test_native_form_control_does_not_fuse_with_same_label_ocr_text():
     items = (
         element(

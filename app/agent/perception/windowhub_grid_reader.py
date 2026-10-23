@@ -87,7 +87,6 @@ class WindowHubGridReader:
     def read(self, scene: ScreenScene) -> tuple[WindowHubGrid, ...]:
         active_document = scene.active_document
         groups: dict[tuple[str | None, str], list[tuple[WindowHubGridCell, int, int, bool]]] = {}
-        captions: dict[tuple[str | None, str], str | None] = {}
 
         for element in scene.elements:
             metadata = element.metadata or {}
@@ -156,7 +155,6 @@ class WindowHubGridReader:
                     metadata.get("uia_grid_enumeration_truncated") is True,
                 )
             )
-            captions[key] = document_scope
 
         grids = [
             self._build_grid(
