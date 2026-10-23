@@ -91,6 +91,15 @@ class TaskPlanningContext:
         elements = []
 
         for element in self.scene.elements[:80]:
+            metadata = element.metadata or {}
+            # Structured grid data is serialized separately below. Do not
+            # advertise table cells as visible targets for executable actions.
+            if (
+                element.kind.casefold() == "gridcell"
+                or metadata.get("uia_grid_cell_observation") is True
+            ):
+                continue
+
             item: dict[str, object] = {
                 "kind": element.kind,
                 "label": element.label,
@@ -102,7 +111,6 @@ class TaskPlanningContext:
             if element.confidence is not None:
                 item["confidence"] = element.confidence
 
-            metadata = element.metadata or {}
             current_value = metadata.get("current_value")
             selected = metadata.get("uia_selected")
 

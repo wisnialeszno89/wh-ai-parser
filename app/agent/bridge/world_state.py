@@ -50,6 +50,14 @@ class WorldState:
 
         for element in scene.elements[:100]:
             metadata = element.metadata or {}
+            # Grid cells are structured data, not executable visible affordances.
+            # They are serialized below through the scoped grid reader instead.
+            if (
+                element.kind.casefold() == "gridcell"
+                or metadata.get("uia_grid_cell_observation") is True
+            ):
+                continue
+
             current_value = metadata.get("current_value")
 
             elements.append(

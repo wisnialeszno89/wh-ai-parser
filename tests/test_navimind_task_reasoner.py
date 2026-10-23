@@ -795,6 +795,10 @@ def test_navimind_reasoner_receives_active_windowhub_grid_as_structured_data():
     assert structured_scene["rows"][0][0]["current_value"] == "1230"
     assert structured_scene["rows"][0][1]["current_value"] == ""
     assert structured_scene["rows"][0][1]["value_available"] is True
+    assert all(
+        item["kind"] != "gridcell"
+        for item in scene_payload["visible_elements"]
+    )
     assert "private-runtime-grid-identity" not in json.dumps(scene_payload)
     assert "uia_window_handle" not in json.dumps(scene_payload)
 
@@ -813,6 +817,10 @@ def test_navimind_reasoner_receives_active_windowhub_grid_as_structured_data():
     assert world_grid["rows"][0][0]["current_value"] == "1230"
     assert world_grid["rows"][0][1]["current_value"] == ""
     assert world_grid["rows"][0][1]["value_available"] is True
+    assert all(
+        item["kind"] != "gridcell"
+        for item in captured["body"]["world"]["visible_elements"]
+    )
     assert "private-runtime-grid-identity" not in json.dumps(world_metadata)
     assert "uia_window_handle" not in json.dumps(world_metadata)
     json.dumps(captured["body"], ensure_ascii=False)

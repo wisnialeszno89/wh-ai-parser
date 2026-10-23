@@ -376,8 +376,15 @@ class ReasoningTaskPlanner:
             return True
 
         for element in context.scene.elements:
-            values = [element.label]
             metadata = element.metadata or {}
+            if (
+                element.kind.casefold() == "gridcell"
+                or metadata.get("uia_grid_cell_observation") is True
+            ):
+                # Grid contents are readable data, never action targets.
+                continue
+
+            values = [element.label]
             values.extend(
                 metadata.get(key)
                 for key in (
