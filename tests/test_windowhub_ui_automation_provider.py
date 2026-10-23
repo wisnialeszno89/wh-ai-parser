@@ -105,6 +105,84 @@ class FakeDesktop:
         return self._windows_by_handle[handle]
 
 
+class FakeSelectedUIAItem(FakeUIAItem):
+    def is_selected(self):
+        return True
+
+
+class FakeMdiChild(FakeUIAItem):
+    def __init__(self, *, name, parent, descendants, **kwargs):
+        super().__init__(
+            name=name,
+            control_type="Window",
+            class_name="Afx:MDIChild",
+            parent=parent,
+            **kwargs,
+        )
+        self._descendants = tuple(descendants)
+
+    def descendants(self):
+        return self._descendants
+
+
+class FakeGridCell:
+    def __init__(
+        self,
+        *,
+        name,
+        value,
+        left,
+        top,
+        width=80,
+        height=24,
+        offscreen=False,
+    ):
+        self.CurrentName = name
+        self.CurrentIsOffscreen = offscreen
+        self.CurrentBoundingRectangle = SimpleNamespace(
+            left=left,
+            top=top,
+            right=left + width,
+            bottom=top + height,
+        )
+        self.patterns = {
+            "LegacyIAccessible": SimpleNamespace(
+                CurrentName=name,
+                CurrentValue=value,
+            ),
+        }
+        if value is not None:
+            self.patterns["Value"] = SimpleNamespace(
+                CurrentValue=value,
+                CurrentIsReadOnly=True,
+            )
+
+
+class FakeGridPattern:
+    def __init__(self, rows, columns, cells):
+        self.CurrentRowCount = rows
+        self.CurrentColumnCount = columns
+        self._cells = tuple(cells)
+
+    def GetItem(self, row, column):
+        return self._cells[row * self.CurrentColumnCount + column]
+
+
+class FakeUIAGrid(FakeUIAItem):
+    def __init__(self, *, parent, rows, columns, cells):
+        super().__init__(
+            name="",
+            control_type="DataGrid",
+            class_name="DataGrid",
+            parent=parent,
+            left=100,
+            top=200,
+            width=300,
+            height=120,
+        )
+        self.iface_grid = FakeGridPattern(rows, columns, cells)
+
+
 def make_observation(tracked_objects=(), *, title="Okna - WindowHub"):
     return EnvironmentObservation(
         state=EnvironmentState(
@@ -474,6 +552,179 @@ def test_ui_automation_provider_records_native_handle_separately_from_enumeratio
     metadata = elements[0].metadata
     assert metadata["uia_window_handle"] == 200
     assert metadata["uia_native_handle"] == 701
+
+
+def test_ui_automation_provider_exposes_mdi_grid_cells_as_read_only_observations():
+    mdi_client = FakeUIAItem(
+        name="",
+        control_type="Pane",
+        class_name="MDIClient",
+        left=100,
+        top=200,
+        width=900,
+        height=700,
+    )
+    tab_host = FakeUIAItem(
+        name="",
+        control_type="Tab",
+        class_name="Afx:TabWnd",
+        parent=mdi_client,
+    )
+    document_tab = FakeSelectedUIAItem(
+        name="OFR/4024",
+        control_type="TabItem",
+        parent=tab_host,
+    )
+    cells = [
+        FakeGridCell(
+            name="Szerokość",
+            value="1230",
+            left=110,
+            top=220,
+        ),
+        FakeGridCell(
+            name="Opis",
+            value="",
+            left=195,
+            top=220,
+        ),
+        FakeGridCell(
+            name="Poza widokiem",
+            value="ignored",
+            left=500,
+            top=500,
+            offscreen=True,
+        ),
+    ]
+    grid = FakeUIAGrid(
+        parent=None,
+        rows=1,
+        columns=3,
+        cells=cells,
+    )
+    child = FakeMdiChild(
+        name="OFR/4024",
+        parent=mdi_client,
+        descendants=(grid,),
+    )
+    grid._parent = child
+
+    root = FakeUIAWindow(
+        (mdi_client, tab_host, document_tab, child, grid),
+        title="Okna - WindowHub",
+    )
+    desktop = FakeDesktop(root)
+
+    def pattern_getter(cell, pattern_name):
+        return cell.patterns[pattern_name]
+
+    elements = WindowHubUIAutomationProvider(
+        desktop_factory=lambda: desktop,
+        pattern_interface_getter=pattern_getter,
+    ).perceive(make_observation())
+
+    grid_cells = tuple(
+        element for element in elements
+        if element.kind == "gridcell"
+    )
+
+    assert len(grid_cells) == 2
+    first, blank = grid_cells
+    assert first.label == "Szerokość"
+    assert first.metadata["current_value"] == "1230"
+    assert first.metadata["current_value_available"] is True
+    assert first.metadata["document_scope"] == "OFR/4024"
+    assert first.metadata["uia_grid_row_index"] == 0
+    assert first.metadata["uia_grid_column_index"] == 0
+    assert first.interaction_capability is InteractionCapability.UNKNOWN
+    assert first.metadata["uia_grid_cell_observation"] is True
+    assert "tracked_object_id" not in first.metadata
+
+    assert blank.label == "Opis"
+    assert blank.metadata["current_value"] == ""
+    assert blank.metadata["current_value_available"] is True
+    assert blank.metadata["uia_grid_column_index"] == 1
+
+
+def test_ui_automation_provider_fails_closed_for_ambiguous_mdi_document_captions():
+    mdi_client = FakeUIAItem(
+        name="",
+        control_type="Pane",
+        class_name="MDIClient",
+        left=100,
+        top=200,
+        width=900,
+        height=700,
+    )
+    tab_host = FakeUIAItem(
+        name="",
+        control_type="Tab",
+        class_name="Afx:TabWnd",
+        parent=mdi_client,
+    )
+    tab_a = FakeSelectedUIAItem(
+        name="OFR/4024",
+        control_type="TabItem",
+        parent=tab_host,
+    )
+    tab_b = FakeUIAItem(
+        name="OFR/4024",
+        control_type="TabItem",
+        parent=tab_host,
+    )
+
+    grid_a = FakeUIAGrid(
+        parent=None,
+        rows=1,
+        columns=1,
+        cells=[FakeGridCell(name="Cell A", value="A", left=110, top=220)],
+    )
+    child_a = FakeMdiChild(
+        name="OFR/4024",
+        parent=mdi_client,
+        descendants=(grid_a,),
+    )
+    grid_a._parent = child_a
+
+    grid_b = FakeUIAGrid(
+        parent=None,
+        rows=1,
+        columns=1,
+        cells=[FakeGridCell(name="Cell B", value="B", left=110, top=250)],
+    )
+    child_b = FakeMdiChild(
+        name="OFR/4024",
+        parent=mdi_client,
+        descendants=(grid_b,),
+    )
+    grid_b._parent = child_b
+
+    root = FakeUIAWindow(
+        (
+            mdi_client,
+            tab_host,
+            tab_a,
+            tab_b,
+            child_a,
+            grid_a,
+            child_b,
+            grid_b,
+        ),
+        title="Okna - WindowHub",
+    )
+
+    def pattern_getter(cell, pattern_name):
+        return cell.patterns[pattern_name]
+
+    elements = WindowHubUIAutomationProvider(
+        desktop_factory=lambda: FakeDesktop(root),
+        pattern_interface_getter=pattern_getter,
+    ).perceive(make_observation())
+
+    assert not any(
+        element.kind == "gridcell"
+        for element in elements
+    )
 
 
 def test_ui_automation_provider_exposes_explicit_document_scope():

@@ -80,6 +80,27 @@ def test_rejects_ambiguous_target():
     assert "Multiple" in result.reason
 
 
+def test_grid_cell_observation_is_not_resolved_as_an_executable_target():
+    grid_cell = ScreenElement(
+        kind="gridcell",
+        label="Szerokość",
+        metadata={
+            "source": "windowhub_ui_automation",
+            "uia_grid_cell_observation": True,
+            "document_scope": "OFR/4024",
+            "current_value": "1230",
+        },
+    )
+
+    result = TargetResolver().resolve(
+        _scene(grid_cell),
+        "Szerokość",
+    )
+
+    assert result.resolved is False
+    assert result.element is None
+
+
 def test_rejects_unknown_target():
     element = ScreenElement(
         kind="icon",
