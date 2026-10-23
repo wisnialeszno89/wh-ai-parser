@@ -33,6 +33,9 @@ jobs:
             tests/test_windowhub_ui_automation_provider.py \
             tests/test_windowhub_win32_form_provider.py \
             tests/runtime/test_screen_element_fusion.py \
+            tests/runtime/test_target_resolver.py \
+            tests/test_target_resolver_document_scope.py \
+            tests/test_windowhub_form_reader.py \
             tests/test_windowhub_ocr_provider.py \
             tests/test_windowhub_ocr_table_parser.py \
             tests/test_windowhub_ocr_table_refiner.py \
@@ -109,6 +112,9 @@ jobs:
       - name: Compile WindowHub runtime wiring and read-only smoke
         run: |
           python -m compileall -q \
+            app/agent/perception/windowhub_ui_automation_provider.py \
+            app/agent/perception/screen_element_fusion.py \
+            app/agent/perception/target_resolver.py \
             app/agent/runtime/agent_runtime.py \
             app/agent/runtime/windowhub_agent_runtime.py \
             app/agent/runtime/windowhub_resumable_task_host.py \
