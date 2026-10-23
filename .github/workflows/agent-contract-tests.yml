@@ -100,7 +100,7 @@ jobs:
             tests/test_hough_line_normalizer.py \
             tests/test_windowhub_field_scope_diagnostics.py \
             tests/test_diagnose_windowhub_semantics.py \
-            tests/test_windows_desktop_agent_runtime.py \
+            tests/test_windows_desktop_agent_runtime.py
 
       - name: Run resumable WindowHub task and checkpoint tests
         run: |
@@ -145,6 +145,7 @@ jobs:
             tests/test_windowhub_win32_form_provider.py \
             tests/test_hough_line_normalizer.py \
             tests/test_windowhub_field_scope_diagnostics.py \
-            tests/test_diagnose_windowhub_semantics.py
+            tests/test_diagnose_windowhub_semantics.py \
+            tests/test_windows_desktop_agent_runtime.py
       - name: Run local-only Playwright provider smoke
         run: python tools/smoke_browser_provider_local.py
