@@ -547,9 +547,16 @@ def test_valid_pdf_quote_task_persists_checkpoint_and_waits_for_explicit_approva
     assert checkpoint.citations
     assert all(
         citation["source"]["source_alias"] == "offer-001"
-        and citation["source"]["page_number"] == 1
+        and isinstance(citation["source"]["page_number"], int)
+        and citation["source"]["page_number"] >= 1
         for citation in checkpoint.citations
     )
+    # Each fixture line is a separate PDF page; the checkpoint retains that
+    # page-level provenance rather than flattening all facts onto page one.
+    assert {
+        citation["source"]["page_number"]
+        for citation in checkpoint.citations
+    } == {1, 2, 3, 4}
 
     # Checkpoint creation and persistence must not even observe the desktop.
     assert runtime.get_resumable_task(checkpoint.task_id) == checkpoint
