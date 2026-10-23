@@ -99,7 +99,8 @@ jobs:
             tests/test_task_planning_context_adapters.py \
             tests/test_hough_line_normalizer.py \
             tests/test_windowhub_field_scope_diagnostics.py \
-            tests/test_diagnose_windowhub_semantics.py
+            tests/test_diagnose_windowhub_semantics.py \
+            tests/test_windows_desktop_agent_runtime.py \
 
       - name: Run resumable WindowHub task and checkpoint tests
         run: |
@@ -113,7 +114,7 @@ jobs:
       - name: Run WindowHub resumable task adapter tests
         run: pytest -q tests/test_windowhub_resumable_task_host.py
 
-      - name: Compile WindowHub runtime wiring and read-only smoke
+      - name: Compile Windows/WindowHub runtime wiring and read-only smoke
         run: |
           python -m compileall -q \
             app/agent/perception/windowhub_ui_automation_provider.py \
@@ -130,6 +131,10 @@ jobs:
             app/agent/adapters/excel_annual_xy_aggregation.py \
             app/agent/runtime/windowhub_agent_runtime.py \
             app/agent/runtime/windowhub_resumable_task_host.py \
+            app/agent/runtime/windows_desktop_agent_runtime.py \
+            app/agent/runtime/windows_desktop_agent_control_loop.py \
+            tools/run_windows_desktop_agent.py \
+            tools/smoke_windows_desktop_navimind.py \
             app/agent/perception/windowhub_win32_form_provider.py \
             app/runtime/execution/vision/analyzers/canvas_analyzer.py \
             app/runtime/execution/vision/analyzers/hough_line_normalizer.py \
