@@ -39,6 +39,22 @@ def _grid_dimensions(item):
         return None
 
 
+def _wrapper_rect(item, provider_module):
+    """Get bounds from a pywinauto wrapper without exposing the coordinates."""
+    if item is None:
+        return None
+    try:
+        rectangle = item.rectangle()
+        return provider_module._UIARect(
+            left=int(rectangle.left),
+            top=int(rectangle.top),
+            width=int(rectangle.width()),
+            height=int(rectangle.height()),
+        )
+    except Exception:
+        return None
+
+
 def _summarize_grid_candidates(items, provider) -> dict[str, int]:
     type_candidates = 0
     pattern_interfaces = 0
@@ -196,6 +212,7 @@ def _per_document_grid_summaries(
     matched_documents,
     document_tab_states: dict[str, bool | None],
     provider,
+    root_window=None,
 ) -> dict[str, dict[str, int]]:
     """Aggregate grid and viewport results separately for selected/hidden MDI docs."""
     summaries = {
@@ -215,6 +232,18 @@ def _per_document_grid_summaries(
         "cell_bounds_errors",
         "cells_intersecting_grid_rect",
         "cells_outside_grid_rect",
+        "grid_rect_intersecting_document_window",
+        "grid_rect_outside_document_window",
+        "grid_rect_intersecting_mdi_client",
+        "grid_rect_outside_mdi_client",
+        "grid_rect_intersecting_top_level_window",
+        "grid_rect_outside_top_level_window",
+        "cells_intersecting_document_window",
+        "cells_outside_document_window",
+        "cells_intersecting_mdi_client",
+        "cells_outside_mdi_client",
+        "cells_intersecting_top_level_window",
+        "cells_outside_top_level_window",
         "cells_passing_name_filter",
     )
     for item in summaries.values():
@@ -231,6 +260,11 @@ def _per_document_grid_summaries(
         )
         counts = summaries[bucket]
         counts["matched_documents"] += 1
+
+        document_rect = _wrapper_rect(child_window, provider_module)
+        mdi_client = provider._grid_parent_item(child_window)
+        mdi_client_rect = _wrapper_rect(mdi_client, provider_module)
+        top_level_rect = _wrapper_rect(root_window, provider_module)
 
         try:
             descendants = tuple(child_window.descendants())
@@ -263,6 +297,20 @@ def _per_document_grid_summaries(
                 continue
 
             counts["nonempty_grids"] += 1
+
+            if document_rect is not None and provider._rectangles_intersect(grid_rect, document_rect):
+                counts["grid_rect_intersecting_document_window"] += 1
+            else:
+                counts["grid_rect_outside_document_window"] += 1
+            if mdi_client_rect is not None and provider._rectangles_intersect(grid_rect, mdi_client_rect):
+                counts["grid_rect_intersecting_mdi_client"] += 1
+            else:
+                counts["grid_rect_outside_mdi_client"] += 1
+            if top_level_rect is not None and provider._rectangles_intersect(grid_rect, top_level_rect):
+                counts["grid_rect_intersecting_top_level_window"] += 1
+            else:
+                counts["grid_rect_outside_top_level_window"] += 1
+
             cells_to_read = min(
                 row_count * column_count,
                 provider.MAX_GRID_CELLS_PER_GRID,
@@ -287,6 +335,20 @@ def _per_document_grid_summaries(
                 if cell_rect is None:
                     counts["cell_bounds_errors"] += 1
                     continue
+
+                if document_rect is not None and provider._rectangles_intersect(cell_rect, document_rect):
+                    counts["cells_intersecting_document_window"] += 1
+                else:
+                    counts["cells_outside_document_window"] += 1
+                if mdi_client_rect is not None and provider._rectangles_intersect(cell_rect, mdi_client_rect):
+                    counts["cells_intersecting_mdi_client"] += 1
+                else:
+                    counts["cells_outside_mdi_client"] += 1
+                if top_level_rect is not None and provider._rectangles_intersect(cell_rect, top_level_rect):
+                    counts["cells_intersecting_top_level_window"] += 1
+                else:
+                    counts["cells_outside_top_level_window"] += 1
+
                 if not provider._rectangles_intersect(cell_rect, grid_rect):
                     counts["cells_outside_grid_rect"] += 1
                     continue
@@ -400,6 +462,7 @@ def main() -> int:
             matched_documents,
             document_tab_states,
             provider,
+            root_window=window,
         )
 
         # Run actual provider discovery too; report only number of emitted cell
