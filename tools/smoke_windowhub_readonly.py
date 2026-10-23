@@ -45,6 +45,9 @@ def main() -> int:
             get_windowhub_offer_knowledge,
         )
         from app.agent.perception.windowhub_form_reader import WindowHubFormReader
+        from app.agent.perception.windowhub_grid_reader import WindowHubGridReader
+        from app.agent.bridge.world_state import WorldState
+        import json
         from app.agent.runtime.agent_orchestrator import AgentOrchestrator
         from app.agent.runtime.agent_runtime import AgentRuntime
         from app.agent.runtime.windowhub_agent_control_loop import (
@@ -99,6 +102,20 @@ def main() -> int:
             )
 
         fields = WindowHubFormReader().read(scene)
+        grids = WindowHubGridReader().read_active_document(scene)
+        world = WorldState.from_scene(scene)
+        world_grid_payloads = world.metadata.get("windowhub_grids", [])
+        if not isinstance(world_grid_payloads, list):
+            raise RuntimeError("Structured grid payload is not a list.")
+        # Ensure the structured world bridge sees exactly the same bounded
+        # active-document grid set; never print row labels or cell values.
+        expected_payload_count = min(len(grids), 20)
+        if len(world_grid_payloads) != expected_payload_count:
+            raise RuntimeError(
+                "Structured grid payload count does not match the active-document reader."
+            )
+        json.dumps(world.to_payload(), ensure_ascii=False)
+
         print("windowhub_window: PASS")
         print(f"window_title: {window_title}")
         print(f"window_handle_present: {bool(window_handle)}")
@@ -107,6 +124,26 @@ def main() -> int:
         print(f"semantic_controls: {len(elements)}")
         print(f"readable_form_fields: {len(fields)}")
         print(f"active_document_resolved: {bool(scene.active_document)}")
+        print(f"active_document_grids: {len(grids)}")
+        print(f"structured_grid_payloads: {len(world_grid_payloads)}")
+        print(
+            "grid_observation_complete_count: "
+            f"{sum(1 for grid in grids if grid.complete)}"
+        )
+        for index, grid in enumerate(grids):
+            print(
+                f"grid_{index}: rows={grid.row_count}, "
+                f"columns={grid.column_count}, "
+                f"observed_cells={grid.observed_cell_count}, "
+                f"missing_cells={grid.missing_cell_count}, "
+                f"unreadable_values={grid.unreadable_value_count}, "
+                f"complete={grid.complete}, "
+                f"truncated={grid.truncated}, "
+                f"matrix_omitted={grid.matrix_omitted}"
+            )
+        print("grid_cell_labels_printed: 0")
+        print("grid_cell_values_printed: 0")
+        print("grid_provider_ids_printed: 0")
         print("execution_mode: DRY_RUN")
         print("resumable_service: CONFIGURED")
         print("gui_actions_executed: 0")
