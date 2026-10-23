@@ -236,9 +236,17 @@ def test_invalid_columns_duplicate_headers_and_bad_periods_are_rejected(tmp_path
         )
     assert duplicate_header.value.code == "duplicate_headers"
 
+    unique_header_source = make_xlsx(
+        adapter,
+        root / "unique-headers.xlsx",
+        [
+            ("Period", "X", "Y"),
+            ("2024-01", 1, 10),
+        ],
+    )
     with pytest.raises(AnnualXYAggregationError) as out_of_range:
         service.aggregate(
-            source,
+            unique_header_source,
             sheet="Monthly",
             period_column=1,
             x_column=2,
