@@ -1,8 +1,9 @@
 """Read-only smoke test against an already-open real WindowHub window.
 
 This diagnostic observes the WindowHub window and semantic UIA controls once.
-It does not call the planner, execute a GUI action, print field values, submit
-an offer, or use a remote reasoning service.
+It prints aggregate status/counts only: no window titles, control labels,
+field labels, cell labels, or field/cell values are emitted. It does not call
+the planner, execute a GUI action, submit an offer, or use remote reasoning.
 """
 from __future__ import annotations
 
@@ -79,17 +80,14 @@ def main() -> int:
         window_handle = metadata.get("window_handle")
 
         if state.active_application != "WindowHub":
-            raise RuntimeError(
-                f"Unexpected active application label: {state.active_application!r}."
-            )
+            raise RuntimeError("Unexpected active application label.")
         if not window_title.casefold().startswith("okna -"):
             raise RuntimeError(
-                "The observed top-level window title does not begin with 'Okna -': "
-                f"{window_title!r}."
+                "Observed top-level window is not a WindowHub window."
             )
         if metadata.get("source") != "windowhub":
             raise RuntimeError(
-                f"Unexpected observation source: {metadata.get('source')!r}."
+                "Unexpected observation source."
             )
         if not isinstance(window_handle, int) or window_handle <= 0:
             raise RuntimeError("No valid WindowHub window handle was observed.")
@@ -117,7 +115,7 @@ def main() -> int:
         json.dumps(world.to_payload(), ensure_ascii=False)
 
         print("windowhub_window: PASS")
-        print(f"window_title: {window_title}")
+        print("window_title_present: True")
         print(f"window_handle_present: {bool(window_handle)}")
         print(f"window_focused: {bool(metadata.get('window_focused'))}")
         print(f"perception_source: {metadata.get('source')}")
@@ -153,18 +151,15 @@ def main() -> int:
         print("submission_or_save_attempted: 0")
         print("scope: read-only observation of the real WindowHub window")
 
-        print("semantic_controls_sample:")
-        for element in elements[:30]:
-            label = (element.label or "").strip() or "<unlabelled>"
-            print(f"  - {element.kind}: {label}")
-        print("form_field_labels:")
-        for field in fields[:30]:
-            print(f"  - {field.control_type}: {field.label} [{field.scope_status}]")
+        print("semantic_control_labels_printed: 0")
+        print("form_field_labels_printed: 0")
+        print("grid_cell_labels_printed: 0")
+        print("grid_cell_values_printed: 0")
         print("result: PASS")
         return 0
 
     except Exception as exc:
-        print(f"result: FAIL ({type(exc).__name__}: {exc})", file=sys.stderr)
+        print(f"result: FAIL ({type(exc).__name__})", file=sys.stderr)
         return 1
 
 
