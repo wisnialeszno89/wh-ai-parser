@@ -192,6 +192,116 @@ def _detail_cell_filter_counts(matched_documents, provider) -> dict[str, int]:
     return counts
 
 
+def _per_document_grid_summaries(
+    matched_documents,
+    document_tab_states: dict[str, bool | None],
+    provider,
+) -> dict[str, dict[str, int]]:
+    """Aggregate grid and viewport results separately for selected/hidden MDI docs."""
+    summaries = {
+        "selected": {},
+        "unselected": {},
+        "selection_unknown": {},
+    }
+    counter_names = (
+        "matched_documents",
+        "grid_controls",
+        "grid_pattern_interfaces",
+        "nonempty_grids",
+        "cells_requested",
+        "getitem_errors",
+        "cells_returned",
+        "cells_offscreen_true",
+        "cell_bounds_errors",
+        "cells_intersecting_grid_rect",
+        "cells_outside_grid_rect",
+        "cells_passing_name_filter",
+    )
+    for item in summaries.values():
+        item.update({name: 0 for name in counter_names})
+
+    from app.agent.perception import windowhub_ui_automation_provider as provider_module
+
+    for document_key, document_scope, child_window in matched_documents:
+        state = document_tab_states.get(document_key)
+        bucket = (
+            "selected" if state is True
+            else "unselected" if state is False
+            else "selection_unknown"
+        )
+        counts = summaries[bucket]
+        counts["matched_documents"] += 1
+
+        try:
+            descendants = tuple(child_window.descendants())
+        except Exception:
+            continue
+
+        for grid in descendants:
+            if _control_type(grid, provider) not in {"datagrid", "table"}:
+                continue
+            counts["grid_controls"] += 1
+
+            try:
+                interface = getattr(grid, "iface_grid")
+                row_count = int(interface.CurrentRowCount)
+                column_count = int(interface.CurrentColumnCount)
+                rectangle = grid.rectangle()
+                grid_rect = provider_module._UIARect(
+                    left=int(rectangle.left),
+                    top=int(rectangle.top),
+                    width=int(rectangle.width()),
+                    height=int(rectangle.height()),
+                )
+            except Exception:
+                continue
+
+            counts["grid_pattern_interfaces"] += 1
+            if row_count <= 0 or column_count <= 0:
+                continue
+            if grid_rect.width <= 0 or grid_rect.height <= 0:
+                continue
+
+            counts["nonempty_grids"] += 1
+            cells_to_read = min(
+                row_count * column_count,
+                provider.MAX_GRID_CELLS_PER_GRID,
+            )
+            counts["cells_requested"] += cells_to_read
+
+            for cell_index in range(cells_to_read):
+                row = cell_index // column_count
+                column = cell_index % column_count
+                try:
+                    cell = interface.GetItem(row, column)
+                except Exception:
+                    counts["getitem_errors"] += 1
+                    continue
+                if cell is None:
+                    continue
+                counts["cells_returned"] += 1
+
+                if provider._uia_cell_offscreen(cell) is True:
+                    counts["cells_offscreen_true"] += 1
+                cell_rect = provider._uia_element_bounds(cell)
+                if cell_rect is None:
+                    counts["cell_bounds_errors"] += 1
+                    continue
+                if not provider._rectangles_intersect(cell_rect, grid_rect):
+                    counts["cells_outside_grid_rect"] += 1
+                    continue
+                counts["cells_intersecting_grid_rect"] += 1
+
+                legacy = provider._get_grid_pattern(cell, "LegacyIAccessible")
+                name = provider._pattern_string(legacy, "CurrentName")
+                if not name:
+                    name = provider._pattern_string(cell, "CurrentName")
+                if name:
+                    counts["cells_passing_name_filter"] += 1
+
+    return summaries
+
+
 def main() -> int:
     if os.name != "nt":
         print("diagnostic_status: unsupported_platform")
@@ -242,6 +352,7 @@ def main() -> int:
 
         document_tabs_named = 0
         selected_document_tabs = 0
+        tab_states_by_key: dict[str, list[bool | None]] = {}
         for item in document_tab_items:
             try:
                 name = provider._string(getattr(item.element_info, "name", None))
@@ -249,11 +360,18 @@ def main() -> int:
                 name = None
             if name:
                 document_tabs_named += 1
-                try:
-                    if provider._selection_state(item) is True:
-                        selected_document_tabs += 1
-                except Exception:
-                    pass
+                key = provider._normalized_document_key(name)
+                state = provider._selection_state(item)
+                tab_states_by_key.setdefault(key, []).append(state)
+                if state is True:
+                    selected_document_tabs += 1
+
+        # A caption is usable for selected/unselected attribution only when
+        # exactly one document-tab item carries that normalized identity.
+        document_tab_states: dict[str, bool | None] = {
+            key: states[0] if len(states) == 1 else None
+            for key, states in tab_states_by_key.items()
+        }
 
         mdi_child_windows = sum(
             1
@@ -278,6 +396,11 @@ def main() -> int:
             matched_descendants, provider
         )
         detailed_cell_counts = _detail_cell_filter_counts(matched_documents, provider)
+        per_document_grid_summaries = _per_document_grid_summaries(
+            matched_documents,
+            document_tab_states,
+            provider,
+        )
 
         # Run actual provider discovery too; report only number of emitted cell
         # observations, never captions, labels, values, coordinates or IDs.
@@ -305,6 +428,7 @@ def main() -> int:
         print("root_grid_candidates: " + json.dumps(all_candidate_summary, sort_keys=True))
         print("matched_document_grid_candidates: " + json.dumps(matched_candidate_summary, sort_keys=True))
         print("cell_filter_counts: " + json.dumps(detailed_cell_counts, sort_keys=True))
+        print("per_document_grid_summaries: " + json.dumps(per_document_grid_summaries, sort_keys=True))
         print(f"provider_emitted_grid_cell_observations: {emitted_grid_cells}")
         print("document_captions_printed: 0")
         print("element_labels_printed: 0")
