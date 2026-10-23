@@ -4,7 +4,6 @@ import importlib
 import json
 from pathlib import Path
 import socket
-import sys
 
 import pytest
 
@@ -59,6 +58,10 @@ def write_text_pdf(path: Path, page_texts: list[str]) -> bytes:
 
 
 def test_import_is_safe_and_does_not_create_fixed_outputs(tmp_path, monkeypatch):
+    def reject_network(*args, **kwargs):
+        raise AssertionError("Import must not create a network connection.")
+
+    monkeypatch.setattr(socket, "create_connection", reject_network)
     monkeypatch.chdir(tmp_path)
     assert importlib.reload(legacy_pdf) is legacy_pdf
     assert list(tmp_path.iterdir()) == []
