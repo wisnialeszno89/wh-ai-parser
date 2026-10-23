@@ -699,6 +699,13 @@ class ExcelAnnualXYAggregationService:
                 )
             return parsed_date.year, f"date:{parsed_date.isoformat()}"
 
+        if _NUMERIC_TEXT.fullmatch(text):
+            raise AnnualXYAggregationError(
+                "ambiguous_numeric_period",
+                "Numeric periods must be a whole year; use an Excel date or an ISO date/month string for other periods.",
+                row_numbers=(row_number,),
+            )
+
         match = _YEAR_TEXT.fullmatch(text)
         if match:
             year = int(match.group(1))
