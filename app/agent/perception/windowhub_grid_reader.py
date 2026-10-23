@@ -20,6 +20,18 @@ class WindowHubGridCell:
     confidence: float | None
     element: ScreenElement
 
+    def to_payload(self) -> dict[str, object]:
+        """Return model-safe cell data without provider IDs or coordinates."""
+        value_available = self.value_available and isinstance(self.value, str)
+        return {
+            "row_index": self.row_index,
+            "column_index": self.column_index,
+            "label": self.label,
+            "current_value": self.value if value_available else None,
+            "value_available": value_available,
+            "confidence": self.confidence,
+        }
+
 
 @dataclass(frozen=True)
 class WindowHubGrid:
@@ -71,6 +83,54 @@ class WindowHubGrid:
             and self.missing_cell_count == 0
             and self.unreadable_value_count == 0
         )
+
+    def to_payload(self) -> dict[str, object]:
+        """
+        Serialize structured grid data without leaking provider-local IDs,
+        window handles, screen geometry, or raw ScreenElement metadata.
+        """
+        payload: dict[str, object] = {
+            "document_scope": self.document_scope,
+            "scope_status": self.scope_status,
+            "row_count": self.row_count,
+            "column_count": self.column_count,
+            "complete": self.complete,
+            "shape_consistent": self.shape_consistent,
+            "truncated": self.truncated,
+            "matrix_omitted": self.matrix_omitted,
+            "observed_cell_count": self.observed_cell_count,
+            "missing_cell_count": self.missing_cell_count,
+            "unreadable_value_count": self.unreadable_value_count,
+            "duplicate_positions": [
+                {"row_index": row, "column_index": column}
+                for row, column in self.duplicate_positions
+            ],
+        }
+
+        if self.matrix_omitted:
+            # Keep observed evidence available without allocating/sending a
+            # dense matrix whose dimensions exceed the reader's cap.
+            payload["observed_cells"] = [
+                cell.to_payload() for cell in self.cells
+            ]
+        else:
+            payload["rows"] = [
+                [
+                    cell.to_payload() if cell is not None else None
+                    for cell in row
+                ]
+                for row in self.rows
+            ]
+
+        if self.duplicate_positions:
+            duplicate_positions = set(self.duplicate_positions)
+            payload["duplicate_cells"] = [
+                cell.to_payload()
+                for cell in self.cells
+                if (cell.row_index, cell.column_index) in duplicate_positions
+            ]
+
+        return payload
 
 
 class WindowHubGridReader:

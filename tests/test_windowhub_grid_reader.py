@@ -175,3 +175,40 @@ def test_reader_avoids_allocating_an_unbounded_matrix_for_large_grids():
     assert grid.truncated is True
     assert grid.complete is False
     assert grid.observed_cell_count == 1
+
+
+
+def test_grid_payload_is_model_safe_and_preserves_observed_blank_cells():
+    scene = make_scene(
+        grid_cell(
+            row=0,
+            column=0,
+            value="",
+            label="Puste pole",
+            rows=1,
+            columns=2,
+            grid_id="private-provider-grid-runtime-identifier",
+        ),
+        grid_cell(
+            row=0,
+            column=1,
+            value="1230",
+            label="Szerokość",
+            rows=1,
+            columns=2,
+            grid_id="private-provider-grid-runtime-identifier",
+        ),
+    )
+
+    grid = WindowHubGridReader().read_active_document(scene)[0]
+    payload = grid.to_payload()
+
+    assert payload["document_scope"] == "OFR/4024"
+    assert payload["complete"] is True
+    assert payload["rows"][0][0]["current_value"] == ""
+    assert payload["rows"][0][0]["value_available"] is True
+    assert payload["rows"][0][1]["current_value"] == "1230"
+    assert "grid_id" not in payload
+    assert "private-provider-grid-runtime-identifier" not in str(payload)
+    assert "element" not in payload
+    assert "uia_window_handle" not in str(payload)

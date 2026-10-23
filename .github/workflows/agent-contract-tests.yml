@@ -117,6 +117,8 @@ jobs:
             app/agent/perception/screen_element_fusion.py \
             app/agent/perception/target_resolver.py \
             app/agent/perception/windowhub_grid_reader.py \
+            app/agent/bridge/world_state.py \
+            app/agent/reasoning/task_planning_context.py \
             app/agent/runtime/agent_runtime.py \
             app/agent/runtime/windowhub_agent_runtime.py \
             app/agent/runtime/windowhub_resumable_task_host.py \
