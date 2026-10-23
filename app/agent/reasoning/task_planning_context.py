@@ -2,6 +2,7 @@ from dataclasses import dataclass
 
 from app.agent.adapters.browser_adapter import BrowserPage
 from app.agent.perception.screen_scene import ScreenScene
+from app.agent.perception.windowhub_grid_reader import WindowHubGridReader
 from app.agent.reasoning.knowledge_context import KnowledgeContext
 from app.agent.world.semantic_world_model import SemanticWorldModel
 
@@ -89,7 +90,18 @@ class TaskPlanningContext:
         state = self.scene.observation.state
         elements = []
 
-        for element in self.scene.elements[:80]:
+        for element in self.scene.elements:
+            metadata = element.metadata or {}
+            # Structured grid data is serialized separately below. Do not
+            # advertise table cells as visible targets for executable actions.
+            if (
+                element.kind.casefold() == "gridcell"
+                or metadata.get("uia_grid_cell_observation") is True
+            ):
+                continue
+            if len(elements) >= 80:
+                break
+
             item: dict[str, object] = {
                 "kind": element.kind,
                 "label": element.label,
@@ -101,7 +113,6 @@ class TaskPlanningContext:
             if element.confidence is not None:
                 item["confidence"] = element.confidence
 
-            metadata = element.metadata or {}
             current_value = metadata.get("current_value")
             selected = metadata.get("uia_selected")
 
@@ -125,6 +136,7 @@ class TaskPlanningContext:
         if reconstruction is None:
             observation_metadata = getattr(self.scene.observation, "metadata", {}) or {}
             reconstruction = observation_metadata.get("windowhub_ocr_table_reconstruction")
+        structured_data: dict[str, object] = {}
         serializer = getattr(reconstruction, "to_payload", None)
         if callable(serializer):
             try:
@@ -136,5 +148,29 @@ class TaskPlanningContext:
                 world_metadata.get("windowhub_ocr_table"), dict
             )
             if isinstance(table_payload, dict) and not table_already_in_world:
-                payload["structured_data"] = {"windowhub_ocr_table": table_payload}
+                structured_data["windowhub_ocr_table"] = table_payload
+
+        # Keep structured grid observations available to reasoners that use
+        # TaskPlanningContext.to_payload instead of the NaviMind WorldState
+        # bridge. The reader fails closed unless the active document is known.
+        try:
+            active_grids = WindowHubGridReader().read_active_document(self.scene)
+            grid_payloads = [
+                grid.to_payload()
+                for grid in active_grids[:20]
+            ]
+        except Exception:
+            grid_payloads = []
+
+        world_metadata = getattr(self.world, "metadata", {}) or {}
+        grids_already_in_world = isinstance(
+            world_metadata.get("windowhub_grids"), list
+        )
+        if grid_payloads and not grids_already_in_world:
+            structured_data["windowhub_grids"] = grid_payloads
+            if len(active_grids) > len(grid_payloads):
+                structured_data["windowhub_grids_truncated"] = True
+
+        if structured_data:
+            payload["structured_data"] = structured_data
         return payload

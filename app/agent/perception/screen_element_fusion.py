@@ -151,6 +151,14 @@ class ScreenElementFusion:
         )
 
         for group_index, group in enumerate(groups):
+            # Grid cells are observation-only data, not executable targets.
+            # Keep them distinct from visual/OCR controls even when labels match.
+            if self._is_grid_cell_observation(elements[index]) or any(
+                self._is_grid_cell_observation(elements[member_index])
+                for member_index in group
+            ):
+                continue
+
             if any(
                 self._is_protected_native_field_text_pair(
                     elements[index],
@@ -317,6 +325,13 @@ class ScreenElementFusion:
             return f"provider:{identity.provider_id}"
 
         return f"anonymous:{index}"
+
+    @staticmethod
+    def _is_grid_cell_observation(element: ScreenElement) -> bool:
+        return (
+            element.kind.casefold() == "gridcell"
+            or (element.metadata or {}).get("uia_grid_cell_observation") is True
+        )
 
     @staticmethod
     def _is_protected_native_field_text_pair(

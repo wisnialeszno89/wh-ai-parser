@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import unicodedata
 from typing import Callable
 
 from app.agent.environment.environment_observation import (
@@ -78,12 +79,16 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
         "treeitem",
     })
 
+    MAX_GRID_CELLS_PER_GRID = 1000
+
     def __init__(
         self,
         *,
         desktop_factory: Callable[[], object] | None = None,
+        pattern_interface_getter: Callable[[object, str], object] | None = None,
     ) -> None:
         self._desktop_factory = desktop_factory
+        self._pattern_interface_getter = pattern_interface_getter
 
     def perceive(
         self,
@@ -204,7 +209,445 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
                 if element is not None:
                     elements.append(element)
 
+            # Grid cells are often exposed by WindowHub as custom controls,
+            # and their UIA Visible property may be unreliable. Read cells
+            # through GridPattern only after a unique MDI document/tab match.
+            elements.extend(
+                self._collect_grid_cells(
+                    descendants=descendants,
+                    origin_x=origin_x,
+                    origin_y=origin_y,
+                    window_handle=current_window_handle,
+                    owned_modal=is_owned_modal,
+                )
+            )
+
         return tuple(elements)
+
+    def _collect_grid_cells(
+        self,
+        *,
+        descendants,
+        origin_x: int,
+        origin_y: int,
+        window_handle: int,
+        owned_modal: bool,
+    ) -> tuple[ScreenElement, ...]:
+        """Emit read-only GridPattern cell observations with proven MDI scope."""
+        matched_documents = self._matched_mdi_document_windows(descendants)
+        if not matched_documents:
+            return ()
+
+        elements: list[ScreenElement] = []
+        for document_index, (
+            document_key,
+            document_scope,
+            child_window,
+        ) in enumerate(matched_documents):
+            try:
+                document_descendants = tuple(child_window.descendants())
+            except Exception:
+                continue
+
+            grids = []
+            for item in document_descendants:
+                try:
+                    info = item.element_info
+                    control_type = self._normalize_control_type(
+                        getattr(info, "control_type", None)
+                    )
+                except Exception:
+                    continue
+                if control_type in {"datagrid", "table"}:
+                    grids.append(item)
+
+            for grid_index, grid in enumerate(grids):
+                try:
+                    grid_iface = getattr(grid, "iface_grid")
+                    row_count = int(grid_iface.CurrentRowCount)
+                    column_count = int(grid_iface.CurrentColumnCount)
+                    rectangle = grid.rectangle()
+                    grid_rect = _UIARect(
+                        left=int(rectangle.left),
+                        top=int(rectangle.top),
+                        width=int(rectangle.width()),
+                        height=int(rectangle.height()),
+                    )
+                except Exception:
+                    continue
+
+                if (
+                    row_count <= 0
+                    or column_count <= 0
+                    or grid_rect.width <= 0
+                    or grid_rect.height <= 0
+                ):
+                    continue
+
+                total_cells = row_count * column_count
+                cells_to_read = min(
+                    total_cells,
+                    self.MAX_GRID_CELLS_PER_GRID,
+                )
+                grid_runtime_id = self._runtime_id(grid)
+                grid_identity = (
+                    f"doc{document_index}:{document_key}:"
+                    f"{grid_runtime_id or self._native_handle(grid) or 'grid'}:"
+                    f"grid{grid_index}"
+                )
+                enumeration_truncated = total_cells > cells_to_read
+
+                for cell_index in range(cells_to_read):
+                    row = cell_index // column_count
+                    column = cell_index % column_count
+
+                    try:
+                        cell = grid_iface.GetItem(row, column)
+                    except Exception:
+                        continue
+
+                    if cell is None:
+                        continue
+
+                    offscreen = self._uia_cell_offscreen(cell)
+                    if offscreen is True:
+                        continue
+
+                    cell_rect = self._uia_element_bounds(cell)
+                    if cell_rect is None:
+                        continue
+
+                    # Reject cells outside the visible grid viewport. Some
+                    # WPF wrappers report Visible=False for realized cells,
+                    # so native UIA offscreen state plus bounds are used here.
+                    if not self._rectangles_intersect(cell_rect, grid_rect):
+                        continue
+
+                    legacy = self._get_grid_pattern(cell, "LegacyIAccessible")
+                    cell_label = self._pattern_string(legacy, "CurrentName")
+                    if not cell_label:
+                        cell_label = self._pattern_string(cell, "CurrentName")
+                    if not cell_label:
+                        continue
+
+                    current_value = None
+                    value_available = False
+                    value_source = None
+
+                    legacy_value = self._pattern_string_value(
+                        legacy,
+                        "CurrentValue",
+                    )
+                    if legacy_value[0]:
+                        value_available = True
+                        current_value = legacy_value[1]
+                        value_source = "uia_legacy_accessible"
+                    else:
+                        value_pattern = self._get_grid_pattern(cell, "Value")
+                        value_value = self._pattern_string_value(
+                            value_pattern,
+                            "CurrentValue",
+                        )
+                        if value_value[0]:
+                            value_available = True
+                            current_value = value_value[1]
+                            value_source = "uia_value_pattern"
+
+                    left = cell_rect.left - origin_x
+                    top = cell_rect.top - origin_y
+                    width = cell_rect.width
+                    height = cell_rect.height
+                    element_id = (
+                        f"uia:gridcell:{grid_identity}:{row}:{column}"
+                    )
+
+                    evidence = [
+                        SemanticEvidence(
+                            source=EvidenceSource.ACCESSIBILITY,
+                            kind=EvidenceKind.LABEL,
+                            value=cell_label,
+                            confidence=0.99,
+                            element_id=element_id,
+                        ),
+                        SemanticEvidence(
+                            source=EvidenceSource.ACCESSIBILITY,
+                            kind=EvidenceKind.ROLE,
+                            value="gridcell",
+                            confidence=0.99,
+                            element_id=element_id,
+                        ),
+                        SemanticEvidence(
+                            source=EvidenceSource.ACCESSIBILITY,
+                            kind=EvidenceKind.BOUNDS,
+                            value=(left, top, width, height),
+                            confidence=0.99,
+                            element_id=element_id,
+                        ),
+                    ]
+                    if value_available:
+                        evidence.append(
+                            SemanticEvidence(
+                                source=EvidenceSource.ACCESSIBILITY,
+                                kind=EvidenceKind.TEXT,
+                                value=current_value,
+                                confidence=0.99,
+                                element_id=element_id,
+                            )
+                        )
+
+                    grid_metadata = {
+                        "source": "windowhub_ui_automation",
+                        "provider_element_id": element_id,
+                        "semantic_name": cell_label,
+                        "name": cell_label,
+                        "semantic_label_source": "uia_legacy_accessible_name",
+                        "current_value": current_value,
+                        "current_value_available": value_available,
+                        "current_value_source": value_source,
+                        "document_scope": document_scope,
+                        "uia_control_type": "custom",
+                        "uia_class_name": self._pattern_string(
+                            cell,
+                            "CurrentClassName",
+                        ),
+                        "uia_grid_cell_observation": True,
+                        "uia_grid_id": grid_identity,
+                        "uia_grid_index": grid_index,
+                        "uia_grid_row_index": row,
+                        "uia_grid_column_index": column,
+                        "uia_grid_row_count": row_count,
+                        "uia_grid_column_count": column_count,
+                        "uia_grid_index_base": 0,
+                        "uia_grid_enumeration_truncated": enumeration_truncated,
+                        "uia_cell_offscreen": offscreen,
+                        "uia_window_handle": window_handle,
+                        "uia_owned_modal": owned_modal,
+                        "interaction_capability": (
+                            InteractionCapability.UNKNOWN.value
+                        ),
+                        "interaction_capability_confidence": 0.0,
+                        "semantic_evidence": tuple(evidence),
+                    }
+
+                    elements.append(
+                        ScreenElement(
+                            kind="gridcell",
+                            label=cell_label,
+                            x=left,
+                            y=top,
+                            width=width,
+                            height=height,
+                            confidence=0.99,
+                            metadata=grid_metadata,
+                            interaction_capability=InteractionCapability.UNKNOWN,
+                            evidence=tuple(evidence),
+                        )
+                    )
+
+        return tuple(elements)
+
+    @classmethod
+    def _matched_mdi_document_windows(cls, descendants):
+        """Match document tab captions to unique MDI child windows."""
+        tabs_by_key: dict[str, list[str]] = {}
+        windows_by_key: dict[str, list[object]] = {}
+
+        for item in descendants:
+            try:
+                info = item.element_info
+                control_type = cls._normalize_control_type(
+                    getattr(info, "control_type", None)
+                )
+                name = cls._string(getattr(info, "name", None))
+            except Exception:
+                continue
+
+            if not name:
+                continue
+
+            key = cls._normalized_document_key(name)
+            if not key:
+                continue
+
+            if (
+                control_type == "tabitem"
+                and cls._tab_scope(item) == "document"
+            ):
+                tab_host = cls._grid_parent_item(item)
+                mdi_client = (
+                    cls._grid_parent_item(tab_host)
+                    if tab_host is not None
+                    else None
+                )
+                try:
+                    host_info = (
+                        tab_host.element_info
+                        if tab_host is not None
+                        else None
+                    )
+                    mdi_info = (
+                        mdi_client.element_info
+                        if mdi_client is not None
+                        else None
+                    )
+                    is_expected_host = (
+                        cls._normalize_control_type(
+                            getattr(host_info, "control_type", None)
+                        ) == "tab"
+                        and "afxtabwnd" in (
+                            cls._string(
+                                getattr(host_info, "class_name", None)
+                            ) or ""
+                        ).replace(":", "").casefold()
+                    )
+                    is_expected_mdi = (
+                        cls._normalize_control_type(
+                            getattr(mdi_info, "control_type", None)
+                        ) == "pane"
+                        and (
+                            cls._string(
+                                getattr(mdi_info, "class_name", None)
+                            ) or ""
+                        ).casefold() == "mdiclient"
+                    )
+                except Exception:
+                    is_expected_host = False
+                    is_expected_mdi = False
+
+                if is_expected_host and is_expected_mdi:
+                    tabs_by_key.setdefault(key, []).append(name)
+                continue
+
+            if (
+                control_type == "window"
+                and cls._grid_parent_is_mdi_client(item)
+            ):
+                windows_by_key.setdefault(key, []).append(item)
+
+        matched = []
+        for key, tab_names in tabs_by_key.items():
+            windows = windows_by_key.get(key, [])
+            if len(tab_names) == 1 and len(windows) == 1:
+                matched.append((key, tab_names[0], windows[0]))
+        return tuple(matched)
+
+    @classmethod
+    def _grid_parent_item(cls, item):
+        if item is None:
+            return None
+        try:
+            getter = getattr(item, "parent", None)
+            return getter() if callable(getter) else None
+        except Exception:
+            return None
+
+    @classmethod
+    def _grid_parent_is_mdi_client(cls, item) -> bool:
+        parent = cls._grid_parent_item(item)
+        if parent is None:
+            return False
+        try:
+            info = parent.element_info
+            return (
+                cls._normalize_control_type(
+                    getattr(info, "control_type", None)
+                ) == "pane"
+                and (
+                    cls._string(getattr(info, "class_name", None)) or ""
+                ).casefold() == "mdiclient"
+            )
+        except Exception:
+            return False
+
+    @staticmethod
+    def _normalized_document_key(value: str) -> str:
+        normalized = unicodedata.normalize("NFKC", value).casefold()
+        return "".join(
+            character
+            for character in normalized
+            if character.isalnum()
+        )
+
+    def _get_grid_pattern(self, cell, pattern_name):
+        getter = self._pattern_interface_getter
+        if getter is not None:
+            try:
+                return getter(cell, pattern_name)
+            except Exception:
+                return None
+
+        try:
+            from pywinauto.windows.uia_defines import get_elem_interface
+        except ModuleNotFoundError:
+            try:
+                from pywinauto.uia_defines import get_elem_interface
+            except Exception:
+                return None
+        except Exception:
+            return None
+
+        try:
+            return get_elem_interface(cell, pattern_name)
+        except Exception:
+            return None
+
+    @staticmethod
+    def _pattern_string(pattern, property_name):
+        if pattern is None:
+            return None
+        try:
+            value = getattr(pattern, property_name)
+        except Exception:
+            return None
+        return value.strip() if isinstance(value, str) and value.strip() else None
+
+    @staticmethod
+    def _pattern_string_value(pattern, property_name):
+        if pattern is None:
+            return False, None
+        try:
+            value = getattr(pattern, property_name)
+        except Exception:
+            return False, None
+        if isinstance(value, str):
+            # Preserve an observed empty string: blank cell is different from
+            # a value that the provider could not read.
+            return True, value
+        return False, None
+
+    @staticmethod
+    def _uia_cell_offscreen(cell):
+        try:
+            value = getattr(cell, "CurrentIsOffscreen")
+        except Exception:
+            return None
+        return bool(value) if value is not None else None
+
+    @staticmethod
+    def _uia_element_bounds(cell):
+        try:
+            raw = getattr(cell, "CurrentBoundingRectangle")
+            left = int(raw.left)
+            top = int(raw.top)
+            right = int(raw.right)
+            bottom = int(raw.bottom)
+        except Exception:
+            return None
+
+        width = right - left
+        height = bottom - top
+        if width <= 0 or height <= 0:
+            return None
+        return _UIARect(left=left, top=top, width=width, height=height)
+
+    @staticmethod
+    def _rectangles_intersect(left: _UIARect, right: _UIARect) -> bool:
+        return (
+            left.left < right.right
+            and right.left < left.right
+            and left.top < right.bottom
+            and right.top < left.bottom
+        )
 
     @staticmethod
     def _default_desktop():

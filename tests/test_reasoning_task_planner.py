@@ -439,6 +439,53 @@ def test_reasoning_task_planner_preserves_write_text_value():
     assert plan.steps[0].action.value == "1230"
 
 
+def test_reasoning_task_planner_rejects_grid_cell_as_action_target():
+    reasoner = RecordingTaskReasoner(
+        proposal=ReasoningProposal(
+            actions=(
+                ReasoningAction(
+                    name="click_screen_element",
+                    description="Click the requested target.",
+                    target="Szerokość",
+                ),
+            ),
+            rationale="Try to click an observed grid cell.",
+            confidence=0.9,
+        )
+    )
+    scene = ScreenScene(
+        observation=EnvironmentObservation(
+            state=EnvironmentState(
+                active_application="WindowHub",
+                active_window_title="Okna - OFR/4170",
+            ),
+        ),
+        elements=(
+            ScreenElement(
+                kind="gridcell",
+                label="Szerokość",
+                confidence=0.99,
+                interaction_capability=InteractionCapability.UNKNOWN,
+                metadata={
+                    "uia_grid_cell_observation": True,
+                    "current_value": "1230",
+                    "document_scope": "OFR/4170",
+                },
+            ),
+        ),
+        metadata={"active_document": "OFR/4170"},
+    )
+    context = TaskPlanningContext(
+        request_message="Continue with the current offer.",
+        intent=AgentIntent.COMPUTER_USE.value,
+        scene=scene,
+    )
+    planner = ReasoningTaskPlanner(reasoner)
+
+    assert planner.plan(context=context) is None
+    assert planner.last_failure_reason == "target_not_visible_in_scene"
+
+
 def test_reasoning_task_planner_rejects_action_outside_semantic_policy():
     reasoner = RecordingTaskReasoner(
         proposal=ReasoningProposal(

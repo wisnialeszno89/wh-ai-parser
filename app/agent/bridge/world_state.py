@@ -2,6 +2,7 @@ from dataclasses import dataclass, field
 from typing import Mapping
 
 from app.agent.adapters.browser_adapter import BrowserPage
+from app.agent.perception.windowhub_grid_reader import WindowHubGridReader
 
 
 @dataclass(frozen=True)
@@ -47,8 +48,18 @@ class WorldState:
         state = scene.observation.state
         elements: list[WorldElement] = []
 
-        for element in scene.elements[:100]:
+        for element in scene.elements:
             metadata = element.metadata or {}
+            # Grid cells are structured data, not executable visible affordances.
+            # They are serialized below through the scoped grid reader instead.
+            if (
+                element.kind.casefold() == "gridcell"
+                or metadata.get("uia_grid_cell_observation") is True
+            ):
+                continue
+            if len(elements) >= 100:
+                break
+
             current_value = metadata.get("current_value")
 
             elements.append(
@@ -90,6 +101,23 @@ class WorldState:
                 table_payload = None
             if isinstance(table_payload, dict):
                 world_metadata["windowhub_ocr_table"] = table_payload
+
+        # Structured UIA grids are sent separately from visible controls so
+        # table data is available even when it falls beyond the 100-element
+        # affordance list. Only proven active-document grids are included.
+        try:
+            active_grids = WindowHubGridReader().read_active_document(scene)
+            grid_payloads = [
+                grid.to_payload()
+                for grid in active_grids[:20]
+            ]
+        except Exception:
+            grid_payloads = []
+
+        if grid_payloads:
+            world_metadata["windowhub_grids"] = grid_payloads
+            if len(active_grids) > len(grid_payloads):
+                world_metadata["windowhub_grids_truncated"] = True
 
         return cls(
             active_application=state.active_application,

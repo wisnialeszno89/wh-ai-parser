@@ -1,8 +1,9 @@
 """Read-only smoke test against an already-open real WindowHub window.
 
 This diagnostic observes the WindowHub window and semantic UIA controls once.
-It does not call the planner, execute a GUI action, print field values, submit
-an offer, or use a remote reasoning service.
+It prints aggregate status/counts only: no window titles, control labels,
+field labels, cell labels, or field/cell values are emitted. It does not call
+the planner, execute a GUI action, submit an offer, or use remote reasoning.
 """
 from __future__ import annotations
 
@@ -45,6 +46,9 @@ def main() -> int:
             get_windowhub_offer_knowledge,
         )
         from app.agent.perception.windowhub_form_reader import WindowHubFormReader
+        from app.agent.perception.windowhub_grid_reader import WindowHubGridReader
+        from app.agent.bridge.world_state import WorldState
+        import json
         from app.agent.runtime.agent_orchestrator import AgentOrchestrator
         from app.agent.runtime.agent_runtime import AgentRuntime
         from app.agent.runtime.windowhub_agent_control_loop import (
@@ -76,17 +80,14 @@ def main() -> int:
         window_handle = metadata.get("window_handle")
 
         if state.active_application != "WindowHub":
-            raise RuntimeError(
-                f"Unexpected active application label: {state.active_application!r}."
-            )
+            raise RuntimeError("Unexpected active application label.")
         if not window_title.casefold().startswith("okna -"):
             raise RuntimeError(
-                "The observed top-level window title does not begin with 'Okna -': "
-                f"{window_title!r}."
+                "Observed top-level window is not a WindowHub window."
             )
         if metadata.get("source") != "windowhub":
             raise RuntimeError(
-                f"Unexpected observation source: {metadata.get('source')!r}."
+                "Unexpected observation source."
             )
         if not isinstance(window_handle, int) or window_handle <= 0:
             raise RuntimeError("No valid WindowHub window handle was observed.")
@@ -99,14 +100,48 @@ def main() -> int:
             )
 
         fields = WindowHubFormReader().read(scene)
+        grids = WindowHubGridReader().read_active_document(scene)
+        world = WorldState.from_scene(scene)
+        world_grid_payloads = world.metadata.get("windowhub_grids", [])
+        if not isinstance(world_grid_payloads, list):
+            raise RuntimeError("Structured grid payload is not a list.")
+        # Ensure the structured world bridge sees exactly the same bounded
+        # active-document grid set; never print row labels or cell values.
+        expected_payload_count = min(len(grids), 20)
+        if len(world_grid_payloads) != expected_payload_count:
+            raise RuntimeError(
+                "Structured grid payload count does not match the active-document reader."
+            )
+        json.dumps(world.to_payload(), ensure_ascii=False)
+
         print("windowhub_window: PASS")
-        print(f"window_title: {window_title}")
+        print("window_title_present: True")
         print(f"window_handle_present: {bool(window_handle)}")
         print(f"window_focused: {bool(metadata.get('window_focused'))}")
         print(f"perception_source: {metadata.get('source')}")
         print(f"semantic_controls: {len(elements)}")
         print(f"readable_form_fields: {len(fields)}")
         print(f"active_document_resolved: {bool(scene.active_document)}")
+        print(f"active_document_grids: {len(grids)}")
+        print(f"structured_grid_payloads: {len(world_grid_payloads)}")
+        print(
+            "grid_observation_complete_count: "
+            f"{sum(1 for grid in grids if grid.complete)}"
+        )
+        for index, grid in enumerate(grids):
+            print(
+                f"grid_{index}: rows={grid.row_count}, "
+                f"columns={grid.column_count}, "
+                f"observed_cells={grid.observed_cell_count}, "
+                f"missing_cells={grid.missing_cell_count}, "
+                f"unreadable_values={grid.unreadable_value_count}, "
+                f"complete={grid.complete}, "
+                f"truncated={grid.truncated}, "
+                f"matrix_omitted={grid.matrix_omitted}"
+            )
+        print("grid_cell_labels_printed: 0")
+        print("grid_cell_values_printed: 0")
+        print("grid_provider_ids_printed: 0")
         print("execution_mode: DRY_RUN")
         print("resumable_service: CONFIGURED")
         print("gui_actions_executed: 0")
@@ -116,18 +151,15 @@ def main() -> int:
         print("submission_or_save_attempted: 0")
         print("scope: read-only observation of the real WindowHub window")
 
-        print("semantic_controls_sample:")
-        for element in elements[:30]:
-            label = (element.label or "").strip() or "<unlabelled>"
-            print(f"  - {element.kind}: {label}")
-        print("form_field_labels:")
-        for field in fields[:30]:
-            print(f"  - {field.control_type}: {field.label} [{field.scope_status}]")
+        print("semantic_control_labels_printed: 0")
+        print("form_field_labels_printed: 0")
+        print("grid_cell_labels_printed: 0")
+        print("grid_cell_values_printed: 0")
         print("result: PASS")
         return 0
 
     except Exception as exc:
-        print(f"result: FAIL ({type(exc).__name__}: {exc})", file=sys.stderr)
+        print(f"result: FAIL ({type(exc).__name__})", file=sys.stderr)
         return 1
 
 

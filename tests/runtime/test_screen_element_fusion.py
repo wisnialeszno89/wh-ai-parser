@@ -299,6 +299,66 @@ def test_same_shared_id_duplicate_within_one_provider_is_not_fused_cross_provide
     assert len(result.elements) == 3
     assert result.merged_group_count == 0
 
+def test_grid_cell_observation_never_fuses_with_visual_text_or_controls():
+    grid_cell = element(
+        source="windowhub_ui_automation",
+        kind="gridcell",
+        label="1230",
+        metadata={
+            "uia_grid_cell_observation": True,
+            "uia_grid_row_index": 0,
+            "uia_grid_column_index": 1,
+        },
+        evidence_items=(
+            evidence(
+                source=EvidenceSource.ACCESSIBILITY,
+                kind=EvidenceKind.LABEL,
+                value="1230",
+            ),
+        ),
+    )
+    visual_text = element(
+        source="windowhub_ocr",
+        kind="text",
+        label="1230",
+    )
+    same_label_button = element(
+        source="windowhub_ui_automation",
+        kind="button",
+        label="1230",
+        metadata={"provider_element_id": "uia:button:1230"},
+    )
+
+    result = ScreenElementFusion().fuse(
+        (grid_cell, visual_text, same_label_button)
+    )
+
+    assert len(result.elements) == 3
+    assert result.merged_group_count == 0
+    assert any(
+        (item.metadata or {}).get("uia_grid_cell_observation") is True
+        for item in result.elements
+    )
+
+
+def test_gridcell_kind_alone_does_not_fuse_with_ocr_text():
+    grid_cell = element(
+        source="windowhub_ui_automation",
+        kind="gridcell",
+        label="1230",
+    )
+    ocr_text = element(
+        source="windowhub_ocr",
+        kind="text",
+        label="1230",
+    )
+
+    result = ScreenElementFusion().fuse((grid_cell, ocr_text))
+
+    assert len(result.elements) == 2
+    assert result.merged_group_count == 0
+
+
 def test_native_form_control_does_not_fuse_with_same_label_ocr_text():
     items = (
         element(

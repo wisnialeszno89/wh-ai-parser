@@ -48,7 +48,8 @@ class TargetResolver:
             element
             for element in scene.elements
             if (
-                element.metadata is not None
+                not self._is_grid_cell_observation(element)
+                and element.metadata is not None
                 and isinstance(
                     element.metadata.get("tracked_object_id"),
                     str,
@@ -81,7 +82,8 @@ class TargetResolver:
             element
             for element in scene.elements
             if (
-                element.label is not None
+                not self._is_grid_cell_observation(element)
+                and element.label is not None
                 and element.label.casefold() == normalized
             )
         ]
@@ -98,9 +100,12 @@ class TargetResolver:
         semantic = [
             element
             for element in scene.elements
-            if self._matches_metadata(
-                element,
-                normalized,
+            if (
+                not self._is_grid_cell_observation(element)
+                and self._matches_metadata(
+                    element,
+                    normalized,
+                )
             )
         ]
 
@@ -272,6 +277,13 @@ class TargetResolver:
             return value.strip()
 
         return None
+
+    @staticmethod
+    def _is_grid_cell_observation(element: ScreenElement) -> bool:
+        return (
+            element.kind.casefold() == "gridcell"
+            or (element.metadata or {}).get("uia_grid_cell_observation") is True
+        )
 
     @staticmethod
     def _matches_metadata(
