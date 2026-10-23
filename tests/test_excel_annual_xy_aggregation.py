@@ -320,6 +320,89 @@ def test_source_roots_output_overwrite_and_file_type_are_enforced(tmp_path):
     assert bad_output.value.code == "invalid_output_type"
 
 
+def test_aggregate_folder_combines_xlsx_and_csv_and_lists_all_input_sources(tmp_path):
+    root = tmp_path / "approved"
+    folder = root / "fixture-folder"
+    folder.mkdir(parents=True)
+    adapter = ExcelWorkbookAdapter(allowed_roots=(root,))
+
+    csv_source = folder / "a-monthly.csv"
+    csv_source.write_text(
+        "Period,X,Y\n"
+        "2024-01,10,100\n",
+        encoding="utf-8",
+    )
+    xlsx_source = make_xlsx(
+        adapter,
+        folder / "b-monthly.xlsx",
+        [
+            ("Period", "X", "Y"),
+            ("2024-02", 20, 200),
+        ],
+    )
+
+    result = ExcelAnnualXYAggregationService(adapter=adapter).aggregate_folder(
+        folder,
+        period_column="Period",
+        x_column="X",
+        y_column="Y",
+        operation="sum",
+    )
+
+    assert result.rows[0].year == 2024
+    assert result.rows[0].x_value == Decimal("30")
+    assert result.rows[0].y_value == Decimal("300")
+    assert result.input_rows == 2
+    assert result.source_files == ("a-monthly.csv", "b-monthly.xlsx")
+    assert result.source_type == "mixed"
+    assert result.sheet == "multiple/CSV"
+    assert result.output_verified is True
+    assert result.output_path.exists()
+    assert result.to_payload()["source_files"] == ["a-monthly.csv", "b-monthly.xlsx"]
+
+    report = adapter.read_table(
+        result.output_path,
+        sheet="Validation Report",
+    )
+    report_map = {row[0]: row[1] for row in report.rows if len(row) >= 2}
+    assert report_map["source_file_name"] == "2 source files"
+    assert report_map["source_type"] == "mixed"
+    assert report_map["source_files"] == "a-monthly.csv; b-monthly.xlsx"
+    assert report_map["output_verification"] == "passed"
+    assert all(not str(value).startswith(".agent-annual-xy-") for value in result.source_files)
+    assert not any(item.name.startswith(".agent-annual-xy-") for item in folder.iterdir())
+
+
+def test_aggregate_folder_reports_source_file_and_row_for_duplicate_periods(tmp_path):
+    root = tmp_path / "approved"
+    folder = root / "duplicates"
+    folder.mkdir(parents=True)
+    adapter = ExcelWorkbookAdapter(allowed_roots=(root,))
+
+    (folder / "a.csv").write_text(
+        "Period,X,Y\n2024-01,1,10\n",
+        encoding="utf-8",
+    )
+    (folder / "b.csv").write_text(
+        "Period,X,Y\n01/2024,2,20\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(AnnualXYAggregationError) as raised:
+        ExcelAnnualXYAggregationService(adapter=adapter).aggregate_folder(
+            folder,
+            period_column="Period",
+            x_column="X",
+            y_column="Y",
+        )
+
+    assert raised.value.code == "duplicate_periods"
+    assert "a.csv: row 2" in str(raised.value)
+    assert "b.csv: row 2" in str(raised.value)
+    assert not (folder / "duplicates-annual-xy-summary.xlsx").exists()
+    assert not any(item.name.startswith(".agent-annual-xy-") for item in folder.iterdir())
+
+
 def test_read_table_preserves_internal_blank_rows_and_enforces_row_budget(tmp_path):
     root = tmp_path / "approved"
     adapter = make_adapter(root)
