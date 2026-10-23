@@ -373,6 +373,47 @@ def test_aggregate_folder_combines_xlsx_and_csv_and_lists_all_input_sources(tmp_
     assert not any(item.name.startswith(".agent-annual-xy-") for item in folder.iterdir())
 
 
+def test_aggregate_folder_preserves_source_provenance_for_skipped_rows(tmp_path):
+    root = tmp_path / "approved"
+    folder = root / "missing-row-folder"
+    folder.mkdir(parents=True)
+    adapter = ExcelWorkbookAdapter(allowed_roots=(root,))
+
+    (folder / "a.csv").write_text(
+        "Period,X,Y\n2024-01,1,10\n",
+        encoding="utf-8",
+    )
+    (folder / "b.csv").write_text(
+        "Period,X,Y\n"
+        "2024-02,2,20\n"
+        "2024-03,,30\n",
+        encoding="utf-8",
+    )
+
+    result = ExcelAnnualXYAggregationService(adapter=adapter).aggregate_folder(
+        folder,
+        period_column="Period",
+        x_column="X",
+        y_column="Y",
+        missing_value_policy="skip_rows",
+    )
+
+    assert result.accepted_rows == 2
+    assert result.missing_rows_skipped == 1
+    assert result.skipped_row_numbers == (3,)
+    assert result.skipped_source_rows == ("b.csv: row 3",)
+    assert result.rows[0].x_value == Decimal("3")
+    assert result.rows[0].y_value == Decimal("30")
+
+    report = adapter.read_table(
+        result.output_path,
+        sheet="Validation Report",
+    )
+    report_map = {row[0]: row[1] for row in report.rows if len(row) >= 2}
+    assert report_map["skipped_row_numbers"] == "3"
+    assert report_map["skipped_source_rows"] == "b.csv: row 3"
+
+
 def test_aggregate_folder_reports_source_file_and_row_for_duplicate_periods(tmp_path):
     root = tmp_path / "approved"
     folder = root / "duplicates"
