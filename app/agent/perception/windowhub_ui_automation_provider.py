@@ -244,9 +244,38 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
             document_scope,
             child_window,
         ) in enumerate(matched_documents):
+            # The document/tab match above is structurally proven. Use the
+            # matched MDI child and its MDIClient as the trusted viewport bounds:
+            # WindowHub can return GridPattern cells whose bounds do not match
+            # the DataGrid wrapper's smaller or stale rectangle.
             try:
                 document_descendants = tuple(child_window.descendants())
+                document_rectangle = child_window.rectangle()
+                document_rect = _UIARect(
+                    left=int(document_rectangle.left),
+                    top=int(document_rectangle.top),
+                    width=int(document_rectangle.width()),
+                    height=int(document_rectangle.height()),
+                )
+                mdi_client = self._grid_parent_item(child_window)
+                mdi_rectangle = mdi_client.rectangle() if mdi_client is not None else None
+                if mdi_rectangle is None:
+                    continue
+                mdi_rect = _UIARect(
+                    left=int(mdi_rectangle.left),
+                    top=int(mdi_rectangle.top),
+                    width=int(mdi_rectangle.width()),
+                    height=int(mdi_rectangle.height()),
+                )
             except Exception:
+                continue
+
+            if (
+                document_rect.width <= 0
+                or document_rect.height <= 0
+                or mdi_rect.width <= 0
+                or mdi_rect.height <= 0
+            ):
                 continue
 
             grids = []
@@ -309,21 +338,19 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
                     if cell is None:
                         continue
 
-                    # Some WindowHub custom-grid cells are exposed by UIA
-                    # with CurrentIsOffscreen=True even when their cell bounds
-                    # overlap the grid viewport. Treat that property as
-                    # advisory and use the UIA cell/grid rectangles as the
-                    # viewport gate. Document identity is already established
-                    # by the unique tab-to-MDI-child match above.
+                    # The native offscreen flag and grid wrapper bounds are
+                    # unreliable for this WindowHub custom grid. Keep strict
+                    # geometry gates, but apply them to the uniquely matched
+                    # MDI document window and its MDIClient instead.
                     offscreen = self._uia_cell_offscreen(cell)
 
                     cell_rect = self._uia_element_bounds(cell)
                     if cell_rect is None:
                         continue
 
-                    # Geometry remains a hard fail-closed check: do not emit
-                    # a cell unless it intersects the proven grid viewport.
-                    if not self._rectangles_intersect(cell_rect, grid_rect):
+                    if not self._rectangles_intersect(cell_rect, document_rect):
+                        continue
+                    if not self._rectangles_intersect(cell_rect, mdi_rect):
                         continue
 
                     legacy = self._get_grid_pattern(cell, "LegacyIAccessible")
