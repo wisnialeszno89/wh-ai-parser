@@ -76,7 +76,7 @@ def main() -> int:
 
     try:
         # Reuse the existing strictly read-only, unique-window selection.
-        from tools.diagnose_windowhub_semantics import observe_windowhub_scene
+        from diagnose_windowhub_semantics import observe_windowhub_scene
         from app.agent.perception.windowhub_ui_automation_provider import (
             WindowHubUIAutomationProvider,
         )
