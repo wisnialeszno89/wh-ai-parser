@@ -484,8 +484,13 @@ def _make_pdf_quote_task_runtime(root, checkpoint_root):
     from app.agent.runtime.resumable_task_repository import TaskCheckpointRepository
 
     control_loop = SpyControlLoop()
+    # The host validates the orchestrator interface at configuration time;
+    # neither test advances into planning, so this stub must never be called.
+    orchestrator = SimpleNamespace(
+        prepare=lambda *args, **kwargs: None,
+    )
     runtime = AgentRuntime(
-        orchestrator=object(),
+        orchestrator=orchestrator,
         plan_executor=object(),
         session_store=AgentSessionStore(),
         control_loop=control_loop,
