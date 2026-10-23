@@ -8,10 +8,11 @@ from __future__ import annotations
 
 import csv
 from collections import Counter, defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
+import tempfile
 import re
 import unicodedata
 from typing import Literal
@@ -105,12 +106,14 @@ class AnnualXYAggregationResult:
     unit_validation_status: str
     caveats: tuple[str, ...]
     output_verified: bool
+    source_files: tuple[str, ...] = ()
 
     def to_payload(self) -> dict[str, object]:
         """Return a safe summary without absolute local filesystem paths."""
         return {
             "status": "verified" if self.output_verified else "unverified",
             "source_file_name": self.source_file_name,
+            "source_files": list(self.source_files or (self.source_file_name,)),
             "source_type": self.source_type,
             "sheet": self.sheet,
             "output_file_name": self.output_path.name,
@@ -418,6 +421,7 @@ class ExcelAnnualXYAggregationService:
             ("y_unit", self._excel_literal(y_unit) if y_unit else None),
             ("unit_validation_status", unit_status),
             ("caveats", " | ".join(caveats) if caveats else "None"),
+            ("source_files", self._excel_literal(source.name)),
             ("output_verification", "pending"),
         )
 
@@ -495,7 +499,334 @@ class ExcelAnnualXYAggregationService:
             unit_validation_status=unit_status,
             caveats=tuple(caveats),
             output_verified=True,
+            source_files=(source.name,),
         )
+
+    def aggregate_folder(
+        self,
+        source_dir: str | Path,
+        *,
+        period_column: str | int,
+        x_column: str | int,
+        y_column: str | int,
+        operation: AggregationOperation = "sum",
+        sheet: str | None = None,
+        header_row: int = 1,
+        x_unit_column: str | int | None = None,
+        y_unit_column: str | int | None = None,
+        duplicate_period_policy: DuplicatePeriodPolicy = "reject",
+        missing_value_policy: MissingValuePolicy = "reject",
+        output_path: str | Path | None = None,
+        output_sheet: str = "Annual Summary",
+    ) -> AnnualXYAggregationResult:
+        """Aggregate all approved top-level XLSX/CSV inputs in a folder.
+
+        Every file must have the same normalized header schema. Sources are
+        merged into a short-lived CSV inside the approved folder, then sent
+        through the same validation, calculation and read-back verification
+        path as single-file aggregation. The temporary source is always
+        removed; the source files remain untouched.
+        """
+        if not isinstance(source_dir, (str, Path)) or not str(source_dir).strip():
+            raise AnnualXYAggregationError("invalid_source_path", "A source folder path is required.")
+        try:
+            folder = Path(source_dir).expanduser().resolve(strict=True)
+        except (OSError, RuntimeError) as exc:
+            raise AnnualXYAggregationError("source_not_found", "The source folder could not be resolved.") from exc
+        if not folder.is_dir():
+            raise AnnualXYAggregationError("source_not_directory", "The source path must be a directory.")
+        if not any(folder.is_relative_to(root) for root in self.adapter.allowed_roots):
+            raise PermissionError("The source folder is outside all configured Excel allowed roots.")
+
+        sources = tuple(
+            sorted(
+                (
+                    item for item in folder.iterdir()
+                    if item.is_file()
+                    and item.suffix.casefold() in {".xlsx", ".csv"}
+                    and not item.name.startswith(".agent-annual-xy-")
+                    and not re.search(
+                        r"-annual-xy-summary(?:-\d+)?\.xlsx$",
+                        item.name,
+                        re.IGNORECASE,
+                    )
+                ),
+                key=lambda item: item.name.casefold(),
+            )
+        )
+        if not sources:
+            raise AnnualXYAggregationError(
+                "no_supported_input_files",
+                "The folder contains no supported .xlsx or .csv input files.",
+            )
+        if len(sources) > 100:
+            raise AnnualXYAggregationError(
+                "too_many_source_files",
+                "The folder exceeds the configured 100-file source budget.",
+            )
+
+        total_bytes = 0
+        for path in sources:
+            resolved = self._resolve_input_path(path)
+            size = resolved.stat().st_size
+            if size > self.MAX_FILE_BYTES:
+                raise AnnualXYAggregationError(
+                    "file_too_large",
+                    f"An input file exceeds the configured {self.MAX_FILE_BYTES // (1024 * 1024)} MiB per-file budget.",
+                )
+            total_bytes += size
+        if total_bytes > 128 * 1024 * 1024:
+            raise AnnualXYAggregationError(
+                "folder_too_large",
+                "The source folder exceeds the configured 128 MiB aggregate input budget.",
+            )
+
+        self._positive_int(header_row, "header_row")
+        output_sheet = self._validate_output_sheet(output_sheet)
+
+        merged_headers: tuple[str, ...] | None = None
+        merged_rows: list[tuple[object, ...]] = []
+        source_row_map: dict[int, tuple[str, int]] = {}
+        source_sheets: list[str | None] = []
+        expected_schema: tuple[str, ...] | None = None
+
+        # Temporary CSV uses one header row, so record 2 maps to the first
+        # source data row regardless of each input file's own header offset.
+        for path in sources:
+            resolved = self._resolve_input_path(path)
+            source_type = resolved.suffix.casefold()
+            if source_type == ".xlsx":
+                table, resolved_sheet = self._read_xlsx(resolved, sheet, header_row)
+                source_sheets.append(resolved_sheet)
+            else:
+                table = self._read_csv(resolved, header_row)
+                source_sheets.append(None)
+
+            headers, rows = self._normalize_table_shape(table)
+            header_names = tuple(
+                str(value).strip() if value is not None else ""
+                for value in headers
+            )
+            if not header_names:
+                raise AnnualXYAggregationError(
+                    "missing_header",
+                    f"An input file ({resolved.name}) has no header row.",
+                )
+            self._validate_header_row(header_names, rows, table.row_numbers)
+            schema = tuple(self._header_key(name) for name in header_names)
+            if expected_schema is None:
+                expected_schema = schema
+                merged_headers = header_names
+            elif schema != expected_schema:
+                raise AnnualXYAggregationError(
+                    "source_schema_mismatch",
+                    "All source files must have the same normalized header names in the same order. "
+                    f"Schema mismatch in input file: {resolved.name}.",
+                )
+
+            if len(merged_rows) + len(rows) > self.MAX_DATA_ROWS:
+                raise AnnualXYAggregationError(
+                    "too_many_rows",
+                    "Combined source files exceed the configured 100,000-row budget.",
+                )
+            for row, original_row_number in zip(rows, table.row_numbers):
+                merged_rows.append(tuple(row))
+                temp_record_number = len(merged_rows) + 1
+                source_row_map[temp_record_number] = (
+                    resolved.name,
+                    original_row_number,
+                )
+
+        if merged_headers is None or not merged_rows:
+            raise AnnualXYAggregationError(
+                "no_usable_rows",
+                "The selected source files contain no data rows.",
+            )
+
+        if output_path is None:
+            candidate = folder / f"{folder.name}-annual-xy-summary.xlsx"
+            suffix = 2
+            while candidate.exists():
+                candidate = folder / f"{folder.name}-annual-xy-summary-{suffix}.xlsx"
+                suffix += 1
+            destination = candidate.resolve(strict=False)
+        else:
+            destination = Path(output_path).expanduser().resolve(strict=False)
+        if destination.suffix.casefold() != ".xlsx":
+            raise AnnualXYAggregationError(
+                "invalid_output_type",
+                "The output path must use the .xlsx extension.",
+            )
+        if not any(destination.is_relative_to(root) for root in self.adapter.allowed_roots):
+            raise PermissionError("The output path is outside all configured Excel allowed roots.")
+        if destination.exists():
+            raise FileExistsError(destination)
+        if destination in sources:
+            raise AnnualXYAggregationError(
+                "source_overwrite_blocked",
+                "The output path cannot be one of the source files.",
+            )
+
+        temp_path: Path | None = None
+        result: AnnualXYAggregationResult | None = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="w",
+                encoding="utf-8",
+                newline="",
+                dir=folder,
+                prefix=".agent-annual-xy-",
+                suffix=".csv",
+                delete=False,
+            ) as handle:
+                temp_path = Path(handle.name)
+                writer = csv.writer(handle, lineterminator="\n")
+                writer.writerow(merged_headers)
+                for row in merged_rows:
+                    writer.writerow([
+                        "" if value is None else self._csv_safe_value(value)
+                        for value in row
+                    ])
+
+            try:
+                result = self.aggregate(
+                    temp_path,
+                    period_column=period_column,
+                    x_column=x_column,
+                    y_column=y_column,
+                    operation=operation,
+                    sheet=None,
+                    header_row=1,
+                    x_unit_column=x_unit_column,
+                    y_unit_column=y_unit_column,
+                    duplicate_period_policy=duplicate_period_policy,
+                    missing_value_policy=missing_value_policy,
+                    output_path=destination,
+                    output_sheet=output_sheet,
+                )
+            except AnnualXYAggregationError as exc:
+                if not exc.row_numbers:
+                    raise
+                details = []
+                original_row_numbers = []
+                for temp_row in exc.row_numbers:
+                    source_info = source_row_map.get(temp_row)
+                    if source_info is None:
+                        continue
+                    file_name, original_row = source_info
+                    details.append(f"{file_name}: row {original_row}")
+                    original_row_numbers.append(original_row)
+                if not details:
+                    raise
+                raise AnnualXYAggregationError(
+                    exc.code,
+                    f"{exc}. Source locations: " + "; ".join(dict.fromkeys(details)),
+                    row_numbers=tuple(original_row_numbers),
+                ) from exc
+
+            report = self.adapter.read_table(
+                result.output_path,
+                sheet=_VALIDATION_SHEET,
+                header_row=1,
+                max_data_rows=256,
+                max_columns=8,
+            )
+            report_values = [
+                list(row) if len(row) == 2 else [*row, *([None] * (2 - len(row)))]
+                for row in report.rows
+            ]
+            report_row_indices = {
+                str(row[0]): position
+                for position, row in enumerate(report_values)
+                if row and row[0] is not None
+            }
+            file_names = tuple(path.name for path in sources)
+            file_type_names = {path.suffix.casefold()[1:] for path in sources}
+            source_type_summary = (
+                next(iter(file_type_names))
+                if len(file_type_names) == 1
+                else "mixed"
+            )
+            sheet_names = {name for name in source_sheets if name is not None}
+            source_sheet_summary = (
+                next(iter(sheet_names))
+                if len(sheet_names) == 1 and len(sheet_names) == len(source_sheets)
+                else "multiple/CSV"
+                if sheet_names
+                else None
+            )
+            report_updates = {
+                "source_file_name": file_names[0] if len(file_names) == 1 else f"{len(file_names)} source files",
+                "source_type": source_type_summary,
+                "source_sheet": source_sheet_summary,
+                "source_files": "; ".join(
+                    self._excel_literal(name)
+                    for name in file_names
+                ),
+            }
+            for key, value in report_updates.items():
+                position = report_row_indices.get(key)
+                if position is not None:
+                    report_values[position][1] = value
+            self.adapter.write_range(
+                result.output_path,
+                sheet=_VALIDATION_SHEET,
+                start_cell="A1",
+                values=tuple(tuple(row) for row in (
+                    [list(report.headers), *report_values]
+                )),
+            )
+            # Confirm the report still says the annual output passed and that
+            # it now lists only original source files, never the temporary CSV.
+            persisted_report = self.adapter.read_table(
+                result.output_path,
+                sheet=_VALIDATION_SHEET,
+                header_row=1,
+                max_data_rows=256,
+                max_columns=8,
+            )
+            persisted = {
+                str(row[0]): row[1]
+                for row in persisted_report.rows
+                if len(row) >= 2 and row[0] is not None
+            }
+            if (
+                persisted.get("output_verification") != "passed"
+                or persisted.get("source_files") != report_updates["source_files"]
+            ):
+                raise RuntimeError("The output validation report failed its source-list read-back check.")
+            self._verify_summary_output(result.output_path, output_sheet, result.rows)
+
+            return replace(
+                result,
+                source_file_name=report_updates["source_file_name"],
+                source_type=source_type_summary,
+                sheet=source_sheet_summary,
+                source_files=file_names,
+            )
+        except Exception:
+            if result is not None and result.output_path.exists():
+                try:
+                    result.output_path.unlink()
+                except OSError:
+                    pass
+            raise
+        finally:
+            if temp_path is not None and temp_path.exists():
+                try:
+                    temp_path.unlink()
+                except OSError:
+                    pass
+
+    @staticmethod
+    def _csv_safe_value(value: object) -> str | int | float:
+        if isinstance(value, bool):
+            return "TRUE" if value else "FALSE"
+        if value is None:
+            return ""
+        if isinstance(value, (str, int, float, Decimal)):
+            return value
+        return str(value)
 
     def _resolve_input_path(self, path: str | Path) -> Path:
         if not isinstance(path, (str, Path)) or not str(path).strip():
