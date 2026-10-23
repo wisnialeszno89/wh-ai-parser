@@ -244,9 +244,38 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
             document_scope,
             child_window,
         ) in enumerate(matched_documents):
+            # The document/tab match above is structurally proven. Use the
+            # matched MDI child and its MDIClient as the trusted viewport bounds:
+            # WindowHub can return GridPattern cells whose bounds do not match
+            # the DataGrid wrapper's smaller or stale rectangle.
             try:
                 document_descendants = tuple(child_window.descendants())
+                document_rectangle = child_window.rectangle()
+                document_rect = _UIARect(
+                    left=int(document_rectangle.left),
+                    top=int(document_rectangle.top),
+                    width=int(document_rectangle.width()),
+                    height=int(document_rectangle.height()),
+                )
+                mdi_client = self._grid_parent_item(child_window)
+                mdi_rectangle = mdi_client.rectangle() if mdi_client is not None else None
+                if mdi_rectangle is None:
+                    continue
+                mdi_rect = _UIARect(
+                    left=int(mdi_rectangle.left),
+                    top=int(mdi_rectangle.top),
+                    width=int(mdi_rectangle.width()),
+                    height=int(mdi_rectangle.height()),
+                )
             except Exception:
+                continue
+
+            if (
+                document_rect.width <= 0
+                or document_rect.height <= 0
+                or mdi_rect.width <= 0
+                or mdi_rect.height <= 0
+            ):
                 continue
 
             grids = []
@@ -309,18 +338,19 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
                     if cell is None:
                         continue
 
+                    # The native offscreen flag and grid wrapper bounds are
+                    # unreliable for this WindowHub custom grid. Keep strict
+                    # geometry gates, but apply them to the uniquely matched
+                    # MDI document window and its MDIClient instead.
                     offscreen = self._uia_cell_offscreen(cell)
-                    if offscreen is True:
-                        continue
 
                     cell_rect = self._uia_element_bounds(cell)
                     if cell_rect is None:
                         continue
 
-                    # Reject cells outside the visible grid viewport. Some
-                    # WPF wrappers report Visible=False for realized cells,
-                    # so native UIA offscreen state plus bounds are used here.
-                    if not self._rectangles_intersect(cell_rect, grid_rect):
+                    if not self._rectangles_intersect(cell_rect, document_rect):
+                        continue
+                    if not self._rectangles_intersect(cell_rect, mdi_rect):
                         continue
 
                     legacy = self._get_grid_pattern(cell, "LegacyIAccessible")
@@ -411,6 +441,7 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
                             "CurrentClassName",
                         ),
                         "uia_grid_cell_observation": True,
+                        "uia_grid_cell_offscreen_hint": offscreen,
                         "uia_grid_id": grid_identity,
                         "uia_grid_index": grid_index,
                         "uia_grid_row_index": row,
@@ -1155,6 +1186,19 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
             iface = getattr(item, "iface_selection_item", None)
             if iface is not None:
                 return bool(iface.CurrentIsSelected)
+        except Exception:
+            pass
+
+        # Some pywinauto/UIA wrappers expose selection through the public
+        # is_selected() method even when SelectionItemPattern is unavailable.
+        # Keep this as a direct observation fallback, never infer selection
+        # from focus, position, caption, or geometry.
+        try:
+            is_selected = getattr(item, "is_selected", None)
+            if callable(is_selected):
+                selected = is_selected()
+                if isinstance(selected, bool):
+                    return selected
         except Exception:
             pass
 

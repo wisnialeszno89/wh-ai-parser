@@ -646,6 +646,139 @@ def test_ui_automation_provider_exposes_mdi_grid_cells_as_read_only_observations
     assert blank.metadata["uia_grid_column_index"] == 1
 
 
+def test_grid_cell_offscreen_hint_does_not_override_intersecting_grid_viewport():
+    mdi_client = FakeUIAItem(
+        name="",
+        control_type="Pane",
+        class_name="MDIClient",
+        left=100,
+        top=200,
+        width=900,
+        height=700,
+    )
+    tab_host = FakeUIAItem(
+        name="",
+        control_type="Tab",
+        class_name="Afx:TabWnd",
+        parent=mdi_client,
+    )
+    document_tab = FakeSelectedUIAItem(
+        name="OFR/4024",
+        control_type="TabItem",
+        parent=tab_host,
+    )
+    # UIA reports this realized cell as offscreen, but its bounds are inside
+    # the grid viewport. Geometry and the unique MDI/document match govern.
+    cell = FakeGridCell(
+        name="Width",
+        value="1230",
+        left=110,
+        top=220,
+        offscreen=True,
+    )
+    grid = FakeUIAGrid(
+        parent=None,
+        rows=1,
+        columns=1,
+        cells=(cell,),
+    )
+    child = FakeMdiChild(
+        name="OFR/4024",
+        parent=mdi_client,
+        descendants=(grid,),
+    )
+    grid._parent = child
+    root = FakeUIAWindow(
+        (mdi_client, tab_host, document_tab, child, grid),
+        title="Okna - WindowHub",
+    )
+
+    def pattern_getter(item, pattern_name):
+        return item.patterns[pattern_name]
+
+    elements = WindowHubUIAutomationProvider(
+        desktop_factory=lambda: FakeDesktop(root),
+        pattern_interface_getter=pattern_getter,
+    ).perceive(make_observation())
+
+    cells = tuple(element for element in elements if element.kind == "gridcell")
+    assert len(cells) == 1
+    assert cells[0].metadata["uia_grid_cell_observation"] is True
+    assert cells[0].metadata["uia_grid_cell_offscreen_hint"] is True
+    assert cells[0].metadata["document_scope"] == "OFR/4024"
+
+
+def test_grid_cell_uses_matched_mdi_document_bounds_not_grid_wrapper_bounds():
+    mdi_client = FakeUIAItem(
+        name="",
+        control_type="Pane",
+        class_name="MDIClient",
+        left=100,
+        top=200,
+        width=900,
+        height=700,
+    )
+    tab_host = FakeUIAItem(
+        name="",
+        control_type="Tab",
+        class_name="Afx:TabWnd",
+        parent=mdi_client,
+    )
+    document_tab = FakeSelectedUIAItem(
+        name="OFR/4024",
+        control_type="TabItem",
+        parent=tab_host,
+    )
+    cell = FakeGridCell(
+        name="Width",
+        value="1230",
+        left=400,
+        top=300,
+        offscreen=True,
+    )
+    grid = FakeUIAGrid(
+        parent=None,
+        rows=1,
+        columns=1,
+        cells=(cell,),
+    )
+    # Simulate a stale/small DataGrid wrapper rectangle while the cell
+    # returned by GridPattern is inside the matched document and MDIClient.
+    grid._rectangle = SimpleNamespace(
+        left=100,
+        top=200,
+        width=lambda: 20,
+        height=lambda: 20,
+    )
+    child = FakeMdiChild(
+        name="OFR/4024",
+        parent=mdi_client,
+        descendants=(grid,),
+        left=100,
+        top=200,
+        width=600,
+        height=500,
+    )
+    grid._parent = child
+    root = FakeUIAWindow(
+        (mdi_client, tab_host, document_tab, child, grid),
+        title="Okna - WindowHub",
+    )
+
+    def pattern_getter(item, pattern_name):
+        return item.patterns[pattern_name]
+
+    elements = WindowHubUIAutomationProvider(
+        desktop_factory=lambda: FakeDesktop(root),
+        pattern_interface_getter=pattern_getter,
+    ).perceive(make_observation())
+
+    cells = tuple(element for element in elements if element.kind == "gridcell")
+    assert len(cells) == 1
+    assert cells[0].metadata["document_scope"] == "OFR/4024"
+    assert cells[0].metadata["uia_grid_cell_offscreen_hint"] is True
+
+
 def test_ui_automation_provider_fails_closed_for_ambiguous_mdi_document_captions():
     mdi_client = FakeUIAItem(
         name="",

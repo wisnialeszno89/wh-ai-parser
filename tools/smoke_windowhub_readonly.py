@@ -121,7 +121,29 @@ def main() -> int:
         print(f"perception_source: {metadata.get('source')}")
         print(f"semantic_controls: {len(elements)}")
         print(f"readable_form_fields: {len(fields)}")
+        scene_meta = getattr(scene, "metadata", {}) or {}
+        tab_items = tuple(
+            element for element in elements
+            if str(getattr(element, "kind", "")).casefold() == "tabitem"
+        )
+        document_tab_markers = tuple(
+            element for element in elements
+            if (getattr(element, "metadata", {}) or {}).get("uia_tab_scope") == "document"
+        )
+        selected_document_tab_markers = tuple(
+            element for element in elements
+            if (
+                (getattr(element, "metadata", {}) or {}).get("uia_tab_scope") == "document"
+                and (getattr(element, "metadata", {}) or {}).get("uia_document_tab_selected") is True
+            )
+        )
         print(f"active_document_resolved: {bool(scene.active_document)}")
+        print(f"active_document_resolution: {scene_meta.get('active_document_resolution', 'unknown')}")
+        print(f"document_tab_count_from_engine: {scene_meta.get('document_tab_count', 'unknown')}")
+        print(f"selected_document_tab_count_from_engine: {scene_meta.get('selected_document_tab_count', 'unknown')}")
+        print(f"tabitems_in_fused_scene: {len(tab_items)}")
+        print(f"document_tab_markers_in_fused_scene: {len(document_tab_markers)}")
+        print(f"selected_document_tab_markers_in_fused_scene: {len(selected_document_tab_markers)}")
         print(f"active_document_grids: {len(grids)}")
         print(f"structured_grid_payloads: {len(world_grid_payloads)}")
         print(
