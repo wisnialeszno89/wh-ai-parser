@@ -47,6 +47,26 @@ class ExcelRange:
         }
 
 
+@dataclass(frozen=True)
+class ExcelTable:
+    """Headered worksheet data with original worksheet row numbers."""
+
+    sheet: str
+    header_row: int
+    headers: tuple[object, ...]
+    rows: tuple[tuple[object, ...], ...]
+    row_numbers: tuple[int, ...]
+
+    def to_payload(self) -> dict[str, object]:
+        return {
+            "sheet": self.sheet,
+            "header_row": self.header_row,
+            "headers": list(self.headers),
+            "rows": [list(row) for row in self.rows],
+            "row_numbers": list(self.row_numbers),
+        }
+
+
 class ExcelWorkbookAdapter(ApplicationAdapter):
     """Semantic .xlsx workbook adapter with explicit filesystem roots.
 
@@ -165,6 +185,84 @@ class ExcelWorkbookAdapter(ApplicationAdapter):
             cell_range=cell_range,
             values=values,
         )
+
+    def read_table(
+        self,
+        path: str | Path,
+        *,
+        sheet: str,
+        header_row: int = 1,
+        max_data_rows: int = 100_000,
+        max_columns: int = 256,
+    ) -> ExcelTable:
+        """Read a bounded headered table without exposing workbook internals.
+
+        Header and cell values are returned as model-safe primitives. Trailing
+        fully empty rows are omitted, but internal blank rows and their source
+        row numbers are preserved so data-quality validation can report them.
+        """
+        for value, name in (
+            (header_row, "header_row"),
+            (max_data_rows, "max_data_rows"),
+            (max_columns, "max_columns"),
+        ):
+            if not isinstance(value, int) or isinstance(value, bool) or value < 1:
+                raise ValueError(f"{name} must be a positive integer.")
+
+        workbook_path = self._resolve_for_existing_workbook(path)
+        workbook = self._load_workbook(workbook_path)
+        try:
+            worksheet = self._worksheet(workbook, sheet)
+            if header_row > worksheet.max_row:
+                raise ValueError("Excel header_row is beyond the worksheet data bounds.")
+            if worksheet.max_column > max_columns:
+                raise ValueError("Excel worksheet exceeds the configured column budget.")
+            if worksheet.max_row - header_row > max_data_rows:
+                raise ValueError("Excel worksheet exceeds the configured data-row budget.")
+
+            header_values = next(
+                worksheet.iter_rows(
+                    min_row=header_row,
+                    max_row=header_row,
+                    min_col=1,
+                    max_col=worksheet.max_column,
+                    values_only=True,
+                )
+            )
+            headers = tuple(self._model_safe_value(value) for value in header_values)
+
+            rows: list[tuple[object, ...]] = []
+            row_numbers: list[int] = []
+            for row_number, values in enumerate(
+                worksheet.iter_rows(
+                    min_row=header_row + 1,
+                    max_row=worksheet.max_row,
+                    min_col=1,
+                    max_col=worksheet.max_column,
+                    values_only=True,
+                ),
+                start=header_row + 1,
+            ):
+                normalized_row = tuple(self._model_safe_value(value) for value in values)
+                rows.append(normalized_row)
+                row_numbers.append(row_number)
+
+            # Workbook styles may extend max_row beyond the last actual data row.
+            while rows and all(value is None for value in rows[-1]):
+                rows.pop()
+                row_numbers.pop()
+
+            return ExcelTable(
+                sheet=worksheet.title,
+                header_row=header_row,
+                headers=headers,
+                rows=tuple(rows),
+                row_numbers=tuple(row_numbers),
+            )
+        finally:
+            close = getattr(workbook, "close", None)
+            if callable(close):
+                close()
 
     def write_range(
         self,
