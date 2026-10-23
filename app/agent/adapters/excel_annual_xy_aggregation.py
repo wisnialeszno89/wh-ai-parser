@@ -107,6 +107,7 @@ class AnnualXYAggregationResult:
     caveats: tuple[str, ...]
     output_verified: bool
     source_files: tuple[str, ...] = ()
+    skipped_source_rows: tuple[str, ...] = ()
 
     def to_payload(self) -> dict[str, object]:
         """Return a safe summary without absolute local filesystem paths."""
@@ -129,6 +130,7 @@ class AnnualXYAggregationResult:
             "blank_rows_skipped": self.blank_rows_skipped,
             "missing_rows_skipped": self.missing_rows_skipped,
             "skipped_row_numbers": list(self.skipped_row_numbers),
+            "skipped_source_rows": list(self.skipped_source_rows),
             "duplicate_period_count": self.duplicate_period_count,
             "duplicate_period_policy": self.duplicate_period_policy,
             "missing_value_policy": self.missing_value_policy,
@@ -412,6 +414,13 @@ class ExcelAnnualXYAggregationService:
             ("blank_rows_skipped", blank_rows_skipped),
             ("missing_rows_skipped", missing_rows_skipped),
             ("skipped_row_numbers", ",".join(str(item) for item in skipped_row_numbers)),
+            (
+                "skipped_source_rows",
+                "; ".join(
+                    self._excel_literal(f"{source.name}: row {item}")
+                    for item in skipped_row_numbers
+                ) if skipped_row_numbers else "None",
+            ),
             ("year_count", len(annual_rows)),
             ("years", ",".join(str(item.year) for item in annual_rows)),
             ("duplicate_period_count", duplicate_period_count),
@@ -500,6 +509,10 @@ class ExcelAnnualXYAggregationService:
             caveats=tuple(caveats),
             output_verified=True,
             source_files=(source.name,),
+            skipped_source_rows=tuple(
+                f"{source.name}: row {item}"
+                for item in skipped_row_numbers
+            ),
         )
 
     def aggregate_folder(
@@ -766,6 +779,12 @@ class ExcelAnnualXYAggregationService:
                 if len(file_names) == 1
                 else f"{len(file_names)} source files"
             )
+            skipped_source_rows = tuple(
+                f"{file_name}: row {original_row}"
+                for temp_row in result.skipped_row_numbers
+                for file_name, original_row in (source_row_map[temp_row],)
+                if temp_row in source_row_map
+            )
             report_updates = {
                 "source_file_name": self._excel_literal(result_source_file_name),
                 "source_type": source_type_summary,
@@ -777,6 +796,14 @@ class ExcelAnnualXYAggregationService:
                 "source_files": "; ".join(
                     self._excel_literal(name)
                     for name in file_names
+                ),
+                "skipped_source_rows": (
+                    "; ".join(
+                        self._excel_literal(item)
+                        for item in skipped_source_rows
+                    )
+                    if skipped_source_rows
+                    else "None"
                 ),
             }
             for key, value in report_updates.items():
@@ -818,6 +845,7 @@ class ExcelAnnualXYAggregationService:
                 source_type=source_type_summary,
                 sheet=source_sheet_summary,
                 source_files=file_names,
+                skipped_source_rows=skipped_source_rows,
             )
         except Exception:
             if result is not None and result.output_path.exists():
