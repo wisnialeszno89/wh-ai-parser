@@ -36,6 +36,7 @@ jobs:
             tests/runtime/test_target_resolver.py \
             tests/test_target_resolver_document_scope.py \
             tests/test_windowhub_form_reader.py \
+            tests/test_windowhub_grid_reader.py \
             tests/test_windowhub_ocr_provider.py \
             tests/test_windowhub_ocr_table_parser.py \
             tests/test_windowhub_ocr_table_refiner.py \
@@ -115,6 +116,7 @@ jobs:
             app/agent/perception/windowhub_ui_automation_provider.py \
             app/agent/perception/screen_element_fusion.py \
             app/agent/perception/target_resolver.py \
+            app/agent/perception/windowhub_grid_reader.py \
             app/agent/runtime/agent_runtime.py \
             app/agent/runtime/windowhub_agent_runtime.py \
             app/agent/runtime/windowhub_resumable_task_host.py \
