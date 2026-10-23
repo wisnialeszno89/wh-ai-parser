@@ -659,13 +659,13 @@ class ExcelAnnualXYAggregationService:
             )
         if not any(destination.is_relative_to(root) for root in self.adapter.allowed_roots):
             raise PermissionError("The output path is outside all configured Excel allowed roots.")
-        if destination.exists():
-            raise FileExistsError(destination)
-        if destination in sources:
+        if destination in {path.resolve(strict=True) for path in sources}:
             raise AnnualXYAggregationError(
                 "source_overwrite_blocked",
                 "The output path cannot be one of the source files.",
             )
+        if destination.exists():
+            raise FileExistsError(destination)
 
         temp_path: Path | None = None
         result: AnnualXYAggregationResult | None = None
@@ -761,10 +761,19 @@ class ExcelAnnualXYAggregationService:
                 if sheet_names
                 else None
             )
+            result_source_file_name = (
+                file_names[0]
+                if len(file_names) == 1
+                else f"{len(file_names)} source files"
+            )
             report_updates = {
-                "source_file_name": file_names[0] if len(file_names) == 1 else f"{len(file_names)} source files",
+                "source_file_name": self._excel_literal(result_source_file_name),
                 "source_type": source_type_summary,
-                "source_sheet": source_sheet_summary,
+                "source_sheet": (
+                    self._excel_literal(source_sheet_summary)
+                    if source_sheet_summary
+                    else None
+                ),
                 "source_files": "; ".join(
                     self._excel_literal(name)
                     for name in file_names
@@ -805,7 +814,7 @@ class ExcelAnnualXYAggregationService:
 
             return replace(
                 result,
-                source_file_name=report_updates["source_file_name"],
+                source_file_name=result_source_file_name,
                 source_type=source_type_summary,
                 sheet=source_sheet_summary,
                 source_files=file_names,
