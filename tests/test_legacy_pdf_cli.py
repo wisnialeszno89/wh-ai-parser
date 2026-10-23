@@ -72,7 +72,7 @@ def test_analyze_pdf_returns_page_attributed_facts_and_local_validation(tmp_path
     original = write_text_pdf(
         source,
         [
-            "Produkt: okno\nSzerokość: 1200 mm\nWysokość: 1500 mm\nIlość: 2 szt.",
+            "Product: window\nWidth: 1200 mm\nHeight: 1500 mm\nQuantity: 2 pcs",
             "Notatka bez rozpoznawanych pól",
         ],
     )
@@ -91,10 +91,10 @@ def test_analyze_pdf_returns_page_attributed_facts_and_local_validation(tmp_path
     assert result["source"]["pages"][1]["needs_ocr"] is False
     facts = result["quote_facts"]["facts"]
     by_field = {fact["field_name"]: fact for fact in facts}
-    assert by_field["product_type"]["raw_value"] == "okno"
+    assert by_field["product_type"]["raw_value"] == "window"
     assert by_field["width"]["source"]["page_number"] == 1
     assert by_field["width"]["source"]["source_alias"] == "offer-source"
-    assert by_field["width"]["evidence_text"] == "Szerokość: 1200 mm"
+    assert by_field["width"]["evidence_text"] == "Width: 1200 mm"
     assert by_field["height"]["raw_value"] == "1500 mm"
     assert by_field["quantity"]["normalized_value"] == 2
     assert result["validation"]["can_execute"] is True
@@ -116,7 +116,7 @@ def test_textless_page_requires_ocr_and_fails_closed_for_quote_validation(tmp_pa
     source = approved / "mixed.pdf"
     write_text_pdf(
         source,
-        ["Produkt: okno\nSzerokość: 1200 mm\nWysokość: 1500 mm", ""],
+        ["Product: window\nWidth: 1200 mm\nHeight: 1500 mm", ""],
     )
 
     result = legacy_pdf.analyze_pdf(source, allowed_roots=(approved,))
@@ -135,7 +135,7 @@ def test_analyze_pdf_rejects_paths_outside_approved_roots_without_disclosing_pat
     approved = tmp_path / "approved"
     approved.mkdir()
     outside = tmp_path / "outside.pdf"
-    write_text_pdf(outside, ["Produkt: okno"])
+    write_text_pdf(outside, ["Product: window"])
 
     with pytest.raises(PdfDocumentError) as raised:
         legacy_pdf.analyze_pdf(outside, allowed_roots=(approved,))
@@ -171,7 +171,7 @@ def test_cli_writes_only_an_explicit_new_json_output_and_never_overwrites_source
     source = approved / "offer.pdf"
     original = write_text_pdf(
         source,
-        ["Produkt: okno\nSzerokość: 1200 mm\nWysokość: 1500 mm"],
+        ["Product: window\nWidth: 1200 mm\nHeight: 1500 mm"],
     )
     output = approved / "explicit-result.json"
 
@@ -213,7 +213,7 @@ def test_explicit_output_path_must_be_approved_json_and_never_written_by_default
     approved = tmp_path / "approved"
     approved.mkdir()
     source = approved / "offer.pdf"
-    write_text_pdf(source, ["Produkt: okno"])
+    write_text_pdf(source, ["Product: window"])
     outside = tmp_path / "outside.json"
 
     with pytest.raises(PermissionError):
