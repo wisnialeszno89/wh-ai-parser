@@ -679,6 +679,26 @@ class ExcelAnnualXYAggregationService:
             raise AnnualXYAggregationError("ambiguous_numeric_period", "Numeric periods must be a whole year; use an Excel date or an ISO date/month string for other periods.", row_numbers=(row_number,))
 
         text = str(candidate).strip()
+
+        # ExcelWorkbookAdapter intentionally serializes date-like cells to
+        # ISO strings. Preserve year provenance for both date-only and
+        # datetime ISO forms rather than treating them as arbitrary labels.
+        try:
+            parsed_datetime = datetime.fromisoformat(
+                text[:-1] + "+00:00" if text.endswith("Z") else text
+            )
+        except ValueError:
+            parsed_datetime = None
+        if parsed_datetime is not None:
+            parsed_date = parsed_datetime.date()
+            if not _YEAR_MIN <= parsed_date.year <= _YEAR_MAX:
+                raise AnnualXYAggregationError(
+                    "invalid_period",
+                    "The year is outside the supported 1900–2200 range.",
+                    row_numbers=(row_number,),
+                )
+            return parsed_date.year, f"date:{parsed_date.isoformat()}"
+
         match = _YEAR_TEXT.fullmatch(text)
         if match:
             year = int(match.group(1))
