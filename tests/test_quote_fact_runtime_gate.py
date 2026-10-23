@@ -478,3 +478,118 @@ def test_runtime_pdf_alias_collision_keeps_original_registered_source(tmp_path):
 
     assert runtime.registered_pdf_sources()["shared-alias"] is first
     assert "1200 mm" in runtime.registered_pdf_sources()["shared-alias"].pages[0].text
+
+
+def _make_pdf_quote_task_runtime(root, checkpoint_root):
+    from app.agent.runtime.resumable_task_repository import TaskCheckpointRepository
+
+    control_loop = SpyControlLoop()
+    runtime = AgentRuntime(
+        orchestrator=object(),
+        plan_executor=object(),
+        session_store=AgentSessionStore(),
+        control_loop=control_loop,
+        pdf_ingestion_service=PdfIngestionService(
+            adapter=PdfDocumentAdapter(allowed_roots=(root,)),
+        ),
+    )
+    runtime.configure_windowhub_resumable_tasks(
+        repository=TaskCheckpointRepository(checkpoint_root),
+    )
+    return runtime, control_loop
+
+
+def test_valid_pdf_quote_task_persists_checkpoint_and_waits_for_explicit_approval(tmp_path):
+    from tests.test_pdf_document_adapter import write_text_pdf
+    from app.agent.runtime.resumable_task import TaskStatus
+
+    root = tmp_path / "approved"
+    root.mkdir()
+    source = root / "offer.pdf"
+    write_text_pdf(
+        source,
+        [
+            "Product: window",
+            "Width: 1200 mm",
+            "Height: 1500 mm",
+            "Quantity: 2 pcs",
+        ],
+    )
+    runtime, control_loop = _make_pdf_quote_task_runtime(
+        root,
+        tmp_path / "checkpoints",
+    )
+    runtime.ingest_pdf(source, source_alias="offer-001")
+
+    result = runtime.start_pdf_quote_task(
+        "offer-001",
+        request_message="Przygotuj ofertę na podstawie tego PDF.",
+        task_id="pdf-quote-approval-gate-001",
+    )
+
+    assert result.task_created is True
+    assert result.requires_manual_review is False
+    checkpoint = result.checkpoint
+    assert checkpoint is not None
+    assert checkpoint.status is TaskStatus.WAITING_FOR_APPROVAL
+    assert checkpoint.approval_required is True
+    assert checkpoint.execution_approved is False
+    assert checkpoint.draft_only is True
+    assert checkpoint.facts["product_type"] == "window"
+    assert checkpoint.facts["width"] == 1200
+    assert checkpoint.facts["height"] == 1500
+    assert checkpoint.facts["quantity"] == 2
+    assert checkpoint.citations
+    assert all(
+        citation["source"]["source_alias"] == "offer-001"
+        and citation["source"]["page_number"] == 1
+        for citation in checkpoint.citations
+    )
+
+    # Checkpoint creation and persistence must not even observe the desktop.
+    assert runtime.get_resumable_task(checkpoint.task_id) == checkpoint
+    assert control_loop.observe_calls == 0
+    assert control_loop.run_calls == 0
+
+    # Advancing a gated task before approval is a no-op: still no observation.
+    waiting = runtime.advance_resumable_task(checkpoint.task_id)
+    assert waiting.status is TaskStatus.WAITING_FOR_APPROVAL
+    assert waiting.execution_approved is False
+    assert runtime.get_resumable_task(checkpoint.task_id) == waiting
+    assert control_loop.observe_calls == 0
+    assert control_loop.run_calls == 0
+
+
+def test_incomplete_pdf_quote_task_requires_manual_review_and_creates_no_checkpoint(tmp_path):
+    from tests.test_pdf_document_adapter import write_text_pdf
+
+    root = tmp_path / "approved"
+    root.mkdir()
+    source = root / "incomplete.pdf"
+    write_text_pdf(
+        source,
+        [
+            "Product: window",
+            "Width: 1200 mm",
+        ],
+    )
+    runtime, control_loop = _make_pdf_quote_task_runtime(
+        root,
+        tmp_path / "checkpoints",
+    )
+    runtime.ingest_pdf(source, source_alias="offer-incomplete")
+
+    result = runtime.start_pdf_quote_task(
+        "offer-incomplete",
+        request_message="Przygotuj ofertę na podstawie tego PDF.",
+        task_id="pdf-quote-approval-gate-incomplete",
+    )
+
+    assert result.task_created is False
+    assert result.checkpoint is None
+    assert result.requires_manual_review is True
+    assert "height" in result.preparation.validation.missing_fields
+    assert runtime.get_resumable_task("pdf-quote-approval-gate-incomplete") is None
+    assert control_loop.observe_calls == 0
+    assert control_loop.run_calls == 0
+
