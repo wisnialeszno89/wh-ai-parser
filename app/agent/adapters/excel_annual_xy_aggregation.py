@@ -663,8 +663,20 @@ class ExcelAnnualXYAggregationService:
         candidate = value
         if isinstance(candidate, datetime):
             parsed_date = candidate.date()
+            if not _YEAR_MIN <= parsed_date.year <= _YEAR_MAX:
+                raise AnnualXYAggregationError(
+                    "invalid_period",
+                    "The year is outside the supported 1900–2200 range.",
+                    row_numbers=(row_number,),
+                )
             return parsed_date.year, f"date:{parsed_date.isoformat()}"
         if isinstance(candidate, date):
+            if not _YEAR_MIN <= candidate.year <= _YEAR_MAX:
+                raise AnnualXYAggregationError(
+                    "invalid_period",
+                    "The year is outside the supported 1900–2200 range.",
+                    row_numbers=(row_number,),
+                )
             return candidate.year, f"date:{candidate.isoformat()}"
         if isinstance(candidate, bool):
             raise AnnualXYAggregationError("invalid_period", "The period value is not a supported date/year.", row_numbers=(row_number,))
