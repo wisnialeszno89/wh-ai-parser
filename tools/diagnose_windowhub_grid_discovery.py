@@ -108,7 +108,6 @@ def _detail_cell_filter_counts(matched_documents, provider) -> dict[str, int]:
                 row_count = int(grid_iface.CurrentRowCount)
                 column_count = int(grid_iface.CurrentColumnCount)
                 rectangle = grid.rectangle()
-                grid_rect = provider.__class__.__dict__.get("_UIARect")
                 # Use the module's same rectangle class as the provider.
                 from app.agent.perception import windowhub_ui_automation_provider as provider_module
                 grid_rect = provider_module._UIARect(
