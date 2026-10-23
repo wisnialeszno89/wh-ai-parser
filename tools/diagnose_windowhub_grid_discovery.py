@@ -86,10 +86,13 @@ def _summarize_grid_candidates(items, provider) -> dict[str, int]:
 
 
 def _detail_cell_filter_counts(matched_documents, provider) -> dict[str, int]:
-    """Mirror provider's read-only cell filters and record counts, not content."""
+    """Mirror the MDI-document viewport filter without exposing UI data."""
+    from app.agent.perception import windowhub_ui_automation_provider as provider_module
+
     counts = {
         "detail_grids_with_valid_rect_and_dimensions": 0,
         "detail_grid_rect_or_pattern_errors": 0,
+        "detail_document_or_mdi_rect_errors": 0,
         "detail_cells_requested": 0,
         "detail_getitem_errors": 0,
         "detail_getitem_returned_none": 0,
@@ -98,17 +101,22 @@ def _detail_cell_filter_counts(matched_documents, provider) -> dict[str, int]:
         "detail_cell_offscreen_false": 0,
         "detail_cell_offscreen_unknown": 0,
         "detail_cell_bounds_errors": 0,
-        "detail_cells_intersecting_grid_rect": 0,
-        "detail_cells_outside_grid_rect": 0,
-        "detail_legacy_pattern_missing": 0,
-        "detail_cell_name_from_legacy": 0,
-        "detail_cell_name_from_element": 0,
-        "detail_cell_name_missing": 0,
+        "detail_cells_intersecting_document_window": 0,
+        "detail_cells_outside_document_window": 0,
+        "detail_cells_intersecting_mdi_client": 0,
+        "detail_cells_outside_mdi_client": 0,
         "detail_cells_passing_provider_filters": 0,
         "detail_cell_filter_unexpected_errors": 0,
     }
 
     for _, _, child_window in matched_documents:
+        document_rect = _wrapper_rect(child_window, provider_module)
+        mdi_client = provider._grid_parent_item(child_window)
+        mdi_rect = _wrapper_rect(mdi_client, provider_module)
+        if document_rect is None or mdi_rect is None:
+            counts["detail_document_or_mdi_rect_errors"] += 1
+            continue
+
         try:
             document_descendants = tuple(child_window.descendants())
         except Exception:
@@ -124,8 +132,6 @@ def _detail_cell_filter_counts(matched_documents, provider) -> dict[str, int]:
                 row_count = int(grid_iface.CurrentRowCount)
                 column_count = int(grid_iface.CurrentColumnCount)
                 rectangle = grid.rectangle()
-                # Use the module's same rectangle class as the provider.
-                from app.agent.perception import windowhub_ui_automation_provider as provider_module
                 grid_rect = provider_module._UIARect(
                     left=int(rectangle.left),
                     top=int(rectangle.top),
@@ -143,25 +149,25 @@ def _detail_cell_filter_counts(matched_documents, provider) -> dict[str, int]:
                 continue
 
             counts["detail_grids_with_valid_rect_and_dimensions"] += 1
-            total_cells = row_count * column_count
-            cells_to_read = min(total_cells, provider.MAX_GRID_CELLS_PER_GRID)
+            cells_to_read = min(
+                row_count * column_count,
+                provider.MAX_GRID_CELLS_PER_GRID,
+            )
             counts["detail_cells_requested"] += cells_to_read
 
             for cell_index in range(cells_to_read):
                 row = cell_index // column_count
                 column = cell_index % column_count
-
                 try:
                     cell = grid_iface.GetItem(row, column)
                 except Exception:
                     counts["detail_getitem_errors"] += 1
                     continue
-
                 if cell is None:
                     counts["detail_getitem_returned_none"] += 1
                     continue
-
                 counts["detail_getitem_returned_cell"] += 1
+
                 try:
                     offscreen = provider._uia_cell_offscreen(cell)
                     if offscreen is True:
@@ -171,38 +177,39 @@ def _detail_cell_filter_counts(matched_documents, provider) -> dict[str, int]:
                     else:
                         counts["detail_cell_offscreen_unknown"] += 1
 
-                    # Mirror provider behavior: offscreen is advisory; the
-                    # grid-viewport intersection is the hard acceptance gate.
                     cell_rect = provider._uia_element_bounds(cell)
                     if cell_rect is None:
                         counts["detail_cell_bounds_errors"] += 1
                         continue
 
-                    if not provider._rectangles_intersect(cell_rect, grid_rect):
-                        counts["detail_cells_outside_grid_rect"] += 1
+                    in_document = provider._rectangles_intersect(
+                        cell_rect, document_rect
+                    )
+                    if in_document:
+                        counts["detail_cells_intersecting_document_window"] += 1
+                    else:
+                        counts["detail_cells_outside_document_window"] += 1
+
+                    in_mdi_client = provider._rectangles_intersect(
+                        cell_rect, mdi_rect
+                    )
+                    if in_mdi_client:
+                        counts["detail_cells_intersecting_mdi_client"] += 1
+                    else:
+                        counts["detail_cells_outside_mdi_client"] += 1
+
+                    if not in_document or not in_mdi_client:
                         continue
 
-                    counts["detail_cells_intersecting_grid_rect"] += 1
-                    if offscreen is True:
-                        counts["detail_cells_offscreen_hint_true_but_intersecting"] += 1
                     legacy = provider._get_grid_pattern(cell, "LegacyIAccessible")
-                    if legacy is None:
-                        counts["detail_legacy_pattern_missing"] += 1
-
-                    cell_label = provider._pattern_string(legacy, "CurrentName")
-                    if cell_label:
-                        counts["detail_cell_name_from_legacy"] += 1
-                    else:
-                        cell_label = provider._pattern_string(cell, "CurrentName")
-                        if cell_label:
-                            counts["detail_cell_name_from_element"] += 1
-                        else:
-                            counts["detail_cell_name_missing"] += 1
-                            continue
+                    name = provider._pattern_string(legacy, "CurrentName")
+                    if not name:
+                        name = provider._pattern_string(cell, "CurrentName")
+                    if not name:
+                        continue
 
                     counts["detail_cells_passing_provider_filters"] += 1
                 except Exception:
-                    # Do not print exception text; it can contain UI data.
                     counts["detail_cell_filter_unexpected_errors"] += 1
 
     return counts
@@ -222,6 +229,7 @@ def _per_document_grid_summaries(
     }
     counter_names = (
         "matched_documents",
+        "viewport_rect_errors",
         "grid_controls",
         "grid_pattern_interfaces",
         "nonempty_grids",
@@ -230,20 +238,10 @@ def _per_document_grid_summaries(
         "cells_returned",
         "cells_offscreen_true",
         "cell_bounds_errors",
-        "cells_intersecting_grid_rect",
-        "cells_outside_grid_rect",
-        "grid_rect_intersecting_document_window",
-        "grid_rect_outside_document_window",
-        "grid_rect_intersecting_mdi_client",
-        "grid_rect_outside_mdi_client",
-        "grid_rect_intersecting_top_level_window",
-        "grid_rect_outside_top_level_window",
         "cells_intersecting_document_window",
         "cells_outside_document_window",
         "cells_intersecting_mdi_client",
         "cells_outside_mdi_client",
-        "cells_intersecting_top_level_window",
-        "cells_outside_top_level_window",
         "cells_passing_name_filter",
     )
     for item in summaries.values():
@@ -263,8 +261,10 @@ def _per_document_grid_summaries(
 
         document_rect = _wrapper_rect(child_window, provider_module)
         mdi_client = provider._grid_parent_item(child_window)
-        mdi_client_rect = _wrapper_rect(mdi_client, provider_module)
-        top_level_rect = _wrapper_rect(root_window, provider_module)
+        mdi_rect = _wrapper_rect(mdi_client, provider_module)
+        if document_rect is None or mdi_rect is None:
+            counts["viewport_rect_errors"] += 1
+            continue
 
         try:
             descendants = tuple(child_window.descendants())
@@ -297,20 +297,6 @@ def _per_document_grid_summaries(
                 continue
 
             counts["nonempty_grids"] += 1
-
-            if document_rect is not None and provider._rectangles_intersect(grid_rect, document_rect):
-                counts["grid_rect_intersecting_document_window"] += 1
-            else:
-                counts["grid_rect_outside_document_window"] += 1
-            if mdi_client_rect is not None and provider._rectangles_intersect(grid_rect, mdi_client_rect):
-                counts["grid_rect_intersecting_mdi_client"] += 1
-            else:
-                counts["grid_rect_outside_mdi_client"] += 1
-            if top_level_rect is not None and provider._rectangles_intersect(grid_rect, top_level_rect):
-                counts["grid_rect_intersecting_top_level_window"] += 1
-            else:
-                counts["grid_rect_outside_top_level_window"] += 1
-
             cells_to_read = min(
                 row_count * column_count,
                 provider.MAX_GRID_CELLS_PER_GRID,
@@ -336,23 +322,24 @@ def _per_document_grid_summaries(
                     counts["cell_bounds_errors"] += 1
                     continue
 
-                if document_rect is not None and provider._rectangles_intersect(cell_rect, document_rect):
+                in_document = provider._rectangles_intersect(
+                    cell_rect, document_rect
+                )
+                if in_document:
                     counts["cells_intersecting_document_window"] += 1
                 else:
                     counts["cells_outside_document_window"] += 1
-                if mdi_client_rect is not None and provider._rectangles_intersect(cell_rect, mdi_client_rect):
+
+                in_mdi_client = provider._rectangles_intersect(
+                    cell_rect, mdi_rect
+                )
+                if in_mdi_client:
                     counts["cells_intersecting_mdi_client"] += 1
                 else:
                     counts["cells_outside_mdi_client"] += 1
-                if top_level_rect is not None and provider._rectangles_intersect(cell_rect, top_level_rect):
-                    counts["cells_intersecting_top_level_window"] += 1
-                else:
-                    counts["cells_outside_top_level_window"] += 1
 
-                if not provider._rectangles_intersect(cell_rect, grid_rect):
-                    counts["cells_outside_grid_rect"] += 1
+                if not in_document or not in_mdi_client:
                     continue
-                counts["cells_intersecting_grid_rect"] += 1
 
                 legacy = provider._get_grid_pattern(cell, "LegacyIAccessible")
                 name = provider._pattern_string(legacy, "CurrentName")
