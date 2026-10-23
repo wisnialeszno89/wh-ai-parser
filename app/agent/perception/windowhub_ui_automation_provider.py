@@ -1158,6 +1158,19 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
         except Exception:
             pass
 
+        # Some pywinauto/UIA wrappers expose selection through the public
+        # is_selected() method even when SelectionItemPattern is unavailable.
+        # Keep this as a direct observation fallback, never infer selection
+        # from focus, position, caption, or geometry.
+        try:
+            is_selected = getattr(item, "is_selected", None)
+            if callable(is_selected):
+                selected = is_selected()
+                if isinstance(selected, bool):
+                    return selected
+        except Exception:
+            pass
+
         try:
             properties = item.get_properties()
         except Exception:

@@ -55,6 +55,25 @@ def test_selection_state_returns_none_when_not_exposed():
     )
 
 
+class FakeElementWithSelectionMethod:
+    def __init__(self, selected):
+        self.selected = selected
+
+    def is_selected(self):
+        return self.selected
+
+    def get_properties(self):
+        return {}
+
+
+def test_selection_state_falls_back_to_public_is_selected_method():
+    selected = FakeElementWithSelectionMethod(True)
+    unselected = FakeElementWithSelectionMethod(False)
+
+    assert WindowHubUIAutomationProvider._selection_state(selected) is True
+    assert WindowHubUIAutomationProvider._selection_state(unselected) is False
+
+
 
 class _ElementInfo:
     def __init__(self, control_type, class_name):
