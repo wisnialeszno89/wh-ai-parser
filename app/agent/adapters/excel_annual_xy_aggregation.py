@@ -688,6 +688,12 @@ class ExcelAnnualXYAggregationService:
                         for value in row
                     ])
 
+            if temp_path.stat().st_size > self.MAX_FILE_BYTES:
+                raise AnnualXYAggregationError(
+                    "combined_source_too_large",
+                    "The normalized combined source exceeds the configured 32 MiB processing budget.",
+                )
+
             try:
                 result = self.aggregate(
                     temp_path,
@@ -750,7 +756,7 @@ class ExcelAnnualXYAggregationService:
             sheet_names = {name for name in source_sheets if name is not None}
             source_sheet_summary = (
                 next(iter(sheet_names))
-                if len(sheet_names) == 1 and len(sheet_names) == len(source_sheets)
+                if len(sheet_names) == 1 and all(name is not None for name in source_sheets)
                 else "multiple/CSV"
                 if sheet_names
                 else None
