@@ -76,7 +76,7 @@ def test_analyze_pdf_returns_page_attributed_facts_and_local_validation(tmp_path
         source,
         [
             "Product: window\nWidth: 1200 mm\nHeight: 1500 mm\nQuantity: 2 pcs",
-            "Notatka bez rozpoznawanych pól",
+            "Plain unlabelled note",
         ],
     )
 
