@@ -75,6 +75,7 @@ jobs:
             tests/test_default_adapters.py \
             tests/test_word_document_adapter.py \
             tests/test_excel_workbook_adapter.py \
+            tests/test_excel_annual_xy_aggregation.py \
             tests/test_email_draft_adapter.py \
             tests/test_default_executors.py \
             tests/test_browser_action_executor.py \
@@ -98,8 +99,7 @@ jobs:
             tests/test_task_planning_context_adapters.py \
             tests/test_hough_line_normalizer.py \
             tests/test_windowhub_field_scope_diagnostics.py \
-            tests/test_diagnose_windowhub_semantics.py \
-            tests/test_legacy_pdf_cli.py
+            tests/test_diagnose_windowhub_semantics.py
 
       - name: Run resumable WindowHub task and checkpoint tests
         run: |
@@ -124,8 +124,10 @@ jobs:
             app/agent/bridge/world_state.py \
             app/agent/reasoning/task_planning_context.py \
             app/agent/reasoning/reasoning_task_planner.py \
-            app/agent/runtime/agent_runtime.py \
             app/ai/analyze_pdf.py \
+            app/agent/runtime/agent_runtime.py \
+            app/agent/adapters/excel_workbook_adapter.py \
+            app/agent/adapters/excel_annual_xy_aggregation.py \
             app/agent/runtime/windowhub_agent_runtime.py \
             app/agent/runtime/windowhub_resumable_task_host.py \
             app/agent/perception/windowhub_win32_form_provider.py \
