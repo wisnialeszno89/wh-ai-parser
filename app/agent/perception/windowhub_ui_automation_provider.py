@@ -309,17 +309,20 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
                     if cell is None:
                         continue
 
+                    # Some WindowHub custom-grid cells are exposed by UIA
+                    # with CurrentIsOffscreen=True even when their cell bounds
+                    # overlap the grid viewport. Treat that property as
+                    # advisory and use the UIA cell/grid rectangles as the
+                    # viewport gate. Document identity is already established
+                    # by the unique tab-to-MDI-child match above.
                     offscreen = self._uia_cell_offscreen(cell)
-                    if offscreen is True:
-                        continue
 
                     cell_rect = self._uia_element_bounds(cell)
                     if cell_rect is None:
                         continue
 
-                    # Reject cells outside the visible grid viewport. Some
-                    # WPF wrappers report Visible=False for realized cells,
-                    # so native UIA offscreen state plus bounds are used here.
+                    # Geometry remains a hard fail-closed check: do not emit
+                    # a cell unless it intersects the proven grid viewport.
                     if not self._rectangles_intersect(cell_rect, grid_rect):
                         continue
 
@@ -411,6 +414,7 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
                             "CurrentClassName",
                         ),
                         "uia_grid_cell_observation": True,
+                        "uia_grid_cell_offscreen_hint": offscreen,
                         "uia_grid_id": grid_identity,
                         "uia_grid_index": grid_index,
                         "uia_grid_row_index": row,
