@@ -779,11 +779,17 @@ class ExcelAnnualXYAggregationService:
                 if len(file_names) == 1
                 else f"{len(file_names)} source files"
             )
+            source_row_pairs = tuple(
+                source_row_map[temp_row]
+                for temp_row in result.skipped_row_numbers
+                if temp_row in source_row_map
+            )
+            skipped_row_numbers = tuple(
+                original_row for _, original_row in source_row_pairs
+            )
             skipped_source_rows = tuple(
                 f"{file_name}: row {original_row}"
-                for temp_row in result.skipped_row_numbers
-                for file_name, original_row in (source_row_map[temp_row],)
-                if temp_row in source_row_map
+                for file_name, original_row in source_row_pairs
             )
             report_updates = {
                 "source_file_name": self._excel_literal(result_source_file_name),
@@ -796,6 +802,9 @@ class ExcelAnnualXYAggregationService:
                 "source_files": "; ".join(
                     self._excel_literal(name)
                     for name in file_names
+                ),
+                "skipped_row_numbers": ",".join(
+                    str(item) for item in skipped_row_numbers
                 ),
                 "skipped_source_rows": (
                     "; ".join(
@@ -845,6 +854,7 @@ class ExcelAnnualXYAggregationService:
                 source_type=source_type_summary,
                 sheet=source_sheet_summary,
                 source_files=file_names,
+                skipped_row_numbers=skipped_row_numbers,
                 skipped_source_rows=skipped_source_rows,
             )
         except Exception:
