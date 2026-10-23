@@ -69,6 +69,7 @@ jobs:
             tests/test_adapter_registry.py \
             tests/test_filesystem_adapter.py \
             tests/test_pdf_document_adapter.py \
+            tests/test_legacy_pdf_cli.py \
             tests/test_quote_facts.py \
             tests/test_quote_fact_runtime_gate.py \
             tests/test_default_adapters.py \
@@ -123,6 +124,7 @@ jobs:
             app/agent/bridge/world_state.py \
             app/agent/reasoning/task_planning_context.py \
             app/agent/reasoning/reasoning_task_planner.py \
+            app/ai/analyze_pdf.py \
             app/agent/runtime/agent_runtime.py \
             app/agent/adapters/excel_workbook_adapter.py \
             app/agent/adapters/excel_annual_xy_aggregation.py \
