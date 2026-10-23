@@ -69,13 +69,133 @@ def _summarize_grid_candidates(items, provider) -> dict[str, int]:
     }
 
 
+def _detail_cell_filter_counts(matched_documents, provider) -> dict[str, int]:
+    """Mirror provider's read-only cell filters and record counts, not content."""
+    counts = {
+        "detail_grids_with_valid_rect_and_dimensions": 0,
+        "detail_grid_rect_or_pattern_errors": 0,
+        "detail_cells_requested": 0,
+        "detail_getitem_errors": 0,
+        "detail_getitem_returned_none": 0,
+        "detail_getitem_returned_cell": 0,
+        "detail_cell_offscreen_true": 0,
+        "detail_cell_offscreen_false": 0,
+        "detail_cell_offscreen_unknown": 0,
+        "detail_cell_bounds_errors": 0,
+        "detail_cells_intersecting_grid_rect": 0,
+        "detail_cells_outside_grid_rect": 0,
+        "detail_legacy_pattern_missing": 0,
+        "detail_cell_name_from_legacy": 0,
+        "detail_cell_name_from_element": 0,
+        "detail_cell_name_missing": 0,
+        "detail_cells_passing_provider_filters": 0,
+        "detail_cell_filter_unexpected_errors": 0,
+    }
+
+    for _, _, child_window in matched_documents:
+        try:
+            document_descendants = tuple(child_window.descendants())
+        except Exception:
+            counts["detail_grid_rect_or_pattern_errors"] += 1
+            continue
+
+        for grid in document_descendants:
+            if _control_type(grid, provider) not in {"datagrid", "table"}:
+                continue
+
+            try:
+                grid_iface = getattr(grid, "iface_grid")
+                row_count = int(grid_iface.CurrentRowCount)
+                column_count = int(grid_iface.CurrentColumnCount)
+                rectangle = grid.rectangle()
+                grid_rect = provider.__class__.__dict__.get("_UIARect")
+                # Use the module's same rectangle class as the provider.
+                from app.agent.perception import windowhub_ui_automation_provider as provider_module
+                grid_rect = provider_module._UIARect(
+                    left=int(rectangle.left),
+                    top=int(rectangle.top),
+                    width=int(rectangle.width()),
+                    height=int(rectangle.height()),
+                )
+            except Exception:
+                counts["detail_grid_rect_or_pattern_errors"] += 1
+                continue
+
+            if (
+                row_count <= 0 or column_count <= 0
+                or grid_rect.width <= 0 or grid_rect.height <= 0
+            ):
+                continue
+
+            counts["detail_grids_with_valid_rect_and_dimensions"] += 1
+            total_cells = row_count * column_count
+            cells_to_read = min(total_cells, provider.MAX_GRID_CELLS_PER_GRID)
+            counts["detail_cells_requested"] += cells_to_read
+
+            for cell_index in range(cells_to_read):
+                row = cell_index // column_count
+                column = cell_index % column_count
+
+                try:
+                    cell = grid_iface.GetItem(row, column)
+                except Exception:
+                    counts["detail_getitem_errors"] += 1
+                    continue
+
+                if cell is None:
+                    counts["detail_getitem_returned_none"] += 1
+                    continue
+
+                counts["detail_getitem_returned_cell"] += 1
+                try:
+                    offscreen = provider._uia_cell_offscreen(cell)
+                    if offscreen is True:
+                        counts["detail_cell_offscreen_true"] += 1
+                        continue
+                    if offscreen is False:
+                        counts["detail_cell_offscreen_false"] += 1
+                    else:
+                        counts["detail_cell_offscreen_unknown"] += 1
+
+                    cell_rect = provider._uia_element_bounds(cell)
+                    if cell_rect is None:
+                        counts["detail_cell_bounds_errors"] += 1
+                        continue
+
+                    if not provider._rectangles_intersect(cell_rect, grid_rect):
+                        counts["detail_cells_outside_grid_rect"] += 1
+                        continue
+
+                    counts["detail_cells_intersecting_grid_rect"] += 1
+                    legacy = provider._get_grid_pattern(cell, "LegacyIAccessible")
+                    if legacy is None:
+                        counts["detail_legacy_pattern_missing"] += 1
+
+                    cell_label = provider._pattern_string(legacy, "CurrentName")
+                    if cell_label:
+                        counts["detail_cell_name_from_legacy"] += 1
+                    else:
+                        cell_label = provider._pattern_string(cell, "CurrentName")
+                        if cell_label:
+                            counts["detail_cell_name_from_element"] += 1
+                        else:
+                            counts["detail_cell_name_missing"] += 1
+                            continue
+
+                    counts["detail_cells_passing_provider_filters"] += 1
+                except Exception:
+                    # Do not print exception text; it can contain UI data.
+                    counts["detail_cell_filter_unexpected_errors"] += 1
+
+    return counts
+
+
 def main() -> int:
     if os.name != "nt":
         print("diagnostic_status: unsupported_platform")
         return 2
 
     try:
-        # Reuse the existing strictly read-only, unique-window selection.
         from diagnose_windowhub_semantics import observe_windowhub_scene
         from app.agent.perception.windowhub_ui_automation_provider import (
             WindowHubUIAutomationProvider,
@@ -155,9 +275,10 @@ def main() -> int:
         matched_candidate_summary = _summarize_grid_candidates(
             matched_descendants, provider
         )
+        detailed_cell_counts = _detail_cell_filter_counts(matched_documents, provider)
 
-        # Ask the actual WindowHub provider to run its normal discovery path.
-        # Only aggregate markers are retained; no labels or values are printed.
+        # Run actual provider discovery too; report only number of emitted cell
+        # observations, never captions, labels, values, coordinates or IDs.
         emitted_elements = provider.perceive(observation)
         emitted_grid_cells = sum(
             1
@@ -181,6 +302,7 @@ def main() -> int:
         print("root_control_type_counts: " + json.dumps(control_types, sort_keys=True))
         print("root_grid_candidates: " + json.dumps(all_candidate_summary, sort_keys=True))
         print("matched_document_grid_candidates: " + json.dumps(matched_candidate_summary, sort_keys=True))
+        print("cell_filter_counts: " + json.dumps(detailed_cell_counts, sort_keys=True))
         print(f"provider_emitted_grid_cell_observations: {emitted_grid_cells}")
         print("document_captions_printed: 0")
         print("element_labels_printed: 0")
