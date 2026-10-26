@@ -40,6 +40,10 @@ _SUBMISSION_MARKERS = re.compile(
     r"wyślij|wyslij|przekaż|przekaz|zatwierdź|zatwierdz|finalizuj)(?!\\w)",
     re.IGNORECASE,
 )
+_SAVE_MARKERS = re.compile(
+    r"(?<!\\w)(save|saved|draft|zapisz|zapis|zachowaj|szkic)(?!\\w)",
+    re.IGNORECASE,
+)
 _TERMINAL_STATUSES = frozenset({
     TaskStatus.COMPLETED,
     TaskStatus.STOPPED,
@@ -174,6 +178,19 @@ def _contains_submission_marker(checkpoint) -> bool:
     return False
 
 
+def _has_verified_draft_save(checkpoint) -> bool:
+    """Require a verified semantic save action before reporting draft success."""
+    for step in getattr(checkpoint, "completed_steps", ()):
+        text = (
+            f"{getattr(step, 'action_name', '')} "
+            f"{getattr(step, 'requested_target', '')} "
+            f"{getattr(step, 'actual_target', '') or ''}"
+        )
+        if _SAVE_MARKERS.search(text) and not _SUBMISSION_MARKERS.search(text):
+            return True
+    return False
+
+
 def _verified_final_fields(checkpoint) -> set[str]:
     evidence = getattr(checkpoint, "final_evidence", ()) or ()
     return {
@@ -278,12 +295,16 @@ def main() -> int:
         return 2
 
     task_id = args.task_id or f"live-pdf-draft-{uuid4().hex[:16]}"
+    if runtime.get_resumable_task(task_id) is not None:
+        print("result: ABORTED")
+        print("reason: task_id_already_exists")
+        print("existing_checkpoint_modified: False")
+        return 2
+
     source_alias = f"approved-pdf-{uuid4().hex[:12]}.pdf"
     request_message = (
-        "Prepare and save a draft-only WindowHub offer using only the validated "
-        "facts from the approved local PDF. Never submit, send, dispatch, publish, "
-        "or finalize the offer. If the current application, product, or target is "
-        "ambiguous, stop for manual review."
+        "Prepare a draft WindowHub offer using only the validated facts from the "
+        "supplied PDF."
     )
 
     try:
@@ -414,16 +435,20 @@ def main() -> int:
             return 8
 
         verified_fields = _verified_final_fields(current)
+        save_action_verified = _has_verified_draft_save(current)
         if (
             current.draft_only is not True
             or not _REQUIRED_FINAL_FIELDS.issubset(verified_fields)
+            or not save_action_verified
             or _contains_submission_marker(current)
         ):
             print("result: COMPLETED_WITHOUT_REQUIRED_DRAFT_VERIFICATION")
             print("final_verified_fields: " + json.dumps(sorted(verified_fields)))
+            print(f"draft_save_action_verified: {save_action_verified}")
             return 9
 
         print("final_verified_fields: " + json.dumps(sorted(verified_fields)))
+        print("draft_save_action_verified: True")
         print("result: PASS")
         print("draft_created_or_saved: True")
         print("submission_or_send_attempted_by_tool: False")
