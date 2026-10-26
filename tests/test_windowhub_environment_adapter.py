@@ -52,12 +52,65 @@ def test_windowhub_locator_selects_largest_okna_window(monkeypatch):
         "getAllWindows",
         lambda: windows,
     )
+    monkeypatch.setattr(
+        WindowHubEnvironmentAdapter,
+        "_foreground_window_handle",
+        staticmethod(lambda: 999),
+    )
+    monkeypatch.setattr(
+        WindowHubEnvironmentAdapter,
+        "_root_owner_window_handle",
+        staticmethod(lambda hwnd: 999),
+    )
 
     selected = WindowHubEnvironmentAdapter._locate_windowhub_window()
 
     assert selected.title == "Okna - OFR/5678"
     assert selected._hWnd == 300
 
+
+def test_windowhub_locator_prefers_foreground_offer_over_larger_window(monkeypatch):
+    windows = (
+        _window("Okna - Start1", hwnd=300, width=1936, height=1168),
+        _window("Okna - OFR/4402-", hwnd=200, width=1600, height=1000),
+    )
+
+    monkeypatch.setattr(module.gw, "getAllWindows", lambda: windows)
+    monkeypatch.setattr(
+        WindowHubEnvironmentAdapter, "_foreground_window_handle",
+        staticmethod(lambda: 200),
+    )
+    monkeypatch.setattr(
+        WindowHubEnvironmentAdapter, "_root_owner_window_handle",
+        staticmethod(lambda hwnd: hwnd),
+    )
+
+    selected = WindowHubEnvironmentAdapter._locate_windowhub_window()
+
+    assert selected.title == "Okna - OFR/4402-"
+    assert selected._hWnd == 200
+
+
+def test_windowhub_locator_prefers_owner_of_foreground_dialog(monkeypatch):
+    windows = (
+        _window("Okna - Start1", hwnd=300, width=1936, height=1168),
+        _window("Okna - OFR/4402-", hwnd=200, width=1600, height=1000),
+    )
+
+    monkeypatch.setattr(module.gw, "getAllWindows", lambda: windows)
+    monkeypatch.setattr(
+        WindowHubEnvironmentAdapter, "_foreground_window_handle",
+        staticmethod(lambda: 400),
+    )
+    monkeypatch.setattr(
+        WindowHubEnvironmentAdapter, "_root_owner_window_handle",
+        staticmethod(lambda hwnd: 200),
+    )
+
+    selected = WindowHubEnvironmentAdapter._locate_windowhub_window()
+
+    assert selected.title == "Okna - OFR/4402-"
+    assert selected._hWnd == 200
 
 def test_windowhub_locator_rejects_when_no_windowhub_window_exists(
     monkeypatch,

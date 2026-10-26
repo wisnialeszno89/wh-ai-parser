@@ -179,10 +179,43 @@ def _foreground_snapshot(user32: object) -> tuple[int, int, str]:
     )
 
 
+def _windowhub_window_titles(fallback_handle: int = 0) -> dict[int, str]:
+    """Return visible WindowHub top-level HWNDs without changing window state."""
+    candidates: dict[int, str] = {}
+    try:
+        import pygetwindow as gw
+
+        for window in gw.getAllWindows():
+            try:
+                title = (window.title or "").strip()
+                if not title.casefold().startswith("okna -"):
+                    continue
+                handle = int(getattr(window, "_hWnd", 0))
+                width = int(window.width)
+                height = int(window.height)
+                left = int(window.left)
+                top = int(window.top)
+                if handle <= 0 or width <= 0 or height <= 0:
+                    continue
+                if left < -10000 or top < -10000:
+                    continue
+                candidates[handle] = title
+            except (AttributeError, TypeError, ValueError, OverflowError):
+                continue
+    except Exception:
+        # The initially located handle remains a safe fallback if enumeration
+        # is unavailable. This helper never activates or changes window state.
+        pass
+
+    if fallback_handle > 0:
+        candidates.setdefault(fallback_handle, "initially located WindowHub window")
+    return candidates
+
+
 def _wait_for_window_foreground(window_handle: int, timeout_seconds: float = 45.0) -> bool:
-    """Wait for the user to focus the target WindowHub window; never set focus."""
+    """Wait for the user to focus a WindowHub offer window; never set focus."""
     if window_handle <= 0:
-        print("[FOCUS] Target WindowHub HWND is missing or invalid.")
+        print("[FOCUS] Initial WindowHub HWND is missing or invalid.")
         return False
 
     user32 = ctypes.WinDLL("user32", use_last_error=True)
@@ -190,32 +223,64 @@ def _wait_for_window_foreground(window_handle: int, timeout_seconds: float = 45.
 
     deadline = time.monotonic() + timeout_seconds
     next_report = time.monotonic()
+    next_refresh = 0.0
     last_snapshot = (0, 0, "")
     last_error = None
+    candidate_titles: dict[int, str] = {}
+    last_focused_candidate: tuple[int, str] | None = None
+
     while time.monotonic() < deadline:
         try:
+            now = time.monotonic()
+            if now >= next_refresh or not candidate_titles:
+                candidate_titles.update(_windowhub_window_titles(window_handle))
+                next_refresh = now + 1.0
+
             last_snapshot = _foreground_snapshot(user32)
-            foreground_handle, root_owner_handle, _ = last_snapshot
-            if is_target_window_focused(
-                window_handle, foreground_handle, root_owner_handle
-            ):
-                print(
-                    "[FOCUS] Confirmed target: "
-                    f"target={_format_hwnd(window_handle)}, "
-                    f"foreground={_format_hwnd(foreground_handle)}, "
-                    f"root_owner={_format_hwnd(root_owner_handle)}, "
-                    f"title={last_snapshot[2]!r}"
-                )
-                return True
+            foreground_handle, root_owner_handle, foreground_title = last_snapshot
+            matched_handle = next(
+                (
+                    candidate
+                    for candidate in candidate_titles
+                    if is_target_window_focused(
+                        candidate, foreground_handle, root_owner_handle
+                    )
+                ),
+                None,
+            )
+            if matched_handle is not None:
+                matched_title = candidate_titles[matched_handle]
+                last_focused_candidate = (matched_handle, matched_title)
+                if "OFR/" in matched_title.upper():
+                    print(
+                        "[FOCUS] Confirmed intended WindowHub offer: "
+                        f"target={_format_hwnd(matched_handle)}, "
+                        f"window_title={matched_title!r}, "
+                        f"foreground={_format_hwnd(foreground_handle)}, "
+                        f"root_owner={_format_hwnd(root_owner_handle)}, "
+                        f"title={foreground_title!r}"
+                    )
+                    return True
             last_error = None
         except Exception as exc:
             last_error = f"{type(exc).__name__}: {exc}"
 
         now = time.monotonic()
         if now >= next_report:
+            candidates_text = ", ".join(
+                f"{_format_hwnd(handle)}:{title!r}"
+                for handle, title in sorted(candidate_titles.items())
+            )
+            active_text = (
+                f"{_format_hwnd(last_focused_candidate[0])}:{last_focused_candidate[1]!r}"
+                if last_focused_candidate is not None
+                else "none"
+            )
             print(
-                "[FOCUS] Waiting: "
-                f"target={_format_hwnd(window_handle)}, "
+                "[FOCUS] Waiting for the intended WindowHub offer: "
+                f"initial={_format_hwnd(window_handle)}, "
+                f"focused_window={active_text}, "
+                f"candidates=[{candidates_text}], "
                 f"foreground={_format_hwnd(last_snapshot[0])}, "
                 f"root_owner={_format_hwnd(last_snapshot[1])}, "
                 f"title={last_snapshot[2]!r}"
@@ -226,14 +291,14 @@ def _wait_for_window_foreground(window_handle: int, timeout_seconds: float = 45.
 
     print(
         "[FOCUS] Timeout snapshot: "
-        f"target={_format_hwnd(window_handle)}, "
+        f"initial={_format_hwnd(window_handle)}, "
+        f"focused_window={last_focused_candidate!r}, "
         f"foreground={_format_hwnd(last_snapshot[0])}, "
         f"root_owner={_format_hwnd(last_snapshot[1])}, "
         f"title={last_snapshot[2]!r}"
         + (f", win32_error={last_error}" if last_error else "")
     )
     return False
-
 
 
 def _classify_table_region_detections(elements: object) -> dict[str, list[dict[str, object]]]:
@@ -628,9 +693,7 @@ def main() -> int:
     except Exception as exc:
         print(f"foreground_diagnostics_error={type(exc).__name__}: {exc}")
 
-    if not focused:
-        # The WindowHub title may be incomplete while another application owns
-        # the foreground. Ask the user to activate the located WindowHub window.
+    if not focused or "OFR/" not in title.upper():
         window_handle = observation.metadata.get("window_handle")
         try:
             window_handle = int(window_handle)
@@ -638,42 +701,22 @@ def main() -> int:
             window_handle = 0
 
         print()
-        print("WindowHub is not currently the foreground window.")
-        print("Click the intended WindowHub offer now; waiting up to 45 seconds.")
-        print("This tool will not activate or focus the window for you.")
+        if focused:
+            print(f"WindowHub is focused, but the title {title!r} does not identify an offer.")
+        else:
+            print("WindowHub is not currently the foreground window.")
+        print("Click the intended WindowHub offer; its title must contain OFR/.")
+        print("Waiting up to 45 seconds. This tool will not activate or focus the window for you.")
         if not _wait_for_window_foreground(window_handle):
-            print("ABORTED: WindowHub did not become the foreground window in time.")
-            return 4
+            print("ABORTED: no focused WindowHub offer with an OFR/ title was detected in time.")
+            return 5
 
-        # Refresh after the foreground wait. A stale title or focus flag can
-        # persist briefly even after the user has activated the correct window.
-        try:
-            observation = environment.observe()
-        except Exception as exc:
-            print(
-                "ABORTED: could not recapture focused WindowHub: "
-                f"{type(exc).__name__}: {exc}"
-            )
-            return 3
-
-        title = str(getattr(observation.state, "active_window_title", "") or "")
-        focused = observation.metadata.get("window_focused") is True
-        print(f"window_title={title!r}")
-        print(f"window_focused={focused}")
-
-    # Some WindowHub observations briefly expose a truncated title such as
-    # "Okna -" immediately after focus changes. Also cover a stale title when
-    # WindowHub was already focused at the first capture. Retry read-only
-    # observations, and never begin OCR/table processing without both guards.
-    if not focused or "OFR/" not in title.upper():
-        print("Waiting up to 10 seconds for a focused WindowHub observation with a complete offer title.")
-        title_deadline = time.monotonic() + 10.0
-        last_reported_state = (title, focused)
-        next_status_report = time.monotonic() + 2.0
-        while not (focused and "OFR/" in title.upper()):
-            if time.monotonic() >= title_deadline:
-                break
-            time.sleep(0.25)
+        # The foreground offer is now identified by its native window title.
+        # Refresh the observation a few times in case title/screenshot metadata lag.
+        last_reported_state = None
+        for attempt in range(6):
+            if attempt:
+                time.sleep(0.5)
             try:
                 observation = environment.observe()
             except Exception as exc:
@@ -686,12 +729,12 @@ def main() -> int:
             title = str(getattr(observation.state, "active_window_title", "") or "")
             focused = observation.metadata.get("window_focused") is True
             state = (title, focused)
-            now = time.monotonic()
-            if state != last_reported_state or now >= next_status_report:
+            if state != last_reported_state:
                 print(f"window_title={title!r}")
                 print(f"window_focused={focused}")
                 last_reported_state = state
-                next_status_report = now + 2.0
+            if focused and "OFR/" in title.upper():
+                break
 
         if not focused:
             print("ABORTED: the fresh observation still does not confirm WindowHub focus.")

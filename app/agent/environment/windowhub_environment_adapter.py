@@ -183,8 +183,30 @@ class WindowHubEnvironmentAdapter(EnvironmentAdapter):
                 "WindowHub window not found."
             )
 
+        # When several WindowHub documents/windows are open, use the one
+        # the user actually brought to the foreground instead of silently
+        # selecting a larger but unrelated Start/document window. If the
+        # foreground belongs to an owned dialog, its root owner identifies
+        # the corresponding WindowHub top-level window.
+        foreground_handle = WindowHubEnvironmentAdapter._foreground_window_handle()
+        root_owner_handle = (
+            WindowHubEnvironmentAdapter._root_owner_window_handle(foreground_handle)
+            if foreground_handle > 0
+            else 0
+        )
+        foreground_candidates = []
+        if foreground_handle > 0 or root_owner_handle > 0:
+            for window in candidates:
+                try:
+                    hwnd = int(getattr(window, "_hWnd", 0))
+                except (TypeError, ValueError):
+                    continue
+                if hwnd > 0 and hwnd in (foreground_handle, root_owner_handle):
+                    foreground_candidates.append(window)
+
+        selection_pool = foreground_candidates or candidates
         return max(
-            candidates,
+            selection_pool,
             key=lambda window: (
                 int(window.width) * int(window.height),
             ),

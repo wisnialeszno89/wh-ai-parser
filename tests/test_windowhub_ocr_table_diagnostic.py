@@ -4,6 +4,7 @@ from types import SimpleNamespace
 from tools.inspect_windowhub_ocr_table import (
     _classify_table_region_detections,
     _configure_console_output,
+    _wait_for_window_foreground,
     _scan_dimensions_across_row_crops,
     _scan_lp_column_across_row_crops,
     _reasoning_handoff_audit,
@@ -393,17 +394,68 @@ def test_inspector_retries_incomplete_offer_title_until_valid(monkeypatch, capsy
     output = capsys.readouterr().out
 
     assert result == 0
-    assert wait_handles == ([] if initially_focused else [123])
+    assert wait_handles == [123]
     expected_incomplete_title_count = 1 if initially_focused else 2
     assert output.count("window_title='Okna -'") == expected_incomplete_title_count
     assert "window_title='Okna - OFR/4398-3540'" in output
-    # Both fixtures include a truncated title before the complete OFR title arrives.
-    assert (
-        "Waiting up to 10 seconds for a focused WindowHub observation "
-        "with a complete offer title."
-    ) in output
-    assert "ABORTED: the active WindowHub title does not identify an OFR/ offer." not in output
+    assert "Click the intended WindowHub offer; its title must contain OFR/." in output
+    assert "Waiting up to 45 seconds." in output
+    assert "ABORTED: no focused WindowHub offer" not in output
     assert '"table_row_count": 1' in output
+
+def test_focus_wait_accepts_intended_offer_among_multiple_windowhub_windows(monkeypatch, capsys):
+    import sys
+    from types import ModuleType
+
+    import tools.inspect_windowhub_ocr_table as inspector
+
+    windows = (
+        SimpleNamespace(
+            title="Okna - Start1",
+            _hWnd=111,
+            left=0,
+            top=0,
+            width=1936,
+            height=1168,
+        ),
+        SimpleNamespace(
+            title="Okna - OFR/4402-",
+            _hWnd=222,
+            left=0,
+            top=0,
+            width=1600,
+            height=1000,
+        ),
+    )
+    pygetwindow_module = ModuleType("pygetwindow")
+    pygetwindow_module.getAllWindows = lambda: windows
+    monkeypatch.setitem(sys.modules, "pygetwindow", pygetwindow_module)
+    monkeypatch.setattr(
+        inspector.ctypes,
+        "WinDLL",
+        lambda *args, **kwargs: object(),
+        raising=False,
+    )
+    snapshots = iter((
+        (111, 111, "Okna - Start1"),
+        (222, 222, "Okna - OFR/4402-"),
+    ))
+    monkeypatch.setattr(
+        inspector,
+        "_foreground_snapshot",
+        lambda user32: next(snapshots),
+    )
+
+    result = _wait_for_window_foreground(111, timeout_seconds=1.0)
+    output = capsys.readouterr().out
+
+    assert result is True
+    assert "Waiting for the intended WindowHub offer" in output
+    assert "focused_window=0x6F:'Okna - Start1'" in output
+    assert "target=0xDE" in output
+    assert "window_title='Okna - OFR/4402-'" in output
+    assert "foreground=0xDE" in output
+
 
 def test_diagnostic_includes_bottom_edge_row_but_excludes_footer():
     elements = [
