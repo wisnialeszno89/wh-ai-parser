@@ -629,12 +629,10 @@ def main() -> int:
         print(f"foreground_diagnostics_error={type(exc).__name__}: {exc}")
 
     if not focused:
-        if "OFR/" not in title.upper():
-            print()
-            print("ABORTED: the detected WindowHub title does not identify an OFR/ offer.")
-            print("Open the intended offer table and rerun.")
-            return 5
-
+        # The WindowHub title may be incomplete while another application owns
+        # the foreground. First ask the user to activate the located WindowHub
+        # window, then re-capture and validate the fresh title below. The
+        # OFR/ guard remains mandatory before any OCR/table processing occurs.
         window_handle = observation.metadata.get("window_handle")
         try:
             window_handle = int(window_handle)
