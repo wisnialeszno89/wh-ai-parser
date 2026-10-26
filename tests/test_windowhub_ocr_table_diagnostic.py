@@ -1,3 +1,4 @@
+import pytest
 from types import SimpleNamespace
 
 from tools.inspect_windowhub_ocr_table import (
@@ -272,7 +273,8 @@ def test_reasoning_handoff_audit_keeps_incomplete_rows_explicit():
     assert audit["coordinates_excluded"] is True
     assert audit["ocr_elements_noninteractive"] is False
 
-def test_inspector_waits_for_focus_before_rejecting_incomplete_initial_title(monkeypatch, capsys):
+@pytest.mark.parametrize("initially_focused", [False, True])
+def test_inspector_retries_incomplete_offer_title_until_valid(monkeypatch, capsys, initially_focused):
     import sys
     from types import ModuleType
 
@@ -300,11 +302,17 @@ def test_inspector_waits_for_focus_before_rejecting_incomplete_initial_title(mon
 
     class FakeEnvironment:
         def __init__(self):
-            self.observations = [
-                observation("Okna -", False),
-                observation("Okna -", True),
-                observation("Okna - OFR/4398-3540", True),
-            ]
+            if initially_focused:
+                self.observations = [
+                    observation("Okna -", True),
+                    observation("Okna - OFR/4398-3540", True),
+                ]
+            else:
+                self.observations = [
+                    observation("Okna -", False),
+                    observation("Okna -", True),
+                    observation("Okna - OFR/4398-3540", True),
+                ]
 
         def observe(self):
             return self.observations.pop(0)
@@ -385,11 +393,15 @@ def test_inspector_waits_for_focus_before_rejecting_incomplete_initial_title(mon
     output = capsys.readouterr().out
 
     assert result == 0
-    assert wait_handles == [123]
-    assert output.count("window_title='Okna -'") == 2
+    assert wait_handles == ([] if initially_focused else [123])
+    expected_incomplete_title_count = 1 if initially_focused else 2
+    assert output.count("window_title='Okna -'") == expected_incomplete_title_count
     assert "window_title='Okna - OFR/4398-3540'" in output
-    assert "waiting up to 10 seconds for a complete offer title" in output
-    assert "ABORTED: the detected WindowHub title" not in output
+    assert (
+        "Waiting up to 10 seconds for a focused WindowHub observation "
+        "with a complete offer title."
+    ) in output
+    assert "ABORTED: the active WindowHub title does not identify an OFR/ offer." not in output
     assert '"table_row_count": 1' in output
 
 def test_diagnostic_includes_bottom_edge_row_but_excludes_footer():
