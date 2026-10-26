@@ -647,20 +647,39 @@ def main() -> int:
             print("ABORTED: WindowHub did not become the foreground window in time.")
             return 4
 
-        # Capture a fresh frame after the user has focused the exact target HWND.
-        try:
-            observation = environment.observe()
-        except Exception as exc:
-            print(
-                "ABORTED: could not recapture focused WindowHub: "
-                f"{type(exc).__name__}: {exc}"
-            )
-            return 3
+        # WindowHub can report a transiently truncated title immediately after
+        # focus changes. Retry fresh observations briefly; never process OCR until
+        # both focus and the expected OFR/ offer identifier are present.
+        print("WindowHub focus confirmed; waiting up to 10 seconds for a complete offer title.")
+        title_deadline = time.monotonic() + 10.0
+        last_reported_state = None
+        next_status_report = time.monotonic()
+        while True:
+            try:
+                observation = environment.observe()
+            except Exception as exc:
+                print(
+                    "ABORTED: could not recapture focused WindowHub: "
+                    f"{type(exc).__name__}: {exc}"
+                )
+                return 3
 
-        title = str(getattr(observation.state, "active_window_title", "") or "")
-        focused = observation.metadata.get("window_focused") is True
-        print(f"window_title={title!r}")
-        print(f"window_focused={focused}")
+            title = str(getattr(observation.state, "active_window_title", "") or "")
+            focused = observation.metadata.get("window_focused") is True
+            state = (title, focused)
+            now = time.monotonic()
+            if state != last_reported_state or now >= next_status_report:
+                print(f"window_title={title!r}")
+                print(f"window_focused={focused}")
+                last_reported_state = state
+                next_status_report = now + 2.0
+
+            if focused and "OFR/" in title.upper():
+                break
+            if now >= title_deadline:
+                break
+            time.sleep(0.25)
+
         if not focused:
             print("ABORTED: the fresh observation still does not confirm WindowHub focus.")
             return 4
