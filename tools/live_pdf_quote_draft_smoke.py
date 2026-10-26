@@ -136,7 +136,7 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def _preview(preparation) -> dict[str, object]:
+def _preview(preparation, ingestion_result=None) -> dict[str, object]:
     """Return only validated field values and page references, never raw excerpts."""
     normalized = preparation.validation.normalized_values
     facts = {
@@ -157,13 +157,27 @@ def _preview(preparation) -> dict[str, object]:
             and page_number > 0
         ):
             pages_by_field.setdefault(field_name, []).append(page_number)
+    page_count = getattr(preparation.extraction, "page_count", None)
+    if (
+        not isinstance(page_count, int)
+        or isinstance(page_count, bool)
+        or page_count <= 0
+    ):
+        page_count = getattr(ingestion_result, "page_count", None)
+    if (
+        not isinstance(page_count, int)
+        or isinstance(page_count, bool)
+        or page_count <= 0
+    ):
+        page_count = None
+
     return {
         "validated_facts": facts,
         "source_pages_by_field": {
             key: sorted(set(value))
             for key, value in sorted(pages_by_field.items())
         },
-        "page_count": getattr(preparation.extraction, "page_count", None),
+        "page_count": page_count,
         "ocr_required_pages": list(
             getattr(preparation.extraction, "ocr_pages", ()) or ()
         ),
@@ -342,7 +356,7 @@ def main() -> int:
         print("error_details_printed: 0")
         return 3
 
-    preview = _preview(preparation)
+    preview = _preview(preparation, ingestion_result=extraction)
     print("mode: LIVE_DRAFT_ONLY_PENDING_USER_APPROVAL")
     print("source_pdf_uploaded: False")
     print("full_pdf_text_in_task_prompt: False")
