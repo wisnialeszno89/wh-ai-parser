@@ -349,6 +349,7 @@ def test_inspector_waits_for_focus_before_rejecting_incomplete_initial_title(mon
         inspector.ctypes,
         "WinDLL",
         lambda *args, **kwargs: object(),
+        raising=False,
     )
     monkeypatch.setattr(
         inspector,
