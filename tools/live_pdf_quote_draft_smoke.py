@@ -88,6 +88,14 @@ def parse_args() -> argparse.Namespace:
         help="Exact local directory approved to supply the PDF.",
     )
     parser.add_argument(
+        "--env-file",
+        default=None,
+        help=(
+            "Optional local .env path for provider configuration. The file is "
+            "read locally only; values are never printed or added to checkpoints."
+        ),
+    )
+    parser.add_argument(
         "--task-id",
         default=None,
         help="Optional unique checkpoint ID. A generated ID is safer for a new test.",
@@ -242,8 +250,17 @@ def _build_runtime(pdf_service: PdfIngestionService, args: argparse.Namespace):
 
 
 def main() -> int:
-    load_dotenv()
     args = parse_args()
+    if args.env_file:
+        env_path = Path(args.env_file).expanduser()
+        if not env_path.is_file():
+            print("result: ABORTED")
+            print("reason: env_file_not_found")
+            print("env_file_path_printed: False")
+            return 2
+        load_dotenv(dotenv_path=env_path)
+    else:
+        load_dotenv()
 
     if os.name != "nt":
         print("result: ABORTED")
