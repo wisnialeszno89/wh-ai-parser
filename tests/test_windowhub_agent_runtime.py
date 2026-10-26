@@ -1,3 +1,5 @@
+from app.agent.adapters.pdf_document_adapter import PdfDocumentAdapter
+from app.agent.adapters.pdf_ingestion_service import PdfIngestionService
 from app.agent.runtime.agent_runtime import AgentRuntime
 from app.agent.runtime import windowhub_agent_runtime as module
 
@@ -34,5 +36,32 @@ def test_windowhub_runtime_factory_configures_resumable_host_without_side_effect
     assert runtime._windowhub_resumable_task_host.control_loop is control_loop
     assert runtime._windowhub_resumable_task_host.orchestrator is runtime.orchestrator
     assert runtime.orchestrator.application_knowledge["application"] == "WindowHub"
+    assert control_loop.observe_calls == 0
+    assert control_loop.run_calls == 0
+
+
+
+def test_windowhub_runtime_factory_accepts_an_explicit_approved_pdf_ingestion_service(
+    monkeypatch,
+    tmp_path,
+):
+    monkeypatch.delenv("NAVIMIND_AGENT_URL", raising=False)
+    monkeypatch.delenv("AGENT_TASK_REASONING", raising=False)
+    approved_root = tmp_path / "approved"
+    approved_root.mkdir()
+    pdf_service = PdfIngestionService(
+        adapter=PdfDocumentAdapter(allowed_roots=(approved_root,)),
+    )
+    control_loop = NoopControlLoop()
+
+    runtime = module.create_windowhub_agent_runtime(
+        control_loop_factory=lambda *, plan_reasoner: control_loop,
+        pdf_ingestion_service=pdf_service,
+    )
+
+    assert isinstance(runtime, AgentRuntime)
+    assert runtime.pdf_ingestion_service is pdf_service
+    assert runtime.pdf_source_registry == {}
+    assert runtime.resumable_task_service is not None
     assert control_loop.observe_calls == 0
     assert control_loop.run_calls == 0

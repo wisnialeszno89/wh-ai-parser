@@ -1,6 +1,7 @@
 import os
 from collections.abc import Callable
 
+from app.agent.adapters.pdf_ingestion_service import PdfIngestionService
 from app.agent.runtime.agent_runtime import AgentRuntime
 from app.agent.runtime.agent_orchestrator import AgentOrchestrator
 from app.agent.knowledge.windowhub_offer_knowledge import (
@@ -14,6 +15,7 @@ from app.agent.offers.offer_request_parameter_resolver import (
 def create_windowhub_agent_runtime(
     *,
     control_loop_factory: Callable[..., object] | None = None,
+    pdf_ingestion_service: PdfIngestionService | None = None,
 ) -> AgentRuntime:
     """
     Create the Universal Agent Runtime connected to WindowHub.
@@ -64,6 +66,7 @@ def create_windowhub_agent_runtime(
         learned_parameter_resolver=(
             OfferRequestParameterResolver().resolve
         ),
+        pdf_ingestion_service=pdf_ingestion_service,
     )
     # This only wires the existing environment dependencies to the persisted
     # task service. No observation or GUI action occurs until explicitly advanced.
