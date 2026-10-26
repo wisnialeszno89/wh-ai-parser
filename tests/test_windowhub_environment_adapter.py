@@ -208,4 +208,5 @@ def test_observe_exposes_foreground_owned_dialog_handles(monkeypatch):
     assert observation.metadata["window_handle"] == 200
     assert observation.metadata["foreground_window_handle"] == 400
     assert observation.metadata["foreground_root_owner_handle"] == 200
-    assert observation.metadata["window_focused"] is False
+    # An owned dialog is part of the target WindowHub window for focus checks.
+    assert observation.metadata["window_focused"] is True
