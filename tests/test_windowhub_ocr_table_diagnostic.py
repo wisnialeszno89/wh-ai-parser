@@ -388,7 +388,7 @@ def test_inspector_waits_for_focus_before_rejecting_incomplete_initial_title(mon
     assert wait_handles == [123]
     assert output.count("window_title='Okna -'") == 2
     assert "window_title='Okna - OFR/4398-3540'" in output
-    assert "waiting up to 10 seconds for a complete offer title" in output
+    assert "Waiting up to 10 seconds for a focused WindowHub observation with a complete offer title." in output
     assert "ABORTED: the detected WindowHub title" not in output
     assert '"table_row_count": 1' in output
 
