@@ -37,12 +37,12 @@ from app.agent.runtime.windowhub_agent_runtime import (
 _PREVIEW_FIELDS = ("product_type", "width", "height", "quantity")
 _REQUIRED_FINAL_FIELDS = frozenset({"product_type", "width", "height"})
 _SUBMISSION_MARKERS = re.compile(
-    r"(?<!\\w)(submit|dispatch|send|publish|confirm|approve|finalize|finalise|"
-    r"wyślij|wyslij|przekaż|przekaz|zatwierdź|zatwierdz|finalizuj)(?!\\w)",
+    r"(?<!\w)(submit|dispatch|send|publish|confirm|approve|finalize|finalise|"
+    r"wyślij|wyslij|przekaż|przekaz|zatwierdź|zatwierdz|finalizuj)(?!\w)",
     re.IGNORECASE,
 )
 _SAVE_MARKERS = re.compile(
-    r"(?<!\\w)(save|saved|draft|zapisz|zapis|zachowaj|szkic)(?!\\w)",
+    r"(?<!\w)(save|saved|draft|zapisz|zapis|zachowaj|szkic)(?!\w)",
     re.IGNORECASE,
 )
 _TERMINAL_STATUSES = frozenset({
