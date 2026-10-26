@@ -630,9 +630,7 @@ def main() -> int:
 
     if not focused:
         # The WindowHub title may be incomplete while another application owns
-        # the foreground. First ask the user to activate the located WindowHub
-        # window, then re-capture and validate the fresh title below. The
-        # OFR/ guard remains mandatory before any OCR/table processing occurs.
+        # the foreground. Ask the user to activate the located WindowHub window.
         window_handle = observation.metadata.get("window_handle")
         try:
             window_handle = int(window_handle)
@@ -647,14 +645,35 @@ def main() -> int:
             print("ABORTED: WindowHub did not become the foreground window in time.")
             return 4
 
-        # WindowHub can report a transiently truncated title immediately after
-        # focus changes. Retry fresh observations briefly; never process OCR until
-        # both focus and the expected OFR/ offer identifier are present.
-        print("WindowHub focus confirmed; waiting up to 10 seconds for a complete offer title.")
+        # Refresh after the foreground wait. A stale title or focus flag can
+        # persist briefly even after the user has activated the correct window.
+        try:
+            observation = environment.observe()
+        except Exception as exc:
+            print(
+                "ABORTED: could not recapture focused WindowHub: "
+                f"{type(exc).__name__}: {exc}"
+            )
+            return 3
+
+        title = str(getattr(observation.state, "active_window_title", "") or "")
+        focused = observation.metadata.get("window_focused") is True
+        print(f"window_title={title!r}")
+        print(f"window_focused={focused}")
+
+    # Some WindowHub observations briefly expose a truncated title such as
+    # "Okna -" immediately after focus changes. Also cover a stale title when
+    # WindowHub was already focused at the first capture. Retry read-only
+    # observations, and never begin OCR/table processing without both guards.
+    if not focused or "OFR/" not in title.upper():
+        print("Waiting up to 10 seconds for a focused WindowHub observation with a complete offer title.")
         title_deadline = time.monotonic() + 10.0
-        last_reported_state = None
-        next_status_report = time.monotonic()
-        while True:
+        last_reported_state = (title, focused)
+        next_status_report = time.monotonic() + 2.0
+        while not (focused and "OFR/" in title.upper()):
+            if time.monotonic() >= title_deadline:
+                break
+            time.sleep(0.25)
             try:
                 observation = environment.observe()
             except Exception as exc:
@@ -673,12 +692,6 @@ def main() -> int:
                 print(f"window_focused={focused}")
                 last_reported_state = state
                 next_status_report = now + 2.0
-
-            if focused and "OFR/" in title.upper():
-                break
-            if now >= title_deadline:
-                break
-            time.sleep(0.25)
 
         if not focused:
             print("ABORTED: the fresh observation still does not confirm WindowHub focus.")
