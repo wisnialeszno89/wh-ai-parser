@@ -273,10 +273,10 @@ def test_reasoning_handoff_audit_keeps_incomplete_rows_explicit():
     assert audit["ocr_elements_noninteractive"] is False
 
 def test_inspector_waits_for_focus_before_rejecting_incomplete_initial_title(monkeypatch, capsys):
-    import app.agent.environment.windowhub_environment_adapter as environment_module
-    import app.agent.perception.windowhub_ocr_provider as provider_module
-    import tools.inspect_windowhub_ocr_table as inspector
+    import sys
+    from types import ModuleType
 
+    import tools.inspect_windowhub_ocr_table as inspector
     from app.agent.environment.environment_observation import EnvironmentObservation
     from app.agent.environment.environment_state import EnvironmentState
 
@@ -325,15 +325,23 @@ def test_inspector_waits_for_focus_before_rejecting_incomplete_initial_title(mon
     wait_handles = []
 
     monkeypatch.setattr(inspector, "os", SimpleNamespace(name="nt"))
-    monkeypatch.setattr(
-        environment_module,
-        "WindowHubEnvironmentAdapter",
-        lambda: environment,
+    environment_module = ModuleType(
+        "app.agent.environment.windowhub_environment_adapter"
     )
-    monkeypatch.setattr(
+    environment_module.WindowHubEnvironmentAdapter = lambda: environment
+    provider_module = ModuleType(
+        "app.agent.perception.windowhub_ocr_provider"
+    )
+    provider_module.WindowHubOCRProvider = FakeProvider
+    monkeypatch.setitem(
+        sys.modules,
+        "app.agent.environment.windowhub_environment_adapter",
+        environment_module,
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "app.agent.perception.windowhub_ocr_provider",
         provider_module,
-        "WindowHubOCRProvider",
-        FakeProvider,
     )
     monkeypatch.setattr(
         inspector,
