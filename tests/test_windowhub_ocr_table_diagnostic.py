@@ -28,7 +28,7 @@ def test_diagnostic_preserves_raw_detections_for_each_table_column():
         detection("522,59", 530),
         detection("1320x1345", 1120),
         detection("irrelevant UI label", 800),
-        detection("outside vertical table region", 420, 390),
+        detection("outside vertical table region", 420, 416),
     ]
 
     result = _classify_table_region_detections(elements)
