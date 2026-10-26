@@ -182,8 +182,8 @@ def _layout_from_normalized_items(
     total_x_max: float = 500,
     unit_x_min: float = 500,
     unit_x_max: float = 600,
-    min_center_y: float = 200,
-    max_center_y: float = 380,
+    min_center_y: float = 185,
+    max_center_y: float = 415,
 ) -> dict[str, object]:
     # Header text is the strongest available column cue when the current offer
     # has too few data rows to form repeated monetary clusters.
@@ -233,8 +233,8 @@ def infer_windowhub_ocr_table_column_layout(
     total_x_max: float = 500,
     unit_x_min: float = 500,
     unit_x_max: float = 600,
-    min_center_y: float = 200,
-    max_center_y: float = 380,
+    min_center_y: float = 185,
+    max_center_y: float = 415,
     min_confidence: float = 0.35,
 ) -> dict[str, object]:
     """Infer repeated monetary columns and the correct image crops."""
@@ -387,8 +387,8 @@ def parse_windowhub_ocr_table(
     unit_x_max: float = 600,
     dimensions_x_min: float = 850,
     dimensions_x_max: float = 1350,
-    min_center_y: float = 200,
-    max_center_y: float = 380,
+    min_center_y: float = 185,
+    max_center_y: float = 415,
     row_tolerance: float = 7.5,
     min_confidence: float = 0.35,
 ) -> tuple[WindowHubOCRTableRow, ...]:
