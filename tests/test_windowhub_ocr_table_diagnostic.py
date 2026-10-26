@@ -394,16 +394,13 @@ def test_inspector_retries_incomplete_offer_title_until_valid(monkeypatch, capsy
     output = capsys.readouterr().out
 
     assert result == 0
-    assert wait_handles == ([] if initially_focused else [123])
+    assert wait_handles == [123]
     expected_incomplete_title_count = 1 if initially_focused else 2
     assert output.count("window_title='Okna -'") == expected_incomplete_title_count
     assert "window_title='Okna - OFR/4398-3540'" in output
-    # Both fixtures include a truncated title before the complete OFR title arrives.
-    assert (
-        "Waiting up to 10 seconds for a focused WindowHub observation "
-        "with a complete offer title."
-    ) in output
-    assert "ABORTED: the active WindowHub title does not identify an OFR/ offer." not in output
+    assert "Click the intended WindowHub offer; its title must contain OFR/." in output
+    assert "Waiting up to 45 seconds." in output
+    assert "ABORTED: no focused WindowHub offer" not in output
     assert '"table_row_count": 1' in output
 
 def test_focus_wait_accepts_intended_offer_among_multiple_windowhub_windows(monkeypatch, capsys):
@@ -439,16 +436,22 @@ def test_focus_wait_accepts_intended_offer_among_multiple_windowhub_windows(monk
         lambda *args, **kwargs: object(),
         raising=False,
     )
+    snapshots = iter((
+        (111, 111, "Okna - Start1"),
+        (222, 222, "Okna - OFR/4402-"),
+    ))
     monkeypatch.setattr(
         inspector,
         "_foreground_snapshot",
-        lambda user32: (222, 222, "Okna - OFR/4402-"),
+        lambda user32: next(snapshots),
     )
 
     result = _wait_for_window_foreground(111, timeout_seconds=1.0)
     output = capsys.readouterr().out
 
     assert result is True
+    assert "Waiting for the intended WindowHub offer" in output
+    assert "focused_window=0x6F:'Okna - Start1'" in output
     assert "target=0xDE" in output
     assert "window_title='Okna - OFR/4402-'" in output
     assert "foreground=0xDE" in output
