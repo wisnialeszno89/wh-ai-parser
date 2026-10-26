@@ -9,6 +9,7 @@ submission/confirmation actions are never approved by this tool.
 from __future__ import annotations
 
 import argparse
+from collections.abc import Mapping
 import json
 import os
 import re
@@ -196,7 +197,7 @@ def _verified_final_fields(checkpoint) -> set[str]:
     return {
         str(item.get("field"))
         for item in evidence
-        if isinstance(item, dict) and isinstance(item.get("field"), str)
+        if isinstance(item, Mapping) and isinstance(item.get("field"), str)
     }
 
 
