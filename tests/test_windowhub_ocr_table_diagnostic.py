@@ -397,10 +397,14 @@ def test_inspector_retries_incomplete_offer_title_until_valid(monkeypatch, capsy
     expected_incomplete_title_count = 1 if initially_focused else 2
     assert output.count("window_title='Okna -'") == expected_incomplete_title_count
     assert "window_title='Okna - OFR/4398-3540'" in output
-    assert (
-        "Waiting up to 10 seconds for a focused WindowHub observation "
-        "with a complete offer title."
-    ) in output
+    if initially_focused:
+        assert (
+            "Waiting up to 10 seconds for a focused WindowHub observation "
+            "with a complete offer title."
+        ) in output
+    else:
+        # The post-focus fixture already has a valid OFR title, so no retry is needed.
+        assert "Waiting up to 10 seconds for a focused WindowHub observation" not in output
     assert "ABORTED: the active WindowHub title does not identify an OFR/ offer." not in output
     assert '"table_row_count": 1' in output
 
