@@ -62,6 +62,29 @@ def test_live_preview_contains_only_supported_facts_and_page_refs():
     assert "Do not print this field" not in serialized
 
 
+def test_live_preview_falls_back_to_ingestion_page_count_when_missing():
+    preparation = SimpleNamespace(
+        extraction=SimpleNamespace(
+            facts=(),
+            page_count=None,
+            ocr_pages=(),
+        ),
+        validation=SimpleNamespace(
+            normalized_values={},
+            missing_fields=(),
+            conflicts=(),
+        ),
+        requires_manual_review=False,
+    )
+
+    preview = _preview(
+        preparation,
+        ingestion_result=SimpleNamespace(page_count=3),
+    )
+
+    assert preview["page_count"] == 3
+
+
 def test_live_smoke_requires_a_verified_draft_save_action():
     checkpoint = SimpleNamespace(
         completed_steps=(
