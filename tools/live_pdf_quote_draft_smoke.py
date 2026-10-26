@@ -335,7 +335,7 @@ def main() -> int:
     print("pdf_page_count: " + str(extraction.page_count))
     print("pdf_needs_ocr: " + str(extraction.needs_ocr))
     print("task_id: " + task_id)
-    print("local_fact_preview: " + json.dumps(preview, ensure_ascii=False, sort_keys=True))
+    print("local_fact_preview: " + json.dumps(preview, ensure_ascii=False, sort_keys=True, default=str))
     print(f"control_loop_observations_before_approval: {control.observe_calls}")
     print(f"control_loop_runs_before_approval: {control.run_calls}")
 
