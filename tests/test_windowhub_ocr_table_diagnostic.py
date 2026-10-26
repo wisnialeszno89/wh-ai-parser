@@ -28,7 +28,7 @@ def test_diagnostic_preserves_raw_detections_for_each_table_column():
         detection("522,59", 530),
         detection("1320x1345", 1120),
         detection("irrelevant UI label", 800),
-        detection("outside vertical table region", 420, 390),
+        detection("outside vertical table region", 420, 416),
     ]
 
     result = _classify_table_region_detections(elements)
@@ -45,7 +45,7 @@ def test_diagnostic_skips_malformed_and_invalid_detections():
     elements = [
         object(),
         SimpleNamespace(label="invalid", x=None, y=200, width=20, height=8, confidence=0.9),
-        detection("low area", 420, 380),
+        detection("low area", 420, 416),
         detection("outside x", 700, 220),
     ]
 
@@ -389,3 +389,21 @@ def test_inspector_waits_for_focus_before_rejecting_incomplete_initial_title(mon
     assert "window_title='Okna - OFR/4398-3540'" in output
     assert "ABORTED: the detected WindowHub title" not in output
     assert '"table_row_count": 1' in output
+
+def test_diagnostic_includes_bottom_edge_row_but_excludes_footer():
+    elements = [
+        detection("15", 120, 402.5),
+        detection("1 Okno", 210, 402.5),
+        detection("5150x2600", 1120, 402.5),
+        detection("footer total", 420, 425.0),
+    ]
+
+    result = _classify_table_region_detections(elements)
+
+    assert [item["text"] for item in result["lp_column_ocr_detections"]] == ["15"]
+    assert [item["text"] for item in result["quantity_article_ocr_detections"]] == ["1 Okno"]
+    assert [item["text"] for item in result["dimensions_ocr_detections"]] == ["5150x2600"]
+    assert [item["text"] for item in result["table_region_ocr_detections"]] == [
+        "15", "1 Okno", "5150x2600"
+    ]
+    assert all(item["text"] != "footer total" for item in result["table_region_ocr_detections"])

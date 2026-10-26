@@ -239,7 +239,7 @@ def _wait_for_window_foreground(window_handle: int, timeout_seconds: float = 45.
 def _classify_table_region_detections(elements: object) -> dict[str, list[dict[str, object]]]:
     """Keep raw OCR observations grouped by detected columns, not fixed x offsets."""
     elements = tuple(elements)
-    layout = infer_windowhub_ocr_table_column_layout(elements, max_center_y=380)
+    layout = infer_windowhub_ocr_table_column_layout(elements, max_center_y=415)
     detections: list[dict[str, object]] = []
     row_band_all_detections: list[dict[str, object]] = []
     for element in elements:
@@ -268,7 +268,7 @@ def _classify_table_region_detections(elements: object) -> dict[str, list[dict[s
             row_band_all_detections.append(detection)
 
         in_table_columns = (90 <= x < 650) or (1000 <= x < 1700)
-        if not in_table_columns or not 190 <= center_y <= 370:
+        if not in_table_columns or not 185 <= center_y <= 415:
             continue
         detections.append(detection)
 
