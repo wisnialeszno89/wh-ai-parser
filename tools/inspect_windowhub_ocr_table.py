@@ -179,10 +179,43 @@ def _foreground_snapshot(user32: object) -> tuple[int, int, str]:
     )
 
 
+def _windowhub_window_titles(fallback_handle: int = 0) -> dict[int, str]:
+    """Return visible WindowHub top-level HWNDs without changing window state."""
+    candidates: dict[int, str] = {}
+    try:
+        import pygetwindow as gw
+
+        for window in gw.getAllWindows():
+            try:
+                title = (window.title or "").strip()
+                if not title.casefold().startswith("okna -"):
+                    continue
+                handle = int(getattr(window, "_hWnd", 0))
+                width = int(window.width)
+                height = int(window.height)
+                left = int(window.left)
+                top = int(window.top)
+                if handle <= 0 or width <= 0 or height <= 0:
+                    continue
+                if left < -10000 or top < -10000:
+                    continue
+                candidates[handle] = title
+            except (AttributeError, TypeError, ValueError, OverflowError):
+                continue
+    except Exception:
+        # The initially located handle remains a safe fallback if enumeration
+        # is unavailable. This helper never activates or changes window state.
+        pass
+
+    if fallback_handle > 0:
+        candidates.setdefault(fallback_handle, "initially located WindowHub window")
+    return candidates
+
+
 def _wait_for_window_foreground(window_handle: int, timeout_seconds: float = 45.0) -> bool:
-    """Wait for the user to focus the target WindowHub window; never set focus."""
+    """Wait for the user to focus any discovered WindowHub window; never set focus."""
     if window_handle <= 0:
-        print("[FOCUS] Target WindowHub HWND is missing or invalid.")
+        print("[FOCUS] Initial WindowHub HWND is missing or invalid.")
         return False
 
     user32 = ctypes.WinDLL("user32", use_last_error=True)
@@ -190,21 +223,38 @@ def _wait_for_window_foreground(window_handle: int, timeout_seconds: float = 45.
 
     deadline = time.monotonic() + timeout_seconds
     next_report = time.monotonic()
+    next_refresh = 0.0
     last_snapshot = (0, 0, "")
     last_error = None
+    candidate_titles: dict[int, str] = {}
+
     while time.monotonic() < deadline:
         try:
+            now = time.monotonic()
+            if now >= next_refresh or not candidate_titles:
+                candidate_titles.update(_windowhub_window_titles(window_handle))
+                next_refresh = now + 1.0
+
             last_snapshot = _foreground_snapshot(user32)
-            foreground_handle, root_owner_handle, _ = last_snapshot
-            if is_target_window_focused(
-                window_handle, foreground_handle, root_owner_handle
-            ):
+            foreground_handle, root_owner_handle, foreground_title = last_snapshot
+            matched_handle = next(
+                (
+                    candidate
+                    for candidate in candidate_titles
+                    if is_target_window_focused(
+                        candidate, foreground_handle, root_owner_handle
+                    )
+                ),
+                None,
+            )
+            if matched_handle is not None:
                 print(
-                    "[FOCUS] Confirmed target: "
-                    f"target={_format_hwnd(window_handle)}, "
+                    "[FOCUS] Confirmed WindowHub window: "
+                    f"target={_format_hwnd(matched_handle)}, "
+                    f"window_title={candidate_titles[matched_handle]!r}, "
                     f"foreground={_format_hwnd(foreground_handle)}, "
                     f"root_owner={_format_hwnd(root_owner_handle)}, "
-                    f"title={last_snapshot[2]!r}"
+                    f"title={foreground_title!r}"
                 )
                 return True
             last_error = None
@@ -213,9 +263,14 @@ def _wait_for_window_foreground(window_handle: int, timeout_seconds: float = 45.
 
         now = time.monotonic()
         if now >= next_report:
+            candidates_text = ", ".join(
+                f"{_format_hwnd(handle)}:{title!r}"
+                for handle, title in sorted(candidate_titles.items())
+            )
             print(
-                "[FOCUS] Waiting: "
-                f"target={_format_hwnd(window_handle)}, "
+                "[FOCUS] Waiting for any WindowHub window: "
+                f"initial={_format_hwnd(window_handle)}, "
+                f"candidates=[{candidates_text}], "
                 f"foreground={_format_hwnd(last_snapshot[0])}, "
                 f"root_owner={_format_hwnd(last_snapshot[1])}, "
                 f"title={last_snapshot[2]!r}"
@@ -226,14 +281,13 @@ def _wait_for_window_foreground(window_handle: int, timeout_seconds: float = 45.
 
     print(
         "[FOCUS] Timeout snapshot: "
-        f"target={_format_hwnd(window_handle)}, "
+        f"initial={_format_hwnd(window_handle)}, "
         f"foreground={_format_hwnd(last_snapshot[0])}, "
         f"root_owner={_format_hwnd(last_snapshot[1])}, "
         f"title={last_snapshot[2]!r}"
         + (f", win32_error={last_error}" if last_error else "")
     )
     return False
-
 
 
 def _classify_table_region_detections(elements: object) -> dict[str, list[dict[str, object]]]:
