@@ -311,3 +311,37 @@ def test_header_text_disambiguates_single_row_total_unit_and_montage_columns():
     assert row.dimensions == "2580 x 2240"
     assert "lp" in row.missing_fields
     assert "quantity" not in row.missing_fields
+
+
+def test_includes_visible_table_edge_rows_and_excludes_footer_amounts():
+    # WindowHub can show row centers from just below the header to about y=403.
+    # All of these are visible line items; the amounts at y=425 represent a
+    # footer/summary area and must not create a phantom row.
+    centers = (198.0, 232.5, 267.5, 301.0, 335.0, 369.0, 402.5)
+    items = []
+    expected_dimensions = []
+
+    for lp, center_y in zip(range(9, 16), centers):
+        dimension = f"{1000 + lp}x{1300 + lp}"
+        expected_dimensions.append(f"{1000 + lp} x {1300 + lp}")
+        items.extend([
+            element("1 Okno", 210, center_y),
+            element(f"{1000 + lp},00", 420, center_y),
+            element(f"{800 + lp},00", 530, center_y),
+            element(dimension, 1120, center_y),
+            element(str(lp), 120, center_y),
+        ])
+
+    # Footer values have no LP/article/dimensions row evidence and sit below
+    # the visible item-row band.
+    items.extend([
+        element("12345,00", 420, 425.0),
+        element("10000,00", 530, 425.0),
+    ])
+
+    rows = parse_windowhub_ocr_table(items)
+
+    assert len(rows) == 7
+    assert [row.lp for row in rows] == list(range(9, 16))
+    assert [row.dimensions for row in rows] == expected_dimensions
+    assert all(row.complete for row in rows)
