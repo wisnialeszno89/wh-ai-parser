@@ -272,3 +272,120 @@ def test_reasoning_handoff_audit_keeps_incomplete_rows_explicit():
     assert audit["coordinates_excluded"] is True
     assert audit["ocr_elements_noninteractive"] is False
 
+def test_inspector_waits_for_focus_before_rejecting_incomplete_initial_title(monkeypatch, capsys):
+    import sys
+    from types import ModuleType
+
+    import tools.inspect_windowhub_ocr_table as inspector
+    from app.agent.environment.environment_observation import EnvironmentObservation
+    from app.agent.environment.environment_state import EnvironmentState
+
+    def observation(title, focused):
+        return EnvironmentObservation(
+            state=EnvironmentState(
+                active_application="WindowHub",
+                active_window_title=title,
+                screen_width=1936,
+                screen_height=1168,
+            ),
+            metadata={
+                "source": "windowhub",
+                "window_handle": 123,
+                "foreground_window_handle": 999 if not focused else 123,
+                "foreground_root_owner_handle": 999 if not focused else 123,
+                "window_focused": focused,
+                "screenshot": None,
+            },
+        )
+
+    class FakeEnvironment:
+        def __init__(self):
+            self.observations = [
+                observation("Okna -", False),
+                observation("Okna - OFR/4398-3540", True),
+            ]
+
+        def observe(self):
+            return self.observations.pop(0)
+
+    class FakeProvider:
+        def perceive(self, current_observation):
+            current_observation.metadata.update({
+                "windowhub_ocr_status": "ok",
+                "windowhub_ocr_element_count": 1,
+                "windowhub_ocr_table_status": "ok",
+                "windowhub_ocr_table_row_count": 1,
+                "windowhub_ocr_table_complete_row_count": 1,
+                "windowhub_ocr_table_field_refinement_count": 0,
+                "windowhub_ocr_table_lp_refinement_count": 0,
+            })
+            return (detection("1 Okno", 210),)
+
+    environment = FakeEnvironment()
+    wait_handles = []
+
+    monkeypatch.setattr(inspector, "os", SimpleNamespace(name="nt"))
+    environment_module = ModuleType(
+        "app.agent.environment.windowhub_environment_adapter"
+    )
+    environment_module.WindowHubEnvironmentAdapter = lambda: environment
+    provider_module = ModuleType(
+        "app.agent.perception.windowhub_ocr_provider"
+    )
+    provider_module.WindowHubOCRProvider = FakeProvider
+    monkeypatch.setitem(
+        sys.modules,
+        "app.agent.environment.windowhub_environment_adapter",
+        environment_module,
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "app.agent.perception.windowhub_ocr_provider",
+        provider_module,
+    )
+    monkeypatch.setattr(
+        inspector,
+        "_wait_for_window_foreground",
+        lambda handle: wait_handles.append(handle) or True,
+    )
+    monkeypatch.setattr(
+        inspector,
+        "_foreground_snapshot",
+        lambda user32: (999, 999, "Visual Studio Code"),
+    )
+    monkeypatch.setattr(
+        inspector.ctypes,
+        "WinDLL",
+        lambda *args, **kwargs: object(),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        inspector,
+        "_classify_table_region_detections",
+        lambda elements: {},
+    )
+    monkeypatch.setattr(
+        inspector,
+        "_reasoning_handoff_audit",
+        lambda observation, elements, reconstruction: {
+            "table_present": True,
+            "table_status": "complete",
+            "row_count": 1,
+            "complete_row_count": 1,
+            "lp_values_unique_and_present": True,
+            "rows_with_missing_fields": [],
+            "coordinates_excluded": True,
+            "ocr_elements_checked": len(tuple(elements)),
+            "ocr_elements_noninteractive": True,
+        },
+    )
+
+    result = inspector.main()
+    output = capsys.readouterr().out
+
+    assert result == 0
+    assert wait_handles == [123]
+    assert "window_title='Okna -'" in output
+    assert "window_title='Okna - OFR/4398-3540'" in output
+    assert "ABORTED: the detected WindowHub title" not in output
+    assert '"table_row_count": 1' in output
