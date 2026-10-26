@@ -4,6 +4,7 @@ from types import SimpleNamespace
 from tools.inspect_windowhub_ocr_table import (
     _classify_table_region_detections,
     _configure_console_output,
+    _wait_for_window_foreground,
     _scan_dimensions_across_row_crops,
     _scan_lp_column_across_row_crops,
     _reasoning_handoff_audit,
@@ -404,6 +405,54 @@ def test_inspector_retries_incomplete_offer_title_until_valid(monkeypatch, capsy
     ) in output
     assert "ABORTED: the active WindowHub title does not identify an OFR/ offer." not in output
     assert '"table_row_count": 1' in output
+
+def test_focus_wait_accepts_intended_offer_among_multiple_windowhub_windows(monkeypatch, capsys):
+    import sys
+    from types import ModuleType
+
+    import tools.inspect_windowhub_ocr_table as inspector
+
+    windows = (
+        SimpleNamespace(
+            title="Okna - Start1",
+            _hWnd=111,
+            left=0,
+            top=0,
+            width=1936,
+            height=1168,
+        ),
+        SimpleNamespace(
+            title="Okna - OFR/4402-",
+            _hWnd=222,
+            left=0,
+            top=0,
+            width=1600,
+            height=1000,
+        ),
+    )
+    pygetwindow_module = ModuleType("pygetwindow")
+    pygetwindow_module.getAllWindows = lambda: windows
+    monkeypatch.setitem(sys.modules, "pygetwindow", pygetwindow_module)
+    monkeypatch.setattr(
+        inspector.ctypes,
+        "WinDLL",
+        lambda *args, **kwargs: object(),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        inspector,
+        "_foreground_snapshot",
+        lambda user32: (222, 222, "Okna - OFR/4402-"),
+    )
+
+    result = _wait_for_window_foreground(111, timeout_seconds=1.0)
+    output = capsys.readouterr().out
+
+    assert result is True
+    assert "target=0xDE" in output
+    assert "window_title='Okna - OFR/4402-'" in output
+    assert "foreground=0xDE" in output
+
 
 def test_diagnostic_includes_bottom_edge_row_but_excludes_footer():
     elements = [
