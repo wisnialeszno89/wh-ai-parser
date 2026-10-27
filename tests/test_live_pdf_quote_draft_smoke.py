@@ -5,6 +5,7 @@ from tools.live_pdf_quote_draft_smoke import (
     _contains_submission_marker,
     _has_verified_draft_save,
     _preview,
+    _reasoner_configuration_problem,
     _verified_final_fields,
 )
 
@@ -141,3 +142,27 @@ def test_live_smoke_final_verification_requires_core_quote_fields():
         "width",
         "height",
     }
+
+
+
+def test_reasoner_config_allows_navimind_without_openai_recovery_key():
+    assert _reasoner_configuration_problem({
+        "NAVIMIND_AGENT_URL": "https://navimind.example.invalid/agent",
+        "NAVIMIND_AGENT_SECRET": "test-secret",
+    }) is None
+
+
+def test_reasoner_config_requires_navimind_secret():
+    assert _reasoner_configuration_problem({
+        "NAVIMIND_AGENT_URL": "https://navimind.example.invalid/agent",
+    }) == "navimind_secret_not_configured"
+
+
+def test_openai_only_reasoning_still_requires_api_key():
+    assert _reasoner_configuration_problem({
+        "AGENT_TASK_REASONING": "1",
+    }) == "plan_reasoner_credentials_not_configured"
+
+
+def test_reasoner_config_requires_a_supported_provider():
+    assert _reasoner_configuration_problem({}) == "task_reasoner_not_configured"
