@@ -263,6 +263,32 @@ def _build_runtime(pdf_service: PdfIngestionService, args: argparse.Namespace):
     return runtime
 
 
+def _reasoner_configuration_problem(environ: Mapping[str, str] | None = None) -> str | None:
+    """Validate supported task-reasoning configurations without exposing secrets.
+
+    NaviMind can perform the primary task planning on its own. The OpenAI
+    PlanReasoner is optional recovery support; if it is absent, failed
+    verification stops safely instead of automatically replanning.
+    """
+    values = os.environ if environ is None else environ
+    navimind_url = str(values.get("NAVIMIND_AGENT_URL", "")).strip()
+    navimind_secret = str(values.get("NAVIMIND_AGENT_SECRET", "")).strip()
+    openai_key = str(values.get("OPENAI_API_KEY", "")).strip()
+    openai_task_reasoning = str(values.get("AGENT_TASK_REASONING", "")).strip() == "1"
+
+    if navimind_url:
+        if not navimind_secret:
+            return "navimind_secret_not_configured"
+        return None
+
+    if openai_task_reasoning:
+        if not openai_key:
+            return "plan_reasoner_credentials_not_configured"
+        return None
+
+    return "task_reasoner_not_configured"
+
+
 def main() -> int:
     args = parse_args()
     if args.env_file:
@@ -285,16 +311,11 @@ def main() -> int:
         print("reason: explicit_live_mode_required")
         print("hint: set WH_REAL_WINDOWHUB=1 only for this controlled draft test")
         return 2
-    if not (
-        os.environ.get("NAVIMIND_AGENT_URL", "").strip()
-        or os.environ.get("AGENT_TASK_REASONING", "").strip() == "1"
-    ):
+    reasoner_problem = _reasoner_configuration_problem()
+    if reasoner_problem:
         print("result: ABORTED")
-        print("reason: task_reasoner_not_configured")
-        return 2
-    if not os.environ.get("OPENAI_API_KEY", "").strip():
-        print("result: ABORTED")
-        print("reason: plan_reasoner_credentials_not_configured")
+        print(f"reason: {reasoner_problem}")
+        print("credential_values_printed: 0")
         return 2
     if not sys.stdin.isatty():
         print("result: ABORTED")
@@ -362,6 +383,11 @@ def main() -> int:
     print("full_pdf_text_in_task_prompt: False")
     print("remote_reasoning_enabled_by_explicit_flag: True")
     print("current_ui_context_may_be_sent_to_remote_reasoner: True")
+    has_openai_recovery_reasoner = bool(os.environ.get("OPENAI_API_KEY", "").strip())
+    print("openai_recovery_reasoner_available: " + str(has_openai_recovery_reasoner))
+    print("automatic_replanning_after_verification_failure: " + str(has_openai_recovery_reasoner))
+    if not has_openai_recovery_reasoner:
+        print("verification_failure_behavior: stop_without_automatic_replanning")
     print("pdf_extraction_status: " + str(extraction.status))
     print("pdf_page_count: " + str(extraction.page_count))
     print("pdf_needs_ocr: " + str(extraction.needs_ocr))
@@ -385,6 +411,8 @@ def main() -> int:
 
     print()
     print("LIVE EFFECTS: may create and save one draft offer in WindowHub.")
+    if not has_openai_recovery_reasoner:
+        print("RECOVERY LIMIT: verification failures stop the run; no automatic AI replanning is configured.")
     print("The script will not approve an action requiring confirmation and will never approve submission.")
     print("Check the fact values and page references above, and ensure the intended WindowHub window is open.")
     print("To proceed, type exactly: APPROVE DRAFT-ONLY WINDOWHUB TEST")
