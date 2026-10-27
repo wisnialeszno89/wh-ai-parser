@@ -694,20 +694,162 @@ class WindowsUIAutomationProvider(PerceptionProvider):
 
         return result
 
+    @staticmethod
+    def _uia_window_handle(item) -> int:
+        """Return a wrapper's native HWND when UI Automation exposes one."""
+        try:
+            value = getattr(item, "handle", 0)
+        except Exception:
+            value = 0
+        if not value:
+            try:
+                value = getattr(
+                    getattr(item, "element_info", None),
+                    "handle",
+                    0,
+                )
+            except Exception:
+                value = 0
+        try:
+            return max(0, int(value or 0))
+        except (TypeError, ValueError):
+            return 0
+
+    @staticmethod
+    def _native_active_mdi_child_handle(mdi_client_handle: int) -> int | None:
+        """Read the active MDI child HWND without changing application state."""
+        import os
+
+        if os.name != "nt" or mdi_client_handle <= 0:
+            return None
+
+        try:
+            import ctypes
+            from ctypes import wintypes
+
+            send_message = ctypes.windll.user32.SendMessageTimeoutW
+            send_message.argtypes = (
+                wintypes.HWND,
+                wintypes.UINT,
+                wintypes.WPARAM,
+                wintypes.LPARAM,
+                wintypes.UINT,
+                wintypes.UINT,
+                ctypes.POINTER(ctypes.c_size_t),
+            )
+            send_message.restype = ctypes.c_ssize_t
+            # WM_MDIGETACTIVE is a read-only MDI query. Bound the synchronous
+            # cross-process message so a nonresponsive application cannot hang
+            # local perception; SMTO_ABORTIFHUNG and a 1-second timeout fail closed.
+            active_result = ctypes.c_size_t(0)
+            succeeded = send_message(
+                wintypes.HWND(mdi_client_handle),
+                0x0229,
+                0,
+                0,
+                0x0002,
+                1000,
+                ctypes.byref(active_result),
+            )
+            if not succeeded:
+                return None
+            active_handle = int(active_result.value or 0)
+        except Exception:
+            return None
+        return active_handle if active_handle > 0 else None
+
+    @classmethod
+    def _active_mdi_child_binding(
+        cls,
+        descendants,
+    ) -> tuple[object, str] | None:
+        """Resolve one selected document tab to its native active MDI child.
+
+        The selected tab caption and the child-window caption are not always
+        identical in real WindowHub builds. Bind them only when there is one
+        selected document tab, one MDI client, and the HWND returned by the
+        native WM_MDIGETACTIVE query matches exactly one UIA MDI child.
+        """
+        selected_tabs: list[tuple[object, str]] = []
+        mdi_clients: list[tuple[object, int]] = []
+
+        for item in descendants:
+            try:
+                info = item.element_info
+                control_type = cls._normalize_control_type(
+                    getattr(info, "control_type", None)
+                )
+            except Exception:
+                continue
+
+            if control_type == "tabitem":
+                if cls._tab_scope(item, control_type=control_type) != "document":
+                    continue
+                if cls._selected_state(item) is not True:
+                    continue
+                caption = cls._string(getattr(info, "name", None))
+                if caption:
+                    selected_tabs.append((item, caption))
+                continue
+
+            if control_type != "pane":
+                continue
+            class_name = cls._string(getattr(info, "class_name", None)) or ""
+            if class_name.casefold() != "mdiclient":
+                continue
+            handle = cls._uia_window_handle(item)
+            if handle > 0:
+                mdi_clients.append((item, handle))
+
+        if len(selected_tabs) != 1 or len(mdi_clients) != 1:
+            return None
+
+        active_handle = cls._native_active_mdi_child_handle(mdi_clients[0][1])
+        if active_handle is None:
+            return None
+
+        matching_children = []
+        for item in descendants:
+            try:
+                if (
+                    cls._normalize_control_type(
+                        getattr(item.element_info, "control_type", None)
+                    ) == "window"
+                    and cls._parent_class_is_mdi_client(item)
+                    and cls._uia_window_handle(item) == active_handle
+                ):
+                    matching_children.append(item)
+            except Exception:
+                continue
+
+        if len(matching_children) != 1:
+            return None
+
+        return matching_children[0], selected_tabs[0][1]
+
     @classmethod
     def _mdi_document_runtime_scope_index(
         cls,
         descendants,
         document_scope_index: dict[str, str],
     ) -> dict[str, str]:
-        """Map uniquely scoped MDI-subtree runtime IDs to document captions.
+        """Map MDI-subtree runtime IDs to document captions conservatively.
 
-        Some WPF wrappers expose a complete descendant tree while parent()
-        stops at a content boundary such as Expander. Runtime IDs let us
-        reconcile the independently enumerated MDI child subtree with the
-        top-level tree. Conflicting IDs across document scopes fail closed.
+        Normal caption-based matches remain supported. When a caption does not
+        match the active child-window title, a selected tab may be associated
+        with that child only via a unique native WM_MDIGETACTIVE HWND match.
+        Any runtime ID that resolves to multiple document captions stays
+        unscoped.
         """
         scopes_by_runtime_id: dict[str, set[str]] = defaultdict(set)
+        active_binding = cls._active_mdi_child_binding(descendants)
+        active_child = active_binding[0] if active_binding is not None else None
+        active_document = active_binding[1] if active_binding is not None else None
+        active_child_handle = (
+            cls._uia_window_handle(active_child)
+            if active_child is not None
+            else 0
+        )
 
         for item in descendants:
             try:
@@ -721,14 +863,23 @@ class WindowsUIAutomationProvider(PerceptionProvider):
 
             if (
                 control_type != "window"
-                or not name
                 or not cls._parent_class_is_mdi_client(item)
             ):
                 continue
 
             key = cls._normalized_document_key(name)
-            document_scope = document_scope_index.get(key)
-            if document_scope is None:
+            caption_scope = document_scope_index.get(key) if key else None
+            is_native_active_child = (
+                active_document is not None
+                and active_child_handle > 0
+                and cls._uia_window_handle(item) == active_child_handle
+            )
+            scopes: set[str] = set()
+            if caption_scope is not None:
+                scopes.add(caption_scope)
+            if is_native_active_child and active_document is not None:
+                scopes.add(active_document)
+            if not scopes:
                 continue
 
             subtree = [item]
@@ -743,7 +894,7 @@ class WindowsUIAutomationProvider(PerceptionProvider):
             for descendant in subtree:
                 runtime_id = cls._runtime_id(descendant)
                 if runtime_id is not None:
-                    scopes_by_runtime_id[runtime_id].add(document_scope)
+                    scopes_by_runtime_id[runtime_id].update(scopes)
 
         return {
             runtime_id: next(iter(scopes))
