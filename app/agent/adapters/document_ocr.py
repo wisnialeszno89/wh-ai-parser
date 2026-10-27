@@ -101,14 +101,24 @@ def _regions_to_lines(regions: tuple[OCRTextRegion, ...]) -> str:
 
     rows.sort(key=lambda row: median(item.center_y for item in row))
     lines = []
+    font_size = median(text_sizes) if text_sizes else 12.0
+    column_gap = max(24.0, font_size * 2.4)
     for row in rows:
-        pieces = [
-            item.text.strip()
-            for item in sorted(row, key=lambda item: (item.center_x, item.y))
-            if item.text.strip()
-        ]
-        if pieces:
-            lines.append(" ".join(pieces))
+        segments: list[list[OCRTextRegion]] = []
+        for region in sorted(row, key=lambda item: (item.center_x, item.y)):
+            if (
+                segments
+                and region.x - (segments[-1][-1].x + segments[-1][-1].width) > column_gap
+            ):
+                segments.append([region])
+            elif segments:
+                segments[-1].append(region)
+            else:
+                segments.append([region])
+        for segment in segments:
+            pieces = [item.text.strip() for item in segment if item.text.strip()]
+            if pieces:
+                lines.append(" ".join(pieces))
     return "\n".join(lines).strip()
 
 
