@@ -85,7 +85,7 @@ def test_windowhub_runtime_uses_navimind_without_optional_openai_replanner(monke
         control_loop_factory=control_loop_factory,
     )
 
-    assert runtime.orchestrator.task_reasoner is not None
+    assert runtime.orchestrator.task_planner is not None
     assert configured["plan_reasoner"] is None
     assert runtime.resumable_task_service is not None
     assert control_loop.observe_calls == 0
