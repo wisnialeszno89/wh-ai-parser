@@ -53,6 +53,7 @@ _FIELD_ALIASES = {
 _ALLOWED_SOURCE_KINDS = frozenset(
     {
         "pdf_document",
+        "image_document",
         "salesperson_request",
         "application_knowledge",
         "approved_source",
@@ -792,8 +793,8 @@ class QuoteFactValidator:
                 return "Salesperson-request evidence_text does not support the stated fact."
             return None
 
-        if fact.source.source_kind != "pdf_document":
-            return "Fact source kind is not backed by a trusted fact-source registry."
+        if fact.source.source_kind not in {"pdf_document", "image_document"}:
+            return "Fact source kind is not backed by a trusted local-document registry."
 
         if known_sources is None:
             return "PDF fact has no trusted in-process PDF extraction registry."
@@ -806,7 +807,12 @@ class QuoteFactValidator:
         if not isinstance(extraction, PdfDocumentExtraction):
             return "PDF source registry entry is not a trusted PdfDocumentExtraction object."
         if extraction.source_alias != fact.source.source_alias:
-            return "PDF source alias does not match the extraction result."
+            return "Source alias does not match the trusted extraction result."
+        expected_source_kind = (
+            "image_document" if extraction.source_type == "image" else "pdf_document"
+        )
+        if fact.source.source_kind != expected_source_kind:
+            return "Fact source kind does not match the trusted source document type."
         if extraction.needs_ocr:
             return (
                 "Trusted PDF source contains one or more pages requiring OCR; "
