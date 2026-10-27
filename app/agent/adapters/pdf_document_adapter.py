@@ -318,7 +318,13 @@ class PdfDocumentAdapter(ApplicationAdapter):
                     extraction_confidence = None
                     ocr_regions: tuple[OCRTextRegion, ...] = ()
                     limitations: tuple[str, ...] = ()
-                    needs_ocr = not bool(page_text)
+                    try:
+                        has_embedded_images = bool(page.images)
+                    except Exception:
+                        has_embedded_images = False
+                    # A PDF can contain a little selectable header text while
+                    # the actual quote/dimensions are embedded as a scan.
+                    needs_ocr = not bool(page_text) or has_embedded_images
 
                     if needs_ocr:
                         extraction_method = "rapidocr_pdf_page"
@@ -332,7 +338,10 @@ class PdfDocumentAdapter(ApplicationAdapter):
                                 engine=self._ocr_engine,
                             )
                             if ocr_result.text:
-                                page_text = ocr_result.text.strip()
+                                if page_text:
+                                    page_text = page_text + "\\n" + ocr_result.text.strip()
+                                else:
+                                    page_text = ocr_result.text.strip()
                                 extraction_confidence = ocr_result.average_confidence
                                 ocr_regions = ocr_result.regions
                                 needs_ocr = False
@@ -341,11 +350,11 @@ class PdfDocumentAdapter(ApplicationAdapter):
                                 )
                             else:
                                 limitations = (
-                                    "No text was extracted; no readable OCR text was found; manual inspection is required.",
+                                    "No text was extracted or OCR did not recover readable image text; manual inspection is required.",
                                 )
                         except Exception as exc:
                             limitations = (
-                                f"No selectable text was extracted and local OCR could not finish ({type(exc).__name__}); manual inspection is required.",
+                                f"Selectable text was unavailable or incomplete and local OCR could not finish ({type(exc).__name__}); manual inspection is required.",
                             )
                     elif extraction_failed:
                         limitations = (
