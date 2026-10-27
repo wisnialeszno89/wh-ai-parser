@@ -24,6 +24,9 @@ jobs:
       - name: Install Playwright Chromium
         run: python -m playwright install --with-deps chromium
 
+      - name: Run drawing offer review-gate tests
+        run: pytest -q tests/test_drawing_offer_specification_builder.py
+
       - name: Run drawing-position OCR tests
         run: pytest -q tests/test_drawing_position_extractor.py
 
