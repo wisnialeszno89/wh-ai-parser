@@ -95,7 +95,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--approved-root",
         required=True,
-        help="Exact local directory approved to supply the PDF.",
+        help="Exact local directory approved to supply the PDF or image.",
     )
     parser.add_argument(
         "--env-file",
@@ -134,7 +134,7 @@ def parse_args() -> argparse.Namespace:
         help=(
             "Acknowledge that validated quote facts and current WindowHub scene "
             "context may be sent to the configured remote reasoning provider. "
-            "The full PDF text/citations are not inserted into the task prompt."
+            "The full source-document text/citations are not inserted into the task prompt."
         ),
     )
     parser.add_argument(
@@ -388,7 +388,7 @@ def main() -> int:
         return 3
 
     preview = _preview(preparation, ingestion_result=extraction)
-    print("mode: LIVE_DRAFT_ONLY_PENDING_USER_APPROVAL")
+    print("mode: LIVE_DOCUMENT_DRAFT_ONLY_PENDING_USER_APPROVAL")
     print("source_document_uploaded: False")
     print("full_document_text_in_task_prompt: False")
     print("remote_reasoning_enabled_by_explicit_flag: True")
