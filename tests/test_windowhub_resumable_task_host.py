@@ -256,6 +256,41 @@ def test_conflicting_model_proposed_dimension_stops_before_control_loop_executio
     assert any("conflicts with the task's supplied fact" in issue for issue in state.unresolved_issues)
 
 
+def test_runner_never_executes_owned_modal_field_scoped_to_another_document(tmp_path):
+    control = SimulatedWindowHubControlLoop()
+    control.scene = FakeScene(
+        [
+            FakeElement(
+                "edit",
+                "Szerokość",
+                "writable",
+                metadata={
+                    "current_value": "",
+                    "document_scope": "Inna oferta",
+                    "uia_owned_modal": True,
+                },
+            ),
+        ],
+        active_document="Oferta robocza",
+    )
+    host, _ = make_host(tmp_path, control=control)
+    checkpoint = TaskCheckpoint(
+        "windowhub-cross-document-modal",
+        "Enter width in the active WindowHub offer",
+        facts={"width": 1200},
+        required_fields=("width",),
+        max_actions=2,
+        max_reasoning_calls=2,
+    )
+    host.service.create(checkpoint)
+
+    after = host.service.advance(checkpoint.task_id)
+
+    assert control.executed_targets == []
+    assert after.status is not TaskStatus.COMPLETED
+    assert any("different document" in issue for issue in after.unresolved_issues)
+
+
 def test_submission_target_is_stopped_at_confirmation_checkpoint_until_explicit_approval(tmp_path):
     control = SimulatedWindowHubControlLoop()
     control.scene = FakeScene([FakeElement("button", "Wyślij ofertę")], active_document="Oferta robocza")
@@ -430,10 +465,19 @@ def test_write_text_rejects_field_scoped_to_another_document():
     result = _validate_write_target(scene)
 
     assert result.valid is False
-    assert (
-        "scope evidence" in result.reason
-        or "outside active document" in result.reason
+    assert "different document" in result.reason
+
+
+def test_write_text_rejects_owned_modal_with_conflicting_document_scope():
+    scene = _make_write_validation_scene(
+        target_scope="Inna oferta",
+        metadata={"uia_owned_modal": True, "current_value": ""},
     )
+
+    result = _validate_write_target(scene)
+
+    assert result.valid is False
+    assert "different document" in result.reason
 
 
 def test_write_text_accepts_supported_edit_field_in_explicit_owned_modal():
