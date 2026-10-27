@@ -34,14 +34,16 @@ def create_windowhub_agent_runtime(
         from app.agent.reasoning.navimind_task_reasoner import (
             NaviMindTaskReasoner,
         )
-        from app.agent.reasoning.openai_plan_reasoner import OpenAIPlanReasoner
-
         task_reasoner = NaviMindTaskReasoner()
         # The task reasoner is sufficient for normal one-action-at-a-time
         # planning. OpenAI's PlanReasoner is an optional recovery/replanning
         # fallback; without its key, the control loop fails closed on a
         # verification failure rather than automatically replanning.
         if os.environ.get("OPENAI_API_KEY", "").strip():
+            # Import only when the optional provider is configured so NaviMind
+            # can run in a minimal environment without OpenAI/Pydantic packages.
+            from app.agent.reasoning.openai_plan_reasoner import OpenAIPlanReasoner
+
             plan_reasoner = OpenAIPlanReasoner()
     elif os.environ.get("AGENT_TASK_REASONING") == "1":
         from app.agent.reasoning.openai_task_reasoner import OpenAITaskReasoner
