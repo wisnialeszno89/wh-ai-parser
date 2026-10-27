@@ -830,7 +830,9 @@ class QuoteFactValidator:
         if page is None:
             return "PDF fact page number is outside the extracted source."
         if page.extraction_method != fact.source.extraction_method:
-            return "PDF extraction method does not match the extracted page."
+            return "Document extraction method does not match the extracted page."
+        if page.extraction_method.startswith("rapidocr_") and fact.confidence < 0.75:
+            return "OCR confidence is below the safe acceptance threshold; manual review is required."
         if page.needs_ocr:
             return "PDF fact cannot be accepted from a page that still requires OCR."
         if not fact.evidence_text:
