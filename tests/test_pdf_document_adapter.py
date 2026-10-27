@@ -442,3 +442,30 @@ def test_scanned_pdf_page_is_rasterized_and_ocr_text_is_preserved(tmp_path):
     assert extraction.pages[0].extraction_method == "rapidocr_pdf_page"
     assert "Height: 1500 mm" in extraction.pages[0].text
     assert extraction.pages[0].ocr_regions
+
+
+def test_image_ocr_keeps_distant_columns_on_separate_text_lines(tmp_path):
+    from PIL import Image
+
+    root = tmp_path / "approved"
+    root.mkdir()
+    source = root / "two-columns.png"
+    Image.new("RGB", (600, 800), "white").save(source, format="PNG")
+
+    engine = FakeDocumentOCREngine()
+    engine.result.txts = ["Product: window", "Width: 1200 mm"]
+    engine.result.boxes = [
+        [[20, 20], [260, 20], [260, 50], [20, 50]],
+        [[700, 20], [960, 20], [960, 50], [700, 50]],
+    ]
+    engine.result.scores = [0.99, 0.98]
+
+    extraction = PdfDocumentAdapter(
+        allowed_roots=(root,),
+        ocr_engine=engine,
+    ).extract(source, source_alias="two-columns.png")
+
+    assert extraction.pages[0].text.splitlines() == [
+        "Product: window",
+        "Width: 1200 mm",
+    ]
