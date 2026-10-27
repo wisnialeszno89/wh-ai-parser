@@ -31,6 +31,7 @@ from app.agent.runtime.resumable_task import (
 from app.agent.runtime.resumable_task_repository import TaskCheckpointRepository
 from app.agent.runtime.resumable_task_service import ResumableTaskService
 from app.agent.perception.windowhub_form_reader import WindowHubFormReader
+from app.agent.perception.windowhub_grid_reader import WindowHubGridReader
 
 
 _ALLOWED_GUI_ACTIONS = frozenset({"click_screen_element", "write_text"})
@@ -163,6 +164,59 @@ class WindowHubResumableTaskHost:
             )
 
         matched_field = _field_for_target(proposed.target)
+        multi_windows = checkpoint.facts.get("windows")
+        if (
+            proposed.name == "write_text"
+            and isinstance(multi_windows, (list, tuple))
+            and matched_field in {"width", "height", "quantity"}
+        ):
+            position_number = _position_number_from_target_or_scene(
+                proposed.target,
+                scene,
+            )
+            if position_number is None:
+                return PlanDecision(
+                    unresolved_issues=(
+                        "Multi-window entry requires one unambiguous visible position "
+                        "number before typing width, height, or quantity. No value was entered.",
+                    )
+                )
+            matching_positions = [
+                item for item in multi_windows
+                if isinstance(item, Mapping)
+                and item.get("position_number") == position_number
+            ]
+            if len(matching_positions) != 1:
+                return PlanDecision(
+                    unresolved_issues=(
+                        f"Position {position_number} is not uniquely present in the reviewed task rows. No value was entered.",
+                    )
+                )
+            reviewed_position = matching_positions[0]
+            if reviewed_position.get("human_confirmed") is not True:
+                return PlanDecision(
+                    unresolved_issues=(
+                        f"Position {position_number} does not have explicit human confirmation. No value was entered.",
+                    )
+                )
+            expected_field = {
+                "width": "width_mm",
+                "height": "height_mm",
+                "quantity": "quantity",
+            }[matched_field]
+            expected_value = reviewed_position.get(expected_field)
+            if expected_value is None:
+                return PlanDecision(
+                    required_fields=(
+                        f"windows[{position_number}].{expected_field}",
+                    ),
+                )
+            if not _values_match_for_field(matched_field, expected_value, proposed.value):
+                return PlanDecision(
+                    unresolved_issues=(
+                        f"Proposed {matched_field} for position {position_number} conflicts with its human-reviewed value. No text was entered.",
+                    )
+                )
         if proposed.name == "write_text" and matched_field in checkpoint.required_fields:
             if matched_field not in checkpoint.facts:
                 return PlanDecision(
@@ -229,6 +283,19 @@ class WindowHubResumableTaskHost:
             for step in checkpoint.completed_steps
         ]
         progress = json.dumps(verified, ensure_ascii=False, sort_keys=True, default=str)
+        multi_window_rules = ""
+        if isinstance(checkpoint.facts.get("windows"), (list, tuple)):
+            multi_window_rules = (
+                " MULTI-POSITION RULES: Preserve each reviewed windows[] entry as a separate "
+                "offer line in the supplied order. Never merge, drop, duplicate or reorder positions. "
+                "Before typing a width, height or quantity, the current visible scene or exact "
+                "semantic target must identify one unique Position number; otherwise request manual "
+                "review without typing. Every numeric value must match the reviewed facts for that "
+                "specific position. Verify each mutation against a fresh scene. Unknown profile, "
+                "glazing, opening, colour and price must not be invented. Saving the draft is the "
+                "maximum permitted goal; never send, submit, publish, approve or finalize it, even "
+                "if a submission button is visible."
+            )
         return (
             f"WindowHub task goal: {checkpoint.goal}\n"
             f"Supplied task facts (do not change these values): {facts}\n"
@@ -237,6 +304,7 @@ class WindowHubResumableTaskHost:
             "Plan only the next single semantic GUI action from the current visible scene. "
             "Do not repeat completed steps, infer missing commercial choices, or use coordinates. "
             "Prepare a draft only; never send or submit without an explicit approval checkpoint."
+            f"{multi_window_rules}"
         )
 
     @staticmethod
@@ -493,6 +561,13 @@ def verify_windowhub_final_state(
             ),
         )
 
+    if "windows" in checkpoint.facts or "windows" in checkpoint.required_fields:
+        return _verify_windowhub_multi_window_state(
+            checkpoint,
+            scene,
+            active_document=active_document,
+        )
+
     try:
         reader = WindowHubFormReader()
         # Final-state verification must only consume fields proven to belong
@@ -566,6 +641,341 @@ def verify_windowhub_final_state(
         True,
         evidence=tuple(evidence),
         reason="Every required field was uniquely observed and matched its supplied fact.",
+    )
+
+
+_POSITION_HEADER_PATTERN = re.compile(
+    r"^\s*(?:position|pozycja|pos\.?)\s*#?\s*(\d+)\s*$",
+    re.IGNORECASE,
+)
+_POSITION_ANY_PATTERN = re.compile(
+    r"\b(?:position|pozycja|pos\.?)\s*#?\s*(\d+)\b",
+    re.IGNORECASE,
+)
+_GRID_DIMENSIONS_PATTERN = re.compile(
+    r"^\s*(\d{3,4})(?:\s*mm)?\s*[x×*]\s*(\d{3,4})(?:\s*mm)?\s*$",
+    re.IGNORECASE,
+)
+_GRID_SCALAR_DIMENSION_PATTERN = re.compile(
+    r"^\s*(\d{3,4})(?:\s*mm)?\s*$",
+    re.IGNORECASE,
+)
+_GRID_QUANTITY_PATTERN = re.compile(
+    r"^\s*(?:(?:menge|quantity|qty|anzahl|il[oó]s[cć])\s*[:=]?\s*)?"
+    r"(\d{1,3})(?:\s*(?:szt\.?|sztuk|sztuki|pcs?|pieces?))?\s*$",
+    re.IGNORECASE,
+)
+_WINDOW_PRODUCT_PATTERN = re.compile(
+    r"\b(?:okno|okna|okien|window|windows)\b",
+    re.IGNORECASE,
+)
+
+
+def _position_number_from_target_or_scene(target: str, scene: object) -> int | None:
+    """Resolve one explicit row number; never infer it from row order."""
+    target_match = _POSITION_ANY_PATTERN.search(target)
+    if target_match is not None:
+        try:
+            return int(target_match.group(1))
+        except (TypeError, ValueError):
+            return None
+
+    active_document = getattr(scene, "active_document", None)
+    if not isinstance(active_document, str) or not active_document.strip():
+        return None
+
+    matches: list[int] = []
+    for element in getattr(scene, "elements", ()) or ():
+        metadata = getattr(element, "metadata", None) or {}
+        if not isinstance(metadata, Mapping):
+            continue
+        scope = metadata.get("document_scope")
+        if not isinstance(scope, str) or scope.strip() != active_document.strip():
+            continue
+        label = getattr(element, "label", None)
+        if not isinstance(label, str):
+            continue
+        matched = _POSITION_HEADER_PATTERN.fullmatch(label)
+        if matched is not None:
+            try:
+                matches.append(int(matched.group(1)))
+            except (TypeError, ValueError):
+                continue
+    # Duplicated or multiple position headers are ambiguous, even if their
+    # numbers appear sequential. The caller must resolve the active position.
+    return matches[0] if len(matches) == 1 else None
+
+
+def _grid_cell_texts(cell: object) -> tuple[str, ...]:
+    values: list[str] = []
+    label = getattr(cell, "label", None)
+    if isinstance(label, str) and label.strip():
+        values.append(label.strip())
+    if getattr(cell, "value_available", False) is True:
+        value = getattr(cell, "value", None)
+        if isinstance(value, str) and value.strip():
+            values.append(value.strip())
+    return tuple(dict.fromkeys(values))
+
+
+def _grid_cell_dimension_pairs(cell: object) -> set[tuple[int, int]]:
+    pairs: set[tuple[int, int]] = set()
+    for value in _grid_cell_texts(cell):
+        match = _GRID_DIMENSIONS_PATTERN.fullmatch(value)
+        if match is not None:
+            pairs.add((int(match.group(1)), int(match.group(2))))
+    return pairs
+
+
+def _grid_cell_scalar_dimensions(cell: object) -> set[int]:
+    dimensions: set[int] = set()
+    for value in _grid_cell_texts(cell):
+        match = _GRID_SCALAR_DIMENSION_PATTERN.fullmatch(value)
+        if match is not None:
+            dimensions.add(int(match.group(1)))
+    return dimensions
+
+
+def _grid_cell_quantities(cell: object) -> set[int]:
+    quantities: set[int] = set()
+    for value in _grid_cell_texts(cell):
+        match = _GRID_QUANTITY_PATTERN.fullmatch(value)
+        if match is not None:
+            quantities.add(int(match.group(1)))
+    return quantities
+
+
+def _grid_row_describes_window(row: tuple[object | None, ...]) -> bool:
+    return any(
+        _WINDOW_PRODUCT_PATTERN.search(value) is not None
+        for cell in row
+        if cell is not None
+        for value in _grid_cell_texts(cell)
+    )
+
+
+def _verify_windowhub_multi_window_state(
+    checkpoint: TaskCheckpoint,
+    scene: object,
+    *,
+    active_document: str,
+) -> Verification:
+    """Require a unique, complete active-document grid matching every reviewed row."""
+    required = tuple(checkpoint.required_fields)
+    windows = checkpoint.facts.get("windows")
+    if not isinstance(windows, (list, tuple)) or not windows:
+        return Verification(
+            False,
+            evidence=({"reason": "reviewed_windows_fact_missing"},),
+            missing_fields=required or ("windows",),
+            reason="Multi-window final verification requires the reviewed windows list.",
+        )
+    if _product_type_code(checkpoint.facts.get("product_type")) != "window":
+        return Verification(
+            False,
+            evidence=({"reason": "unsupported_multi_window_product_type"},),
+            missing_fields=("product_type",),
+            reason="This multi-row verifier accepts window offers only.",
+        )
+
+    expected_signatures: list[tuple[int, int, int]] = []
+    position_numbers: list[int] = []
+    for item in windows:
+        if not isinstance(item, Mapping) or item.get("human_confirmed") is not True:
+            return Verification(
+                False,
+                evidence=({"reason": "unreviewed_or_malformed_window_row"},),
+                missing_fields=("windows",),
+                reason="Every expected offer row must have explicit human confirmation.",
+            )
+        position_number = item.get("position_number")
+        width = item.get("width_mm")
+        height = item.get("height_mm")
+        quantity = item.get("quantity")
+        if (
+            any(not isinstance(value, int) or isinstance(value, bool) for value in
+                (position_number, width, height, quantity))
+            or position_number < 1
+            or not 200 <= width <= 6000
+            or not 200 <= height <= 6000
+            or not 1 <= quantity <= 1000
+        ):
+            return Verification(
+                False,
+                evidence=({"reason": "invalid_reviewed_window_row"},),
+                missing_fields=("windows",),
+                reason="Reviewed window rows have invalid dimensions or quantity.",
+            )
+        position_numbers.append(position_number)
+        expected_signatures.append((width, height, quantity))
+
+    if len(set(position_numbers)) != len(position_numbers):
+        return Verification(
+            False,
+            evidence=({"reason": "duplicate_position_number"},),
+            missing_fields=("windows",),
+            reason="Reviewed window position numbers are not unique.",
+        )
+    if position_numbers != sorted(position_numbers):
+        return Verification(
+            False,
+            evidence=({"reason": "position_order_changed"},),
+            missing_fields=("windows",),
+            reason="Reviewed window rows must remain in their supplied position order.",
+        )
+    if (
+        checkpoint.facts.get("position_count") != len(windows)
+        or checkpoint.facts.get("total_quantity")
+        != sum(signature[2] for signature in expected_signatures)
+    ):
+        return Verification(
+            False,
+            evidence=({"reason": "reviewed_position_count_or_quantity_inconsistent"},),
+            missing_fields=("position_count", "total_quantity"),
+            reason="The checkpoint's position count or total quantity conflicts with its reviewed rows.",
+        )
+
+    try:
+        grids = WindowHubGridReader().read_active_document(scene)
+    except (AttributeError, TypeError, ValueError) as exc:
+        return Verification(
+            False,
+            evidence=({"reason": f"windowhub_grid_read_failed:{type(exc).__name__}"},),
+            missing_fields=required or ("windows",),
+            reason="Could not read active-document grid evidence safely.",
+        )
+
+    successful_layouts: list[tuple[object, str, tuple[int, ...], list[tuple[int, int, int]]]] = []
+    for grid in grids:
+        if (
+            grid.scope_status != "active_document"
+            or grid.complete is not True
+            or grid.row_count != len(windows)
+            or len(grid.rows) != len(windows)
+            or grid.column_count < 2
+        ):
+            continue
+        rows = grid.rows
+        if any(
+            any(cell is None for cell in row)
+            or not _grid_row_describes_window(row)
+            for row in rows
+        ):
+            continue
+
+        # Try only complete, stable column mappings. Ambiguous text/value
+        # evidence in any selected cell invalidates that mapping.
+        for dimension_column in range(grid.column_count):
+            for quantity_column in range(grid.column_count):
+                if dimension_column == quantity_column:
+                    continue
+                observed: list[tuple[int, int, int]] = []
+                valid = True
+                for row in rows:
+                    dim_pairs = _grid_cell_dimension_pairs(row[dimension_column])
+                    quantities = _grid_cell_quantities(row[quantity_column])
+                    if len(dim_pairs) != 1 or len(quantities) != 1:
+                        valid = False
+                        break
+                    width, height = next(iter(dim_pairs))
+                    quantity = next(iter(quantities))
+                    observed.append((width, height, quantity))
+                if valid and observed == expected_signatures:
+                    successful_layouts.append(
+                        (grid, "combined_dimensions", (dimension_column, quantity_column), observed)
+                    )
+
+        for width_column in range(grid.column_count):
+            for height_column in range(grid.column_count):
+                for quantity_column in range(grid.column_count):
+                    if len({width_column, height_column, quantity_column}) != 3:
+                        continue
+                    observed = []
+                    valid = True
+                    for row in rows:
+                        widths = _grid_cell_scalar_dimensions(row[width_column])
+                        heights = _grid_cell_scalar_dimensions(row[height_column])
+                        quantities = _grid_cell_quantities(row[quantity_column])
+                        if len(widths) != 1 or len(heights) != 1 or len(quantities) != 1:
+                            valid = False
+                            break
+                        observed.append((
+                            next(iter(widths)),
+                            next(iter(heights)),
+                            next(iter(quantities)),
+                        ))
+                    if valid and sorted(observed) == sorted(expected_signatures):
+                        successful_layouts.append(
+                            (
+                                grid,
+                                "separate_dimensions",
+                                (width_column, height_column, quantity_column),
+                                observed,
+                            )
+                        )
+
+    if len(successful_layouts) != 1:
+        reason = (
+            "No complete active-document grid uniquely matches every reviewed window row."
+            if not successful_layouts
+            else "More than one grid layout matches; final verification is ambiguous."
+        )
+        return Verification(
+            False,
+            evidence=({
+                "active_document": active_document,
+                "active_grid_count": len(grids),
+                "matching_layout_count": len(successful_layouts),
+                "expected_position_count": len(windows),
+                "expected_total_quantity": sum(signature[2] for signature in expected_signatures),
+            },),
+            missing_fields=required or ("windows",),
+            reason=reason,
+        )
+
+    grid, layout, columns, observed_signatures = successful_layouts[0]
+    evidence: list[dict[str, object]] = []
+    for row_index, item in enumerate(windows):
+        signature = observed_signatures[row_index]
+        expected_signature = (
+            item["width_mm"],
+            item["height_mm"],
+            item["quantity"],
+        )
+        if signature != expected_signature:
+            return Verification(
+                False,
+                evidence=tuple(evidence),
+                missing_fields=("windows",),
+                reason="A reviewed position does not match its corresponding grid row.",
+            )
+        evidence.append({
+            "field": f"windows[{item['position_number']}]",
+            "grid_row_index": row_index,
+            "position_number": item["position_number"],
+            "expected_width_mm": item["width_mm"],
+            "observed_width_mm": signature[0],
+            "expected_height_mm": item["height_mm"],
+            "observed_height_mm": signature[1],
+            "expected_quantity": item["quantity"],
+            "observed_quantity": signature[2],
+            "human_confirmed": True,
+            "grid_layout": layout,
+            "verification": "complete_active_document_grid_row",
+        })
+
+    evidence.extend((
+        {"field": "position_count", "expected_value": len(windows), "observed_value": len(observed_signatures)},
+        {
+            "field": "total_quantity",
+            "expected_value": sum(signature[2] for signature in expected_signatures),
+            "observed_value": sum(signature[2] for signature in observed_signatures),
+        },
+    ))
+    return Verification(
+        True,
+        evidence=tuple(evidence),
+        reason="Every reviewed window row independently matches the complete active-document grid.",
     )
 
 

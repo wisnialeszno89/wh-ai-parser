@@ -24,6 +24,9 @@ jobs:
       - name: Install Playwright Chromium
         run: python -m playwright install --with-deps chromium
 
+      - name: Run multi-window row verification tests
+        run: pytest -q tests/test_windowhub_multi_window_verification.py
+
       - name: Run reviewed multi-window task checkpoint tests
         run: pytest -q tests/test_drawing_quote_task.py
 
