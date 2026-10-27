@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 
 from app.agent.offers.drawing_offer_specification_builder import (
@@ -17,7 +19,6 @@ from app.agent.runtime.drawing_quote_task import (
 from app.agent.runtime.resumable_task import TaskStatus
 from app.agent.runtime.resumable_task_repository import TaskCheckpointRepository
 from app.agent.runtime.resumable_task_service import ResumableTaskService
-from app.wh.domain.offer.window_requirement import WindowRequirement
 
 
 def reviewed_specification():
@@ -114,19 +115,22 @@ def test_checkpoint_rejects_specification_mutated_after_human_review():
 def test_checkpoint_rejects_non_human_confirmed_position():
     result = reviewed_specification()
     original = result.positions[0]
-    result.positions = (  # type: ignore[misc]
-        ReviewedDrawingPosition(
-            original.position_number,
-            original.width_mm,
-            original.height_mm,
-            original.quantity,
-            False,
+    tampered = replace(
+        result,
+        positions=(
+            ReviewedDrawingPosition(
+                original.position_number,
+                original.width_mm,
+                original.height_mm,
+                original.quantity,
+                False,
+            ),
+            *result.positions[1:],
         ),
-        *result.positions[1:],
     )
 
     with pytest.raises(ValueError, match="not been explicitly confirmed"):
-        create_drawing_offer_task_checkpoint(result, task_id="unreviewed-drawing")
+        create_drawing_offer_task_checkpoint(tampered, task_id="unreviewed-drawing")
 
 
 def test_agent_runtime_persists_drawing_checkpoint_without_observing_windowhub(tmp_path):
