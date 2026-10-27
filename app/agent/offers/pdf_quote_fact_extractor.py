@@ -117,9 +117,20 @@ class PdfQuoteFactExtractor:
                                 source_alias=page.source_alias,
                                 page_number=page.page_number,
                                 extraction_method=page.extraction_method,
-                                source_kind="pdf_document",
+                                source_kind=(
+                                    "image_document"
+                                    if extraction.source_type == "image"
+                                    else "pdf_document"
+                                ),
                             ),
-                            confidence=_DETERMINISTIC_MATCH_CONFIDENCE,
+                            confidence=(
+                                _DETERMINISTIC_MATCH_CONFIDENCE
+                                if page.extraction_method == "pypdf_text"
+                                else min(
+                                    _DETERMINISTIC_MATCH_CONFIDENCE,
+                                    page.extraction_confidence or 0.0,
+                                )
+                            ),
                             origin="source_fact",
                             unit="piece" if field_name == "quantity" else None,
                             evidence_text=evidence_text,
