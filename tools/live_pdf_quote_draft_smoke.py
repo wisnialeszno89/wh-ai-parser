@@ -78,10 +78,20 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
             "Create and independently verify one real WindowHub draft from "
-            "a locally approved PDF. Never submits or sends the offer."
+            "a locally approved PDF or image. Never submits or sends the offer."
         )
     )
-    parser.add_argument("--pdf", required=True, help="Explicit local PDF path.")
+    source_group = parser.add_mutually_exclusive_group(required=True)
+    source_group.add_argument(
+        "--source",
+        dest="source",
+        help="Explicit local PDF or image path (PNG, JPG/JPEG, TIFF, BMP or WEBP).",
+    )
+    source_group.add_argument(
+        "--pdf",
+        dest="source",
+        help="Backward-compatible alias for --source.",
+    )
     parser.add_argument(
         "--approved-root",
         required=True,
@@ -354,22 +364,22 @@ def main() -> int:
         print("existing_checkpoint_modified: False")
         return 2
 
-    source_alias = f"approved-pdf-{uuid4().hex[:12]}.pdf"
+    source_alias = f"approved-document-{uuid4().hex[:12]}"
     request_message = (
         "Prepare a draft WindowHub offer using only the validated facts from the "
-        "supplied PDF."
+        "supplied local document."
     )
 
     try:
-        extraction = runtime.ingest_pdf(args.pdf, source_alias=source_alias)
+        extraction = runtime.ingest_pdf(args.source, source_alias=source_alias)
         preparation = runtime.prepare_pdf_quote(
             source_alias,
             request_message=request_message,
         )
     except PdfDocumentError as exc:
         print("result: ABORTED")
-        print(f"pdf_error_code: {exc.code}")
-        print("pdf_path_printed: 0")
+        print(f"source_error_code: {exc.code}")
+        print("source_path_printed: 0")
         return 3
     except Exception as exc:
         print("result: ABORTED")
@@ -379,8 +389,8 @@ def main() -> int:
 
     preview = _preview(preparation, ingestion_result=extraction)
     print("mode: LIVE_DRAFT_ONLY_PENDING_USER_APPROVAL")
-    print("source_pdf_uploaded: False")
-    print("full_pdf_text_in_task_prompt: False")
+    print("source_document_uploaded: False")
+    print("full_document_text_in_task_prompt: False")
     print("remote_reasoning_enabled_by_explicit_flag: True")
     print("current_ui_context_may_be_sent_to_remote_reasoner: True")
     has_openai_recovery_reasoner = bool(os.environ.get("OPENAI_API_KEY", "").strip())
@@ -388,9 +398,9 @@ def main() -> int:
     print("automatic_replanning_after_verification_failure: " + str(has_openai_recovery_reasoner))
     if not has_openai_recovery_reasoner:
         print("verification_failure_behavior: stop_without_automatic_replanning")
-    print("pdf_extraction_status: " + str(extraction.status))
-    print("pdf_page_count: " + str(extraction.page_count))
-    print("pdf_needs_ocr: " + str(extraction.needs_ocr))
+    print("document_extraction_status: " + str(extraction.status))
+    print("document_page_count: " + str(extraction.page_count))
+    print("document_needs_ocr: " + str(extraction.needs_ocr))
     print("task_id: " + task_id)
     print("local_fact_preview: " + json.dumps(preview, ensure_ascii=False, sort_keys=True, default=str))
     print(f"control_loop_observations_before_approval: {control.observe_calls}")
