@@ -141,6 +141,7 @@ jobs:
             app/runtime/execution/vision/analyzers/hough_line_normalizer.py \
             tools/smoke_windowhub_readonly.py \
             tools/live_pdf_quote_draft_smoke.py \
+            tools/preview_local_document_ocr.py \
             tools/diagnose_windowhub_field_scope.py \
             tools/diagnose_windowhub_semantics.py \
             tests/test_windowhub_agent_runtime.py \
