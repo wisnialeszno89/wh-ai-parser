@@ -78,6 +78,10 @@ from app.agent.runtime.drawing_quote_task import (
     DrawingOfferTaskStartResult,
     create_drawing_offer_task_checkpoint,
 )
+from app.agent.runtime.drawing_quote_task import (
+    DrawingOfferTaskStartResult,
+    create_drawing_offer_task_checkpoint,
+)
 from app.agent.runtime.reasoning_usage import (
     ReasoningCostTracker,
     ReasoningUsage,
@@ -308,6 +312,32 @@ class AgentRuntime:
         persisted = service.create(checkpoint)
         return PdfQuoteTaskStartResult(
             preparation=preparation,
+            checkpoint=persisted,
+        )
+
+    def start_drawing_offer_task(
+        self,
+        specification_result,
+        *,
+        task_id: str | None = None,
+        max_actions: int = 8,
+        max_reasoning_calls: int = 8,
+    ) -> DrawingOfferTaskStartResult:
+        """Persist a reviewed multi-window offer task behind explicit approval.
+
+        This method only validates structured review data and writes a checkpoint
+        in WAITING_FOR_APPROVAL. It does not observe WindowHub or execute UI actions.
+        """
+        service = self._require_resumable_task_service()
+        checkpoint = create_drawing_offer_task_checkpoint(
+            specification_result,
+            task_id=task_id,
+            max_actions=max_actions,
+            max_reasoning_calls=max_reasoning_calls,
+        )
+        persisted = service.create(checkpoint)
+        return DrawingOfferTaskStartResult(
+            specification_result=specification_result,
             checkpoint=persisted,
         )
 
