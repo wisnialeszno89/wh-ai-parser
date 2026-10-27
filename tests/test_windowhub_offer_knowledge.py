@@ -31,3 +31,16 @@ def test_windowhub_offer_knowledge_forbids_guessing_generic_layout_items():
         "ordinal position" in rule
         for rule in rules
     )
+
+
+def test_new_offer_navigation_respects_active_document_scope():
+    knowledge = get_windowhub_offer_knowledge()
+    start_stage = knowledge["workflow"][0]
+    sequence = " ".join(start_stage["preferred_action_sequence"])
+    rules = " ".join(knowledge["safety_rules"])
+
+    assert "Start1" in sequence
+    assert "active document" in sequence
+    assert "re-observe" in sequence
+    assert "document_scope conflicts" in rules
+    assert "never bypass the document-scope guard" in rules
