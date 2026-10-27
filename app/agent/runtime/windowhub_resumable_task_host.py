@@ -690,7 +690,7 @@ def _position_number_from_target_or_scene(target: str, scene: object) -> int | N
         if not isinstance(metadata, Mapping):
             continue
         scope = metadata.get("document_scope")
-        if isinstance(scope, str) and scope.strip() != active_document.strip():
+        if not isinstance(scope, str) or scope.strip() != active_document.strip():
             continue
         label = getattr(element, "label", None)
         if not isinstance(label, str):
@@ -816,6 +816,13 @@ def _verify_windowhub_multi_window_state(
             missing_fields=("windows",),
             reason="Reviewed window position numbers are not unique.",
         )
+    if position_numbers != sorted(position_numbers):
+        return Verification(
+            False,
+            evidence=({"reason": "position_order_changed"},),
+            missing_fields=("windows",),
+            reason="Reviewed window rows must remain in their supplied position order.",
+        )
     if (
         checkpoint.facts.get("position_count") != len(windows)
         or checkpoint.facts.get("total_quantity")
@@ -873,7 +880,7 @@ def _verify_windowhub_multi_window_state(
                     width, height = next(iter(dim_pairs))
                     quantity = next(iter(quantities))
                     observed.append((width, height, quantity))
-                if valid and sorted(observed) == sorted(expected_signatures):
+                if valid and observed == expected_signatures:
                     successful_layouts.append(
                         (grid, "combined_dimensions", (dimension_column, quantity_column), observed)
                     )
@@ -927,35 +934,31 @@ def _verify_windowhub_multi_window_state(
         )
 
     grid, layout, columns, observed_signatures = successful_layouts[0]
-    observed_by_signature: dict[tuple[int, int, int], list[int]] = {}
-    for row_index, signature in enumerate(observed_signatures):
-        observed_by_signature.setdefault(signature, []).append(row_index)
-
     evidence: list[dict[str, object]] = []
-    for item, signature in zip(sorted(windows, key=lambda row: row["position_number"]), sorted(
-        windows, key=lambda row: row["position_number"]
-    )):
-        matches = observed_by_signature.get(
-            (item["width_mm"], item["height_mm"], item["quantity"]), []
+    for row_index, item in enumerate(windows):
+        signature = observed_signatures[row_index]
+        expected_signature = (
+            item["width_mm"],
+            item["height_mm"],
+            item["quantity"],
         )
-        if not matches:
+        if signature != expected_signature:
             return Verification(
                 False,
                 evidence=tuple(evidence),
                 missing_fields=("windows",),
-                reason="A reviewed position has no independent matching grid row.",
+                reason="A reviewed position does not match its corresponding grid row.",
             )
-        row_index = matches.pop(0)
         evidence.append({
             "field": f"windows[{item['position_number']}]",
             "grid_row_index": row_index,
             "position_number": item["position_number"],
             "expected_width_mm": item["width_mm"],
-            "observed_width_mm": item["width_mm"],
+            "observed_width_mm": signature[0],
             "expected_height_mm": item["height_mm"],
-            "observed_height_mm": item["height_mm"],
+            "observed_height_mm": signature[1],
             "expected_quantity": item["quantity"],
-            "observed_quantity": item["quantity"],
+            "observed_quantity": signature[2],
             "human_confirmed": True,
             "grid_layout": layout,
             "verification": "complete_active_document_grid_row",
