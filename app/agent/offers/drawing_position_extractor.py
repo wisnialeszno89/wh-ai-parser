@@ -8,7 +8,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 import re
 from statistics import median
-from typing import Iterable
 
 from app.agent.adapters.document_ocr import OCRTextRegion
 from app.agent.adapters.pdf_document_adapter import PdfPageFinding
@@ -269,72 +268,47 @@ class DrawingPositionExtractor:
             for row_index, dimension_row in enumerate(dimension_rows):
                 paired = paired_positions_by_row[row_index]
                 centers = initial_centers_by_row[row_index]
+                row_numbers = {number for number, *_ in paired}
                 horizontal_by_position: dict[int, list[tuple[int, OCRTextRegion]]] = {
-                    number: [] for number, _ in row
+                    number: [] for number in row_numbers
                 }
                 vertical_by_position: dict[int, list[tuple[int, OCRTextRegion]]] = {
-                    number: [] for number, _ in row
+                    number: [] for number in row_numbers
                 }
-                row_numbers = {number for number, _ in row}
-                for value, region in (
-                    (value, region)
-                    for value, region in numeric_regions
-                    if value >= 600
-                    and (region.width >= region.height * 1.10
-                         or region.height >= region.width * 1.10)
-                ):
-                    # Assign each numeric region to its visual Y band first.
-                    region_row = min(
-                        range(len(dimension_rows)),
-                        key=lambda index: abs(
-                            _center_y(region)
-                            - median(_center_y(item) for item in dimension_rows[index])
-                        ),
-                    )
-                    if region_row != row_index:
+
+                # Assign horizontal labels first using the Position/Menge row.
+                for region in dimension_row:
+                    value = _numeric_value(region)
+                    if value is None:
                         continue
-                    if not row_numbers:
-                        continue
-                    # The initial center is based on the Position and Menge headers.
-                    nearest_number = min(
-                        row_numbers,
-                        key=lambda number: abs(_center_x(region) - centers[number]),
-                    )
                     if region.width >= region.height * 1.10:
+                        nearest_number = min(
+                            row_numbers,
+                            key=lambda number: abs(_center_x(region) - centers[number]),
+                        )
                         horizontal_by_position[nearest_number].append((value, region))
 
-                # The largest horizontal dimension in a cell is the overall width
-                # (e.g. 2200 over two internal 1100 sections). Refine cell centers.
+                # Prefer the greatest horizontal dimension in a cell as the
+                # overall width (e.g. 2200 over two internal 1100 sections).
                 refined_centers = dict(centers)
-                for number, candidates in horizontal_by_position.items():
-                    if not candidates:
+                for number, candidates_for_width in horizontal_by_position.items():
+                    if not candidates_for_width:
                         continue
-                    max_width = max(value for value, _ in candidates)
+                    max_width = max(value for value, _ in candidates_for_width)
                     widest_boxes = [
-                        region for value, region in candidates if value == max_width
+                        region for value, region in candidates_for_width
+                        if value == max_width
                     ]
-                    refined_centers[number] = median(_center_x(region) for region in widest_boxes)
-                    dimensions[number]["width"] = (
-                        max_width,
-                        widest_boxes[0],
+                    refined_centers[number] = median(
+                        _center_x(region) for region in widest_boxes
                     )
+                    dimensions[number]["width"] = (max_width, widest_boxes[0])
 
-                for value, region in (
-                    (value, region)
-                    for value, region in numeric_regions
-                    if value >= 600
-                    and region.height >= region.width * 1.10
-                ):
-                    region_row = min(
-                        range(len(dimension_rows)),
-                        key=lambda index: abs(
-                            _center_y(region)
-                            - median(_center_y(item) for item in dimension_rows[index])
-                        ),
-                    )
-                    if region_row != row_index:
-                        continue
-                    if not row_numbers:
+                # Then assign vertical labels to the refined cell centers and
+                # use the greatest value as the overall height, not 1200+210+30.
+                for region in dimension_row:
+                    value = _numeric_value(region)
+                    if value is None or region.height < region.width * 1.10:
                         continue
                     nearest_number = min(
                         row_numbers,
@@ -344,10 +318,10 @@ class DrawingPositionExtractor:
                     )
                     vertical_by_position[nearest_number].append((value, region))
 
-                for number, candidates in vertical_by_position.items():
-                    if candidates:
+                for number, candidates_for_height in vertical_by_position.items():
+                    if candidates_for_height:
                         dimensions[number]["height"] = max(
-                            candidates, key=lambda item: item[0]
+                            candidates_for_height, key=lambda item: item[0]
                         )
 
         candidates: list[DrawingPositionCandidate] = []
