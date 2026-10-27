@@ -24,6 +24,9 @@ jobs:
       - name: Install Playwright Chromium
         run: python -m playwright install --with-deps chromium
 
+      - name: Run drawing-position OCR tests
+        run: pytest -q tests/test_drawing_position_extractor.py
+
       - name: Run agent contract, browser safety, and learned-skill tests
         run: |
           pytest -q \

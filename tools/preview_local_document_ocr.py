@@ -8,6 +8,7 @@ from app.agent.adapters.pdf_document_adapter import (
     PdfDocumentAdapter,
     PdfDocumentError,
 )
+from app.agent.offers.drawing_position_extractor import DrawingPositionExtractor
 
 
 def parse_args() -> argparse.Namespace:
@@ -27,6 +28,11 @@ def parse_args() -> argparse.Namespace:
         "--show-regions",
         action="store_true",
         help="Also print recognized text-box positions and confidence scores.",
+    )
+    parser.add_argument(
+        "--show-drawing-positions",
+        action="store_true",
+        help="Print review-only candidates for window-drawing position, quantity, width and height.",
     )
     return parser.parse_args()
 
@@ -77,6 +83,35 @@ def main() -> int:
         print("recognized_text_end")
         for limitation in page.limitations:
             print(f"limitation: {limitation}")
+        if args.show_drawing_positions:
+            drawing_result = DrawingPositionExtractor().extract(page)
+            print("drawing_positions_begin")
+            for candidate in drawing_result.positions:
+                confidence = (
+                    "unavailable"
+                    if candidate.confidence is None
+                    else f"{candidate.confidence:.3f}"
+                )
+                print(
+                    f"position={candidate.position_number} "
+                    f"quantity={candidate.quantity if candidate.quantity is not None else 'MISSING'} "
+                    f"width_mm={candidate.width_mm if candidate.width_mm is not None else 'MISSING'} "
+                    f"height_mm={candidate.height_mm if candidate.height_mm is not None else 'MISSING'} "
+                    f"confidence={confidence} "
+                    f"complete={candidate.complete}"
+                )
+                print(
+                    f"  evidence: quantity={candidate.quantity_evidence!r}; "
+                    f"width={candidate.width_evidence!r}; "
+                    f"height={candidate.height_evidence!r}"
+                )
+                for issue in candidate.issues:
+                    print(f"  position_issue: {issue}")
+            for issue in drawing_result.issues:
+                print(f"drawing_issue: {issue}")
+            print("requires_visual_review: True")
+            print("drawing_positions_end")
+
         if args.show_regions:
             print("ocr_regions_begin")
             for region in page.ocr_regions:
