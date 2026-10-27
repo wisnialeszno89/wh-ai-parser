@@ -772,3 +772,155 @@ def test_windows_uia_leaves_mdi_children_unscoped_when_tab_caption_is_ambiguous(
 
     observed_button = next(element for element in elements if element.label == "Add")
     assert "document_scope" not in observed_button.metadata
+
+
+def _make_native_active_mdi_scope_tree():
+    mdi_client = FakeUIAItem(
+        name="",
+        control_type="Pane",
+        class_name="MDIClient",
+        width=1200,
+        height=800,
+        runtime_id=(200,),
+    )
+    mdi_client.handle = 300
+
+    selected_tab = make_mdi_tab(
+        "Selected offer tab",
+        mdi_client,
+        selected=True,
+        runtime_id=201,
+    )
+    inactive_tab = make_mdi_tab(
+        "Existing offer",
+        mdi_client,
+        selected=False,
+        runtime_id=202,
+    )
+
+    active_expander = FakeUIAItem(
+        name="",
+        control_type="Group",
+        class_name="Expander",
+        runtime_id=(203,),
+    )
+    active_button = FakeUIAItem(
+        name="Add to active offer",
+        control_type="Button",
+        parent=active_expander,
+        runtime_id=(204,),
+    )
+    active_child = FakeMDIChildWindow(
+        (active_expander, active_button),
+        name="Internal child caption",
+        control_type="Window",
+        class_name="Afx:MDIChild",
+        parent=mdi_client,
+        runtime_id=(205,),
+    )
+    active_child.handle = 400
+
+    inactive_button = FakeUIAItem(
+        name="Existing offer action",
+        control_type="Button",
+        runtime_id=(206,),
+    )
+    inactive_child = FakeMDIChildWindow(
+        (inactive_button,),
+        name="Existing offer",
+        control_type="Window",
+        class_name="Afx:MDIChild",
+        parent=mdi_client,
+        runtime_id=(207,),
+    )
+    inactive_child.handle = 500
+
+    home_button = FakeUIAItem(
+        name="New offer action",
+        control_type="Button",
+        runtime_id=(208,),
+    )
+
+    window = FakeUIAWindow(
+        (
+            mdi_client,
+            selected_tab.parent(),
+            selected_tab,
+            inactive_tab.parent(),
+            inactive_tab,
+            active_child,
+            active_expander,
+            active_button,
+            inactive_child,
+            inactive_button,
+            home_button,
+        ),
+        title="Visual Studio Code",
+    )
+    return FakeDesktop({200: window})
+
+
+def test_windows_uia_scopes_native_active_mdi_child_when_captions_differ(monkeypatch):
+    from app.agent.perception.perception_engine import PerceptionEngine
+
+    monkeypatch.setattr(
+        WindowsUIAutomationProvider,
+        "_native_active_mdi_child_handle",
+        staticmethod(lambda mdi_client_handle: 400 if mdi_client_handle == 300 else None),
+    )
+    desktop = _make_native_active_mdi_scope_tree()
+
+    elements = WindowsUIAutomationProvider(
+        desktop_factory=lambda: desktop,
+    ).perceive(make_observation())
+
+    active_button = next(
+        element for element in elements
+        if element.label == "Add to active offer"
+    )
+    inactive_button = next(
+        element for element in elements
+        if element.label == "Existing offer action"
+    )
+    home_button = next(
+        element for element in elements
+        if element.label == "New offer action"
+    )
+
+    assert active_button.metadata["document_scope"] == "Selected offer tab"
+    assert inactive_button.metadata["document_scope"] == "Existing offer"
+    assert "document_scope" not in home_button.metadata
+
+    active_document, document_count, selected_count = (
+        PerceptionEngine._resolve_active_document(elements)
+    )
+    assert active_document == "Selected offer tab"
+    assert document_count == 2
+    assert selected_count == 1
+
+
+def test_windows_uia_keeps_mismatched_child_unscoped_when_native_handle_is_ambiguous(
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        WindowsUIAutomationProvider,
+        "_native_active_mdi_child_handle",
+        staticmethod(lambda _mdi_client_handle: 999),
+    )
+    desktop = _make_native_active_mdi_scope_tree()
+
+    elements = WindowsUIAutomationProvider(
+        desktop_factory=lambda: desktop,
+    ).perceive(make_observation())
+
+    active_button = next(
+        element for element in elements
+        if element.label == "Add to active offer"
+    )
+    inactive_button = next(
+        element for element in elements
+        if element.label == "Existing offer action"
+    )
+
+    assert "document_scope" not in active_button.metadata
+    assert inactive_button.metadata["document_scope"] == "Existing offer"
