@@ -65,3 +65,28 @@ def test_windowhub_runtime_factory_accepts_an_explicit_approved_pdf_ingestion_se
     assert runtime.resumable_task_service is not None
     assert control_loop.observe_calls == 0
     assert control_loop.run_calls == 0
+
+
+
+def test_windowhub_runtime_uses_navimind_without_optional_openai_replanner(monkeypatch):
+    monkeypatch.setenv("NAVIMIND_AGENT_URL", "https://navimind.example.invalid/agent")
+    monkeypatch.setenv("NAVIMIND_AGENT_SECRET", "test-secret-not-used-for-network")
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("AGENT_TASK_REASONING", raising=False)
+
+    control_loop = NoopControlLoop()
+    configured = {}
+
+    def control_loop_factory(*, plan_reasoner):
+        configured["plan_reasoner"] = plan_reasoner
+        return control_loop
+
+    runtime = module.create_windowhub_agent_runtime(
+        control_loop_factory=control_loop_factory,
+    )
+
+    assert runtime.orchestrator.task_reasoner is not None
+    assert configured["plan_reasoner"] is None
+    assert runtime.resumable_task_service is not None
+    assert control_loop.observe_calls == 0
+    assert control_loop.run_calls == 0
