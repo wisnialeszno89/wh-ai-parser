@@ -341,7 +341,7 @@ class PdfDocumentAdapter(ApplicationAdapter):
                                 )
                             else:
                                 limitations = (
-                                    "No selectable text or readable OCR text was found; manual inspection is required.",
+                                    "No text was extracted; no readable OCR text was found; manual inspection is required.",
                                 )
                         except Exception as exc:
                             limitations = (
