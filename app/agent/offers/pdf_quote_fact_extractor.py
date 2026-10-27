@@ -109,6 +109,22 @@ class PdfQuoteFactExtractor:
                     if not raw_value:
                         continue
 
+                    if page.extraction_method == "pypdf_text":
+                        fact_confidence = _DETERMINISTIC_MATCH_CONFIDENCE
+                    else:
+                        normalized_evidence = " ".join(evidence_text.casefold().split())
+                        matching_scores = [
+                            region.confidence
+                            for region in page.ocr_regions
+                            if region.confidence is not None
+                            and " ".join(region.text.casefold().split()) in normalized_evidence
+                        ]
+                        fact_confidence = (
+                            min(matching_scores)
+                            if matching_scores
+                            else page.extraction_confidence or 0.0
+                        )
+
                     facts.append(
                         QuoteFact(
                             field_name=field_name,
@@ -117,9 +133,16 @@ class PdfQuoteFactExtractor:
                                 source_alias=page.source_alias,
                                 page_number=page.page_number,
                                 extraction_method=page.extraction_method,
-                                source_kind="pdf_document",
+                                source_kind=(
+                                    "image_document"
+                                    if extraction.source_type == "image"
+                                    else "pdf_document"
+                                ),
                             ),
-                            confidence=_DETERMINISTIC_MATCH_CONFIDENCE,
+                            confidence=min(
+                                _DETERMINISTIC_MATCH_CONFIDENCE,
+                                max(0.0, min(1.0, fact_confidence)),
+                            ),
                             origin="source_fact",
                             unit="piece" if field_name == "quantity" else None,
                             evidence_text=evidence_text,

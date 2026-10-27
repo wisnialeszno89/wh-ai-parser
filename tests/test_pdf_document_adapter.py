@@ -324,3 +324,148 @@ def test_pdf_ingestion_service_remove_only_changes_registry(tmp_path):
     assert service.remove("offer") is False
     assert dict(service.source_registry) == {}
     assert source.read_bytes() == original
+
+
+class FakeDocumentOCREngine:
+    def __init__(self, *, scores=None):
+        from types import SimpleNamespace
+
+        texts = [
+            "Product: window",
+            "Width: 1200 mm",
+            "Height: 1500 mm",
+            "Quantity: 2 pcs",
+        ]
+        boxes = [
+            [[20, 20], [260, 20], [260, 50], [20, 50]],
+            [[20, 80], [260, 80], [260, 110], [20, 110]],
+            [[20, 140], [260, 140], [260, 170], [20, 170]],
+            [[20, 200], [260, 200], [260, 230], [20, 230]],
+        ]
+        self.result = SimpleNamespace(
+            txts=texts,
+            boxes=boxes,
+            scores=scores or [0.99, 0.98, 0.98, 0.97],
+        )
+
+    def __call__(self, image):
+        return self.result
+
+
+def test_image_adapter_runs_local_ocr_and_quote_facts_keep_image_provenance(tmp_path):
+    from PIL import Image
+    from app.agent.offers.pdf_quote_fact_extractor import PdfQuoteFactExtractor
+    from app.agent.offers.quote_facts import QuoteFactValidator
+
+    root = tmp_path / "approved"
+    root.mkdir()
+    source = root / "customer-request.jpg"
+    Image.new("RGB", (600, 800), "white").save(source, format="JPEG")
+
+    adapter = PdfDocumentAdapter(
+        allowed_roots=(root,),
+        ocr_engine=FakeDocumentOCREngine(),
+    )
+    extraction = adapter.extract(source, source_alias="customer-request.jpg")
+
+    assert extraction.source_type == "image"
+    assert extraction.status == "ocr_applied"
+    assert extraction.page_count == 1
+    assert extraction.needs_ocr is False
+    assert extraction.pages[0].extraction_method == "rapidocr_image"
+    assert "Width: 1200 mm" in extraction.pages[0].text
+    assert extraction.pages[0].ocr_regions
+    assert all(region.confidence is not None for region in extraction.pages[0].ocr_regions)
+
+    facts = PdfQuoteFactExtractor().extract(extraction)
+    validation = QuoteFactValidator().validate_payload(
+        facts.to_payload(),
+        pdf_sources={extraction.source_alias: extraction},
+    )
+
+    assert validation.can_execute is True
+    assert validation.normalized_values["product_type"] == "window"
+    assert validation.normalized_values["width"] == 1200
+    assert validation.normalized_values["height"] == 1500
+    assert validation.normalized_values["quantity"] == 2
+    assert all(fact.source.source_kind == "image_document" for fact in facts.facts)
+
+
+def test_image_ocr_low_confidence_dimensions_require_manual_review(tmp_path):
+    from PIL import Image
+    from app.agent.offers.pdf_quote_fact_extractor import PdfQuoteFactExtractor
+    from app.agent.offers.quote_facts import QuoteFactValidator
+
+    root = tmp_path / "approved"
+    root.mkdir()
+    source = root / "blurry-request.png"
+    Image.new("RGB", (600, 800), "white").save(source, format="PNG")
+
+    extraction = PdfDocumentAdapter(
+        allowed_roots=(root,),
+        ocr_engine=FakeDocumentOCREngine(scores=[0.99, 0.62, 0.98, 0.97]),
+    ).extract(source, source_alias="blurry-request.png")
+    facts = PdfQuoteFactExtractor().extract(extraction)
+    validation = QuoteFactValidator().validate_payload(
+        facts.to_payload(),
+        pdf_sources={extraction.source_alias: extraction},
+    )
+
+    assert validation.can_execute is False
+    assert any("OCR confidence" in item.message for item in validation.conflicts)
+
+
+def test_scanned_pdf_page_is_rasterized_and_ocr_text_is_preserved(tmp_path):
+    from PIL import Image
+    import pymupdf
+
+    root = tmp_path / "approved"
+    root.mkdir()
+    source_image = root / "embedded-scan.png"
+    Image.new("RGB", (400, 300), "white").save(source_image, format="PNG")
+
+    source_pdf = root / "scanned-request.pdf"
+    document = pymupdf.open()
+    page = document.new_page(width=400, height=300)
+    page.insert_image(page.rect, filename=str(source_image))
+    document.save(str(source_pdf))
+    document.close()
+
+    extraction = PdfDocumentAdapter(
+        allowed_roots=(root,),
+        ocr_engine=FakeDocumentOCREngine(),
+    ).extract(source_pdf, source_alias="scanned-request.pdf")
+
+    assert extraction.source_type == "pdf"
+    assert extraction.status == "ocr_applied"
+    assert extraction.needs_ocr is False
+    assert extraction.pages[0].extraction_method == "rapidocr_pdf_page"
+    assert "Height: 1500 mm" in extraction.pages[0].text
+    assert extraction.pages[0].ocr_regions
+
+
+def test_image_ocr_keeps_distant_columns_on_separate_text_lines(tmp_path):
+    from PIL import Image
+
+    root = tmp_path / "approved"
+    root.mkdir()
+    source = root / "two-columns.png"
+    Image.new("RGB", (600, 800), "white").save(source, format="PNG")
+
+    engine = FakeDocumentOCREngine()
+    engine.result.txts = ["Product: window", "Width: 1200 mm"]
+    engine.result.boxes = [
+        [[20, 20], [260, 20], [260, 50], [20, 50]],
+        [[700, 20], [960, 20], [960, 50], [700, 50]],
+    ]
+    engine.result.scores = [0.99, 0.98]
+
+    extraction = PdfDocumentAdapter(
+        allowed_roots=(root,),
+        ocr_engine=engine,
+    ).extract(source, source_alias="two-columns.png")
+
+    assert extraction.pages[0].text.splitlines() == [
+        "Product: window",
+        "Width: 1200 mm",
+    ]

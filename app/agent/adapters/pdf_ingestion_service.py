@@ -45,7 +45,7 @@ class PdfIngestionService:
     ) -> PdfDocumentExtraction:
         """Read a file through the adapter and register only the returned object."""
         extraction = self.adapter.extract(path, source_alias=source_alias)
-        if extraction.status not in {"complete", "ocr_required"}:
+        if extraction.status not in {"complete", "ocr_required", "ocr_applied"}:
             raise PdfDocumentError(
                 "invalid_extraction_status",
                 "The PDF extraction did not return a supported status.",

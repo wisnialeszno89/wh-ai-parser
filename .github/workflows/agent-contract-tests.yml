@@ -19,7 +19,7 @@ jobs:
       - name: Install test dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install pytest python-dotenv python-docx openpyxl playwright "pypdf>=5.0.0" numpy opencv-python-headless
+          pip install pytest python-dotenv python-docx openpyxl playwright Pillow "pypdf>=5.0.0" "pymupdf>=1.24" rapidocr onnxruntime numpy opencv-python-headless
 
       - name: Install Playwright Chromium
         run: python -m playwright install --with-deps chromium
@@ -141,6 +141,7 @@ jobs:
             app/runtime/execution/vision/analyzers/hough_line_normalizer.py \
             tools/smoke_windowhub_readonly.py \
             tools/live_pdf_quote_draft_smoke.py \
+            tools/preview_local_document_ocr.py \
             tools/diagnose_windowhub_field_scope.py \
             tools/diagnose_windowhub_semantics.py \
             tests/test_windowhub_agent_runtime.py \
