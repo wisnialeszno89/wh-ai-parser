@@ -13,7 +13,13 @@ WINDOWHUB_OFFER_KNOWLEDGE: dict[str, object] = {
             "stage": 1,
             "name": "start_new_offer",
             "goal": "Start a new quotation.",
-            "expected_visible_controls": ("Nowa oferta",),
+            "expected_visible_controls": ("Start1", "Nowa oferta"),
+            "preferred_action_sequence": (
+                "Before clicking Nowa oferta, compare the control's explicit document_scope with the active document.",
+                "If Nowa oferta is explicitly scoped to another document and the unique Start1 document tab is visible but unselected, click Start1 first and re-observe the scene.",
+                "Resolve Nowa oferta again after the tab switch; click it only when its scope is valid for the current scene.",
+                "Do not switch to or modify an existing OFR offer tab just to reach Nowa oferta.",
+            ),
             "typical_next_action": "click_screen_element",
         },
         {
@@ -146,15 +152,13 @@ WINDOWHUB_OFFER_KNOWLEDGE: dict[str, object] = {
     "safety_rules": (
         "Never use coordinates or internal UIA identifiers as model targets.",
         "Never restart a continuation with Nowa oferta.",
-        "Never choose a generic LayoutItem when a semantic field label cannot "
-        "be established from UIA structure or other evidence.",
+        "Never click a control whose explicit document_scope conflicts with the resolved active document.",
+        "When Nowa oferta belongs to another document, activate the uniquely identified Start1 tab first, re-observe, and re-resolve the button; never bypass the document-scope guard.",
+        "Never choose a generic LayoutItem when a semantic field label cannot be established from UIA structure or other evidence.",
         "Prefer one small GUI mutation at a time and re-observe after it.",
-        "Never infer a field solely from ordinal position when multiple "
-        "controls are ambiguous.",
-        "Use visible OK or Anuluj only when those controls are actually "
-        "present in the current scene.",
-        "Business data supplied by the salesperson is authoritative; do not "
-        "invent missing commercial choices.",
+        "Never infer a field solely from ordinal position when multiple controls are ambiguous.",
+        "Use visible OK or Anuluj only when those controls are actually present in the current scene.",
+        "Business data supplied by the salesperson is authoritative; do not invent missing commercial choices.",
     ),
     "semantic_perception": (
         "WindowHub uses DevExpress WPF layout controls. Generic UIA names "
