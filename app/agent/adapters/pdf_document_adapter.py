@@ -9,6 +9,11 @@ from app.agent.adapters.application_adapter import (
     AdapterDescriptor,
     ApplicationAdapter,
 )
+from app.agent.adapters.document_ocr import (
+    OCRTextRegion,
+    extract_image_text,
+    render_pdf_page_to_image,
+)
 
 
 class PdfDocumentError(ValueError):
@@ -40,6 +45,7 @@ class PdfPageFinding:
     extraction_confidence: float | None
     needs_ocr: bool
     limitations: tuple[str, ...] = ()
+    ocr_regions: tuple[OCRTextRegion, ...] = ()
 
     def to_payload(self) -> dict[str, object]:
         return {
@@ -50,6 +56,7 @@ class PdfPageFinding:
             "extraction_confidence": self.extraction_confidence,
             "needs_ocr": self.needs_ocr,
             "limitations": self.limitations,
+            "ocr_regions": tuple(region.to_payload() for region in self.ocr_regions),
         }
 
 
@@ -62,6 +69,7 @@ class PdfDocumentExtraction:
     file_size_bytes: int
     status: str
     pages: tuple[PdfPageFinding, ...]
+    source_type: str = "pdf"
 
     @property
     def needs_ocr(self) -> bool:
@@ -78,6 +86,7 @@ class PdfDocumentExtraction:
             "page_count": self.page_count,
             "file_size_bytes": self.file_size_bytes,
             "status": self.status,
+            "source_type": self.source_type,
             "needs_ocr": self.needs_ocr,
             "extracted_text_chars": self.extracted_text_chars,
             "pages": tuple(page.to_payload() for page in self.pages),
@@ -85,15 +94,16 @@ class PdfDocumentExtraction:
 
 
 class PdfDocumentAdapter(ApplicationAdapter):
-    """Read PDF text locally from explicitly approved filesystem roots.
+    """Read local PDF and image documents inside explicitly approved roots.
 
-    The adapter never calls a model, performs network I/O, writes output files,
-    or modifies the source PDF. Textless pages are reported as needing OCR;
-    this adapter does not silently treat them as successfully read content.
+    Selectable PDF text is extracted directly. Photos and image-only PDF pages
+    use local RapidOCR; unreadable pages remain explicitly marked as requiring
+    OCR/manual review. The adapter never sends source images to a network.
     """
 
     adapter_id = "pdf_document"
     EXTRACTION_METHOD = "pypdf_text"
+    IMAGE_EXTENSIONS = frozenset({".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".webp"})
 
     def __init__(
         self,
@@ -103,6 +113,7 @@ class PdfDocumentAdapter(ApplicationAdapter):
         max_pages: int = 100,
         max_page_chars: int = 40_000,
         max_total_chars: int = 200_000,
+        ocr_engine: object | None = None,
     ) -> None:
         roots = tuple(
             Path(root).expanduser().resolve()
@@ -133,16 +144,17 @@ class PdfDocumentAdapter(ApplicationAdapter):
         self.max_pages = max_pages
         self.max_page_chars = max_page_chars
         self.max_total_chars = max_total_chars
+        self._ocr_engine = ocr_engine
 
     @property
     def descriptor(self) -> AdapterDescriptor:
         return AdapterDescriptor(
             adapter_id=self.adapter_id,
             application="PDF",
-            capabilities=("extract", "extract_text", "read_pdf"),
+            capabilities=("extract", "extract_text", "read_pdf", "read_image", "read_document"),
             description=(
-                "Bounded, local PDF text extraction with page-level source "
-                "provenance and explicit OCR-needed findings."
+                "Bounded local text extraction from PDFs, scanned PDF pages and "
+                "photos/images with page-level provenance and OCR status."
             ),
         )
 
@@ -171,9 +183,94 @@ class PdfDocumentAdapter(ApplicationAdapter):
         if file_size > self.max_file_size_bytes:
             raise PdfDocumentError(
                 "file_size_limit_exceeded",
-                "The PDF exceeds the configured file-size limit.",
+                "The source document exceeds the configured file-size limit.",
             )
 
+        if source_path.suffix.casefold() in self.IMAGE_EXTENSIONS:
+            return self._extract_image_file(source_path, alias, file_size)
+        return self._extract_pdf_file(source_path, alias, file_size)
+
+    def _extract_image_file(
+        self,
+        source_path: Path,
+        alias: str,
+        file_size: int,
+    ) -> PdfDocumentExtraction:
+        from PIL import Image
+
+        try:
+            with Image.open(source_path) as source_image:
+                source_image.load()
+                image = source_image.copy()
+        except Exception as exc:
+            raise PdfDocumentError(
+                "invalid_image",
+                "The selected image is malformed or could not be read safely.",
+            ) from exc
+
+        try:
+            ocr_result = extract_image_text(image, engine=self._ocr_engine)
+            page_text = ocr_result.text.strip()
+            regions = ocr_result.regions
+            confidence = ocr_result.average_confidence
+            ocr_error = None
+        except Exception as exc:
+            page_text = ""
+            regions = ()
+            confidence = None
+            ocr_error = type(exc).__name__
+
+        if len(page_text) > self.max_page_chars:
+            raise PdfDocumentError(
+                "page_text_limit_exceeded",
+                "The image exceeds the configured extracted-text limit.",
+            )
+        if len(page_text) > self.max_total_chars:
+            raise PdfDocumentError(
+                "document_text_limit_exceeded",
+                "The image exceeds the configured total extracted-text limit.",
+            )
+
+        needs_ocr = not bool(page_text)
+        limitations: tuple[str, ...]
+        if ocr_error:
+            limitations = (
+                f"Local image OCR could not run ({ocr_error}); manual inspection is required.",
+            )
+        elif needs_ocr:
+            limitations = (
+                "Local OCR returned no readable text; manual inspection is required.",
+            )
+        else:
+            limitations = (
+                "Text was recognized locally from an image. Verify dimensions and quantities against the original before execution.",
+            )
+
+        page = PdfPageFinding(
+            source_alias=alias,
+            page_number=1,
+            text=page_text,
+            extraction_method="rapidocr_image",
+            extraction_confidence=confidence,
+            needs_ocr=needs_ocr,
+            limitations=limitations,
+            ocr_regions=tuple(regions),
+        )
+        return PdfDocumentExtraction(
+            source_alias=alias,
+            page_count=1,
+            file_size_bytes=file_size,
+            status="ocr_required" if needs_ocr else "ocr_applied",
+            pages=(page,),
+            source_type="image",
+        )
+
+    def _extract_pdf_file(
+        self,
+        source_path: Path,
+        alias: str,
+        file_size: int,
+    ) -> PdfDocumentExtraction:
         try:
             from pypdf import PdfReader
         except ImportError as exc:
@@ -213,12 +310,48 @@ class PdfDocumentAdapter(ApplicationAdapter):
                         value = page.extract_text()
                         page_text = value if isinstance(value, str) else ""
                     except Exception:
-                        # A page-local extraction failure is explicit and can
-                        # be recovered by a later OCR/alternate-parser stage.
                         page_text = ""
                         extraction_failed = True
 
                     page_text = page_text.replace("\x00", "").strip()
+                    extraction_method = self.EXTRACTION_METHOD
+                    extraction_confidence = None
+                    ocr_regions: tuple[OCRTextRegion, ...] = ()
+                    limitations: tuple[str, ...] = ()
+                    needs_ocr = not bool(page_text)
+
+                    if needs_ocr:
+                        extraction_method = "rapidocr_pdf_page"
+                        try:
+                            image = render_pdf_page_to_image(
+                                source_path,
+                                index + 1,
+                            )
+                            ocr_result = extract_image_text(
+                                image,
+                                engine=self._ocr_engine,
+                            )
+                            if ocr_result.text:
+                                page_text = ocr_result.text.strip()
+                                extraction_confidence = ocr_result.average_confidence
+                                ocr_regions = ocr_result.regions
+                                needs_ocr = False
+                                limitations = (
+                                    "Text was recognized locally from a rasterized PDF page. Verify dimensions and quantities against the original before execution.",
+                                )
+                            else:
+                                limitations = (
+                                    "No selectable text or readable OCR text was found; manual inspection is required.",
+                                )
+                        except Exception as exc:
+                            limitations = (
+                                f"No selectable text was extracted and local OCR could not finish ({type(exc).__name__}); manual inspection is required.",
+                            )
+                    elif extraction_failed:
+                        limitations = (
+                            "Selectable text extraction failed; the source page needs OCR/manual inspection.",
+                        )
+
                     if len(page_text) > self.max_page_chars:
                         raise PdfDocumentError(
                             "page_text_limit_exceeded",
@@ -232,28 +365,16 @@ class PdfDocumentAdapter(ApplicationAdapter):
                             "The PDF exceeds the configured total extracted-text limit.",
                         )
 
-                    needs_ocr = not page_text
-                    limitations: tuple[str, ...] = ()
-                    if extraction_failed:
-                        limitations = (
-                            "Text extraction failed for this page; OCR or an alternate parser is required.",
-                        )
-                    elif needs_ocr:
-                        limitations = (
-                            "No text was extracted; the page may be blank or image-only. OCR is required to inspect image content.",
-                        )
-
                     findings.append(
                         PdfPageFinding(
                             source_alias=alias,
                             page_number=index + 1,
                             text=page_text,
-                            extraction_method=self.EXTRACTION_METHOD,
-                            # pypdf does not expose a calibrated confidence
-                            # score, so do not invent one for extracted text.
-                            extraction_confidence=None,
+                            extraction_method=extraction_method,
+                            extraction_confidence=extraction_confidence,
                             needs_ocr=needs_ocr,
                             limitations=limitations,
+                            ocr_regions=ocr_regions,
                         )
                     )
 
@@ -265,20 +386,26 @@ class PdfDocumentAdapter(ApplicationAdapter):
                 "The PDF is malformed or could not be read safely.",
             ) from exc
 
-        status = "ocr_required" if any(page.needs_ocr for page in findings) else "complete"
+        if any(page.needs_ocr for page in findings):
+            status = "ocr_required"
+        elif any(page.extraction_method == "rapidocr_pdf_page" for page in findings):
+            status = "ocr_applied"
+        else:
+            status = "complete"
         return PdfDocumentExtraction(
             source_alias=alias,
             page_count=page_count,
             file_size_bytes=file_size,
             status=status,
             pages=tuple(findings),
+            source_type="pdf",
         )
 
     def _resolve_source(self, path: str | Path) -> Path:
         if not isinstance(path, (str, Path)) or not str(path).strip():
             raise PdfDocumentError(
                 "invalid_path",
-                "An explicit PDF source path is required.",
+                "An explicit local document source path is required.",
             )
 
         try:
@@ -292,13 +419,13 @@ class PdfDocumentAdapter(ApplicationAdapter):
         if not any(self._is_under_root(resolved, root) for root in self._roots):
             raise PdfDocumentError(
                 "path_outside_allowed_roots",
-                "The PDF path is outside all approved source roots.",
+                "The document path is outside all approved source roots.",
             )
 
-        if resolved.suffix.casefold() != ".pdf":
+        if resolved.suffix.casefold() != ".pdf" and resolved.suffix.casefold() not in self.IMAGE_EXTENSIONS:
             raise PdfDocumentError(
                 "unsupported_file_type",
-                "Only .pdf source files are supported.",
+                "Supported source files are PDF, PNG, JPG/JPEG, TIFF, BMP and WEBP.",
             )
 
         if not resolved.exists():
