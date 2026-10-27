@@ -270,13 +270,26 @@ class WindowHubResumableTaskHost:
             # resolver: unique-but-unscoped controls are not enough evidence
             # to type into a commercial document field.
             active_document = getattr(scene, "active_document", None)
+            raw_document_scope = metadata.get("document_scope")
+            document_scope = (
+                raw_document_scope.strip()
+                if isinstance(raw_document_scope, str) and raw_document_scope.strip()
+                else None
+            )
+            is_owned_modal_field = metadata.get("uia_owned_modal") is True
+
             if isinstance(active_document, str) and active_document.strip():
-                document_scope = metadata.get("document_scope")
-                is_active_document_field = (
-                    isinstance(document_scope, str)
-                    and document_scope.strip() == active_document.strip()
-                )
-                is_owned_modal_field = metadata.get("uia_owned_modal") is True
+                active_document_scope = active_document.strip()
+                is_active_document_field = document_scope == active_document_scope
+
+                # Explicit modal ownership is evidence for an otherwise
+                # unscoped dialog field; it must not override contradictory
+                # evidence that the target belongs to a different offer.
+                if document_scope is not None and not is_active_document_field:
+                    return Validation(
+                        False,
+                        reason="write_text target is scoped to a different document",
+                    )
                 if not (is_active_document_field or is_owned_modal_field):
                     return Validation(
                         False,
@@ -285,7 +298,7 @@ class WindowHubResumableTaskHost:
                             "explicit owned-modal scope evidence"
                         ),
                     )
-            elif not metadata.get("uia_owned_modal") is True:
+            elif not is_owned_modal_field:
                 return Validation(
                     False,
                     reason=(
