@@ -19,7 +19,7 @@ jobs:
       - name: Install test dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install pytest python-dotenv python-docx openpyxl playwright "pypdf>=5.0.0" numpy opencv-python-headless
+          pip install pytest python-dotenv python-docx openpyxl playwright "pypdf>=5.0.0" "pymupdf>=1.24" rapidocr onnxruntime numpy opencv-python-headless
 
       - name: Install Playwright Chromium
         run: python -m playwright install --with-deps chromium
