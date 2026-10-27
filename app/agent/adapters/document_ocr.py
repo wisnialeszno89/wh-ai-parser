@@ -53,14 +53,21 @@ class OCRImageResult:
     average_confidence: float | None
 
 
+_CACHED_ENGINE: Any | None = None
+
+
 def _default_engine() -> Any:
+    global _CACHED_ENGINE
+    if _CACHED_ENGINE is not None:
+        return _CACHED_ENGINE
     try:
         from rapidocr import RapidOCR
     except ImportError as exc:
         raise RuntimeError(
             "RapidOCR is not installed; install the project requirements to read images."
         ) from exc
-    return RapidOCR()
+    _CACHED_ENGINE = RapidOCR()
+    return _CACHED_ENGINE
 
 
 def _regions_to_lines(regions: tuple[OCRTextRegion, ...]) -> str:
