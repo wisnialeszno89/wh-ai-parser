@@ -727,24 +727,33 @@ class WindowsUIAutomationProvider(PerceptionProvider):
             import ctypes
             from ctypes import wintypes
 
-            send_message = ctypes.windll.user32.SendMessageW
+            send_message = ctypes.windll.user32.SendMessageTimeoutW
             send_message.argtypes = (
                 wintypes.HWND,
                 wintypes.UINT,
                 wintypes.WPARAM,
                 wintypes.LPARAM,
+                wintypes.UINT,
+                wintypes.UINT,
+                ctypes.POINTER(ctypes.c_size_t),
             )
             send_message.restype = ctypes.c_ssize_t
-            # WM_MDIGETACTIVE is a read-only MDI query. lParam may point to
-            # a BOOL for the maximized state; passing NULL is sufficient here.
-            active_handle = int(
-                send_message(
-                    wintypes.HWND(mdi_client_handle),
-                    0x0229,
-                    0,
-                    0,
-                ) or 0
+            # WM_MDIGETACTIVE is a read-only MDI query. Bound the synchronous
+            # cross-process message so a nonresponsive application cannot hang
+            # local perception; SMTO_ABORTIFHUNG and a 1-second timeout fail closed.
+            active_result = ctypes.c_size_t(0)
+            succeeded = send_message(
+                wintypes.HWND(mdi_client_handle),
+                0x0229,
+                0,
+                0,
+                0x0002,
+                1000,
+                ctypes.byref(active_result),
             )
+            if not succeeded:
+                return None
+            active_handle = int(active_result.value or 0)
         except Exception:
             return None
         return active_handle if active_handle > 0 else None
