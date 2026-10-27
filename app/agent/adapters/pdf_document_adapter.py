@@ -339,7 +339,7 @@ class PdfDocumentAdapter(ApplicationAdapter):
                             )
                             if ocr_result.text:
                                 if page_text:
-                                    page_text = page_text + "\\n" + ocr_result.text.strip()
+                                    page_text = page_text + "\n" + ocr_result.text.strip()
                                 else:
                                     page_text = ocr_result.text.strip()
                                 extraction_confidence = ocr_result.average_confidence
