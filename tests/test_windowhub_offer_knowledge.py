@@ -44,3 +44,47 @@ def test_new_offer_navigation_respects_active_document_scope():
     assert "re-observe" in sequence
     assert "document_scope conflicts" in rules
     assert "never bypass the document-scope guard" in rules
+
+
+def test_windowhub_interface_guide_distinguishes_new_offers_from_other_workflows():
+    knowledge = get_windowhub_offer_knowledge()
+    guide = knowledge["interface_guide"]
+    controls = {item["label"]: item for item in guide["controls"]}
+
+    assert "Start1" in controls
+    assert "NOWA OFERTA" in controls
+    assert "ISTNIEJĄCE DOKUMENTY" in controls
+    assert "NOWE ZLECENIE" in controls
+    assert "NOWE ZAMÓWIENIE" in controls
+
+    assert "new quotation" in controls["NOWA OFERTA"]["meaning"]
+    assert "Starting a new quotation" not in controls["ISTNIEJĄCE DOKUMENTY"]["meaning"]
+    assert "Starting a new quotation" not in controls["NOWE ZLECENIE"]["meaning"]
+    assert "Re-observe" in controls["Start1"]["after_action"]
+    assert "different document" in controls["NOWA OFERTA"]["avoid_when"]
+
+
+def test_windowhub_interface_guide_labels_evidence_and_uncertain_icon_semantics():
+    knowledge = get_windowhub_offer_knowledge()
+    guide = knowledge["interface_guide"]
+    policy = " ".join(guide["icon_learning_policy"])
+    controls = {item["label"]: item for item in guide["controls"]}
+
+    assert "do not guess its meaning" in policy
+    assert "before/after" in policy
+    assert "screen coordinates" in policy
+    assert "AutomationId" in policy
+    assert "exact visible glyph not independently identified" in controls["Undo"]["evidence"]
+    assert "save/persist data" in controls["Zachowaj"]["risk"]
+    assert "occurs more than once" in controls["Otwórz"]["use_when"]
+
+
+def test_windowhub_interface_guide_is_json_serializable_for_task_reasoners():
+    import json
+
+    knowledge = get_windowhub_offer_knowledge()
+    payload = json.dumps(knowledge, ensure_ascii=False)
+
+    assert '"interface_guide"' in payload
+    assert '"NOWA OFERTA"' in payload
+    assert '"icon_learning_policy"' in payload
