@@ -5,6 +5,7 @@ import pytest
 from tools.live_windowhub_new_offer_open_smoke import (
     _initial_scene_problem,
     _plan_block_reason,
+    _start1_activation_problem,
 )
 
 
@@ -99,6 +100,74 @@ def test_guard_blocks_plans_that_require_manual_review_or_are_completed():
     assert _plan_block_reason(
         _plan(_action(), completed=True)
     ) == "The reasoner marked the goal complete without an action."
+
+
+def test_start1_activation_preflight_allows_resolved_other_document_with_unselected_start1():
+    scene = _valid_scene()
+    scene.active_document = "OFR/4005"
+    tab = scene.elements[0]
+    scene.elements = (
+        _element(
+            "Start1",
+            {
+                "uia_tab_scope": "document",
+                "uia_document_tab_selected": False,
+                "uia_visible": True,
+                "uia_enabled": True,
+            },
+            capability="selectable",
+        ),
+        scene.elements[1],
+    )
+
+    assert _start1_activation_problem(scene) is None
+
+
+def test_start1_activation_preflight_blocks_unresolved_active_document():
+    scene = _valid_scene()
+    scene.active_document = None
+
+    reason = _start1_activation_problem(scene)
+
+    assert reason is not None
+    assert "active document is unresolved" in reason
+
+
+def test_start1_activation_preflight_blocks_missing_or_ambiguous_tab():
+    scene = _valid_scene()
+    scene.elements = (scene.elements[1],)
+
+    reason = _start1_activation_problem(scene)
+
+    assert reason is not None
+    assert "Expected one Start1 document tab" in reason
+
+    duplicate_scene = _valid_scene()
+    duplicate_scene.elements += (
+        _element(
+            "Start1",
+            {
+                "uia_tab_scope": "document",
+                "uia_document_tab_selected": False,
+                "uia_visible": True,
+                "uia_enabled": True,
+            },
+            capability="selectable",
+        ),
+    )
+    reason = _start1_activation_problem(duplicate_scene)
+
+    assert reason is not None
+    assert "Expected one Start1 document tab" in reason
+
+
+def test_start1_activation_preflight_blocks_selection_conflict():
+    scene = _valid_scene()
+    scene.active_document = "OFR/4005"
+    reason = _start1_activation_problem(scene)
+
+    assert reason is not None
+    assert "selection conflicts" in reason
 
 
 def test_preflight_accepts_active_start1_and_unique_uia_button():
