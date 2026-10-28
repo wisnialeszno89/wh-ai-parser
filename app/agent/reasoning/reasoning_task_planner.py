@@ -48,6 +48,23 @@ class ReasoningTaskPlanner:
         }
     )
 
+    # These are request verbs, not proof that the user explicitly named a
+    # UI control. A scene may expose a button labelled "Otwórz"; in a request
+    # such as "Otwórz nową ofertę", that visible word is the command, not the
+    # intended target. Ignore it only when it occurs as the opening word.
+    _REQUEST_ACTION_VERBS = frozenset(
+        {
+            "open", "click", "press", "select", "choose", "activate",
+            "switch", "navigate", "launch", "create", "save", "close",
+            "type", "write", "read", "enter", "go",
+            "otwórz", "otworz", "kliknij", "naciśnij", "nacisnij",
+            "wybierz", "aktywuj", "przełącz", "przelacz", "zaznacz",
+            "uruchom", "stwórz", "stworz", "utwórz", "utworz",
+            "zapisz", "zamknij", "wpisz", "wprowadź", "wprowadz",
+            "przejdź", "przejdz", "otwieraj", "pokaż", "pokaz",
+        }
+    )
+
     def __init__(
         self,
         reasoner: TaskReasoner,
@@ -345,12 +362,23 @@ class ReasoningTaskPlanner:
                 + r"(?!\w)"
             )
 
-            if re.search(
-                pattern,
-                request,
-                flags=re.UNICODE,
+            matches = tuple(
+                re.finditer(pattern, request, flags=re.UNICODE)
+            )
+            if not matches:
+                continue
+
+            # A visible label that is identical to the imperative verb at
+            # the start of the request is not an explicit target mention.
+            # Other exact label mentions (for example "Testing" in
+            # "click the Testing tab") retain the strict mismatch guard.
+            if (
+                normalized_label in ReasoningTaskPlanner._REQUEST_ACTION_VERBS
+                and matches[0].start() == len(request) - len(request.lstrip())
             ):
-                candidates.add(normalized_label)
+                continue
+
+            candidates.add(normalized_label)
 
         return tuple(sorted(candidates))
 
