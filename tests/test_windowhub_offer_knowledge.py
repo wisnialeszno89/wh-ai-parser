@@ -61,7 +61,7 @@ def test_windowhub_interface_guide_distinguishes_new_offers_from_other_workflows
     assert "Starting a new quotation" not in controls["ISTNIEJĄCE DOKUMENTY"]["meaning"]
     assert "Starting a new quotation" not in controls["NOWE ZLECENIE"]["meaning"]
     assert "Re-observe" in controls["Start1"]["after_action"]
-    assert "different document" in controls["NOWA OFERTA"]["avoid_when"]
+    assert "scope conflicts with the active document" in controls["NOWA OFERTA"]["avoid_when"]
 
 
 def test_windowhub_interface_guide_labels_evidence_and_uncertain_icon_semantics():
