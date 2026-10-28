@@ -99,5 +99,5 @@ def test_windowhub_navigation_requires_observed_state_change_not_just_click_succ
 
     assert "guarded MDI activation path" in start_sequence
     assert "verifies the active document plus UIA selected state" in start_sequence
-    assert "not proof of navigation" in start_sequence
+    assert "as proof of navigation" in start_sequence
     assert "stop for review rather than retrying a generic coordinate click" in safety_rules
