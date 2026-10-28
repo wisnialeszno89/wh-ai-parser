@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 from app.runtime.execution.windowhub_mdi_tab_activator import (
     WM_MDIACTIVATE,
@@ -236,7 +236,7 @@ def test_activation_fails_closed_when_document_tab_is_ambiguous():
 
 def test_activation_fails_closed_when_uia_and_mdi_states_conflict():
     fixture, send_message = build_fixture(
-        active=fixture_active := 300,
+        active=300,
         selection_override={"Start1": False},
     )
 
@@ -245,7 +245,7 @@ def test_activation_fails_closed_when_uia_and_mdi_states_conflict():
     assert result.success is False
     assert result.executed is False
     assert "conflicts" in result.reason
-    assert fixture.state["active"] == fixture_active
+    assert fixture.state["active"] == 300
     assert not any(call[1] == WM_MDIACTIVATE for call in fixture.calls)
 
 
