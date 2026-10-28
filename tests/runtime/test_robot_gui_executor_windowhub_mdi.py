@@ -69,7 +69,7 @@ def make_context(*, foreground=100, foreground_owner=100):
     scene = ScreenScene(
         observation=observation,
         elements=(element,),
-        active_document="OFR/Test",
+        metadata={"active_document": "OFR/Test"},
     )
     request = AgentRequest(
         message="Activate the Start1 document tab.",
