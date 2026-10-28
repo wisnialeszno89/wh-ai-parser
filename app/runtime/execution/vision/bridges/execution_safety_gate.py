@@ -90,9 +90,11 @@ class ExecutionSafetyGate:
 
         UIA-only execution is intentionally narrower than the normal
         tracked-object path: it requires approved Windows UIA provenance,
-        an enabled/visible interactive control, positive clickable
+        an enabled/visible interactive control, positive interaction
         capability confidence, and (for LIVE execution) a matching
-        foreground window handle.
+        foreground window handle. Selectable capability is accepted only
+        for a uniquely identified WindowHub document tab; that narrow path
+        is still verified by the native MDI activator.
         """
 
         if not isinstance(metadata, dict):
@@ -128,7 +130,8 @@ class ExecutionSafetyGate:
             "treeitem",
         }
 
-        if control_type.strip().casefold() not in allowed_control_types:
+        normalized_control_type = control_type.strip().casefold()
+        if normalized_control_type not in allowed_control_types:
             return False
 
         capability = getattr(
@@ -140,7 +143,17 @@ class ExecutionSafetyGate:
         if not isinstance(capability, str):
             return False
 
-        if capability.strip().casefold() != "clickable":
+        normalized_capability = capability.strip().casefold()
+        is_windowhub_document_tab = (
+            metadata.get("source") == "windowhub_ui_automation"
+            and normalized_control_type == "tabitem"
+            and metadata.get("uia_tab_scope") == "document"
+            and isinstance(metadata.get("uia_document_tab_selected"), bool)
+        )
+        if normalized_capability != "clickable" and not (
+            normalized_capability == "selectable"
+            and is_windowhub_document_tab
+        ):
             return False
 
         try:
