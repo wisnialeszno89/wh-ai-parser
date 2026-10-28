@@ -425,7 +425,6 @@ class RobotGUIExecutor(ActionExecutor):
         return (
             is_windowhub_uia
             and metadata.get("uia_tab_scope") == "document"
-            and str(metadata.get("uia_control_type", "")).strip().casefold() == "tabitem"
             and isinstance(metadata.get("uia_document_tab_selected"), bool)
         )
 
