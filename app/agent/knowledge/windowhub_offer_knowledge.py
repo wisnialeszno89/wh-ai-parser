@@ -172,7 +172,7 @@ WINDOWHUB_OFFER_KNOWLEDGE: dict[str, object] = {
                 ),
                 "after_action": "Re-observe the scene and resolve Nowa oferta again.",
                 "risk": "navigation",
-                "evidence": "UIA label observed; routing rule covered by unit tests; live tab switch not yet verified",
+                "evidence": "UIA label observed; routing rule covered by unit tests; supervised live MDI activation verified on 2026-10-28; NOWA OFERTA dialog opening remains unverified.",
             },
             {
                 "label": "NOWA OFERTA",
