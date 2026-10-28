@@ -109,7 +109,7 @@ def _start1_activation_problem(scene) -> str | None:
         return "The Start1 document tab is not exposed as selectable."
 
     selected = metadata.get("uia_document_tab_selected")
-    if selected not in {None, True, False}:
+    if selected is not None and not isinstance(selected, bool):
         return "The Start1 tab selection state is malformed."
     if selected is True and active_document != "start1":
         return "UIA selection conflicts with the resolved active document."
