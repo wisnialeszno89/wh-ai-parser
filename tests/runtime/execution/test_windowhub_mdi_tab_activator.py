@@ -83,6 +83,8 @@ class FakeUIAElement:
     def iface_selection_item(self):
         if self.element_info.control_type.casefold() != "tabitem":
             raise AttributeError("SelectionItemPattern unavailable")
+        if self.state.get("selection_unavailable"):
+            raise AttributeError("SelectionItemPattern unavailable")
         return FakeSelectionItem(self)
 
 
@@ -114,10 +116,17 @@ class Fixture:
     offer_handle: int = 301
 
 
-def build_fixture(*, active=301, selection_override=None, duplicate_start1=False):
+def build_fixture(
+    *,
+    active=301,
+    selection_override=None,
+    duplicate_start1=False,
+    selection_unavailable=False,
+):
     state = {
         "active": active,
         "selection_override": dict(selection_override or {}),
+        "selection_unavailable": selection_unavailable,
     }
     root = FakeUIAElement(
         state, "Okna - Test", "Window", class_name="WindowHubMain", handle=100
@@ -258,4 +267,35 @@ def test_activation_fails_closed_if_windowhub_is_not_foreground():
     assert result.executed is False
     assert "not the foreground" in result.reason
     assert fixture.state["active"] == fixture.offer_handle
+    assert not any(call[1] == WM_MDIACTIVATE for call in fixture.calls)
+
+def test_live_activation_uses_native_mdi_state_when_uia_selection_is_unavailable():
+    fixture, send_message = build_fixture(selection_unavailable=True)
+
+    result = activate(fixture, send_message, live=True)
+
+    assert result.success is True
+    assert result.executed is True
+    assert result.before_selected is None
+    assert result.after_selected is None
+    assert result.active_before_target is False
+    assert result.active_after_target is True
+    assert "selection state is unavailable" in result.reason
+    assert fixture.state["active"] == fixture.start1_handle
+    assert sum(call[1] == WM_MDIACTIVATE for call in fixture.calls) == 1
+
+
+def test_already_active_native_target_succeeds_without_uia_selection_pattern():
+    fixture, send_message = build_fixture(
+        active=300,
+        selection_unavailable=True,
+    )
+
+    result = activate(fixture, send_message, live=True)
+
+    assert result.success is True
+    assert result.executed is False
+    assert result.before_selected is None
+    assert result.active_before_target is True
+    assert result.active_after_target is True
     assert not any(call[1] == WM_MDIACTIVATE for call in fixture.calls)
