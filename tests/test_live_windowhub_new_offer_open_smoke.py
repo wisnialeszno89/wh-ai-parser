@@ -113,7 +113,20 @@ def test_preflight_blocks_when_start1_is_not_active():
     assert "Start1 is not the active document" in reason
 
 
-def test_preflight_blocks_when_start1_selection_is_not_verified():
+def test_preflight_allows_missing_uia_selection_when_active_document_is_verified():
+    scene = _valid_scene()
+    scene.elements = (
+        _element(
+            "Start1",
+            {"uia_tab_scope": "document"},
+            capability="selectable",
+        ),
+        scene.elements[1],
+    )
+    assert _initial_scene_problem(scene) is None
+
+
+def test_preflight_blocks_when_start1_selection_conflicts_with_active_document():
     scene = _valid_scene()
     scene.elements = (
         _element(
@@ -128,7 +141,24 @@ def test_preflight_blocks_when_start1_selection_is_not_verified():
     )
     reason = _initial_scene_problem(scene)
     assert reason is not None
-    assert "selection is not positively verified" in reason
+    assert "selection conflicts" in reason
+
+
+@pytest.mark.parametrize("scope", ["OFR/4005", None])
+def test_preflight_blocks_missing_or_conflicting_offer_document_scope(scope):
+    scene = _valid_scene()
+    button = scene.elements[1]
+    metadata = dict(button.metadata)
+    if scope is None:
+        metadata.pop("document_scope", None)
+    else:
+        metadata["document_scope"] = scope
+    scene.elements = (scene.elements[0], _element("NOWA OFERTA", metadata))
+
+    reason = _initial_scene_problem(scene)
+
+    assert reason is not None
+    assert "document_scope does not match" in reason
 
 
 def test_preflight_blocks_duplicate_or_non_uia_offer_targets():
