@@ -163,6 +163,7 @@ jobs:
             tools/preview_local_document_ocr.py \
             tools/diagnose_windowhub_field_scope.py \
             tools/diagnose_windowhub_semantics.py \
+            tools/live_windowhub_mdi_tab_smoke.py \
             tests/test_windowhub_agent_runtime.py \
             tests/test_windowhub_win32_form_provider.py \
             tests/test_hough_line_normalizer.py \
