@@ -121,6 +121,9 @@ jobs:
       - name: Run verified WindowHub MDI tab activation tests
         run: pytest -q tests/runtime/execution/test_windowhub_mdi_tab_activator.py tests/runtime/execution/test_robot_action_executor_uia_mdi.py tests/runtime/test_robot_gui_executor_windowhub_mdi.py
 
+      - name: Run one-action WindowHub new-offer dialog guard tests
+        run: pytest -q tests/test_live_windowhub_new_offer_open_smoke.py
+
       - name: Run resumable WindowHub task and checkpoint tests
         run: |
           pytest -q \
@@ -164,6 +167,8 @@ jobs:
             tools/diagnose_windowhub_field_scope.py \
             tools/diagnose_windowhub_semantics.py \
             tools/live_windowhub_mdi_tab_smoke.py \
+            tools/live_windowhub_new_offer_open_smoke.py \
+            tests/test_live_windowhub_new_offer_open_smoke.py \
             tests/test_windowhub_agent_runtime.py \
             tests/test_windowhub_win32_form_provider.py \
             tests/test_hough_line_normalizer.py \
