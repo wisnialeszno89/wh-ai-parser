@@ -1,5 +1,15 @@
 from __future__ import annotations
 
+import os
+
+import pytest
+
+if os.name != "nt":
+    pytest.skip(
+        "RobotActionExecutor integration tests require Windows ctypes.windll.",
+        allow_module_level=True,
+    )
+
 from app.agent.perception.interaction_capability import InteractionCapability
 from app.agent.perception.screen_element import ScreenElement
 from app.runtime.execution.interactions.interaction_action import InteractionAction
