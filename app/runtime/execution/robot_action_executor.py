@@ -228,6 +228,7 @@ class RobotActionExecutor:
         text_value: str | None = None,
         screen_origin: tuple[int, int] | None = None,
         window_handle=None,
+        root_window_handle=None,
     ) -> RobotActionResult:
         """
         Execute a click against a semantic UI Automation element.
@@ -323,6 +324,42 @@ class RobotActionExecutor:
                 target_id=self._uia_target_id(metadata),
                 confidence=confidence,
                 reason="UIA safety gate rejected action",
+            )
+
+        # WindowHub MDI document tabs require verified document activation.
+        # Do not fall back to a coordinate click if native activation fails.
+        fusion_sources = metadata.get("fusion_sources") or ()
+        is_windowhub_uia = (
+            metadata.get("source") == "windowhub_ui_automation"
+            or "windowhub_ui_automation" in fusion_sources
+        )
+        is_document_tab = (
+            action is InteractionAction.CLICK
+            and is_windowhub_uia
+            and metadata.get("uia_tab_scope") == "document"
+            and str(metadata.get("uia_control_type", "")).strip().casefold() == "tabitem"
+            and isinstance(metadata.get("uia_document_tab_selected"), bool)
+        )
+        if is_document_tab:
+            from app.runtime.execution.windowhub_mdi_tab_activator import (
+                activate_windowhub_mdi_document_tab,
+            )
+
+            label = getattr(screen_element, "label", None)
+            root_handle = root_window_handle or window_handle
+            activation = activate_windowhub_mdi_document_tab(
+                target_label=label,
+                window_handle=root_handle,
+                live=self.mode is RobotExecutionMode.LIVE,
+            )
+            return RobotActionResult(
+                success=activation.success,
+                action=action,
+                mode=self.mode,
+                executed=activation.executed,
+                target_id=self._uia_target_id(metadata),
+                confidence=confidence,
+                reason=activation.reason,
             )
 
         x = getattr(screen_element, "x", None)
