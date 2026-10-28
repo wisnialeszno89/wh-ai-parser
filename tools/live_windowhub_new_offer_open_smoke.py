@@ -72,6 +72,166 @@ def _offer_dialog_detected(scene) -> bool:
     return "ok" in labels and "anuluj" in labels
 
 
+def _start1_activation_problem(scene) -> str | None:
+    """Validate a single, bounded attempt to activate the Start1 document tab."""
+    if scene is None:
+        return "Initial WindowHub scene is unavailable."
+
+    active_document = _normalize_label(
+        getattr(scene, "active_document", None)
+    )
+    if not active_document:
+        return "The active document is unresolved; refusing tab activation."
+
+    tabs = [
+        element
+        for element in tuple(getattr(scene, "elements", ()) or ())
+        if (
+            _label(element) == "start1"
+            and _metadata(element).get("uia_tab_scope") == "document"
+        )
+    ]
+    if len(tabs) != 1:
+        return f"Expected one Start1 document tab; found {len(tabs)}."
+
+    metadata = _metadata(tabs[0])
+    if metadata.get("uia_visible") is not True:
+        return "The Start1 document tab is not confirmed visible."
+    if metadata.get("uia_enabled") is not True:
+        return "The Start1 document tab is not confirmed enabled."
+
+    capability = getattr(
+        getattr(tabs[0], "interaction_capability", None),
+        "value",
+        getattr(tabs[0], "interaction_capability", None),
+    )
+    if capability not in {"selectable", "clickable"}:
+        return "The Start1 document tab is not exposed as selectable."
+
+    selected = metadata.get("uia_document_tab_selected")
+    if selected is not None and not isinstance(selected, bool):
+        return "The Start1 tab selection state is malformed."
+    if selected is True and active_document != "start1":
+        return "UIA selection conflicts with the resolved active document."
+    if selected is False and active_document == "start1":
+        return "UIA selection conflicts with the resolved active document."
+
+    return None
+
+
+def _activate_start1_once(control_loop, before_scene) -> dict:
+    """Activate Start1 through the normal GUI executor and verify the new scene."""
+    from app.agent.agent_action import AgentAction
+    from app.agent.agent_request import AgentRequest
+    from app.agent.execution.robot_gui_executor import RobotGUIExecutor
+    from app.agent.runtime.execution_context import ExecutionContext
+    from app.runtime.execution.robot_action_executor import RobotExecutionMode
+
+    problem = _start1_activation_problem(before_scene)
+    if problem is not None:
+        return {
+            "attempted": False,
+            "executed": False,
+            "verified": False,
+            "scene": before_scene,
+            "error": problem,
+        }
+
+    executors = [
+        item
+        for item in control_loop.verification_loop.execution_engine.registry.all()
+        if isinstance(item, RobotGUIExecutor)
+    ]
+    if len(executors) != 1:
+        return {
+            "attempted": False,
+            "executed": False,
+            "verified": False,
+            "scene": before_scene,
+            "error": f"Expected exactly one RobotGUIExecutor; found {len(executors)}.",
+        }
+
+    executor = executors[0]
+    if executor.robot_action_executor.mode is not RobotExecutionMode.LIVE:
+        return {
+            "attempted": False,
+            "executed": False,
+            "verified": False,
+            "scene": before_scene,
+            "error": "The executor is not in LIVE mode.",
+        }
+
+    request = AgentRequest(
+        message="Activate the uniquely identified Start1 document tab.",
+        session_id=f"windowhub-new-offer-start1-{uuid4().hex}",
+        salesman_id="controlled-smoke-test",
+        metadata={"target_application": "WindowHub"},
+    )
+    context = ExecutionContext(request=request, current_scene=before_scene)
+
+    result = executor.execute(
+        AgentAction(
+            name="click_screen_element",
+            description="Activate the verified Start1 document tab through the WindowHub MDI navigation path.",
+            target="Start1",
+            requires_environment_observation=True,
+        ),
+        context,
+    )
+    result_metadata = getattr(result, "metadata", {}) or {}
+    if not isinstance(result_metadata, dict):
+        result_metadata = {}
+    executed = result_metadata.get("executed") is True
+
+    if not getattr(result, "success", False) or not executed:
+        return {
+            "attempted": True,
+            "executed": executed,
+            "verified": False,
+            "scene": before_scene,
+            "execution_path": result_metadata.get("execution_path"),
+            "error": getattr(result, "message", None) or (
+                "The Start1 activation was not confirmed by the executor."
+            ),
+        }
+
+    after_scene = control_loop.observe_scene()
+    after_tabs = [
+        element
+        for element in tuple(getattr(after_scene, "elements", ()) or ())
+        if (
+            _label(element) == "start1"
+            and _metadata(element).get("uia_tab_scope") == "document"
+        )
+    ]
+    selected_after = (
+        _metadata(after_tabs[0]).get("uia_document_tab_selected")
+        if len(after_tabs) == 1
+        else None
+    )
+    active_after = _normalize_label(
+        getattr(after_scene, "active_document", None)
+    ) == "start1"
+    verified = (
+        len(after_tabs) == 1
+        and active_after
+        and selected_after is not False
+    )
+
+    return {
+        "attempted": True,
+        "executed": True,
+        "verified": verified,
+        "scene": after_scene,
+        "execution_path": result_metadata.get("execution_path"),
+        "active_document_after": getattr(after_scene, "active_document", None),
+        "selected_after": selected_after,
+        "error": None if verified else (
+            "Start1 activation was issued, but the post-action scene did not verify it."
+        ),
+    }
+
+
 def _initial_scene_problem(scene) -> str | None:
     if scene is None:
         return "Initial WindowHub scene is unavailable."
@@ -315,16 +475,61 @@ def main() -> int:
             return 5
 
         before_scene = control_loop.observe_scene()
+        active_document_before_any_action = getattr(
+            before_scene,
+            "active_document",
+            None,
+        )
+        start1_activation = {
+            "attempted": False,
+            "executed": False,
+            "verified": _normalize_label(active_document_before_any_action) == "start1",
+            "scene": before_scene,
+            "error": None,
+        }
+
+        # Do not ask the user to manually repeat tab selection. If Start1 is
+        # not active, perform exactly one guarded MDI-tab activation, verify
+        # the new scene, then continue to the existing one-click offer flow.
+        if _normalize_label(active_document_before_any_action) != "start1":
+            start1_activation = _activate_start1_once(
+                control_loop,
+                before_scene,
+            )
+            if not start1_activation["verified"]:
+                print(json.dumps({
+                    "result": "ABORTED",
+                    "phase": "start1_activation",
+                    "error": start1_activation.get("error"),
+                    "active_document_before": active_document_before_any_action,
+                    "active_document_after": start1_activation.get("active_document_after"),
+                    "start1_activation_attempted": start1_activation["attempted"],
+                    "start1_activation_executed": start1_activation["executed"],
+                    "start1_activation_verified": False,
+                    "execution_path": start1_activation.get("execution_path"),
+                    "offer_data_entered": False,
+                    "offer_saved": False,
+                    "gui_actions_executed": 1 if start1_activation["executed"] else 0,
+                    "offer_click_executed": False,
+                }, ensure_ascii=False, indent=2))
+                return 5
+            before_scene = start1_activation["scene"]
+
         scene_problem = _initial_scene_problem(before_scene)
         if scene_problem is not None:
             print(json.dumps({
                 "result": "ABORTED",
                 "phase": "preconditions",
                 "error": scene_problem,
-                "active_document_before": getattr(before_scene, "active_document", None),
+                "active_document_before": active_document_before_any_action,
+                "active_document_before_offer_click": getattr(before_scene, "active_document", None),
+                "start1_activation_attempted": start1_activation["attempted"],
+                "start1_activation_executed": start1_activation["executed"],
+                "start1_activation_verified": start1_activation["verified"],
                 "offer_data_entered": False,
                 "offer_saved": False,
-                "gui_actions_executed": 0,
+                "gui_actions_executed": 1 if start1_activation["executed"] else 0,
+                "offer_click_executed": False,
             }, ensure_ascii=False, indent=2))
             return 5
 
@@ -369,9 +574,12 @@ def main() -> int:
                 "task_reasoner": type(reasoner).__name__,
                 "planned_action": guard_state.get("allowed_action"),
                 "action_executed": False,
+                "start1_activation_executed": start1_activation["executed"],
+                "start1_activation_verified": start1_activation["verified"],
                 "offer_data_entered": False,
                 "offer_saved": False,
-                "gui_actions_executed": 0,
+                "gui_actions_executed": 1 if start1_activation["executed"] else 0,
+                "offer_click_executed": False,
             }, ensure_ascii=False, indent=2))
             return 6
 
@@ -399,9 +607,12 @@ def main() -> int:
                 "task_reasoner": type(reasoner).__name__,
                 "reasoned_plan_candidate": candidate,
                 "action_executed": False,
+                "start1_activation_executed": start1_activation["executed"],
+                "start1_activation_verified": start1_activation["verified"],
                 "offer_data_entered": False,
                 "offer_saved": False,
-                "gui_actions_executed": 0,
+                "gui_actions_executed": 1 if start1_activation["executed"] else 0,
+                "offer_click_executed": False,
             }, ensure_ascii=False, indent=2))
             return 6
 
@@ -426,8 +637,12 @@ def main() -> int:
             "windowhub_title": _window_title(hwnd),
             "task_reasoner": type(reasoner).__name__,
             "planned_action": planned_action,
-            "active_document_before": getattr(before_scene, "active_document", None),
+            "active_document_before": active_document_before_any_action,
+            "active_document_before_offer_click": getattr(before_scene, "active_document", None),
             "active_document_after": after_active_document,
+            "start1_activation_attempted": start1_activation["attempted"],
+            "start1_activation_executed": start1_activation["executed"],
+            "start1_activation_verified": start1_activation["verified"],
             "execution_path": details["execution_path"],
             "execution_success": details["execution_success"],
             "action_executed": details["action_executed"],
@@ -438,8 +653,12 @@ def main() -> int:
             "observed_labels_after": _visible_labels(after_scene),
             "offer_data_entered": False,
             "offer_saved": False,
-            "gui_actions_allowed": 1,
-            "gui_actions_executed": 1 if details["action_executed"] else 0,
+            "gui_actions_allowed": 2,
+            "gui_actions_executed": (
+                (1 if start1_activation["executed"] else 0)
+                + (1 if details["action_executed"] else 0)
+            ),
+            "offer_click_executed": details["action_executed"],
             "additional_gui_actions": 0,
         }
         print(json.dumps(report, ensure_ascii=False, indent=2))
@@ -450,7 +669,19 @@ def main() -> int:
             "result": "FAIL",
             "phase": "safe_execution",
             "error_type": type(exc).__name__,
-            "error": "The one-action smoke test stopped. No follow-up action is attempted.",
+            "error": "The bounded WindowHub smoke stopped. No follow-up action is attempted.",
+            "start1_activation_executed": (
+                start1_activation.get("executed", False)
+                if "start1_activation" in locals()
+                else False
+            ),
+            "offer_click_executed": False,
+            "gui_actions_executed": (
+                1 if (
+                    "start1_activation" in locals()
+                    and start1_activation.get("executed", False)
+                ) else 0
+            ),
             "offer_data_entered": False,
             "offer_saved": False,
         }, ensure_ascii=False, indent=2))
