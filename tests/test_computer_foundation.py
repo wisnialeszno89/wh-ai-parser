@@ -32,7 +32,7 @@ def test_computer_foundation_contains_core_gui_knowledge():
     knowledge = get_computer_foundation_knowledge()
 
     assert knowledge["name"] == "Computer Foundation"
-    assert knowledge["version"] == "1"
+    assert knowledge["version"] == "2"
 
     ui_model = knowledge["ui_model"]
 
@@ -51,6 +51,35 @@ def test_computer_foundation_contains_core_gui_knowledge():
     assert "verification_rules" in knowledge
     assert "ambiguity_rules" in knowledge
     assert "execution_boundary" in knowledge
+
+
+def test_computer_foundation_covers_windows_linux_and_macos():
+    knowledge = get_computer_foundation_knowledge()
+
+    platforms = knowledge["platforms"]
+    assert set(platforms) == {"windows", "linux", "macos"}
+
+    assert "File Explorer" in platforms["windows"]["common_surfaces"]
+    assert "/home/<user>" in platforms["linux"]["path_conventions"]
+    assert "/Users/<user>" in platforms["macos"]["path_conventions"]
+
+    for platform in platforms.values():
+        assert platform["safety"]
+        assert platform["navigation_conventions"]
+
+
+def test_computer_foundation_prioritizes_observed_state_and_approved_capabilities():
+    knowledge = get_computer_foundation_knowledge()
+
+    cross_platform = knowledge["cross_platform_model"]
+    assert "observed world" in cross_platform["environment_discovery"]
+    assert "approved filesystem adapter" in cross_platform["paths_and_storage"]
+    assert "not proof" in cross_platform["capability_discovery"]
+
+    missions = knowledge["mission_patterns"]
+    assert "sending" in missions["email_and_messaging"]
+    assert "verify" in missions["spreadsheets"]
+    assert "untrusted data" in missions["browser_work"]
 
 
 def test_computer_foundation_returns_isolated_copy():
@@ -105,6 +134,6 @@ def test_orchestrator_injects_computer_foundation_into_reasoning_context():
     foundation = local["computer_foundation"]
 
     assert foundation["name"] == "Computer Foundation"
-    assert foundation["version"] == "1"
+    assert foundation["version"] == "2"
     assert "button" in foundation["ui_model"]
     assert "tabitem" in foundation["ui_model"]
