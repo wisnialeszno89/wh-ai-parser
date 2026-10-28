@@ -88,3 +88,16 @@ def test_windowhub_interface_guide_is_json_serializable_for_task_reasoners():
     assert '"interface_guide"' in payload
     assert '"NOWA OFERTA"' in payload
     assert '"icon_learning_policy"' in payload
+
+
+def test_windowhub_navigation_requires_observed_state_change_not_just_click_success():
+    knowledge = get_windowhub_offer_knowledge()
+    start_sequence = " ".join(
+        knowledge["workflow"][0]["preferred_action_sequence"]
+    )
+    safety_rules = " ".join(knowledge["safety_rules"])
+
+    assert "guarded MDI activation path" in start_sequence
+    assert "verifies the active document plus UIA selected state" in start_sequence
+    assert "as proof of navigation" in start_sequence
+    assert "stop for review rather than retrying a generic coordinate click" in safety_rules

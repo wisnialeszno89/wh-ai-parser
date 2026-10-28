@@ -118,6 +118,9 @@ jobs:
       - name: Run WindowHub interface knowledge tests
         run: pytest -q tests/test_windowhub_offer_knowledge.py
 
+      - name: Run verified WindowHub MDI tab activation tests
+        run: pytest -q tests/runtime/execution/test_windowhub_mdi_tab_activator.py tests/runtime/execution/test_robot_action_executor_uia_mdi.py tests/runtime/test_robot_gui_executor_windowhub_mdi.py
+
       - name: Run resumable WindowHub task and checkpoint tests
         run: |
           pytest -q \
@@ -147,6 +150,7 @@ jobs:
             app/agent/adapters/excel_annual_xy_aggregation.py \
             app/agent/runtime/windowhub_agent_runtime.py \
             app/agent/runtime/windowhub_resumable_task_host.py \
+            app/runtime/execution/windowhub_mdi_tab_activator.py \
             app/agent/runtime/windows_desktop_agent_runtime.py \
             app/agent/runtime/windows_desktop_agent_control_loop.py \
             tools/run_windows_desktop_agent.py \
@@ -159,6 +163,7 @@ jobs:
             tools/preview_local_document_ocr.py \
             tools/diagnose_windowhub_field_scope.py \
             tools/diagnose_windowhub_semantics.py \
+            tools/live_windowhub_mdi_tab_smoke.py \
             tests/test_windowhub_agent_runtime.py \
             tests/test_windowhub_win32_form_provider.py \
             tests/test_hough_line_normalizer.py \
