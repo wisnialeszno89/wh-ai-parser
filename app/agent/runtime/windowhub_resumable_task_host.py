@@ -84,6 +84,90 @@ class WindowHubResumableTaskHost:
             verify_final_state=self.final_verifier,
         )
 
+    @staticmethod
+    def _route_cross_document_new_offer_click_to_start1(proposed, scene):
+        """Prefer the unselected Start1 tab before a cross-document new-offer click.
+
+        WindowHub can expose the global "Nowa oferta" button beneath the
+        inactive Start1 MDI child. When the planned click targets that button
+        but its explicit document_scope differs from the active document,
+        switch context only if one visible, enabled, unselected Start1
+        document tab is uniquely identified. The caller must re-observe before
+        attempting the new-offer button again.
+        """
+        if (
+            getattr(proposed, "name", None) != "click_screen_element"
+            or not isinstance(getattr(proposed, "target", None), str)
+            or proposed.target.strip().casefold() != "nowa oferta"
+        ):
+            return proposed
+
+        active_document = getattr(scene, "active_document", None)
+        if not isinstance(active_document, str) or not active_document.strip():
+            return proposed
+        active_document = active_document.strip()
+
+        elements = tuple(getattr(scene, "elements", ()) or ())
+        offer_buttons = [
+            element
+            for element in elements
+            if (
+                str(getattr(element, "kind", "") or "").strip().casefold() == "button"
+                and isinstance(getattr(element, "label", None), str)
+                and element.label.strip().casefold() == "nowa oferta"
+            )
+        ]
+        if len(offer_buttons) != 1:
+            return proposed
+
+        button_metadata = getattr(offer_buttons[0], "metadata", None)
+        if not isinstance(button_metadata, Mapping):
+            return proposed
+        button_scope = button_metadata.get("document_scope")
+        if (
+            not isinstance(button_scope, str)
+            or not button_scope.strip()
+            or button_scope.strip() == active_document
+        ):
+            return proposed
+
+        start1_tabs = [
+            element
+            for element in elements
+            if (
+                str(getattr(element, "kind", "") or "").strip().casefold() == "tabitem"
+                and isinstance(getattr(element, "label", None), str)
+                and element.label.strip().casefold() == "start1"
+                and isinstance(getattr(element, "metadata", None), Mapping)
+                and element.metadata.get("uia_tab_scope") == "document"
+            )
+        ]
+        if len(start1_tabs) != 1:
+            return proposed
+
+        tab = start1_tabs[0]
+        tab_metadata = tab.metadata
+        if not (
+            tab_metadata.get("uia_document_tab_selected") is False
+            and tab_metadata.get("uia_visible") is True
+            and tab_metadata.get("uia_enabled") is True
+        ):
+            return proposed
+
+        return AgentAction(
+            name="click_screen_element",
+            description=(
+                "Select the uniquely identified, unselected Start1 document tab "
+                "before retrying Nowa oferta, because the button currently belongs "
+                "to a different document. Re-observe the interface after switching."
+            ),
+            requires_confirmation=bool(
+                getattr(proposed, "requires_confirmation", False)
+            ),
+            target=tab.label.strip(),
+            requires_environment_observation=True,
+        )
+
     def _plan_next(self, checkpoint: TaskCheckpoint, scene: object) -> PlanDecision:
         remaining = checkpoint.max_reasoning_calls - checkpoint.reasoning_calls
         if remaining < 1:
@@ -146,6 +230,7 @@ class WindowHubResumableTaskHost:
             )
 
         proposed = steps[0].action
+        proposed = self._route_cross_document_new_offer_click_to_start1(proposed, scene)
         if proposed.name not in _ALLOWED_GUI_ACTIONS:
             return PlanDecision(
                 unresolved_issues=(
@@ -315,6 +400,35 @@ class WindowHubResumableTaskHost:
             return Validation(False, reason=f"semantic_target_resolution_failed:{type(exc).__name__}")
         if not resolution.resolved or resolution.element is None:
             return Validation(False, reason=resolution.reason or "semantic target unresolved")
+        if action.name == "click_screen_element":
+            metadata = getattr(resolution.element, "metadata", None) or {}
+            if not isinstance(metadata, Mapping):
+                metadata = {}
+            active_document = getattr(scene, "active_document", None)
+            raw_scope = metadata.get("document_scope")
+            document_scope = (
+                raw_scope.strip()
+                if isinstance(raw_scope, str) and raw_scope.strip()
+                else None
+            )
+            if (
+                isinstance(active_document, str)
+                and active_document.strip()
+                and document_scope is not None
+                and document_scope != active_document.strip()
+            ):
+                is_unselected_document_tab = (
+                    str(getattr(resolution.element, "kind", "") or "").strip().casefold()
+                    == "tabitem"
+                    and metadata.get("uia_tab_scope") == "document"
+                    and metadata.get("uia_document_tab_selected") is False
+                )
+                if not is_unselected_document_tab:
+                    return Validation(
+                        False,
+                        reason="click target is scoped to a different document",
+                    )
+
         if action.name == "write_text":
             metadata = getattr(resolution.element, "metadata", None) or {}
             if not isinstance(metadata, Mapping):

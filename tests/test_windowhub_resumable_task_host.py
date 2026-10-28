@@ -754,3 +754,87 @@ def test_pdf_to_windowhub_draft_e2e_requires_approval_then_verifies_saved_draft(
     assert runtime.get_resumable_task(task_id) == current
     assert orchestrator.application_knowledge["application"] == "WindowHub"
 
+
+
+def test_new_offer_cross_document_click_routes_to_unique_unselected_start1():
+    control = SimulatedWindowHubControlLoop()
+    control.scene = FakeScene(
+        [
+            FakeElement(
+                "button",
+                "Nowa oferta",
+                metadata={
+                    "document_scope": "Start1",
+                    "uia_visible": True,
+                    "uia_enabled": True,
+                },
+            ),
+            FakeElement(
+                "tabitem",
+                "Start1",
+                metadata={
+                    "uia_tab_scope": "document",
+                    "uia_document_tab_selected": False,
+                    "uia_visible": True,
+                    "uia_enabled": True,
+                },
+            ),
+            FakeElement(
+                "tabitem",
+                "OFR/3419",
+                metadata={
+                    "uia_tab_scope": "document",
+                    "uia_document_tab_selected": True,
+                },
+            ),
+        ],
+        active_document="OFR/3419",
+    )
+    host = WindowHubResumableTaskHost(
+        control_loop=control,
+        orchestrator=SimulatedOfferOrchestrator(),
+    )
+    checkpoint = TaskCheckpoint(
+        "start1-cross-document-route",
+        "Prepare a new WindowHub offer",
+    )
+
+    decision = host._plan_next(checkpoint, control.scene)
+
+    assert decision.action is not None
+    assert decision.action.name == "click_screen_element"
+    assert decision.action.target == "Start1"
+    assert "Re-observe" in decision.action.expected_state["description"]
+    assert control.executed_targets == []
+
+    validation = host._validate_target(decision.action, control.scene)
+    assert validation.valid is True
+
+
+def test_click_target_with_conflicting_document_scope_is_rejected():
+    scene = FakeScene(
+        [
+            FakeElement(
+                "button",
+                "Nowa oferta",
+                metadata={
+                    # Deliberately make the normal resolver's tracked-ID path
+                    # return this control so the host-level scope guard is tested.
+                    "tracked_object_id": "Nowa oferta",
+                    "document_scope": "Start1",
+                },
+            )
+        ],
+        active_document="OFR/3419",
+    )
+    action = TaskAction(
+        action_id="cross-document-click",
+        name="click_screen_element",
+        target="Nowa oferta",
+        scene_fingerprint="test-scene",
+    )
+
+    validation = WindowHubResumableTaskHost._validate_target(action, scene)
+
+    assert validation.valid is False
+    assert validation.reason == "click target is scoped to a different document"
