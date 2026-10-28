@@ -115,6 +115,9 @@ jobs:
             tests/test_diagnose_windowhub_semantics.py \
             tests/test_windows_desktop_agent_runtime.py
 
+      - name: Run WindowHub interface knowledge tests
+        run: pytest -q tests/test_windowhub_offer_knowledge.py
+
       - name: Run resumable WindowHub task and checkpoint tests
         run: |
           pytest -q \
