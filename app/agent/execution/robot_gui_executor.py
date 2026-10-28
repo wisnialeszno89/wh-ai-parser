@@ -95,6 +95,36 @@ class RobotGUIExecutor(ActionExecutor):
 
         element = resolution.element
 
+        if (
+            action.name == "click_screen_element"
+            and self._is_windowhub_document_tab_target(element)
+        ):
+            window_handle = self._window_handle(context)
+            root_window_handle = self._root_window_handle(context)
+            result = self.robot_action_executor.execute_uia_screen_element(
+                screen_element=element,
+                action=InteractionAction.CLICK,
+                screen_origin=self._screen_origin(context),
+                window_handle=window_handle,
+                root_window_handle=root_window_handle,
+            )
+            return ExecutionResult(
+                action_name=action.name,
+                success=result.success,
+                message=result.reason,
+                requires_manual_review=not result.success,
+                metadata={
+                    "target": element.label,
+                    "target_id": result.target_id,
+                    "resolution_score": resolution.score,
+                    "executed": result.executed,
+                    "execution_path": "windowhub_mdi_tab",
+                    "control_type": element.kind,
+                    "uia_control_type": (element.metadata or {}).get("uia_control_type"),
+                    "tab_scope": (element.metadata or {}).get("uia_tab_scope"),
+                },
+            )
+
         target_id = self._tracked_object_id(element)
 
         if action.name == "write_text":
@@ -332,29 +362,72 @@ class RobotGUIExecutor(ActionExecutor):
 
         if observation is None:
             scene = context.current_scene
-            observation = getattr(
-                scene,
-                "observation",
-                None,
-            )
+            observation = getattr(scene, "observation", None)
 
         if observation is None:
             return None
 
-        # For LIVE UIA execution the foreground window is the safest
-        # execution scope. WindowHub may put controls inside a modal child
-        # window while the root application handle remains unchanged.
-        value = observation.metadata.get(
-            "foreground_window_handle",
-            observation.metadata.get("window_handle"),
-        )
+        metadata = observation.metadata
+        root_value = metadata.get("window_handle")
+        foreground_value = metadata.get("foreground_window_handle")
+        foreground_owner_value = metadata.get("foreground_root_owner_handle")
 
         try:
-            handle = int(value)
+            root_handle = int(root_value)
+        except (TypeError, ValueError):
+            root_handle = 0
+
+        try:
+            foreground_handle = int(foreground_value)
+        except (TypeError, ValueError):
+            foreground_handle = 0
+
+        try:
+            foreground_owner = int(foreground_owner_value)
+        except (TypeError, ValueError):
+            foreground_owner = 0
+
+        # A foreground child dialog may be used as the execution boundary
+        # only when Windows explicitly reports that it belongs to WindowHub.
+        # Never accidentally authorize the PowerShell or another foreground
+        # application just because it owns the current foreground handle.
+        if root_handle > 0:
+            if foreground_handle == root_handle:
+                return root_handle
+            if foreground_handle > 0 and foreground_owner == root_handle:
+                return foreground_handle
+            return root_handle
+
+        return foreground_handle if foreground_handle > 0 else None
+
+    @staticmethod
+    def _root_window_handle(context: ExecutionContext) -> int | None:
+        observation = context.last_observation
+        if observation is None:
+            scene = context.current_scene
+            observation = getattr(scene, "observation", None)
+        if observation is None:
+            return None
+        try:
+            handle = int(observation.metadata.get("window_handle"))
         except (TypeError, ValueError):
             return None
-
         return handle if handle > 0 else None
+
+    @staticmethod
+    def _is_windowhub_document_tab_target(element) -> bool:
+        metadata = element.metadata or {}
+        fusion_sources = metadata.get("fusion_sources") or ()
+        is_windowhub_uia = (
+            metadata.get("source") == "windowhub_ui_automation"
+            or "windowhub_ui_automation" in fusion_sources
+        )
+        return (
+            is_windowhub_uia
+            and metadata.get("uia_tab_scope") == "document"
+            and str(metadata.get("uia_control_type", "")).strip().casefold() == "tabitem"
+            and isinstance(metadata.get("uia_document_tab_selected"), bool)
+        )
 
     @staticmethod
     def _is_guarded_uia_target(element) -> bool:
