@@ -180,7 +180,8 @@ def build_fixture(
         if message == WM_MDIGETACTIVE:
             return state["active"]
         if message == WM_MDIACTIVATE:
-            state["active"] = lparam
+            assert lparam == 0
+            state["active"] = wparam
             return 0
         raise AssertionError(f"Unexpected message: {message}")
 
@@ -228,7 +229,14 @@ def test_live_activation_sends_one_mdi_message_and_verifies_both_states():
     assert result.active_before_target is False
     assert result.active_after_target is True
     assert fixture.state["active"] == fixture.start1_handle
-    assert sum(call[1] == WM_MDIACTIVATE for call in fixture.calls) == 1
+    activation_calls = [call for call in fixture.calls if call[1] == WM_MDIACTIVATE]
+    assert len(activation_calls) == 1
+    assert activation_calls[0] == (
+        fixture.mdi_handle,
+        WM_MDIACTIVATE,
+        fixture.start1_handle,
+        0,
+    )
 
 
 def test_activation_fails_closed_when_document_tab_is_ambiguous():
