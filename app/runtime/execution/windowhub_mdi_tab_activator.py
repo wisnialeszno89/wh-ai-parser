@@ -81,9 +81,10 @@ def activate_windowhub_mdi_document_tab(
         if not _bool_property(tab, "visible") or not _bool_property(tab, "enabled"):
             return _failure(label, "Document tab is not visible and enabled.")
 
+        # Some legacy WindowHub tab providers do not expose SelectionItemPattern.
+        # Native MDI child identity is authoritative when UIA selection state is
+        # unavailable; if UIA does expose a boolean, it must agree with MDI.
         selected_before = _selected(tab)
-        if selected_before is None:
-            return _failure(label, "UI Automation does not expose the tab selection state.")
 
         host = tab.parent()
         mdi_client = host.parent()
@@ -125,7 +126,7 @@ def activate_windowhub_mdi_document_tab(
             )
 
         active_before_target = active_before == target_child_handle
-        if active_before_target != selected_before:
+        if selected_before is not None and active_before_target != selected_before:
             return _failure(
                 label,
                 "UIA selected state conflicts with the native active MDI document; refusing to guess.",
@@ -142,7 +143,12 @@ def activate_windowhub_mdi_document_tab(
                 after_selected=selected_before,
                 active_before_target=True,
                 active_after_target=True,
-                reason="Target document tab is already active and both state sources agree.",
+                reason=(
+                    "Target document tab is already active in native MDI; "
+                    "UIA selection state is unavailable."
+                    if selected_before is None
+                    else "Target document tab is already active and both state sources agree."
+                ),
             )
 
         if not live:
@@ -183,16 +189,21 @@ def activate_windowhub_mdi_document_tab(
                 label=label,
             )
             last_selected = _selected(refreshed) if refreshed is not None else None
-            if last_active_target and last_selected is True:
+            if last_active_target and last_selected is not False:
                 return WindowHubMdiTabActivationResult(
                     success=True,
                     executed=True,
                     target_label=label,
                     before_selected=selected_before,
-                    after_selected=True,
+                    after_selected=last_selected,
                     active_before_target=False,
                     active_after_target=True,
-                    reason="Native MDI activation verified by active child handle and UIA selected state.",
+                    reason=(
+                        "Native MDI activation verified by active child handle; "
+                        "UIA selection state is unavailable."
+                        if last_selected is None
+                        else "Native MDI activation verified by active child handle and UIA selected state."
+                    ),
                 )
             if monotonic_fn() >= deadline:
                 break
