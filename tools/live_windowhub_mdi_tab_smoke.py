@@ -207,7 +207,7 @@ def main() -> int:
             "result": "FAIL",
             "phase": "safe_execution",
             "error_type": type(exc).__name__,
-            "error": str(exc),
+            "error": "The supervised MDI tab smoke stopped safely; inspect the preceding state report.",
             "offer_data_entered": False,
             "offer_saved": False,
         }, ensure_ascii=False, indent=2))
