@@ -26,12 +26,6 @@ def _start1_tabs(scene):
         if (
             str(getattr(element, "label", "") or "").strip().casefold() == "start1"
             and (getattr(element, "metadata", {}) or {}).get("uia_tab_scope") == "document"
-            and isinstance(
-                (getattr(element, "metadata", {}) or {}).get(
-                    "uia_document_tab_selected"
-                ),
-                bool,
-            )
         )
     ]
 
@@ -106,9 +100,14 @@ def main() -> int:
 
         before_scene = control_loop.observe_scene()
         before_tabs = _start1_tabs(before_scene)
-        before_selected = (
+        before_selected_value = (
             (before_tabs[0].metadata or {}).get("uia_document_tab_selected")
             if len(before_tabs) == 1
+            else None
+        )
+        before_selected = (
+            before_selected_value
+            if isinstance(before_selected_value, bool)
             else None
         )
         before_active_is_start1 = (
@@ -169,18 +168,26 @@ def main() -> int:
         # that WindowHub changed the active MDI document.
         after_scene = control_loop.observe_scene()
         after_tabs = _start1_tabs(after_scene)
-        after_selected = (
+        after_selected_value = (
             (after_tabs[0].metadata or {}).get("uia_document_tab_selected")
             if len(after_tabs) == 1
+            else None
+        )
+        after_selected = (
+            after_selected_value
+            if isinstance(after_selected_value, bool)
             else None
         )
         after_active_is_start1 = (
             isinstance(after_scene.active_document, str)
             and after_scene.active_document.strip().casefold() == "start1"
         )
+        # The executor verifies the exact native MDI child handle. The scene
+        # independently verifies the active document; UIA selected state is an
+        # additional cross-check when that provider exposes it.
         verified = (
             len(after_tabs) == 1
-            and after_selected is True
+            and after_selected is not False
             and after_active_is_start1
         )
 
