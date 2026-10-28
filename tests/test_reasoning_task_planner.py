@@ -87,6 +87,60 @@ def test_reasoning_task_planner_builds_semantic_plan_with_target():
     assert "tracked_object_id" not in str(payload)
 
 
+def test_reasoning_task_planner_does_not_mistake_leading_command_verb_for_target():
+    reasoner = RecordingTaskReasoner(
+        proposal=ReasoningProposal(
+            actions=(
+                ReasoningAction(
+                    name="click_screen_element",
+                    description="Click the requested visible control.",
+                    target="NOWA OFERTA",
+                ),
+            ),
+            rationale="Open a new offer using its visible semantic control.",
+            confidence=0.93,
+        )
+    )
+    scene = ScreenScene(
+        observation=EnvironmentObservation(
+            state=EnvironmentState(
+                active_application="WindowHub",
+                active_window_title="Okna - OFR/4005",
+            ),
+        ),
+        elements=(
+            ScreenElement(
+                kind="button",
+                label="Otwórz",
+                confidence=0.99,
+                interaction_capability=InteractionCapability.CLICKABLE,
+                metadata={"source": "windowhub_ui_automation"},
+            ),
+            ScreenElement(
+                kind="button",
+                label="NOWA OFERTA",
+                confidence=0.99,
+                interaction_capability=InteractionCapability.CLICKABLE,
+                metadata={"source": "windowhub_ui_automation"},
+            ),
+        ),
+    )
+    context = TaskPlanningContext(
+        request_message="Otwórz nową ofertę",
+        intent=AgentIntent.EXECUTE_IN_WH.value,
+        capability_name="WH_WINDOW",
+        capability_description="Controlled WindowHub execution.",
+        skill_name="WHWindowSkill",
+        scene=scene,
+    )
+
+    planner = ReasoningTaskPlanner(reasoner)
+    plan = planner.plan(context=context)
+
+    assert plan is not None
+    assert plan.steps[0].action.target == "NOWA OFERTA"
+
+
 def test_reasoning_task_planner_rejects_low_level_target():
     reasoner = RecordingTaskReasoner(
         proposal=ReasoningProposal(
