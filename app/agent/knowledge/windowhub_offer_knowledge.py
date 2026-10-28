@@ -17,6 +17,8 @@ WINDOWHUB_OFFER_KNOWLEDGE: dict[str, object] = {
             "preferred_action_sequence": (
                 "Before clicking Nowa oferta, compare the control's explicit document_scope with the active document.",
                 "If Nowa oferta is explicitly scoped to another document and the unique Start1 document tab is visible but unselected, click Start1 first and re-observe the scene.",
+                "For a WindowHub document tab, request the semantic tab action; the runtime uses its guarded MDI activation path and verifies the active document plus UIA selected state.",
+                "Do not treat a sent click or action result alone as proof of navigation; confirm the new active document and selected tab after observation.",
                 "Resolve Nowa oferta again after the tab switch; click it only when its scope is valid for the current scene.",
                 "Do not switch to or modify an existing OFR offer tab just to reach Nowa oferta.",
             ),
@@ -457,6 +459,7 @@ WINDOWHUB_OFFER_KNOWLEDGE: dict[str, object] = {
         "Never restart a continuation with Nowa oferta.",
         "Never click a control whose explicit document_scope conflicts with the resolved active document.",
         "When Nowa oferta belongs to another document, activate the uniquely identified Start1 tab first, re-observe, and re-resolve the button; never bypass the document-scope guard.",
+        "When a document-tab activation does not change both the active MDI child and UIA selected state, stop for review rather than retrying a generic coordinate click.",
         "Never choose a generic LayoutItem when a semantic field label cannot be established from UIA structure or other evidence.",
         "Prefer one small GUI mutation at a time and re-observe after it.",
         "Never infer a field solely from ordinal position when multiple controls are ambiguous.",
