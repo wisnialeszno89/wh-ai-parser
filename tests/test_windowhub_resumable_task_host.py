@@ -838,3 +838,60 @@ def test_click_target_with_conflicting_document_scope_is_rejected():
 
     assert validation.valid is False
     assert validation.reason == "click target is scoped to a different document"
+
+
+def test_new_offer_click_is_released_after_start1_becomes_active():
+    scene = FakeScene(
+        [
+            FakeElement(
+                "button",
+                "NOWA OFERTA",
+                metadata={
+                    "document_scope": "Start1",
+                    "uia_visible": True,
+                    "uia_enabled": True,
+                },
+            ),
+            FakeElement(
+                "tabitem",
+                "Start1",
+                metadata={
+                    "uia_tab_scope": "document",
+                    "uia_document_tab_selected": True,
+                    "uia_visible": True,
+                    "uia_enabled": True,
+                },
+            ),
+            FakeElement(
+                "tabitem",
+                "OFR/3419",
+                metadata={
+                    "uia_tab_scope": "document",
+                    "uia_document_tab_selected": False,
+                },
+            ),
+        ],
+        active_document="Start1",
+    )
+    proposed = AgentAction(
+        name="click_screen_element",
+        description="Open the new-offer flow after Start1 is active.",
+        target="NOWA OFERTA",
+    )
+
+    routed = WindowHubResumableTaskHost._route_cross_document_new_offer_click_to_start1(
+        proposed, scene
+    )
+
+    assert routed is proposed
+
+    action = TaskAction(
+        action_id="start1-active-new-offer",
+        name="click_screen_element",
+        target="NOWA OFERTA",
+        scene_fingerprint="start1-active-scene",
+    )
+    validation = WindowHubResumableTaskHost._validate_target(action, scene)
+
+    assert validation.valid is True
+    assert validation.target == "NOWA OFERTA"
