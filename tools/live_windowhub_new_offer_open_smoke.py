@@ -97,8 +97,14 @@ def _initial_scene_problem(scene) -> str | None:
     if len(start_tabs) != 1:
         return f"Expected one Start1 document tab; found {len(start_tabs)}."
 
-    if _metadata(start_tabs[0]).get("uia_document_tab_selected") is not True:
-        return "Start1 selection is not positively verified; no action attempted."
+    selected_state = _metadata(start_tabs[0]).get("uia_document_tab_selected")
+    if selected_state is False:
+        return (
+            "Start1 selection conflicts with the resolved active document; "
+            "no action attempted."
+        )
+    if selected_state is not True and selected_state is not None:
+        return "Start1 selection state is invalid; no action attempted."
 
     if _offer_dialog_detected(scene):
         return (
@@ -126,6 +132,13 @@ def _initial_scene_problem(scene) -> str | None:
         return (
             "Expected one visible, enabled, UIA-grounded NOWA OFERTA button; "
             f"found {len(buttons)}."
+        )
+
+    button_scope = _normalize_label(_metadata(buttons[0]).get("document_scope"))
+    if button_scope != active_document:
+        return (
+            "NOWA OFERTA document_scope does not match the active document; "
+            "refusing to execute the click."
         )
 
     return None

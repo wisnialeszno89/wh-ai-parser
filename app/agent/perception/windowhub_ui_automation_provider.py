@@ -190,6 +190,27 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
                 else root_handle_int
             )
 
+            # Scope ordinary controls to an MDI document only when its
+            # visible document tab and native MDI child are uniquely matched.
+            # This covers WindowHub toolbars hosted inside an MDI child while
+            # remaining fail-closed for duplicate captions or missing handles.
+            document_scope_by_child_handle = {}
+            ambiguous_document_handles = set()
+            for _, document_scope, child_window in (
+                self._matched_mdi_document_windows(descendants)
+            ):
+                child_handle = self._native_handle(child_window)
+                if child_handle is None:
+                    continue
+                if (
+                    child_handle in document_scope_by_child_handle
+                    and document_scope_by_child_handle[child_handle] != document_scope
+                ):
+                    document_scope_by_child_handle.pop(child_handle, None)
+                    ambiguous_document_handles.add(child_handle)
+                elif child_handle not in ambiguous_document_handles:
+                    document_scope_by_child_handle[child_handle] = document_scope
+
             label_candidates = self._collect_label_candidates(
                 descendants,
                 origin_x=origin_x,
@@ -205,6 +226,7 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
                     label_candidates=label_candidates,
                     window_handle=current_window_handle,
                     owned_modal=is_owned_modal,
+                    document_scope_by_child_handle=document_scope_by_child_handle,
                 )
                 if element is not None:
                     elements.append(element)
@@ -750,6 +772,7 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
         label_candidates=(),
         window_handle: int = 0,
         owned_modal: bool = False,
+        document_scope_by_child_handle: dict[int, str] | None = None,
     ) -> ScreenElement | None:
         try:
             name = self._string(
@@ -865,7 +888,10 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
 
         current_value = self._current_control_value(item)
         ancestor_context = self._ancestor_context(item)
-        document_scope = self._document_scope(item)
+        document_scope = self._document_scope(
+            item,
+            document_scope_by_child_handle=document_scope_by_child_handle,
+        )
         tab_scope = (
             self._tab_scope(item)
             if control_type == "tabitem"
@@ -1022,16 +1048,21 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
         return handle if handle > 0 else None
 
     @staticmethod
-    def _document_scope(item) -> str | None:
+    def _document_scope(
+        item,
+        *,
+        document_scope_by_child_handle: dict[int, str] | None = None,
+    ) -> str | None:
         """
-        Return a document tab name only when UIA proves that the element
-        is structurally contained by a WindowHub document tab.
+        Return document scope only from proven MDI ownership.
 
-        This is intentionally narrower than generic ancestor inspection:
-        the candidate tab must itself be a TabItem whose parent is the
-        WindowHub Afx:TabWnd host. If that relationship is absent, scope
-        remains unknown.
+        A control can be nested under a native MDI child rather than under
+        the corresponding TabItem (for example, a document-hosted toolbar).
+        In that case, use the child HWND only if it was uniquely matched to a
+        document tab by _matched_mdi_document_windows. Direct Afx:TabWnd tab
+        ancestry remains supported. Unknown or ambiguous scope stays None.
         """
+        scope_by_handle = document_scope_by_child_handle or {}
         current = item
 
         for _ in range(12):
@@ -1057,6 +1088,17 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
                 )
             except Exception:
                 return None
+
+            # Controls hosted in an MDI child do not necessarily have the
+            # document TabItem in their ancestry. Resolve only by a child
+            # HWND already proven unique against the MDI tab tree above.
+            if control_type == "window":
+                child_handle = WindowHubUIAutomationProvider._native_handle(
+                    current
+                )
+                proven_scope = scope_by_handle.get(child_handle)
+                if isinstance(proven_scope, str) and proven_scope.strip():
+                    return proven_scope.strip()
 
             if control_type != "tabitem" or not name:
                 continue
