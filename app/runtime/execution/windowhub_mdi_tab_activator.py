@@ -175,7 +175,9 @@ def activate_windowhub_mdi_document_tab(
         # WM_MDIACTIVATE is sent once to the verified MDIClient. The target
         # child handle came from the uniquely matched Window control under
         # that same MDIClient; it is not model-generated or persisted.
-        send(mdi_handle, WM_MDIACTIVATE, active_before, target_child_handle)
+        # For WM_MDIACTIVATE sent to the MDIClient, wParam is the child
+        # to activate and lParam is unused (must be zero).
+        send(mdi_handle, WM_MDIACTIVATE, target_child_handle, 0)
 
         deadline = monotonic_fn() + timeout_seconds
         last_selected: bool | None = None
