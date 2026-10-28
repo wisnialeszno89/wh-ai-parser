@@ -46,6 +46,8 @@ def _valid_scene():
                 {
                     "uia_tab_scope": "document",
                     "uia_document_tab_selected": True,
+                    "uia_visible": True,
+                    "uia_enabled": True,
                 },
                 capability="selectable",
             ),
