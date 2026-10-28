@@ -2,6 +2,16 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+import os
+
+import pytest
+
+if os.name != "nt":
+    pytest.skip(
+        "RobotActionExecutor integration tests require Windows ctypes.windll.",
+        allow_module_level=True,
+    )
+
 from app.agent.agent_action import AgentAction
 from app.agent.agent_request import AgentRequest
 from app.agent.execution.robot_gui_executor import RobotGUIExecutor
