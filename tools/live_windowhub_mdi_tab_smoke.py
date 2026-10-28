@@ -150,23 +150,9 @@ def main() -> int:
             context,
         )
 
-        if not result.success:
-            print(json.dumps({
-                "result": "FAIL",
-                "phase": "activation",
-                "active_document_resolved_before": True,
-                "start1_selected_before": before_selected,
-                "start1_active_before": before_active_is_start1,
-                "execution_path": (result.metadata or {}).get("execution_path"),
-                "action_executed": (result.metadata or {}).get("executed", False),
-                "error": result.message,
-                "offer_data_entered": False,
-                "offer_saved": False,
-            }, ensure_ascii=False, indent=2))
-            return 5
-
-        # Always make a fresh observation. Action success alone is not proof
-        # that WindowHub changed the active MDI document.
+        # Always make a fresh observation, even if the executor reports a
+        # failure: an attempted native action must be checked before stopping.
+        # Action success alone is not proof that WindowHub changed documents.
         after_scene = control_loop.observe_scene()
         after_tabs = _start1_tabs(after_scene)
         after_selected = (
@@ -179,7 +165,8 @@ def main() -> int:
             and after_scene.active_document.strip().casefold() == "start1"
         )
         verified = (
-            len(after_tabs) == 1
+            result.success
+            and len(after_tabs) == 1
             and after_selected is True
             and after_active_is_start1
         )
@@ -187,6 +174,7 @@ def main() -> int:
         report = {
             "result": "PASS" if verified else "FAIL",
             "phase": "post_action_verification",
+            "executor_reported_success": result.success,
             "active_document_resolved_before": True,
             "start1_selected_before": before_selected,
             "start1_active_before": before_active_is_start1,
