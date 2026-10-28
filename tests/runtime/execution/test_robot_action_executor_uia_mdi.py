@@ -174,3 +174,57 @@ def test_dry_run_document_tab_uses_non_live_mdi_validation(monkeypatch):
     assert result.success is True
     assert result.executed is False
     assert calls[0]["live"] is False
+
+
+def test_fused_visual_primary_can_use_explicit_uia_provenance_for_document_tab(monkeypatch):
+    from dataclasses import replace
+
+    calls = []
+
+    def fake_activator(**kwargs):
+        calls.append(kwargs)
+        return WindowHubMdiTabActivationResult(
+            success=True,
+            executed=True,
+            target_label="Start1",
+            before_selected=False,
+            after_selected=True,
+            active_before_target=False,
+            active_after_target=True,
+            reason="Native MDI activation verified.",
+        )
+
+    monkeypatch.setattr(
+        "app.runtime.execution.windowhub_mdi_tab_activator.activate_windowhub_mdi_document_tab",
+        fake_activator,
+    )
+    element = make_tab_element()
+    fused = replace(
+        element,
+        metadata={
+            **dict(element.metadata or {}),
+            "source": "windowhub_vision",
+            "fusion_sources": (
+                "windowhub_ui_automation",
+                "windowhub_vision",
+            ),
+        },
+    )
+    gate = AllowUIASafetyGate()
+    executor = RobotActionExecutor(
+        mode=RobotExecutionMode.LIVE,
+        safety_gate=gate,
+        mouse=ExplodingMouse(),
+    )
+
+    result = executor.execute_uia_screen_element(
+        screen_element=fused,
+        action=InteractionAction.CLICK,
+        screen_origin=(0, 0),
+        window_handle=100,
+        root_window_handle=100,
+    )
+
+    assert result.success is True
+    assert len(calls) == 1
+    assert gate.calls[0]["metadata"]["source"] == "windowhub_ui_automation"
