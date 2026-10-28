@@ -894,6 +894,106 @@ def test_ui_automation_provider_exposes_explicit_document_scope():
     assert elements[0].metadata["document_scope"] == "OFR/4024"
 
 
+def test_ui_automation_provider_resolves_scope_from_uniquely_matched_mdi_child():
+    mdi_client = FakeUIAItem(
+        name="",
+        control_type="Pane",
+        class_name="MDIClient",
+    )
+    tab_host = FakeUIAItem(
+        name="",
+        control_type="Tab",
+        class_name="Afx:TabWnd",
+        parent=mdi_client,
+    )
+    document_tab = FakeSelectedUIAItem(
+        name="Start1",
+        control_type="TabItem",
+        parent=tab_host,
+    )
+    child = FakeMdiChild(
+        name="Start1",
+        parent=mdi_client,
+        descendants=(),
+        handle=501,
+    )
+    button = FakeUIAItem(
+        name="NOWA OFERTA",
+        control_type="Button",
+        automation_id="Nowa_oferta",
+        parent=child,
+    )
+    child._descendants = (button,)
+    root = FakeUIAWindow(
+        (mdi_client, tab_host, document_tab, child, button),
+        title="Okna - OFR/4456-",
+    )
+
+    elements = WindowHubUIAutomationProvider(
+        desktop_factory=lambda: FakeDesktop(root),
+    ).perceive(make_observation(title="Okna - OFR/4456-"))
+
+    buttons = tuple(element for element in elements if element.label == "NOWA OFERTA")
+    assert len(buttons) == 1
+    assert buttons[0].metadata["uia_native_handle"] is None
+    assert buttons[0].metadata["document_scope"] == "Start1"
+
+
+def test_ui_automation_provider_keeps_scope_unknown_for_ambiguous_mdi_child_match():
+    mdi_client = FakeUIAItem(
+        name="",
+        control_type="Pane",
+        class_name="MDIClient",
+    )
+    tab_host = FakeUIAItem(
+        name="",
+        control_type="Tab",
+        class_name="Afx:TabWnd",
+        parent=mdi_client,
+    )
+    tab_a = FakeSelectedUIAItem(
+        name="Start1",
+        control_type="TabItem",
+        parent=tab_host,
+    )
+    tab_b = FakeUIAItem(
+        name="Start1",
+        control_type="TabItem",
+        parent=tab_host,
+    )
+    child_a = FakeMdiChild(
+        name="Start1",
+        parent=mdi_client,
+        descendants=(),
+        handle=501,
+    )
+    child_b = FakeMdiChild(
+        name="Start1",
+        parent=mdi_client,
+        descendants=(),
+        handle=502,
+    )
+    button = FakeUIAItem(
+        name="NOWA OFERTA",
+        control_type="Button",
+        automation_id="Nowa_oferta",
+        parent=child_a,
+    )
+    child_a._descendants = (button,)
+    root = FakeUIAWindow(
+        (mdi_client, tab_host, tab_a, tab_b, child_a, child_b, button),
+        title="Okna - OFR/4456-",
+    )
+
+    elements = WindowHubUIAutomationProvider(
+        desktop_factory=lambda: FakeDesktop(root),
+    ).perceive(make_observation(title="Okna - OFR/4456-"))
+
+    buttons = tuple(element for element in elements if element.label == "NOWA OFERTA")
+    assert len(buttons) == 1
+    assert buttons[0].metadata["document_scope"] is None
+
+
 def test_ui_automation_provider_leaves_document_scope_unknown_without_tab_ancestry():
     container = FakeUIAItem(
         name="Konstrukcja",
