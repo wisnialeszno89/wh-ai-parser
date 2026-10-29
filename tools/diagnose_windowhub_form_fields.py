@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import ctypes
 import json
+from collections import Counter
 import os
 import sys
 from pathlib import Path
@@ -23,6 +24,7 @@ if str(REPOSITORY_ROOT) not in sys.path:
 from tools.diagnose_windowhub_semantics import (  # noqa: E402
     _select_target_window,
     _window_process_name,
+    observe_windowhub_scene,
 )
 
 EDITABLE_TYPES = frozenset(
@@ -323,6 +325,149 @@ def build_field_report(
     }
 
 
+def _runtime_id(item: object) -> str | None:
+    try:
+        value = getattr(item.element_info, "runtime_id", None)
+    except Exception:
+        return None
+    if isinstance(value, (tuple, list)):
+        return "-".join(str(part) for part in value)
+    return value if isinstance(value, str) and value else None
+
+
+def build_semantic_field_report(
+    scene: object,
+    raw_descendants: list[object],
+    *,
+    root_bounds: tuple[int, int, int, int],
+    active_window_title: str,
+    max_fields: int = 200,
+) -> dict[str, Any]:
+    """Report fields from the canonical perception provider, not raw UIA roles."""
+    origin_x, origin_y, _, _ = root_bounds
+    text_entries: list[dict[str, Any]] = []
+    raw_lookup: dict[str, object] = {}
+    raw_control_types: Counter[str] = Counter()
+
+    for item in raw_descendants:
+        try:
+            info = item.element_info
+            control_type = _string_attr(info, "control_type").casefold()
+            label = _string_attr(info, "name")
+        except Exception:
+            continue
+
+        raw_control_types[control_type or "<unknown>"] += 1
+        runtime_id = _runtime_id(item)
+        if runtime_id:
+            raw_lookup[runtime_id] = item
+
+        if control_type != "text" or not label:
+            continue
+        bounds = _rect(item)
+        if bounds is not None:
+            text_entries.append({"label": label, "bounds": bounds})
+
+    semantic_elements = tuple(getattr(scene, "elements", ()) or ())
+    semantic_kinds: Counter[str] = Counter()
+    fields: list[dict[str, Any]] = []
+    truncated = False
+
+    for element in semantic_elements:
+        kind_value = getattr(element, "kind", "unknown")
+        kind = str(getattr(kind_value, "value", kind_value) or "unknown").casefold()
+        label = str(getattr(element, "label", "") or "").strip()
+        metadata = getattr(element, "metadata", None) or {}
+        if not isinstance(metadata, dict):
+            metadata = {}
+
+        semantic_kinds[kind] += 1
+        automation_id = str(metadata.get("automation_id") or "")
+        class_name = str(metadata.get("uia_class_name") or "")
+        if not _is_field_candidate(kind, label, automation_id, class_name):
+            continue
+
+        x = getattr(element, "x", None)
+        y = getattr(element, "y", None)
+        width = getattr(element, "width", None)
+        height = getattr(element, "height", None)
+        try:
+            bounds = (
+                origin_x + int(x),
+                origin_y + int(y),
+                int(width),
+                int(height),
+            )
+        except (TypeError, ValueError):
+            continue
+        if bounds[2] <= 0 or bounds[3] <= 0:
+            continue
+
+        runtime_id = metadata.get("uia_runtime_id")
+        if isinstance(runtime_id, (tuple, list)):
+            runtime_id = "-".join(str(part) for part in runtime_id)
+        raw_item = raw_lookup.get(runtime_id) if isinstance(runtime_id, str) else None
+        if raw_item is not None and not class_name:
+            class_name = _string_attr(raw_item.element_info, "class_name")
+
+        current_value = metadata.get("current_value")
+        value_available = isinstance(current_value, str)
+        value_nonempty = bool(current_value.strip()) if value_available else False
+
+        fields.append({
+            "index": len(fields) + 1,
+            "window_scope": (
+                "owned_window"
+                if metadata.get("uia_owned_modal") is True
+                else "application_window"
+            ),
+            "name": label or "<unnamed>",
+            "kind": kind,
+            "automation_id": automation_id,
+            "class_name": class_name,
+            "enabled": metadata.get("uia_enabled"),
+            "visible": metadata.get("uia_visible"),
+            "bounds": {
+                "left": bounds[0],
+                "top": bounds[1],
+                "width": bounds[2],
+                "height": bounds[3],
+            },
+            "value_available": value_available,
+            "value_nonempty": value_nonempty,
+            "checked_state": _checked_state(raw_item) if raw_item is not None and kind == "checkbox" else None,
+            "nearby_text_candidates": _rank_label_candidates(bounds, text_entries),
+            "ancestors": _ancestor_context(raw_item) if raw_item is not None else [],
+        })
+        if len(fields) >= max_fields:
+            truncated = len(fields) >= max_fields
+            break
+
+    return {
+        "diagnostic": "windowhub_read_only_form_field_context",
+        "mode": "READ_ONLY",
+        "computer_actions_executed": False,
+        "network_calls_made": False,
+        "files_written": False,
+        "screenshot_saved": False,
+        "window_title": "<redacted>",
+        "window_title_matches_selector": bool(active_window_title),
+        "raw_descendant_count": len(raw_descendants),
+        "static_text_count": len(text_entries),
+        "semantic_element_count": len(semantic_elements),
+        "raw_control_type_counts": dict(sorted(raw_control_types.items())),
+        "semantic_kind_counts": dict(sorted(semantic_kinds.items())),
+        "field_count": len(fields),
+        "fields_reported": len(fields),
+        "truncated": truncated,
+        "fields": fields,
+        "safety_note": (
+            "Current field values and window/document names are not printed. "
+            "Control and nearby label names may still contain business data; inspect before sharing."
+        ),
+    }
+
+
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Read-only WindowHub field context inventory. No computer actions are executed."
@@ -457,24 +602,46 @@ def main() -> int:
             owned_window_handles.append(candidate_handle)
             owned_window_groups.append(candidate_descendants)
 
-        report = build_field_report(
-            descendants,
-            active_window_title=(getattr(window, "title", "") or "").strip(),
-            max_fields=args.max_fields,
-            owned_window_descendants=owned_window_groups,
+        # Reuse the same semantic perception provider that already reports
+        # WindowHub's editor controls as edit/combobox/checkbox. Raw pywinauto
+        # roles can differ for DevExpress/WPF editor wrappers.
+        scene, scene_title, scene_focused, scene_stop_reason = observe_windowhub_scene(
+            window_title_contains=args.window_title_contains,
+            process_name=args.process_name,
+            window_handle=args.window_handle,
         )
-        report["window_context"] = {
-            "application_window_scanned": True,
-            "owned_window_handles_scanned": len(owned_window_handles),
-            "owned_window_descendant_counts": [
-                len(group) for group in owned_window_groups
-            ],
-        }
+        if scene is None:
+            print(json.dumps({
+                "diagnostic": "windowhub_read_only_form_field_context",
+                "mode": "READ_ONLY",
+                "ok": False,
+                "observation_skipped_reason": scene_stop_reason,
+                "computer_actions_executed": False,
+                "network_calls_made": False,
+                "files_written": False,
+            }, ensure_ascii=True, indent=2))
+            return 2
+
+        semantic_raw_descendants = list(descendants)
+        for group in owned_window_groups:
+            semantic_raw_descendants.extend(group)
+
+        report = build_semantic_field_report(
+            scene,
+            semantic_raw_descendants,
+            root_bounds=(int(window.left), int(window.top), int(window.width), int(window.height)),
+            active_window_title=scene_title or (getattr(window, "title", "") or "").strip(),
+            max_fields=args.max_fields,
+        )
         report["ok"] = True
         report["window_title_matches_selector"] = (
             args.window_title_contains.casefold()
             in (getattr(window, "title", "") or "").casefold()
         )
+        report["window_context"] = {
+            "application_window_scanned": True,
+            "owned_window_handles_scanned": len(owned_window_handles),
+        }
         report["target_selection"] = {
             "mode": "window_handle" if args.window_handle is not None
                 else ("process_name" if args.process_name else "window_title"),
