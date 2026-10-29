@@ -3,6 +3,7 @@ from types import SimpleNamespace
 import pytest
 
 from tools.live_windowhub_new_offer_open_smoke import (
+    _execution_details,
     _initial_scene_problem,
     _plan_block_reason,
     _start1_activation_problem,
@@ -63,6 +64,41 @@ def _valid_scene():
             ),
         ),
     )
+
+
+def test_execution_details_preserve_failure_reason_and_execution_counts():
+    execution_result = SimpleNamespace(
+        success=False,
+        message="Target matched outside active document 'Start1'.",
+        metadata={"target": "NOWA OFERTA"},
+    )
+    attempt = SimpleNamespace(
+        execution_result=execution_result,
+        verification_result=None,
+    )
+    execution_loop_result = SimpleNamespace(
+        attempts=(attempt,),
+        last_attempt=attempt,
+        success=False,
+    )
+    control = SimpleNamespace(
+        execution_results=(execution_loop_result,),
+        success=False,
+        executed_actions=1,
+        failed_actions=1,
+    )
+    result = SimpleNamespace(control_loop_result=control)
+
+    details = _execution_details(result)
+
+    assert details["execution_success"] is False
+    assert details["execution_message"] == (
+        "Target matched outside active document 'Start1'."
+    )
+    assert details["execution_path"] is None
+    assert details["control_success"] is False
+    assert details["executed_actions"] == 1
+    assert details["failed_actions"] == 1
 
 
 def test_guard_allows_only_the_single_semantic_new_offer_click():
