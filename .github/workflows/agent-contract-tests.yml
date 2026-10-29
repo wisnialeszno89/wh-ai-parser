@@ -121,6 +121,9 @@ jobs:
       - name: Run verified WindowHub MDI tab activation and safety-gate tests
         run: pytest -q tests/runtime/execution/test_windowhub_mdi_tab_activator.py tests/runtime/execution/test_robot_action_executor_uia_mdi.py tests/runtime/test_robot_gui_executor_windowhub_mdi.py tests/test_uia_document_tab_safety_gate.py
 
+      - name: Run fused UIA target execution regression tests
+        run: pytest -q tests/test_robot_gui_executor_uia.py tests/runtime/execution/test_robot_mouse.py
+
       - name: Run one-action WindowHub new-offer dialog guard tests
         run: pytest -q tests/test_live_windowhub_new_offer_open_smoke.py
 
@@ -139,6 +142,9 @@ jobs:
       - name: Compile Windows/WindowHub runtime wiring and read-only smoke
         run: |
           python -m compileall -q \
+            app/agent/execution/robot_gui_executor.py \
+            app/runtime/execution/robot_action_executor.py \
+            app/runtime/execution/robot_mouse.py \
             app/agent/perception/windowhub_ui_automation_provider.py \
             app/agent/perception/perception_engine.py \
             app/agent/perception/screen_element_fusion.py \

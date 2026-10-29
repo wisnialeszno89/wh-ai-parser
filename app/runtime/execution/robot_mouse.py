@@ -1,6 +1,11 @@
 from __future__ import annotations
 
-from ctypes import Structure, Union, byref, c_long, c_ulong, c_void_p, sizeof, windll
+from ctypes import Structure, Union, byref, c_long, c_ulong, c_void_p, sizeof
+
+try:
+    from ctypes import windll
+except ImportError:  # Windows-only hardware API; DRY_RUN remains cross-platform.
+    windll = None
 from dataclasses import dataclass
 from enum import Enum
 
@@ -68,6 +73,15 @@ class RobotMouse:
                 mode=self.mode,
                 point=point,
                 reason="Dry-run mouse click accepted; hardware not touched",
+            )
+
+        if windll is None:
+            return RobotMouseResult(
+                success=False,
+                executed=False,
+                mode=self.mode,
+                point=point,
+                reason="LIVE mouse clicks require the Windows SendInput API",
             )
 
         if windll.user32.SetCursorPos(*point) == 0:

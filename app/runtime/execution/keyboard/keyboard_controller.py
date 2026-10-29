@@ -1,7 +1,15 @@
-import pyautogui
-
-
 class KeyboardController:
+
+    @staticmethod
+    def _pyautogui():
+        """Load the desktop input dependency only when keyboard input is used."""
+        try:
+            import pyautogui
+        except ImportError as exc:
+            raise RuntimeError(
+                "Keyboard input requires the pyautogui dependency."
+            ) from exc
+        return pyautogui
 
     def write(
         self,
@@ -12,7 +20,7 @@ class KeyboardController:
         print(f"[KEYBOARD] WRITE '{value}'")
 
         if value.isascii():
-            pyautogui.write(
+            self._pyautogui().write(
                 value,
                 interval=0.02,
             )
@@ -32,7 +40,7 @@ class KeyboardController:
 
         print(f"[KEYBOARD] PRESS {key}")
 
-        pyautogui.press(key)
+        self._pyautogui().press(key)
 
     def hotkey(
         self,
@@ -43,7 +51,7 @@ class KeyboardController:
 
         print(f"[KEYBOARD] HOTKEY {joined}")
 
-        pyautogui.hotkey(*keys)
+        self._pyautogui().hotkey(*keys)
 
     @staticmethod
     def _paste_unicode_windows(value: str) -> None:
@@ -110,4 +118,4 @@ class KeyboardController:
             if handle:
                 kernel32.GlobalFree(handle)
 
-        pyautogui.hotkey("ctrl", "v")
+        KeyboardController._pyautogui().hotkey("ctrl", "v")
