@@ -544,6 +544,66 @@ def build_semantic_field_report(
             truncated = True
             break
 
+    # Preserve visibility into UIA Custom controls that the canonical
+    # semantic provider does not expose as editable roles. These are diagnostic
+    # candidates only; they are not authorized targets for typing or clicking.
+    raw_control_candidates: list[dict[str, Any]] = []
+    for group_handle, descendants in raw_descendant_groups:
+        try:
+            current_handle = int(group_handle)
+        except (TypeError, ValueError):
+            continue
+        scope = "application_window" if current_handle == root_handle else "owned_window"
+        text_entries = text_entries_by_handle.get(current_handle, [])
+
+        for item in descendants:
+            try:
+                info = item.element_info
+                control_type = _string_attr(info, "control_type").casefold()
+                name = _string_attr(info, "name")
+                automation_id = _string_attr(info, "automation_id")
+                class_name = _string_attr(info, "class_name")
+            except Exception:
+                continue
+
+            has_editor_hint = _is_field_candidate(
+                control_type, name, automation_id, class_name
+            )
+            if control_type != "custom" and not has_editor_hint:
+                continue
+
+            bounds = _rect(item)
+            if bounds is None:
+                continue
+            if _bool_attr(info, "visible") is False:
+                continue
+
+            raw_control_candidates.append({
+                "index": len(raw_control_candidates) + 1,
+                "window_scope": scope,
+                "candidate_type": (
+                    "editor_hint_match"
+                    if has_editor_hint
+                    else "unclassified_custom_control"
+                ),
+                "name": name or "<unnamed>",
+                "kind": control_type or "unknown",
+                "automation_id": automation_id,
+                "class_name": class_name,
+                "enabled": _bool_attr(info, "enabled"),
+                "visible": _bool_attr(info, "visible"),
+                "bounds": {
+                    "left": bounds[0],
+                    "top": bounds[1],
+                    "width": bounds[2],
+                    "height": bounds[3],
+                },
+                "nearby_text_candidates": _rank_label_candidates(
+                    bounds, text_entries
+                ),
+                "ancestors": _ancestor_context(item),
+            })
+
     return {
         "diagnostic": "windowhub_read_only_form_field_context",
         "mode": "READ_ONLY",
@@ -557,6 +617,8 @@ def build_semantic_field_report(
         "static_text_count": sum(len(items) for items in text_entries_by_handle.values()),
         "semantic_element_count": len(semantic_elements),
         "raw_owned_window_fallback_field_count": raw_owned_fallback_field_count,
+        "raw_control_candidate_count": len(raw_control_candidates),
+        "raw_control_candidates": raw_control_candidates,
         "raw_control_type_counts": dict(sorted(raw_control_types.items())),
         "semantic_kind_counts": dict(sorted(semantic_kinds.items())),
         "field_count": len(fields),
