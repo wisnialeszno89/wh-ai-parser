@@ -14,6 +14,21 @@ def test_robot_mouse_dry_run_never_touches_hardware():
     assert "hardware not touched" in result.reason
 
 
+def test_robot_mouse_live_fails_closed_when_windows_api_is_unavailable(
+    monkeypatch,
+):
+    monkeypatch.setattr(robot_mouse_module, "windll", None)
+
+    mouse = RobotMouse(mode=RobotMouseMode.LIVE)
+    result = mouse.click(321, 654)
+
+    assert result.success is False
+    assert result.executed is False
+    assert result.mode is RobotMouseMode.LIVE
+    assert result.point == (321, 654)
+    assert "requires the Windows SendInput API" in result.reason
+
+
 def test_robot_mouse_live_uses_windows_api_without_physical_click(
     monkeypatch,
 ):
