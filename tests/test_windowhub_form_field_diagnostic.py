@@ -7,6 +7,7 @@ from tools.diagnose_windowhub_form_fields import (
     _is_owned_window_candidate,
     _rank_label_candidates,
     build_field_report,
+    build_semantic_field_report,
 )
 
 
@@ -151,3 +152,100 @@ def test_report_includes_owned_dialog_fields_and_keeps_label_matching_local():
     assert report["computer_actions_executed"] is False
     assert report["network_calls_made"] is False
     assert report["files_written"] is False
+
+
+
+class _FakeSemanticElement:
+    def __init__(self, *, label, kind, x, y, width, height, metadata):
+        self.label = label
+        self.kind = kind
+        self.x = x
+        self.y = y
+        self.width = width
+        self.height = height
+        self.metadata = metadata
+
+
+class _FakeScene:
+    def __init__(self, elements):
+        self.elements = elements
+
+
+def test_semantic_field_report_uses_perception_roles_when_raw_uia_role_is_custom():
+    label = _FakeItem(
+        name="Nazwa klienta",
+        control_type="Text",
+        bounds=(60, 102, 100, 18),
+    )
+    custom_editor = _FakeItem(
+        name="LayoutItem",
+        control_type="Custom",
+        bounds=(200, 100, 120, 24),
+        value="PRIVATE RAW VALUE",
+    )
+    element = _FakeSemanticElement(
+        label="LayoutItem",
+        kind="edit",
+        x=200,
+        y=100,
+        width=120,
+        height=24,
+        metadata={
+            "uia_enabled": True,
+            "uia_visible": True,
+            "uia_runtime_id": "no-raw-match",
+            "uia_window_handle": 100,
+            "current_value": "PRIVATE SEMANTIC VALUE",
+            "automation_id": "Field1",
+        },
+    )
+
+    report = build_semantic_field_report(
+        _FakeScene([element]),
+        [(100, [label, custom_editor])],
+        root_bounds=(0, 0, 1000, 600),
+        root_handle=100,
+        active_window_title="Sensitive Window",
+    )
+
+    assert report["field_count"] == 1
+    field = report["fields"][0]
+    assert field["kind"] == "edit"
+    assert field["nearby_text_candidates"][0]["label"] == "Nazwa klienta"
+    assert field["value_available"] is True
+    assert field["value_nonempty"] is True
+    assert "PRIVATE SEMANTIC VALUE" not in str(report)
+    assert "PRIVATE RAW VALUE" not in str(report)
+    assert report["computer_actions_executed"] is False
+
+
+def test_semantic_field_report_does_not_match_labels_across_windows():
+    app_label = _FakeItem(
+        name="Klient",
+        control_type="Text",
+        bounds=(10, 100, 70, 18),
+    )
+    dialog_field = _FakeSemanticElement(
+        label="LayoutItem",
+        kind="edit",
+        x=200,
+        y=100,
+        width=120,
+        height=24,
+        metadata={
+            "uia_window_handle": 200,
+            "uia_enabled": True,
+            "uia_visible": True,
+        },
+    )
+
+    report = build_semantic_field_report(
+        _FakeScene([dialog_field]),
+        [(100, [app_label])],
+        root_bounds=(0, 0, 1000, 600),
+        root_handle=100,
+        active_window_title="WindowHub",
+    )
+
+    assert report["field_count"] == 1
+    assert report["fields"][0]["nearby_text_candidates"] == []
