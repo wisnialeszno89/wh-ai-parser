@@ -337,36 +337,42 @@ def _runtime_id(item: object) -> str | None:
 
 def build_semantic_field_report(
     scene: object,
-    raw_descendants: list[object],
+    raw_descendant_groups: list[tuple[int, list[object]]],
     *,
     root_bounds: tuple[int, int, int, int],
+    root_handle: int,
     active_window_title: str,
     max_fields: int = 200,
 ) -> dict[str, Any]:
     """Report fields from the canonical perception provider, not raw UIA roles."""
     origin_x, origin_y, _, _ = root_bounds
-    text_entries: list[dict[str, Any]] = []
+    text_entries_by_handle: dict[int, list[dict[str, Any]]] = {}
     raw_lookup: dict[str, object] = {}
     raw_control_types: Counter[str] = Counter()
+    raw_descendant_count = 0
 
-    for item in raw_descendants:
-        try:
-            info = item.element_info
-            control_type = _string_attr(info, "control_type").casefold()
-            label = _string_attr(info, "name")
-        except Exception:
-            continue
+    for window_handle, descendants in raw_descendant_groups:
+        text_entries: list[dict[str, Any]] = []
+        for item in descendants:
+            try:
+                info = item.element_info
+                control_type = _string_attr(info, "control_type").casefold()
+                label = _string_attr(info, "name")
+            except Exception:
+                continue
 
-        raw_control_types[control_type or "<unknown>"] += 1
-        runtime_id = _runtime_id(item)
-        if runtime_id:
-            raw_lookup[runtime_id] = item
+            raw_control_types[control_type or "<unknown>"] += 1
+            raw_descendant_count += 1
+            runtime_id = _runtime_id(item)
+            if runtime_id:
+                raw_lookup[runtime_id] = item
 
-        if control_type != "text" or not label:
-            continue
-        bounds = _rect(item)
-        if bounds is not None:
-            text_entries.append({"label": label, "bounds": bounds})
+            if control_type != "text" or not label:
+                continue
+            bounds = _rect(item)
+            if bounds is not None:
+                text_entries.append({"label": label, "bounds": bounds})
+        text_entries_by_handle[int(window_handle)] = text_entries
 
     semantic_elements = tuple(getattr(scene, "elements", ()) or ())
     semantic_kinds: Counter[str] = Counter()
@@ -410,6 +416,13 @@ def build_semantic_field_report(
         if raw_item is not None and not class_name:
             class_name = _string_attr(raw_item.element_info, "class_name")
 
+        try:
+            source_handle = int(metadata.get("uia_window_handle") or root_handle)
+        except (TypeError, ValueError):
+            source_handle = root_handle
+        # Keep nearby-label matching within the same top-level window.
+        text_entries = text_entries_by_handle.get(source_handle, [])
+
         current_value = metadata.get("current_value")
         value_available = isinstance(current_value, str)
         value_nonempty = bool(current_value.strip()) if value_available else False
@@ -440,7 +453,7 @@ def build_semantic_field_report(
             "ancestors": _ancestor_context(raw_item) if raw_item is not None else [],
         })
         if len(fields) >= max_fields:
-            truncated = len(fields) >= max_fields
+            truncated = True
             break
 
     return {
@@ -452,8 +465,8 @@ def build_semantic_field_report(
         "screenshot_saved": False,
         "window_title": "<redacted>",
         "window_title_matches_selector": bool(active_window_title),
-        "raw_descendant_count": len(raw_descendants),
-        "static_text_count": len(text_entries),
+        "raw_descendant_count": raw_descendant_count,
+        "static_text_count": sum(len(items) for items in text_entries_by_handle.values()),
         "semantic_element_count": len(semantic_elements),
         "raw_control_type_counts": dict(sorted(raw_control_types.items())),
         "semantic_kind_counts": dict(sorted(semantic_kinds.items())),
@@ -622,14 +635,17 @@ def main() -> int:
             }, ensure_ascii=True, indent=2))
             return 2
 
-        semantic_raw_descendants = list(descendants)
-        for group in owned_window_groups:
-            semantic_raw_descendants.extend(group)
+        semantic_raw_groups = [(handle, list(descendants))]
+        semantic_raw_groups.extend(
+            (owned_handle, list(group))
+            for owned_handle, group in zip(owned_window_handles, owned_window_groups)
+        )
 
         report = build_semantic_field_report(
             scene,
-            semantic_raw_descendants,
+            semantic_raw_groups,
             root_bounds=(int(window.left), int(window.top), int(window.width), int(window.height)),
+            root_handle=handle,
             active_window_title=scene_title or (getattr(window, "title", "") or "").strip(),
             max_fields=args.max_fields,
         )
