@@ -191,6 +191,53 @@ def test_robot_gui_executor_clicks_uia_only_target_in_dry_run():
     assert mouse.points == [(175, 285)]
 
 
+def test_robot_gui_executor_accepts_fused_visual_primary_with_uia_evidence():
+    mouse = RecordingMouse()
+    source = make_uia_element()
+    fused = ScreenElement(
+        kind=source.kind,
+        label=source.label,
+        x=source.x,
+        y=source.y,
+        width=source.width,
+        height=source.height,
+        confidence=source.confidence,
+        interaction_capability=source.interaction_capability,
+        metadata={
+            **dict(source.metadata or {}),
+            "source": "windowhub_vision_pipeline",
+            "fusion_sources": (
+                "windowhub_ui_automation",
+                "windowhub_vision_pipeline",
+            ),
+            "fused": True,
+        },
+    )
+
+    executor = RobotGUIExecutor(
+        robot_action_executor=RobotActionExecutor(
+            mode=RobotExecutionMode.DRY_RUN,
+            mouse=mouse,
+        ),
+    )
+
+    result = executor.execute(
+        AgentAction(
+            name="click_screen_element",
+            description="Click NOWA OFERTA",
+            target="NOWA OFERTA",
+        ),
+        make_context(elements=(fused,)),
+    )
+
+    assert result.success is True
+    assert result.requires_manual_review is False
+    assert result.metadata["execution_path"] == "uia_only"
+    assert result.metadata["target_id"] == "uia:1-2-3"
+    assert result.metadata["point"] == (175, 285)
+    assert mouse.points == [(175, 285)]
+
+
 def test_robot_gui_executor_rejects_non_uia_target_without_tracked_id():
     element = ScreenElement(
         kind="button",
