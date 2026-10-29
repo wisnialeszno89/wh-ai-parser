@@ -80,7 +80,10 @@ def _is_field_candidate(
     kind = control_type.strip().casefold()
     if kind in EDITABLE_TYPES:
         return True
-    if kind != "button":
+    # Some WindowHub/DevExpress editors appear as generic Custom controls or
+    # buttons. For this read-only diagnostic, include them only when a known
+    # editor hint appears in their name, AutomationId, or class.
+    if kind not in {"button", "custom", "unknown"}:
         return False
     searchable = " ".join((name, automation_id, class_name)).casefold()
     return any(hint in searchable for hint in EDITOR_HINTS)
@@ -456,6 +459,91 @@ def build_semantic_field_report(
             truncated = True
             break
 
+    # The canonical semantic scene includes a separate WindowHub dialog only
+    # when that dialog is the foreground owned window at observation time.
+    # Running this diagnostic from PowerShell may make PowerShell foreground,
+    # even though the WindowHub dialog remains visible. Raw descendant groups
+    # above are collected independently from visible HWNDs owned by WindowHub,
+    # so use them as a clearly marked, read-only fallback for those windows.
+    semantic_owned_handles: set[int] = set()
+    for element in semantic_elements:
+        metadata = getattr(element, "metadata", None) or {}
+        if not isinstance(metadata, dict) or metadata.get("uia_owned_modal") is not True:
+            continue
+        try:
+            element_handle = int(metadata.get("uia_window_handle") or 0)
+        except (TypeError, ValueError):
+            continue
+        if element_handle > 0:
+            semantic_owned_handles.add(element_handle)
+
+    owned_window_index = 0
+    raw_owned_fallback_field_count = 0
+    for window_handle, descendants in raw_descendant_groups:
+        try:
+            group_handle = int(window_handle)
+        except (TypeError, ValueError):
+            continue
+        if group_handle <= 0 or group_handle == root_handle:
+            continue
+        owned_window_index += 1
+        if group_handle in semantic_owned_handles:
+            # The dialog was already represented by semantic perception. Do
+            # not duplicate its fields with raw candidates.
+            continue
+
+        text_entries = text_entries_by_handle.get(group_handle, [])
+        for item in descendants:
+            try:
+                info = item.element_info
+                control_type = _string_attr(info, "control_type").casefold()
+                name = _string_attr(info, "name")
+                automation_id = _string_attr(info, "automation_id")
+                class_name = _string_attr(info, "class_name")
+            except Exception:
+                continue
+            if not _is_field_candidate(control_type, name, automation_id, class_name):
+                continue
+
+            bounds = _rect(item)
+            if bounds is None:
+                continue
+            enabled = _bool_attr(info, "enabled")
+            visible = _bool_attr(info, "visible")
+            value_available, value_nonempty = _value_flags(item)
+
+            fields.append({
+                "index": len(fields) + 1,
+                "window_scope": "owned_window",
+                "owned_window_index": owned_window_index,
+                "source": "raw_uia_owned_window_fallback",
+                "name": name or "<unnamed>",
+                "kind": control_type or "unknown",
+                "automation_id": automation_id,
+                "class_name": class_name,
+                "enabled": enabled,
+                "visible": visible,
+                "bounds": {
+                    "left": bounds[0],
+                    "top": bounds[1],
+                    "width": bounds[2],
+                    "height": bounds[3],
+                },
+                "value_available": value_available,
+                "value_nonempty": value_nonempty,
+                "checked_state": _checked_state(item) if control_type == "checkbox" else None,
+                "nearby_text_candidates": _rank_label_candidates(bounds, text_entries),
+                "ancestors": _ancestor_context(item),
+            })
+            raw_owned_fallback_field_count += 1
+            if len(fields) >= max_fields:
+                truncated = True
+                break
+
+        if len(fields) >= max_fields:
+            truncated = True
+            break
+
     return {
         "diagnostic": "windowhub_read_only_form_field_context",
         "mode": "READ_ONLY",
@@ -468,6 +556,7 @@ def build_semantic_field_report(
         "raw_descendant_count": raw_descendant_count,
         "static_text_count": sum(len(items) for items in text_entries_by_handle.values()),
         "semantic_element_count": len(semantic_elements),
+        "raw_owned_window_fallback_field_count": raw_owned_fallback_field_count,
         "raw_control_type_counts": dict(sorted(raw_control_types.items())),
         "semantic_kind_counts": dict(sorted(semantic_kinds.items())),
         "field_count": len(fields),
