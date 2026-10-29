@@ -78,6 +78,7 @@ def test_execution_details_preserve_failure_reason_and_execution_counts():
     )
     execution_loop_result = SimpleNamespace(
         attempts=(attempt,),
+        last_attempt=attempt,
         success=False,
     )
     control = SimpleNamespace(
