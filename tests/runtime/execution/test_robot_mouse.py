@@ -26,7 +26,7 @@ def test_robot_mouse_live_fails_closed_when_windows_api_is_unavailable(
     assert result.executed is False
     assert result.mode is RobotMouseMode.LIVE
     assert result.point == (321, 654)
-    assert "requires the Windows SendInput API" in result.reason
+    assert "LIVE mouse clicks require the Windows SendInput API" == result.reason
 
 
 def test_robot_mouse_live_uses_windows_api_without_physical_click(
