@@ -335,3 +335,45 @@ def test_semantic_owned_dialog_field_is_not_duplicated_by_raw_fallback():
     assert report["raw_owned_window_fallback_field_count"] == 0
     assert "PRIVATE OFFER VALUE" not in str(report)
 
+
+def test_semantic_report_lists_unclassified_custom_controls_without_exposing_values():
+    label = _FakeItem(
+        name="Szerokość",
+        control_type="Text",
+        bounds=(40, 120, 100, 18),
+    )
+    custom = _FakeItem(
+        name="CustomItem17",
+        control_type="Custom",
+        bounds=(180, 118, 140, 24),
+        value="PRIVATE INPUT VALUE",
+    )
+    hinted_custom = _FakeItem(
+        name="LayoutItem",
+        control_type="Custom",
+        bounds=(180, 158, 140, 24),
+        value="PRIVATE SECOND VALUE",
+    )
+    hinted_custom.element_info.class_name = "DevExpress.XtraEditors.TextEdit"
+
+    report = build_semantic_field_report(
+        _FakeScene([]),
+        [(100, [label, custom, hinted_custom])],
+        root_bounds=(0, 0, 1000, 700),
+        root_handle=100,
+        active_window_title="WindowHub",
+    )
+
+    assert report["field_count"] == 0
+    assert report["raw_control_candidate_count"] == 2
+    candidates = report["raw_control_candidates"]
+    assert candidates[0]["candidate_type"] == "unclassified_custom_control"
+    assert candidates[0]["nearby_text_candidates"][0]["label"] == "Szerokość"
+    assert candidates[1]["candidate_type"] == "editor_hint_match"
+    assert candidates[1]["class_name"] == "DevExpress.XtraEditors.TextEdit"
+    serialized = str(report)
+    assert "PRIVATE INPUT VALUE" not in serialized
+    assert "PRIVATE SECOND VALUE" not in serialized
+    assert report["computer_actions_executed"] is False
+    assert report["files_written"] is False
+
