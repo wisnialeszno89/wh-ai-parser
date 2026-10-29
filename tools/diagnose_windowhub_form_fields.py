@@ -191,79 +191,113 @@ def _ancestor_context(item: object, *, limit: int = 3) -> list[dict[str, str]]:
     return ancestors
 
 
+def _is_owned_window_candidate(
+    candidate_handle: int,
+    root_handle: int,
+    candidate_root_owner: int,
+) -> bool:
+    """Accept only a distinct top-level window whose root owner is the target app."""
+    return (
+        candidate_handle > 0
+        and root_handle > 0
+        and candidate_handle != root_handle
+        and candidate_root_owner == root_handle
+    )
+
+
 def build_field_report(
     descendants: list[object],
     *,
     active_window_title: str,
     max_fields: int = 200,
+    owned_window_descendants: list[list[object]] | None = None,
 ) -> dict[str, Any]:
-    """Build a redacted report from existing UIA wrappers; no actions are run."""
-    text_entries: list[dict[str, Any]] = []
-    for item in descendants:
-        try:
-            info = item.element_info
-            control_type = _string_attr(info, "control_type").casefold()
-            label = _string_attr(info, "name")
-        except Exception:
-            continue
-        if control_type != "text" or not label:
-            continue
-        bounds = _rect(item)
-        if bounds is not None:
-            text_entries.append({"label": label, "bounds": bounds})
+    """Build a redacted report, preserving window boundaries for label matching."""
+    groups: list[tuple[str, list[object]]] = [("application_window", descendants)]
+    for index, owned_descendants in enumerate(owned_window_descendants or [], start=1):
+        groups.append((f"owned_window_{index}", owned_descendants))
 
     fields: list[dict[str, Any]] = []
-    all_field_count = 0
-    for item in descendants:
-        try:
-            info = item.element_info
-            control_type = _string_attr(info, "control_type").casefold()
-            name = _string_attr(info, "name")
-            automation_id = _string_attr(info, "automation_id")
-            class_name = _string_attr(info, "class_name")
-        except Exception:
-            continue
-        if not _is_field_candidate(control_type, name, automation_id, class_name):
-            continue
+    static_text_count = 0
+    scanned_windows: list[dict[str, Any]] = []
+    hit_field_limit = False
 
-        bounds = _rect(item)
-        if bounds is None:
-            continue
-        try:
-            enabled_value = getattr(info, "enabled", None)
-            enabled = enabled_value if isinstance(enabled_value, bool) else None
-        except Exception:
-            enabled = None
-        try:
-            visible_value = getattr(info, "visible", None)
-            visible = visible_value if isinstance(visible_value, bool) else None
-        except Exception:
-            visible = None
+    for window_scope, group_descendants in groups:
+        text_entries: list[dict[str, Any]] = []
+        for item in group_descendants:
+            try:
+                info = item.element_info
+                control_type = _string_attr(info, "control_type").casefold()
+                label = _string_attr(info, "name")
+            except Exception:
+                continue
+            if control_type != "text" or not label:
+                continue
+            bounds = _rect(item)
+            if bounds is not None:
+                text_entries.append({"label": label, "bounds": bounds})
 
-        value_available, value_nonempty = _value_flags(item)
-        entry: dict[str, Any] = {
-            "index": all_field_count + 1,
-            "name": name or "<unnamed>",
-            "kind": control_type or "unknown",
-            "automation_id": automation_id,
-            "class_name": class_name,
-            "enabled": enabled,
-            "visible": visible,
-            "bounds": {
-                "left": bounds[0],
-                "top": bounds[1],
-                "width": bounds[2],
-                "height": bounds[3],
-            },
-            "value_available": value_available,
-            "value_nonempty": value_nonempty,
-            "checked_state": _checked_state(item) if control_type == "checkbox" else None,
-            "nearby_text_candidates": _rank_label_candidates(bounds, text_entries),
-            "ancestors": _ancestor_context(item),
-        }
-        fields.append(entry)
-        all_field_count += 1
-        if len(fields) >= max_fields:
+        static_text_count += len(text_entries)
+        scanned_windows.append({
+            "scope": window_scope,
+            "descendant_count": len(group_descendants),
+            "static_text_count": len(text_entries),
+        })
+
+        for item in group_descendants:
+            try:
+                info = item.element_info
+                control_type = _string_attr(info, "control_type").casefold()
+                name = _string_attr(info, "name")
+                automation_id = _string_attr(info, "automation_id")
+                class_name = _string_attr(info, "class_name")
+            except Exception:
+                continue
+            if not _is_field_candidate(control_type, name, automation_id, class_name):
+                continue
+
+            bounds = _rect(item)
+            if bounds is None:
+                continue
+            try:
+                enabled_value = getattr(info, "enabled", None)
+                enabled = enabled_value if isinstance(enabled_value, bool) else None
+            except Exception:
+                enabled = None
+            try:
+                visible_value = getattr(info, "visible", None)
+                visible = visible_value if isinstance(visible_value, bool) else None
+            except Exception:
+                visible = None
+
+            value_available, value_nonempty = _value_flags(item)
+            entry: dict[str, Any] = {
+                "index": len(fields) + 1,
+                "window_scope": window_scope,
+                "name": name or "<unnamed>",
+                "kind": control_type or "unknown",
+                "automation_id": automation_id,
+                "class_name": class_name,
+                "enabled": enabled,
+                "visible": visible,
+                "bounds": {
+                    "left": bounds[0],
+                    "top": bounds[1],
+                    "width": bounds[2],
+                    "height": bounds[3],
+                },
+                "value_available": value_available,
+                "value_nonempty": value_nonempty,
+                "checked_state": _checked_state(item) if control_type == "checkbox" else None,
+                "nearby_text_candidates": _rank_label_candidates(bounds, text_entries),
+                "ancestors": _ancestor_context(item),
+            }
+            fields.append(entry)
+            if len(fields) >= max_fields:
+                hit_field_limit = True
+                break
+
+        if hit_field_limit:
             break
 
     return {
@@ -275,10 +309,12 @@ def build_field_report(
         "screenshot_saved": False,
         "window_title": "<redacted>",
         "window_title_matches_selector": bool(active_window_title),
-        "static_text_count": len(text_entries),
-        "field_count": all_field_count,
+        "static_text_count": static_text_count,
+        "field_count": len(fields),
         "fields_reported": len(fields),
-        "truncated": all_field_count >= max_fields,
+        "truncated": hit_field_limit,
+        "scanned_windows": scanned_windows,
+        "owned_windows_scanned": max(0, len(groups) - 1),
         "fields": fields,
         "safety_note": (
             "Current field values and window/document names are not printed. "
@@ -335,8 +371,9 @@ def main() -> int:
         def is_visible(handle: int) -> bool:
             return bool(ctypes.windll.user32.IsWindowVisible(int(handle)))
 
+        all_windows = gw.getAllWindows()
         window, stop_reason = _select_target_window(
-            gw.getAllWindows(),
+            all_windows,
             title_contains=args.window_title_contains,
             process_name=args.process_name,
             window_handle=args.window_handle,
@@ -357,15 +394,82 @@ def main() -> int:
 
         handle = int(getattr(window, "_hWnd", 0) or 0)
         ensure_windows_sta()
-        root_spec = Desktop(backend="uia").window(handle=handle)
+        desktop = Desktop(backend="uia")
+        root_spec = desktop.window(handle=handle)
         wrapper = getattr(root_spec, "wrapper_object", None)
         root = wrapper() if callable(wrapper) else root_spec
         descendants = list(root.descendants())
+
+        # WindowHub forms can live in a separate owned top-level dialog.
+        # Discover all visible owned windows, not only the foreground window:
+        # launching this read-only command from PowerShell may itself change
+        # the foreground window even while the dialog remains open.
+        owned_window_groups: list[list[object]] = []
+        owned_window_handles: list[int] = []
+        for candidate in all_windows:
+            try:
+                candidate_handle = int(getattr(candidate, "_hWnd", 0) or 0)
+                candidate_width = int(getattr(candidate, "width", 0) or 0)
+                candidate_height = int(getattr(candidate, "height", 0) or 0)
+                minimized = getattr(candidate, "isMinimized", False)
+                if callable(minimized):
+                    minimized = minimized()
+            except Exception:
+                continue
+
+            if (
+                candidate_handle <= 0
+                or candidate_width <= 0
+                or candidate_height <= 0
+                or minimized is True
+                or not is_visible(candidate_handle)
+            ):
+                continue
+
+            try:
+                candidate_root_owner = int(
+                    ctypes.windll.user32.GetAncestor(candidate_handle, 3)
+                )
+            except Exception:
+                continue
+
+            if not _is_owned_window_candidate(
+                candidate_handle,
+                handle,
+                candidate_root_owner,
+            ):
+                continue
+            if candidate_handle in owned_window_handles:
+                continue
+
+            try:
+                candidate_spec = desktop.window(handle=candidate_handle)
+                candidate_wrapper = getattr(candidate_spec, "wrapper_object", None)
+                candidate_root = (
+                    candidate_wrapper()
+                    if callable(candidate_wrapper)
+                    else candidate_spec
+                )
+                candidate_descendants = list(candidate_root.descendants())
+            except Exception:
+                continue
+
+            owned_window_handles.append(candidate_handle)
+            owned_window_groups.append(candidate_descendants)
+
         report = build_field_report(
             descendants,
             active_window_title=(getattr(window, "title", "") or "").strip(),
             max_fields=args.max_fields,
+            owned_window_descendants=owned_window_groups,
         )
+        report["window_context"] = {
+            "application_window_scanned": True,
+            "owned_window_handles_scanned": len(owned_window_handles),
+            "owned_window_descendant_counts": [
+                len(group) for group in owned_window_groups
+            ],
+        }
         report["ok"] = True
         report["window_title_matches_selector"] = (
             args.window_title_contains.casefold()
