@@ -113,6 +113,7 @@ jobs:
             tests/test_hough_line_normalizer.py \
             tests/test_windowhub_field_scope_diagnostics.py \
             tests/test_diagnose_windowhub_semantics.py \
+            tests/test_windowhub_form_field_diagnostic.py \
             tests/test_windows_desktop_agent_runtime.py
 
       - name: Run WindowHub interface knowledge tests
@@ -172,6 +173,7 @@ jobs:
             tools/preview_local_document_ocr.py \
             tools/diagnose_windowhub_field_scope.py \
             tools/diagnose_windowhub_semantics.py \
+            tools/diagnose_windowhub_form_fields.py \
             tools/live_windowhub_mdi_tab_smoke.py \
             tools/live_windowhub_new_offer_open_smoke.py \
             tests/test_live_windowhub_new_offer_open_smoke.py \
@@ -180,6 +182,7 @@ jobs:
             tests/test_hough_line_normalizer.py \
             tests/test_windowhub_field_scope_diagnostics.py \
             tests/test_diagnose_windowhub_semantics.py \
+            tests/test_windowhub_form_field_diagnostic.py \
             tests/test_windows_desktop_agent_runtime.py
       - name: Run local-only Playwright provider smoke
         run: python tools/smoke_browser_provider_local.py
