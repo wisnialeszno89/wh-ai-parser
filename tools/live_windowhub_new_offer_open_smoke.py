@@ -71,6 +71,15 @@ def _offer_dialog_detected(scene) -> bool:
     labels = set(_owned_modal_labels(scene))
     return "ok" in labels and "anuluj" in labels
 
+def _existing_offer_dialog_problem(scene) -> str | None:
+    """Refuse a duplicate offer attempt before requiring an active MDI document."""
+    if _offer_dialog_detected(scene):
+        return (
+            "A WindowHub-owned dialog with OK and Anuluj is already open; "
+            "refusing to start another offer."
+        )
+    return None
+
 
 def _start1_activation_problem(scene) -> str | None:
     """Validate a single, bounded attempt to activate the Start1 document tab."""
@@ -475,6 +484,39 @@ def main() -> int:
             return 5
 
         before_scene = control_loop.observe_scene()
+
+        # A previous successful run may have left the new-offer dialog open.
+        # Check for it before trying to resolve or activate an MDI document;
+        # otherwise an unresolved document can mask the already-open dialog.
+        existing_dialog_problem = _existing_offer_dialog_problem(before_scene)
+        if existing_dialog_problem is not None:
+            scene_metadata = getattr(before_scene, "metadata", {}) or {}
+            if not isinstance(scene_metadata, dict):
+                scene_metadata = {}
+            print(json.dumps({
+                "result": "ABORTED",
+                "phase": "existing_offer_dialog",
+                "error": existing_dialog_problem,
+                "active_document_before": getattr(
+                    before_scene, "active_document", None
+                ),
+                "active_document_resolution": scene_metadata.get(
+                    "active_document_resolution"
+                ),
+                "document_tab_count": scene_metadata.get("document_tab_count"),
+                "selected_document_tab_count": scene_metadata.get(
+                    "selected_document_tab_count"
+                ),
+                "owned_modal_labels_before": list(
+                    _owned_modal_labels(before_scene)
+                ),
+                "offer_click_executed": False,
+                "offer_data_entered": False,
+                "offer_saved": False,
+                "gui_actions_executed": 0,
+            }, ensure_ascii=False, indent=2))
+            return 5
+
         active_document_before_any_action = getattr(
             before_scene,
             "active_document",

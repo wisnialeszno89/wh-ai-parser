@@ -4,6 +4,7 @@ import pytest
 
 from tools.live_windowhub_new_offer_open_smoke import (
     _execution_details,
+    _existing_offer_dialog_problem,
     _initial_scene_problem,
     _plan_block_reason,
     _start1_activation_problem,
@@ -206,6 +207,37 @@ def test_start1_activation_preflight_blocks_selection_conflict():
 
     assert reason is not None
     assert "selection conflicts" in reason
+
+
+def test_existing_offer_dialog_is_detected_before_unresolved_document_activation():
+    scene = _valid_scene()
+    scene.active_document = None
+    scene.elements = (
+        _element(
+            "OK",
+            {
+                "uia_owned_modal": True,
+                "uia_visible": True,
+            },
+        ),
+        _element(
+            "Anuluj",
+            {
+                "uia_owned_modal": True,
+                "uia_visible": True,
+            },
+        ),
+    )
+
+    reason = _existing_offer_dialog_problem(scene)
+
+    assert reason is not None
+    assert "already open" in reason
+    assert "refusing to start another offer" in reason
+
+
+def test_existing_offer_dialog_preflight_allows_normal_start1_scene():
+    assert _existing_offer_dialog_problem(_valid_scene()) is None
 
 
 def test_preflight_accepts_active_start1_and_unique_uia_button():
