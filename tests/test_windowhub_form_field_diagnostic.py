@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 from tools.diagnose_windowhub_form_fields import (
     _is_field_candidate,
+    _is_owned_window_candidate,
     _rank_label_candidates,
     build_field_report,
 )
@@ -99,4 +100,54 @@ def test_report_exposes_only_value_flags_and_redacts_window_title():
     assert "PRIVATE FIELD CONTENT" not in str(report)
     assert report["window_title"] == "<redacted>"
     assert report["computer_actions_executed"] is False
+    assert report["files_written"] is False
+
+
+
+def test_owned_window_candidate_requires_a_distinct_window_owned_by_target_app():
+    assert _is_owned_window_candidate(200, 100, 100)
+    assert not _is_owned_window_candidate(100, 100, 100)
+    assert not _is_owned_window_candidate(200, 100, 999)
+    assert not _is_owned_window_candidate(0, 100, 100)
+
+
+def test_report_includes_owned_dialog_fields_and_keeps_label_matching_local():
+    app_label = _FakeItem(
+        name="Toolbar text",
+        control_type="Text",
+        bounds=(60, 100, 100, 18),
+    )
+    app_field = _FakeItem(
+        name="Toolbar editor",
+        control_type="Edit",
+        bounds=(200, 100, 120, 24),
+        value="PRIVATE APPLICATION VALUE",
+    )
+    dialog_label = _FakeItem(
+        name="Numer oferty",
+        control_type="Text",
+        bounds=(60, 102, 100, 18),
+    )
+    dialog_field = _FakeItem(
+        name="LayoutItem",
+        control_type="Edit",
+        bounds=(200, 100, 120, 24),
+        value="PRIVATE DIALOG VALUE",
+    )
+
+    report = build_field_report(
+        [app_label, app_field],
+        active_window_title="Sensitive customer window",
+        owned_window_descendants=[[dialog_label, dialog_field]],
+    )
+
+    assert report["owned_windows_scanned"] == 1
+    assert report["field_count"] == 2
+    assert report["fields"][0]["window_scope"] == "application_window"
+    assert report["fields"][1]["window_scope"] == "owned_window_1"
+    assert report["fields"][1]["nearby_text_candidates"][0]["label"] == "Numer oferty"
+    assert "PRIVATE APPLICATION VALUE" not in str(report)
+    assert "PRIVATE DIALOG VALUE" not in str(report)
+    assert report["computer_actions_executed"] is False
+    assert report["network_calls_made"] is False
     assert report["files_written"] is False
