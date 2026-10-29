@@ -431,18 +431,40 @@ class RobotGUIExecutor(ActionExecutor):
     @staticmethod
     def _is_guarded_uia_target(element) -> bool:
         metadata = element.metadata or {}
+        source = metadata.get("source")
+        fusion_sources = metadata.get("fusion_sources") or ()
 
+        if isinstance(fusion_sources, str):
+            fusion_sources = (fusion_sources,)
+        elif not isinstance(
+            fusion_sources,
+            (tuple, list, set, frozenset),
+        ):
+            fusion_sources = ()
+
+        approved_sources = {
+            "windowhub_ui_automation",
+            "windows_ui_automation",
+        }
+        has_approved_uia_provenance = (
+            source in approved_sources
+            or any(
+                item in approved_sources
+                for item in fusion_sources
+            )
+        )
+        runtime_id = metadata.get("uia_runtime_id")
+
+        # Fusion may retain a visual/OCR representative as the primary
+        # element even when a trusted UIA provider contributed the control's
+        # identity and interaction metadata. Preserve that evidence only when
+        # the fused provenance explicitly names an approved UIA provider.
         return (
-            metadata.get("source") in {
-    "windowhub_ui_automation",
-    "windows_ui_automation",
-}
+            has_approved_uia_provenance
             and metadata.get("uia_enabled") is True
             and metadata.get("uia_visible") is True
-            and isinstance(
-                metadata.get("uia_runtime_id"),
-                str,
-            )
+            and isinstance(runtime_id, str)
+            and bool(runtime_id.strip())
         )
 
     @staticmethod
