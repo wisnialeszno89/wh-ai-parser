@@ -249,3 +249,89 @@ def test_semantic_field_report_does_not_match_labels_across_windows():
 
     assert report["field_count"] == 1
     assert report["fields"][0]["nearby_text_candidates"] == []
+
+
+def test_semantic_report_falls_back_to_raw_fields_for_non_foreground_owned_dialog():
+    app_label = _FakeItem(
+        name="Toolbar label",
+        control_type="Text",
+        bounds=(10, 100, 90, 18),
+    )
+    dialog_label = _FakeItem(
+        name="Nazwa oferty",
+        control_type="Text",
+        bounds=(60, 102, 100, 18),
+    )
+    dialog_field = _FakeItem(
+        name="LayoutItem",
+        control_type="Custom",
+        bounds=(200, 100, 120, 24),
+        value="PRIVATE OFFER VALUE",
+    )
+    dialog_field.element_info.class_name = "DevExpress.XtraEditors.TextEdit"
+
+    # The semantic scene represents the main app only, as when PowerShell has
+    # taken foreground focus. The separately enumerated owned window still
+    # contains the live UIA field and its local label candidate.
+    report = build_semantic_field_report(
+        _FakeScene([]),
+        [(100, [app_label]), (200, [dialog_label, dialog_field])],
+        root_bounds=(0, 0, 1000, 600),
+        root_handle=100,
+        active_window_title="WindowHub",
+    )
+
+    assert report["field_count"] == 1
+    field = report["fields"][0]
+    assert field["window_scope"] == "owned_window"
+    assert field["source"] == "raw_uia_owned_window_fallback"
+    assert field["kind"] == "custom"
+    assert field["class_name"] == "DevExpress.XtraEditors.TextEdit"
+    assert field["nearby_text_candidates"][0]["label"] == "Nazwa oferty"
+    assert report["raw_owned_window_fallback_field_count"] == 1
+    assert "PRIVATE OFFER VALUE" not in str(report)
+    assert report["computer_actions_executed"] is False
+    assert report["files_written"] is False
+
+
+def test_semantic_owned_dialog_field_is_not_duplicated_by_raw_fallback():
+    label = _FakeItem(
+        name="Nazwa oferty",
+        control_type="Text",
+        bounds=(60, 102, 100, 18),
+    )
+    raw_field = _FakeItem(
+        name="Nazwa",
+        control_type="Edit",
+        bounds=(200, 100, 120, 24),
+        value="PRIVATE OFFER VALUE",
+    )
+    semantic_field = _FakeSemanticElement(
+        label="Nazwa",
+        kind="edit",
+        x=200,
+        y=100,
+        width=120,
+        height=24,
+        metadata={
+            "uia_window_handle": 200,
+            "uia_owned_modal": True,
+            "uia_enabled": True,
+            "uia_visible": True,
+            "current_value": "PRIVATE OFFER VALUE",
+        },
+    )
+
+    report = build_semantic_field_report(
+        _FakeScene([semantic_field]),
+        [(100, []), (200, [label, raw_field])],
+        root_bounds=(0, 0, 1000, 600),
+        root_handle=100,
+        active_window_title="WindowHub",
+    )
+
+    assert report["field_count"] == 1
+    assert report["fields"][0]["window_scope"] == "owned_window"
+    assert report["raw_owned_window_fallback_field_count"] == 0
+    assert "PRIVATE OFFER VALUE" not in str(report)
+
