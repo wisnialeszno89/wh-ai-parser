@@ -308,6 +308,14 @@ class RobotActionExecutor:
         # provenance into the safety-gate input; the gate still validates role,
         # enabled/visible state, runtime identity, capability and foreground.
         fusion_sources = metadata.get("fusion_sources") or ()
+        if isinstance(fusion_sources, str):
+            fusion_sources = (fusion_sources,)
+        elif not isinstance(
+            fusion_sources,
+            (tuple, list, set, frozenset),
+        ):
+            fusion_sources = ()
+
         is_windowhub_uia = (
             metadata.get("source") == "windowhub_ui_automation"
             or "windowhub_ui_automation" in fusion_sources
@@ -319,16 +327,23 @@ class RobotActionExecutor:
             and isinstance(metadata.get("uia_document_tab_selected"), bool)
         )
         gate_metadata = metadata
-        if (
-            is_document_tab
-            and metadata.get("source") not in {
-                "windowhub_ui_automation",
-                "windows_ui_automation",
-            }
-            and "windowhub_ui_automation" in fusion_sources
-        ):
-            gate_metadata = dict(metadata)
-            gate_metadata["source"] = "windowhub_ui_automation"
+
+        # The fusion layer can preserve a visual/OCR element as the primary
+        # representation while carrying independent UIA identity and state.
+        # Project only the explicit, approved provider provenance into the
+        # UIA safety gate. The gate still validates role, enabled/visible
+        # state, capability confidence and foreground ownership; selectable
+        # actions remain restricted to the verified document-tab path.
+        if metadata.get("source") not in {
+            "windowhub_ui_automation",
+            "windows_ui_automation",
+        }:
+            if "windowhub_ui_automation" in fusion_sources:
+                gate_metadata = dict(metadata)
+                gate_metadata["source"] = "windowhub_ui_automation"
+            elif "windows_ui_automation" in fusion_sources:
+                gate_metadata = dict(metadata)
+                gate_metadata["source"] = "windows_ui_automation"
 
         if not self.safety_gate.can_execute_uia_element(
             metadata=gate_metadata,
