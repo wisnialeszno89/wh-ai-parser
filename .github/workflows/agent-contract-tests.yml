@@ -114,6 +114,7 @@ jobs:
             tests/test_windowhub_field_scope_diagnostics.py \
             tests/test_diagnose_windowhub_semantics.py \
             tests/test_windowhub_form_field_diagnostic.py \
+            tests/test_new_offer_dialog.py \
             tests/test_windows_desktop_agent_runtime.py
 
       - name: Run WindowHub interface knowledge tests
@@ -147,6 +148,7 @@ jobs:
             app/runtime/execution/robot_action_executor.py \
             app/runtime/execution/robot_mouse.py \
             app/agent/perception/windowhub_ui_automation_provider.py \
+            app/wh/runtime/dialogs/new_offer_dialog.py \
             app/agent/perception/perception_engine.py \
             app/agent/perception/screen_element_fusion.py \
             app/agent/perception/target_resolver.py \
