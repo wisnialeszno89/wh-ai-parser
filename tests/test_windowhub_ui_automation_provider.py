@@ -1027,6 +1027,7 @@ def test_ui_automation_provider_exposes_bounded_ancestor_context():
     container = FakeUIAItem(
         name="Konstrukcja",
         control_type="Pane",
+        automation_id="IDC_CONSTRUCTION_GROUP",
         class_name="Afx:Pane",
         handle=501,
     )
@@ -1051,7 +1052,7 @@ def test_ui_automation_provider_exposes_bounded_ancestor_context():
 
     assert len(elements) == 1
     assert elements[0].metadata["uia_ancestor_context"] == (
-        ("Pane", "Afx:Pane", "Konstrukcja", 501),
+        ("Pane", "Afx:Pane", "Konstrukcja", "IDC_CONSTRUCTION_GROUP", 501),
     )
 
 
