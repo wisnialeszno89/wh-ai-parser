@@ -976,9 +976,12 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
         item,
         *,
         max_depth: int = 8,
-    ) -> tuple[tuple[str | None, str | None, str | None, int | None], ...]:
+    ) -> tuple[tuple[str | None, str | None, str | None, str | None, int | None], ...]:
         """
-        Capture a bounded semantic UIA ancestry path.
+        Capture a bounded semantic UIA ancestry path, including each ancestor's
+        AutomationId so compound editors can be associated with their logical
+        WindowHub field without relying on repeated child ids such as
+        PART_Editor or dateDisplay.
 
         This is observational context for reasoning, diagnostics and later
         scope inference. It must not by itself authorize a document scope,
@@ -1012,6 +1015,9 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
                 name = WindowHubUIAutomationProvider._string(
                     getattr(element_info, "name", None)
                 )
+                automation_id = WindowHubUIAutomationProvider._string(
+                    getattr(element_info, "automation_id", None)
+                )
             except Exception:
                 break
 
@@ -1023,6 +1029,7 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
                     control_type,
                     class_name,
                     name,
+                    automation_id,
                     WindowHubUIAutomationProvider._native_handle(current),
                 )
             )
