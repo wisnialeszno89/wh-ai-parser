@@ -377,3 +377,33 @@ def test_semantic_report_lists_unclassified_custom_controls_without_exposing_val
     assert report["computer_actions_executed"] is False
     assert report["files_written"] is False
 
+
+def test_raw_control_candidates_deduplicate_runtime_ids_and_prefer_owned_dialog_scope():
+    control = _FakeItem(
+        name="LayoutItem",
+        control_type="Custom",
+        bounds=(200, 100, 120, 24),
+        value="PRIVATE CONTROL VALUE",
+    )
+    control.element_info.automation_id = "IDC_CUSTOM_EDITOR"
+    control.element_info.runtime_id = (42, 7, 19)
+
+    report = build_semantic_field_report(
+        _FakeScene([]),
+        [(100, [control]), (200, [control])],
+        root_bounds=(0, 0, 1000, 600),
+        root_handle=100,
+        active_window_title="WindowHub",
+    )
+
+    candidates = report["raw_control_candidates"]
+    assert report["raw_control_candidate_observed_count"] == 2
+    assert report["raw_control_candidate_count"] == 1
+    assert report["raw_control_candidate_duplicate_count"] == 1
+    assert len(candidates) == 1
+    assert candidates[0]["window_scope"] == "owned_window"
+    assert candidates[0]["window_handle"] == 200
+    assert candidates[0]["uia_runtime_id"] == "42-7-19"
+    assert "PRIVATE CONTROL VALUE" not in str(report)
+    assert report["computer_actions_executed"] is False
+    assert report["files_written"] is False
