@@ -547,7 +547,15 @@ def build_semantic_field_report(
     # Preserve visibility into UIA Custom controls that the canonical
     # semantic provider does not expose as editable roles. These are diagnostic
     # candidates only; they are not authorized targets for typing or clicking.
-    raw_control_candidates: list[dict[str, Any]] = []
+    # The application root can expose the owned dialog's descendants as well
+    # as the dialog's own HWND. Inventory both scopes, then collapse repeated
+    # references to the same UIA element by RuntimeId. When the same element
+    # appears in both groups, keep the owned-window record because it preserves
+    # the correct dialog boundary for later targeting.
+    raw_candidates_by_identity: dict[tuple[Any, ...], tuple[int, dict[str, Any]]] = {}
+    raw_control_candidate_observed_count = 0
+    raw_control_candidate_duplicate_count = 0
+
     for group_handle, descendants in raw_descendant_groups:
         try:
             current_handle = int(group_handle)
@@ -578,9 +586,27 @@ def build_semantic_field_report(
             if _bool_attr(info, "visible") is False:
                 continue
 
-            raw_control_candidates.append({
-                "index": len(raw_control_candidates) + 1,
+            runtime_id = _runtime_id(item)
+            # RuntimeIds identify the same UIA element when it is discovered
+            # through both the application root and its separately owned HWND.
+            # Do not guess across windows when a provider omits RuntimeId.
+            identity = (
+                ("runtime_id", runtime_id)
+                if runtime_id
+                else (
+                    "window_fallback",
+                    current_handle,
+                    control_type,
+                    automation_id,
+                    class_name,
+                    bounds,
+                )
+            )
+            candidate = {
+                "index": 0,
                 "window_scope": scope,
+                "window_handle": current_handle,
+                "uia_runtime_id": runtime_id,
                 "candidate_type": (
                     "editor_hint_match"
                     if has_editor_hint
@@ -602,7 +628,25 @@ def build_semantic_field_report(
                     bounds, text_entries
                 ),
                 "ancestors": _ancestor_context(item),
-            })
+            }
+            raw_control_candidate_observed_count += 1
+            existing = raw_candidates_by_identity.get(identity)
+            if existing is not None:
+                raw_control_candidate_duplicate_count += 1
+                existing_rank, _ = existing
+                candidate_rank = 1 if scope == "owned_window" else 0
+                if candidate_rank > existing_rank:
+                    raw_candidates_by_identity[identity] = (candidate_rank, candidate)
+            else:
+                candidate_rank = 1 if scope == "owned_window" else 0
+                raw_candidates_by_identity[identity] = (candidate_rank, candidate)
+
+    raw_control_candidates = [
+        candidate
+        for _, candidate in raw_candidates_by_identity.values()
+    ]
+    for index, candidate in enumerate(raw_control_candidates, start=1):
+        candidate["index"] = index
 
     return {
         "diagnostic": "windowhub_read_only_form_field_context",
@@ -618,6 +662,8 @@ def build_semantic_field_report(
         "semantic_element_count": len(semantic_elements),
         "raw_owned_window_fallback_field_count": raw_owned_fallback_field_count,
         "raw_control_candidate_count": len(raw_control_candidates),
+        "raw_control_candidate_observed_count": raw_control_candidate_observed_count,
+        "raw_control_candidate_duplicate_count": raw_control_candidate_duplicate_count,
         "raw_control_candidates": raw_control_candidates,
         "raw_control_type_counts": dict(sorted(raw_control_types.items())),
         "semantic_kind_counts": dict(sorted(semantic_kinds.items())),
