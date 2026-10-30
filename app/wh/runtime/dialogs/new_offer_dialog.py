@@ -36,12 +36,14 @@ class NewOfferFieldSpec:
 
 @dataclass(frozen=True)
 class NewOfferFieldBinding:
-    """A uniquely resolved control; contains no current field value."""
+    """A safe target descriptor; never retains the ScreenElement or its values."""
 
     key: str
     automation_id: str
     operation: FieldOperation
-    element: ScreenElement
+    target_label: str
+    control_type: str
+    runtime_id: str
 
 
 @dataclass(frozen=True)
@@ -192,7 +194,9 @@ class NewOfferDialog:
                 key=spec.key,
                 automation_id=spec.automation_id,
                 operation=spec.operation,
-                element=element,
+                target_label=str(getattr(element, "label", "") or ""),
+                control_type=kind,
+                runtime_id=runtime_id,
             ),
         )
 
