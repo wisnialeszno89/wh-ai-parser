@@ -143,6 +143,7 @@ class NewOfferDialog:
             for element in elements
             if self._matches_spec_identity(element, spec)
         ]
+        candidates = self._collapse_same_runtime_modal_duplicates(candidates)
         if not candidates:
             return NewOfferFieldResolution(
                 key=spec.key,
@@ -206,6 +207,57 @@ class NewOfferDialog:
             self.resolve_field(scene, spec.key)
             for spec in self.FIELD_SPECS
         )
+
+    @classmethod
+    def _collapse_same_runtime_modal_duplicates(
+        cls,
+        candidates: list[ScreenElement],
+    ) -> list[ScreenElement]:
+        """Keep the owned-modal representation of the same UIA RuntimeId.
+
+        WindowHub's root window and its owned dialog can both enumerate the
+        same descendant. Collapse only candidates with the exact same
+        non-empty UIA RuntimeId. Prefer the one explicitly marked as owned
+        modal. Different RuntimeIds are never collapsed just because their
+        AutomationIds match.
+        """
+        groups: dict[str, list[ScreenElement]] = {}
+        without_runtime_id: list[ScreenElement] = []
+
+        for element in candidates:
+            metadata = getattr(element, "metadata", None)
+            runtime_id = (
+                metadata.get("uia_runtime_id")
+                if isinstance(metadata, Mapping)
+                else None
+            )
+            if isinstance(runtime_id, str) and runtime_id.strip():
+                groups.setdefault(runtime_id, []).append(element)
+            else:
+                without_runtime_id.append(element)
+
+        collapsed = list(without_runtime_id)
+        for group in groups.values():
+            if len(group) == 1:
+                collapsed.append(group[0])
+                continue
+
+            modal = [
+                element
+                for element in group
+                if (
+                    isinstance(getattr(element, "metadata", None), Mapping)
+                    and element.metadata.get("uia_owned_modal") is True
+                )
+            ]
+            if len(modal) == 1:
+                collapsed.append(modal[0])
+            else:
+                # Without one unique owned-modal representative, retain the
+                # ambiguity instead of choosing by enumeration order.
+                collapsed.extend(group)
+
+        return collapsed
 
     @staticmethod
     def _ancestor_has_automation_id(metadata: Mapping, automation_id: str) -> bool:
