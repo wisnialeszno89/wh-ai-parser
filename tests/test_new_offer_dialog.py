@@ -191,3 +191,55 @@ def test_resolve_all_returns_read_only_results_for_the_declared_dialog_map():
     assert sum(item.status == "resolved" for item in results) == 1
     assert next(item for item in results if item.key == "discount").status == "resolved"
     assert all(item.binding is None or item.binding.target_label for item in results)
+
+
+def test_same_runtime_id_prefers_the_owned_modal_representation():
+    application_copy = make_element(
+        owned_modal=False,
+        runtime_id="42-7-19",
+        current_value="PRIVATE APP COPY",
+    )
+    modal_copy = make_element(
+        owned_modal=True,
+        runtime_id="42-7-19",
+        current_value="PRIVATE MODAL COPY",
+    )
+
+    result = NewOfferDialog().resolve_field(
+        make_scene(application_copy, modal_copy),
+        "discount",
+    )
+
+    assert result.status == "resolved"
+    assert result.candidate_count == 1
+    assert result.binding is not None
+    assert result.binding.runtime_id == "42-7-19"
+    assert "PRIVATE" not in str(asdict(result.binding))
+
+
+def test_same_runtime_id_without_one_unique_owned_modal_stays_ambiguous():
+    first = make_element(owned_modal=False, runtime_id="42-7-19")
+    second = make_element(owned_modal=False, runtime_id="42-7-19")
+
+    result = NewOfferDialog().resolve_field(
+        make_scene(first, second),
+        "discount",
+    )
+
+    assert result.status == "ambiguous"
+    assert result.candidate_count == 2
+    assert result.binding is None
+
+
+def test_same_runtime_id_in_two_modal_representations_stays_ambiguous():
+    first = make_element(owned_modal=True, runtime_id="42-7-19")
+    second = make_element(owned_modal=True, runtime_id="42-7-19")
+
+    result = NewOfferDialog().resolve_field(
+        make_scene(first, second),
+        "discount",
+    )
+
+    assert result.status == "ambiguous"
+    assert result.candidate_count == 2
+    assert result.binding is None
