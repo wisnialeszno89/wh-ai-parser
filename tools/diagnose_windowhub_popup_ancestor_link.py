@@ -45,7 +45,7 @@ from tools.diagnose_windowhub_win32_children import (
     _enumerate_process_top_windows,
     _find_windowhub_root,
     _hwnd_value,
-    _read_win32_rect if False else _rect_nonempty,
+    _rect_nonempty,
 )
 
 
