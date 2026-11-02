@@ -137,6 +137,28 @@ class SemanticReferenceMap:
         except KeyError as exc:
             raise KeyError("semantic_reference_unknown") from exc
 
+    def ref_for(
+        self,
+        element: ScreenElement,
+        *,
+        task_id: str,
+        world_revision: int,
+    ) -> str:
+        """Return the unique opaque ref for one exact local ScreenElement."""
+        if task_id != self.task_id:
+            raise ValueError("semantic_reference_task_mismatch")
+        if world_revision != self.world_revision:
+            raise ValueError("semantic_reference_revision_mismatch")
+
+        matches = [
+            ref
+            for ref, candidate in self._elements.items()
+            if candidate is element
+        ]
+        if len(matches) != 1:
+            raise ValueError("semantic_reference_element_not_unique")
+        return matches[0]
+
     @property
     def refs(self) -> tuple[str, ...]:
         return tuple(self._elements.keys())
