@@ -116,7 +116,7 @@ def make_window(
 ):
     lookup = FakeUIAItem(
         name="Zamawiający",
-        control_type="Button",
+        control_type="Custom",
         class_name="lookupedit",
         automation_id=WINDOWHUB_CLIENT_LOOKUP_AUTOMATION_ID,
         runtime_id=(4, 10, 20),
