@@ -103,7 +103,9 @@ class WindowHubLookupGridAdapter:
         broker,
         observation: EnvironmentObservation,
         *,
+        max_items: int = 10,
         timeout_seconds: float = 2.0,
+        max_result_bytes: int = 2_048,
     ) -> str:
         """Register the grid-structure-only reader with a local v2 broker."""
         from app.agent.runtime.windowhub_uia_grid_structure_reader import (
@@ -119,7 +121,9 @@ class WindowHubLookupGridAdapter:
             grid_resolver=self.resolver_for_observation(observation),
         )
         spec = windowhub_grid_structure_capability_spec(
+            max_items=max_items,
             timeout_seconds=timeout_seconds,
+            max_result_bytes=max_result_bytes,
         )
         register(spec, reader)
         return spec.name
