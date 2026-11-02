@@ -113,3 +113,67 @@ def test_windowhub_locator_ignores_minimized_candidates(monkeypatch):
 
     assert selected.title == "Okna - live"
     assert selected._hWnd == 300
+
+
+
+def test_environment_observation_captures_foreground_owned_popup_handles(monkeypatch):
+    window = _window(
+        "Okna - WindowHub",
+        hwnd=500,
+        left=10,
+        top=20,
+        width=1200,
+        height=800,
+    )
+    monkeypatch.setattr(
+        WindowHubEnvironmentAdapter,
+        "_locate_windowhub_window",
+        staticmethod(lambda: window),
+    )
+    monkeypatch.setattr(
+        WindowHubEnvironmentAdapter,
+        "_foreground_window_context",
+        staticmethod(lambda: (501, 500)),
+    )
+
+    adapter = WindowHubEnvironmentAdapter()
+    adapter.screenshot_engine = SimpleNamespace(
+        capture=lambda _rect: SimpleNamespace(width=1200, height=800)
+    )
+
+    observation = adapter.observe()
+
+    assert observation.metadata["window_handle"] == 500
+    assert observation.metadata["window_focused"] is False
+    assert observation.metadata["foreground_window_handle"] == 501
+    assert observation.metadata["foreground_root_owner_handle"] == 500
+
+
+def test_environment_observation_does_not_claim_unowned_foreground_popup(monkeypatch):
+    window = _window(
+        "Okna - WindowHub",
+        hwnd=500,
+        width=1200,
+        height=800,
+    )
+    monkeypatch.setattr(
+        WindowHubEnvironmentAdapter,
+        "_locate_windowhub_window",
+        staticmethod(lambda: window),
+    )
+    monkeypatch.setattr(
+        WindowHubEnvironmentAdapter,
+        "_foreground_window_context",
+        staticmethod(lambda: (601, 600)),
+    )
+
+    adapter = WindowHubEnvironmentAdapter()
+    adapter.screenshot_engine = SimpleNamespace(
+        capture=lambda _rect: SimpleNamespace(width=1200, height=800)
+    )
+
+    observation = adapter.observe()
+
+    assert observation.metadata["foreground_window_handle"] == 601
+    assert observation.metadata["foreground_root_owner_handle"] == 600
+    assert observation.metadata["window_focused"] is False
