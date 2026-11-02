@@ -1,6 +1,7 @@
 import json
 from urllib.error import HTTPError, URLError
 
+from app.agent.bridge.agent_task_contract_v2 import AgentTaskV2Contract
 from app.agent.reasoning.navimind_task_reasoner import (
     NaviMindTaskReasonerConfig,
 )
@@ -165,8 +166,8 @@ def test_v2_reasoner_can_send_a_contract_object_without_translating_it_to_v1():
         return _Response(_observe_response(payload))
 
     reasoner = _reasoner(opener)
-    request_payload = _request_payload()
-    response = reasoner.reason(request_payload)
+    request_contract = AgentTaskV2Contract.from_payload(_request_payload())
+    response = reasoner.reason(request_contract)
 
     assert response is not None
     assert captured["version"] == "2"
