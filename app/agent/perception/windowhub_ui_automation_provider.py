@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Callable
 
@@ -201,6 +202,7 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
         observation: EnvironmentObservation,
         *,
         required_ancestor_automation_ids: tuple[str, ...] = (),
+        required_ancestor_properties: Mapping[str, str] | None = None,
     ):
         """Re-resolve one table target in the current window; never use a cached wrapper."""
         metadata = target.metadata or {}
@@ -230,6 +232,22 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
             for value in required_ancestor_automation_ids
         ):
             raise ValueError("uia_table_required_ancestor_identity_invalid")
+        if required_ancestor_properties is not None:
+            allowed_parent_fields = {
+                "control_type",
+                "class_name",
+                "automation_id",
+            }
+            if (
+                not isinstance(required_ancestor_properties, Mapping)
+                or not required_ancestor_properties
+                or set(required_ancestor_properties) - allowed_parent_fields
+                or any(
+                    not isinstance(value, str) or not value.strip()
+                    for value in required_ancestor_properties.values()
+                )
+            ):
+                raise ValueError("uia_table_required_ancestor_properties_invalid")
 
         desktop = (
             self._desktop_factory()
@@ -279,6 +297,10 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
                 and self._has_ancestor_automation_ids(
                     item,
                     required_ancestor_automation_ids,
+                )
+                and self._has_ancestor_properties(
+                    item,
+                    required_ancestor_properties,
                 )
             ):
                 matches.append(item)
@@ -617,6 +639,28 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
             if entry.get("automation_id")
         }
         return all(value.casefold() in actual_ids for value in required_ids)
+
+    @classmethod
+    def _has_ancestor_properties(
+        cls,
+        item,
+        required_properties: Mapping[str, str] | None,
+    ) -> bool:
+        """Require all supplied properties to match the same UIA ancestor."""
+        if required_properties is None:
+            return True
+
+        expected = {
+            key: value.strip().casefold()
+            for key, value in required_properties.items()
+        }
+        for ancestor in cls._ancestor_structure(item):
+            if all(
+                ancestor.get(key, "").casefold() == value
+                for key, value in expected.items()
+            ):
+                return True
+        return False
 
     @staticmethod
     def _document_scope(item) -> str | None:
