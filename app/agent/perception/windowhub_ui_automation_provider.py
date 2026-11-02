@@ -342,11 +342,12 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
                         getattr(info, "class_name", None)
                     )
                     runtime_id = self._runtime_id(item)
-                    if not runtime_id:
-                        continue
-
                     ancestor_structure = self._ancestor_structure(item)
-                    if control_type not in self.TABLE_CONTROL_TYPES:
+                except Exception:
+                    continue
+
+                if control_type not in self.TABLE_CONTROL_TYPES:
+                    if runtime_id:
                         emit_diagnostic({
                             "root_window_handle": root_handle,
                             "control_type": control_type,
@@ -355,10 +356,35 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
                             "visible": visible,
                             "ancestor_structure": ancestor_structure,
                         })
-                        continue
-                    if not visible or runtime_id in seen_runtime_ids:
-                        continue
+                    continue
 
+                # Table candidates receive a diagnostic record even when UIA
+                # cannot provide usable bounds or a stable RuntimeId. This is
+                # essential for distinguishing "not present" from "present
+                # but not projectable into a ScreenElement".
+                table_diagnostic = {
+                    "root_window_handle": root_handle,
+                    "control_type": control_type,
+                    "class_name": class_name or "",
+                    "automation_id": automation_id or "",
+                    "visible": visible,
+                    "ancestor_structure": ancestor_structure,
+                    "candidate_kind": "table_control",
+                }
+                if not visible:
+                    table_diagnostic["rejection_reason"] = "not_visible"
+                    emit_diagnostic(table_diagnostic)
+                    continue
+                if not runtime_id:
+                    table_diagnostic["rejection_reason"] = "runtime_id_unavailable"
+                    emit_diagnostic(table_diagnostic)
+                    continue
+                if runtime_id in seen_runtime_ids:
+                    table_diagnostic["rejection_reason"] = "duplicate_runtime_id"
+                    emit_diagnostic(table_diagnostic)
+                    continue
+
+                try:
                     rectangle = item.rectangle()
                     rect = _UIARect(
                         left=int(rectangle.left) - origin_x,
@@ -366,11 +392,25 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
                         width=int(rectangle.width()),
                         height=int(rectangle.height()),
                     )
-                    if rect.width <= 0 or rect.height <= 0:
-                        continue
-                except Exception:
+                except Exception as exc:
+                    table_diagnostic["rejection_reason"] = "rectangle_error"
+                    table_diagnostic["rectangle_error_type"] = type(exc).__name__
+                    emit_diagnostic(table_diagnostic)
                     continue
 
+                table_diagnostic["bounds"] = (
+                    rect.left,
+                    rect.top,
+                    rect.width,
+                    rect.height,
+                )
+                if rect.width <= 0 or rect.height <= 0:
+                    table_diagnostic["rejection_reason"] = "non_positive_bounds"
+                    emit_diagnostic(table_diagnostic)
+                    continue
+
+                table_diagnostic["bounds_status"] = "usable"
+                emit_diagnostic(table_diagnostic)
                 seen_runtime_ids.add(runtime_id)
                 element_id = f"uia:{runtime_id}"
                 label = "Tabela"
