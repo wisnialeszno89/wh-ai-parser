@@ -81,6 +81,11 @@ class WindowHubLookupGridAdapter:
             required_ancestor_automation_ids=(
                 WINDOWHUB_CLIENT_LOOKUP_AUTOMATION_ID,
             ),
+            required_ancestor_properties={
+                "control_type": "button",
+                "class_name": "lookupedit",
+                "automation_id": WINDOWHUB_CLIENT_LOOKUP_AUTOMATION_ID,
+            },
         )
 
     def resolver_for_observation(
@@ -106,8 +111,9 @@ class WindowHubLookupGridAdapter:
             or metadata.get("source") != "windowhub_ui_automation"
             or str(metadata.get("uia_control_type", "")).strip().casefold()
             not in {"datagrid", "table"}
-            or metadata.get("automation_id")
-            != WINDOWHUB_LOOKUP_GRID_AUTOMATION_ID
+            or not isinstance(metadata.get("automation_id"), str)
+            or metadata["automation_id"].strip().casefold()
+            != WINDOWHUB_LOOKUP_GRID_AUTOMATION_ID.casefold()
         ):
             raise ValueError("windowhub_client_grid_target_invalid")
 
