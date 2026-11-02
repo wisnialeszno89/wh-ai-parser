@@ -80,7 +80,17 @@ def main() -> int:
         )
 
         provider = WindowHubUIAutomationProvider()
-        elements = provider.perceive_structure_only(observation)
+        structural_diagnostics = []
+
+        def collect_structural_diagnostic(record):
+            if len(structural_diagnostics) < 80:
+                structural_diagnostics.append(record)
+
+        elements = provider.perceive_structure_only(
+            observation,
+            diagnostic_callback=collect_structural_diagnostic,
+            diagnostic_limit=80,
+        )
         scene = ScreenScene(
             observation=observation,
             elements=elements,
@@ -98,6 +108,9 @@ def main() -> int:
         )
 
         print("STRUCTURE_ONLY_TABLE_CANDIDATES=" + str(len(elements)))
+        print("UIA_STRUCTURAL_DIAGNOSTIC_COUNT=" + str(len(structural_diagnostics)))
+        for index, record in enumerate(structural_diagnostics):
+            print("UIA_NODE_" + str(index + 1) + "=" + repr(record))
         print(
             "CLIENT_LOOKUP_CAPABILITY_EXPOSED="
             + ("YES" if prepared.observation_capability is not None else "NO")
