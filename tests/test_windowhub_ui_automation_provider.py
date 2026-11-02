@@ -802,6 +802,95 @@ def test_structure_only_perception_never_reads_ui_text_or_values():
     ) is grid
 
 
+def test_structure_only_diagnostics_report_non_table_structure_without_ui_text():
+    parent = _StructureOnlyUIAItem(
+        control_type="Custom",
+        automation_id="IDC_ZAMAWIAJACY",
+        class_name="lookupedit",
+        runtime_id=(9, 8, 41),
+    )
+    popup = _StructureOnlyUIAItem(
+        control_type="Pane",
+        automation_id="PopupRoot",
+        class_name="popupcontent",
+        runtime_id=(9, 8, 42),
+        parent=parent,
+    )
+    desktop = _StructureOnlyDesktop(
+        _StructureOnlyUIAWindow((parent, popup))
+    )
+    provider = WindowHubUIAutomationProvider(
+        desktop_factory=lambda: desktop,
+    )
+    diagnostics = []
+
+    elements = provider.perceive_structure_only(
+        _structure_only_observation(),
+        diagnostic_callback=diagnostics.append,
+        diagnostic_limit=10,
+    )
+
+    assert elements == ()
+    assert len(diagnostics) == 2
+    assert diagnostics[0]["automation_id"] == "IDC_ZAMAWIAJACY"
+    assert diagnostics[1]["control_type"] == "pane"
+    assert diagnostics[1]["class_name"] == "popupcontent"
+    assert diagnostics[1]["ancestor_structure"] == (
+        {
+            "control_type": "custom",
+            "class_name": "lookupedit",
+            "automation_id": "idc_zamawiajacy",
+        },
+    )
+    assert all(
+        not ({"name", "value", "text", "current_value"} & set(record))
+        for record in diagnostics
+    )
+
+
+def test_structure_only_diagnostics_are_bounded():
+    items = tuple(
+        _StructureOnlyUIAItem(
+            control_type="Pane",
+            automation_id=f"pane-{index}",
+            runtime_id=(9, 9, index + 1),
+        )
+        for index in range(5)
+    )
+    provider = WindowHubUIAutomationProvider(
+        desktop_factory=lambda: _StructureOnlyDesktop(
+            _StructureOnlyUIAWindow(items)
+        ),
+    )
+    diagnostics = []
+
+    provider.perceive_structure_only(
+        _structure_only_observation(),
+        diagnostic_callback=diagnostics.append,
+        diagnostic_limit=2,
+    )
+
+    assert len(diagnostics) == 2
+
+
+def test_structure_only_diagnostic_limit_rejects_invalid_values():
+    provider = WindowHubUIAutomationProvider(
+        desktop_factory=lambda: _StructureOnlyDesktop(
+            _StructureOnlyUIAWindow(())
+        ),
+    )
+    for invalid in (True, -1, 501, 1.5):
+        try:
+            provider.perceive_structure_only(
+                _structure_only_observation(),
+                diagnostic_limit=invalid,
+            )
+        except ValueError as exc:
+            assert str(exc) == "uia_structure_only_diagnostic_limit_invalid"
+        else:
+            raise AssertionError("Invalid diagnostic limit was accepted")
+
+
 def test_structure_only_perception_requires_explicit_window_handle():
     desktop_factory_calls = []
     provider = WindowHubUIAutomationProvider(
