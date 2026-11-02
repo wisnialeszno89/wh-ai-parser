@@ -11,7 +11,7 @@ and action dispatcher are implemented.
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Callable
 
 from app.agent.bridge.agent_task_contract_v2 import (
@@ -31,7 +31,7 @@ from app.agent.runtime.windowhub_lookup_grid_adapter import (
 )
 
 
-@dataclass(frozen=True)
+@dataclass
 class PreparedWindowHubV2ObservationCycle:
     """One revision-bound V2 request and its private local observation broker."""
 
@@ -44,12 +44,22 @@ class PreparedWindowHubV2ObservationCycle:
     max_evidence_bytes: int
     lookup_grid_target_ref: str | None
     observation_capability: Mapping[str, object] | None
+    _observation_consumed: bool = field(
+        default=False,
+        init=False,
+        repr=False,
+    )
 
     def execute_observation_decision(
         self,
         response: Mapping[str, object],
     ) -> Mapping[str, object]:
-        """Validate and execute exactly one observe decision from this cycle."""
+        """Validate and execute at most one observe decision from this cycle."""
+        if self._observation_consumed:
+            raise ValueError(
+                "windowhub_v2_observation_decision_already_consumed"
+            )
+
         validate_agent_task_v2_response(
             response,
             self.request_payload,
@@ -65,6 +75,9 @@ class PreparedWindowHubV2ObservationCycle:
                 "windowhub_v2_session_observation_request_invalid"
             )
 
+        # Consume the decision before entering the provider. A failed or late
+        # COM call requires a new observation cycle, not replay of this one.
+        self._observation_consumed = True
         return self.broker.observe(
             request,
             task_id=self.task_id,
@@ -75,6 +88,7 @@ class PreparedWindowHubV2ObservationCycle:
 
     def revoke(self) -> None:
         """Drop all task-scoped capability bindings owned by this cycle."""
+        self._observation_consumed = True
         self.broker.revoke_task(self.task_id)
 
 
