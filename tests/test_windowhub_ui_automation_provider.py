@@ -184,6 +184,88 @@ def test_ui_automation_provider_exposes_semantic_name_and_capability():
     assert element.height == 110
 
 
+def test_ui_automation_provider_exposes_datagrid_as_noninteractive_table():
+    lookup = FakeUIAItem(
+        name="Zamawiający",
+        control_type="Button",
+        automation_id="IDC_ZAMAWIAJACY",
+    )
+    grid = FakeUIAItem(
+        name="",
+        control_type="DataGrid",
+        automation_id="PART_GridControl",
+        parent=lookup,
+        runtime_id=(7, 18708, 63003992),
+    )
+    desktop = FakeDesktop(FakeUIAWindow((lookup, grid)))
+
+    elements = WindowHubUIAutomationProvider(
+        desktop_factory=lambda: desktop,
+    ).perceive(make_observation())
+
+    tables = tuple(element for element in elements if element.kind == "table")
+    assert len(tables) == 1
+    table = tables[0]
+    assert table.label == "Zamawiający"
+    assert table.interaction_capability is InteractionCapability.NOT_INTERACTIVE
+    assert table.metadata["uia_control_type"] == "datagrid"
+    assert table.metadata["uia_runtime_id"] == "7-18708-63003992"
+    assert table.metadata["current_value"] is None
+
+
+def test_ui_automation_provider_uses_generic_label_when_datagrid_has_no_context():
+    grid = FakeUIAItem(
+        name="",
+        control_type="DataGrid",
+        automation_id="PART_GridControl",
+        runtime_id=(7, 10, 20),
+    )
+    desktop = FakeDesktop(FakeUIAWindow((grid,)))
+
+    elements = WindowHubUIAutomationProvider(
+        desktop_factory=lambda: desktop,
+    ).perceive(make_observation())
+
+    tables = tuple(element for element in elements if element.kind == "table")
+    assert len(tables) == 1
+    assert tables[0].label == "Tabela danych"
+    assert tables[0].metadata["semantic_label_source"] == "uia_control_type"
+    assert tables[0].interaction_capability is InteractionCapability.NOT_INTERACTIVE
+
+
+def test_ui_automation_provider_resolves_table_again_from_current_window():
+    original = FakeUIAItem(
+        name="Zamawiający",
+        control_type="DataGrid",
+        runtime_id=(7, 10, 20),
+    )
+    original_desktop = FakeDesktop(FakeUIAWindow((original,)))
+    provider = WindowHubUIAutomationProvider(
+        desktop_factory=lambda: original_desktop,
+    )
+    table = next(
+        element
+        for element in provider.perceive(make_observation())
+        if element.kind == "table"
+    )
+
+    current = FakeUIAItem(
+        name="Zamawiający",
+        control_type="DataGrid",
+        runtime_id=(7, 10, 20),
+    )
+    current_desktop = FakeDesktop(FakeUIAWindow((current,)))
+    current_provider = WindowHubUIAutomationProvider(
+        desktop_factory=lambda: current_desktop,
+    )
+
+    resolved = current_provider.resolve_table_element(
+        table,
+        make_observation(),
+    )
+    assert resolved is current
+
+
 def test_ui_automation_provider_rejects_ambiguous_visual_correlation():
     item = FakeUIAItem(
         name="NOWA OFERTA",
