@@ -111,7 +111,7 @@ def make_observation():
 def make_provider(*, grid_present=True, client_parent=True):
     lookup = FakeUIAItem(
         name="Zamawiający",
-        control_type="Button",
+        control_type="Custom",
         class_name="lookupedit",
         automation_id=WINDOWHUB_CLIENT_LOOKUP_AUTOMATION_ID,
         runtime_id=(4, 10, 20),
