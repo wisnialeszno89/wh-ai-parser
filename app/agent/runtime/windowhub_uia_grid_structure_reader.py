@@ -30,6 +30,7 @@ _ALLOWED_FIELDS = frozenset(
 
 def windowhub_grid_structure_capability_spec(
     *,
+    max_items: int = 10,
     timeout_seconds: float = 2.0,
     max_result_bytes: int = 2_048,
 ) -> ObservationCapabilitySpec:
@@ -41,7 +42,7 @@ def windowhub_grid_structure_capability_spec(
             "without reading any cells or business records."
         ),
         input_contract="entity_inspection_v1",
-        max_items=10,
+        max_items=max_items,
         data_classification="ui_structure",
         evidence_source="uia_grid_structure",
         timeout_seconds=timeout_seconds,
