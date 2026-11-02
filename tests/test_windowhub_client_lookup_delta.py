@@ -6,6 +6,7 @@ from tools.diagnose_windowhub_client_lookup_delta import (
     _diff_window_snapshots,
     _structure_delta,
     _uia_structure_snapshot,
+    _wait_for_form_and_lookup,
 )
 
 
@@ -165,3 +166,73 @@ def test_structure_delta_reports_new_and_removed_structural_elements():
         }
     ]
     assert delta["grid_automation_id_count_after"] == 1
+
+
+
+def test_wait_for_form_retries_only_when_form_is_not_yet_open():
+    clock_value = [0.0]
+    attempts = [0]
+
+    def finder():
+        attempts[0] += 1
+        if attempts[0] < 3:
+            raise RuntimeError("client_form_match_count_invalid:0")
+        return ("form", 12)
+
+    def sleep(seconds):
+        clock_value[0] += seconds
+
+    result, detection_attempts = _wait_for_form_and_lookup(
+        finder,
+        timeout_seconds=5.0,
+        poll_interval_seconds=1.0,
+        clock=lambda: clock_value[0],
+        sleeper=sleep,
+    )
+
+    assert result == ("form", 12)
+    assert detection_attempts == 3
+    assert attempts[0] == 3
+
+
+def test_wait_for_form_fails_with_specific_error_after_timeout():
+    clock_value = [0.0]
+    attempts = [0]
+
+    def finder():
+        attempts[0] += 1
+        raise RuntimeError("client_form_match_count_invalid:0")
+
+    def sleep(seconds):
+        clock_value[0] += seconds
+
+    try:
+        _wait_for_form_and_lookup(
+            finder,
+            timeout_seconds=2.0,
+            poll_interval_seconds=1.0,
+            clock=lambda: clock_value[0],
+            sleeper=sleep,
+        )
+    except RuntimeError as exc:
+        assert str(exc) == "client_form_not_found_after_wait:3"
+    else:
+        raise AssertionError("Expected form-detection timeout")
+
+
+def test_wait_for_form_does_not_swallow_other_runtime_errors():
+    def finder():
+        raise RuntimeError("windowhub_root_handle_invalid")
+
+    try:
+        _wait_for_form_and_lookup(
+            finder,
+            timeout_seconds=5.0,
+            poll_interval_seconds=1.0,
+            clock=lambda: 0.0,
+            sleeper=lambda _seconds: None,
+        )
+    except RuntimeError as exc:
+        assert str(exc) == "windowhub_root_handle_invalid"
+    else:
+        raise AssertionError("Expected the original runtime error")
