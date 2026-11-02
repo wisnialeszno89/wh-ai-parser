@@ -118,13 +118,11 @@ class WindowHubLookupGridAdapter:
         reader = WindowHubUIAGridStructureReader(
             grid_resolver=self.resolver_for_observation(observation),
         )
-        register(
-            windowhub_grid_structure_capability_spec(
-                timeout_seconds=timeout_seconds,
-            ),
-            reader,
+        spec = windowhub_grid_structure_capability_spec(
+            timeout_seconds=timeout_seconds,
         )
-        return "windowhub_inspect_grid_structure"
+        register(spec, reader)
+        return spec.name
 
     @classmethod
     def query(cls) -> SemanticTargetQuery:
