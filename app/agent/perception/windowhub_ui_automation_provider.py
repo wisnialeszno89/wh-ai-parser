@@ -199,6 +199,8 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
         self,
         target: ScreenElement,
         observation: EnvironmentObservation,
+        *,
+        required_ancestor_automation_ids: tuple[str, ...] = (),
     ):
         """Re-resolve one table target in the current window; never use a cached wrapper."""
         metadata = target.metadata or {}
@@ -208,6 +210,7 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
             raise ValueError("uia_table_target_source_invalid")
 
         expected_runtime_id = metadata.get("uia_runtime_id")
+        expected_automation_id = metadata.get("automation_id")
         expected_control_type = self._normalize_control_type(
             metadata.get("uia_control_type")
         )
@@ -217,6 +220,16 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
             or expected_control_type not in self.TABLE_CONTROL_TYPES
         ):
             raise ValueError("uia_table_target_identity_missing")
+        if expected_automation_id is not None and (
+            not isinstance(expected_automation_id, str)
+            or not expected_automation_id.strip()
+        ):
+            raise ValueError("uia_table_target_automation_id_invalid")
+        if not isinstance(required_ancestor_automation_ids, tuple) or any(
+            not isinstance(value, str) or not value.strip()
+            for value in required_ancestor_automation_ids
+        ):
+            raise ValueError("uia_table_required_ancestor_identity_invalid")
 
         desktop = (
             self._desktop_factory()
@@ -242,6 +255,9 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
                     getattr(item.element_info, "control_type", None)
                 )
                 runtime_id = self._runtime_id(item)
+                automation_id = self._string(
+                    getattr(item.element_info, "automation_id", None)
+                )
                 visible = bool(
                     getattr(item.element_info, "visible", True)
                 )
@@ -252,6 +268,14 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
                 visible
                 and control_type == expected_control_type
                 and runtime_id == expected_runtime_id
+                and (
+                    expected_automation_id is None
+                    or automation_id == expected_automation_id
+                )
+                and self._has_ancestor_automation_ids(
+                    item,
+                    required_ancestor_automation_ids,
+                )
             ):
                 matches.append(item)
 
@@ -408,6 +432,7 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
             None if is_table else self._current_control_value(item)
         )
         ancestor_context = self._ancestor_context(item)
+        ancestor_structure = self._ancestor_structure(item)
         document_scope = self._document_scope(item)
         tab_scope = (
             self._tab_scope(item)
@@ -430,6 +455,8 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
             # Structural UIA context is observational evidence only. It is
             # deliberately not treated as a document scope by itself.
             "uia_ancestor_context": ancestor_context,
+            # Provider-local structural identity; never a public model target.
+            "uia_ancestor_structure": ancestor_structure,
             "document_scope": document_scope,
             "automation_id": automation_id,
             "uia_control_type": control_type,
@@ -524,6 +551,68 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
             )
 
         return tuple(context)
+
+    @staticmethod
+    def _ancestor_structure(
+        item,
+        *,
+        max_depth: int = 8,
+    ) -> tuple[dict[str, str | None], ...]:
+        """Capture stable UIA parent properties without reading text or values."""
+        structure = []
+        current = item
+
+        for _ in range(max_depth):
+            parent_getter = getattr(current, "parent", None)
+            if not callable(parent_getter):
+                break
+            try:
+                current = parent_getter()
+            except Exception:
+                break
+            if current is None:
+                break
+
+            try:
+                info = current.element_info
+                structure.append(
+                    {
+                        "control_type": (
+                            WindowHubUIAutomationProvider._string(
+                                getattr(info, "control_type", None)
+                            ) or ""
+                        ).casefold(),
+                        "class_name": (
+                            WindowHubUIAutomationProvider._string(
+                                getattr(info, "class_name", None)
+                            ) or ""
+                        ).casefold(),
+                        "automation_id": (
+                            WindowHubUIAutomationProvider._string(
+                                getattr(info, "automation_id", None)
+                            ) or ""
+                        ).casefold(),
+                    }
+                )
+            except Exception:
+                break
+
+        return tuple(structure)
+
+    @classmethod
+    def _has_ancestor_automation_ids(
+        cls,
+        item,
+        required_ids: tuple[str, ...],
+    ) -> bool:
+        if not required_ids:
+            return True
+        actual_ids = {
+            entry["automation_id"].casefold()
+            for entry in cls._ancestor_structure(item)
+            if entry.get("automation_id")
+        }
+        return all(value.casefold() in actual_ids for value in required_ids)
 
     @staticmethod
     def _document_scope(item) -> str | None:
