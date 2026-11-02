@@ -10,7 +10,7 @@ from app.runtime.execution.robot_action_executor import RobotActionExecutor
 from app.runtime.execution.robot_mouse import RobotMouse, RobotMouseMode
 
 
-def test_robot_gui_executor_resolves_semantic_target():
+def test_robot_gui_executor_resolves_semantic_target_and_requests_retry_when_runtime_target_is_missing():
     element = ScreenElement(
         kind="BUTTON",
         label="TO-SEMANTIC-0001",
@@ -70,8 +70,15 @@ def test_robot_gui_executor_resolves_semantic_target():
         context=context,
     )
 
+    # Semantic resolution succeeds, but this isolated test does not provide
+    # the live tracked-object registry. A fresh observation/replan is the
+    # correct recovery path; human review is reserved for safety failures.
     assert result.success is False
-    assert result.requires_manual_review is True
+    assert result.requires_manual_review is False
+    assert result.message == (
+        "Tracked object for resolved target was not found"
+    )
     assert result.metadata is not None
     assert result.metadata["target"] == "settings"
+    assert result.metadata["target_id"] == "TO-SEMANTIC-0001"
     assert result.metadata["resolution_score"] == 0.8
