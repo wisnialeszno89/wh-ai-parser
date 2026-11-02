@@ -1,3 +1,4 @@
+import ctypes
 from types import SimpleNamespace
 
 from app.agent.environment import windowhub_environment_adapter as module
@@ -177,3 +178,12 @@ def test_environment_observation_does_not_claim_unowned_foreground_popup(monkeyp
     assert observation.metadata["foreground_window_handle"] == 601
     assert observation.metadata["foreground_root_owner_handle"] == 600
     assert observation.metadata["window_focused"] is False
+
+
+
+def test_native_handle_value_normalizes_ctypes_hwnd():
+    assert WindowHubEnvironmentAdapter._native_handle_value(
+        ctypes.c_void_p(501)
+    ) == 501
+    assert WindowHubEnvironmentAdapter._native_handle_value(502) == 502
+    assert WindowHubEnvironmentAdapter._native_handle_value(None) == 0
