@@ -206,9 +206,9 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
     ) -> tuple[ScreenElement, ...]:
         """Observe visible table structure without reading UI text or values.
 
-        This path deliberately does not access window titles, element names,
-        values, labels, headers, cell text, or GridPattern items. It requires
-        the explicit top-level WindowHub handle from EnvironmentObservation.
+        The only roots are the observed WindowHub form and, when Windows
+        reports it as an owned foreground popup, that popup. No window title,
+        element name, value, label, header, cell text or GridPattern item is read.
         """
         if (
             isinstance(max_descendants, bool)
@@ -226,11 +226,11 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
         if self._desktop_factory is None and __import__("os").name != "nt":
             return ()
 
-        window_handle = observation.metadata.get("window_handle")
+        main_handle = observation.metadata.get("window_handle")
         if (
-            isinstance(window_handle, bool)
-            or not isinstance(window_handle, int)
-            or window_handle <= 0
+            isinstance(main_handle, bool)
+            or not isinstance(main_handle, int)
+            or main_handle <= 0
         ):
             # Never fall back to whichever window happens to be foreground.
             return ()
@@ -248,13 +248,13 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
 
         # The main WindowHub form and an owned foreground popup are the only
         # permitted roots. An unrelated foreground application is never scanned.
-        root_handles = [window_handle]
+        root_handles = [main_handle]
         if (
             isinstance(foreground_handle, int)
             and not isinstance(foreground_handle, bool)
             and foreground_handle > 0
-            and foreground_handle != window_handle
-            and foreground_root_owner_handle == window_handle
+            and foreground_handle != main_handle
+            and foreground_root_owner_handle == main_handle
         ):
             root_handles.append(foreground_handle)
 
@@ -271,28 +271,29 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
         elements: list[ScreenElement] = []
         seen_runtime_ids: set[str] = set()
         total_descendants = 0
-        try:
-            for root_handle in root_handles:
+
+        for root_handle in root_handles:
+            if time.monotonic() - started_at > timeout_seconds:
+                return ()
+
+            try:
+                window = desktop.window(
+                    handle=root_handle,
+                ).wrapper_object()
+                descendants = window.descendants()
+            except Exception:
+                continue
+
+            for item in descendants:
+                total_descendants += 1
+                if total_descendants > max_descendants:
+                    # Do not return a partial tree: a missing grid could make
+                    # a false negative look like a complete observation.
+                    return ()
                 if time.monotonic() - started_at > timeout_seconds:
                     return ()
+
                 try:
-                    window = desktop.window(
-                        handle=root_handle,
-                    ).wrapper_object()
-                    descendants = window.descendants()
-                except Exception:
-                    continue
-
-                for item in descendants:
-                    total_descendants += 1
-                    if total_descendants > max_descendants:
-                        # Do not return a partial tree: a missing grid could
-                        # make a false negative look like a complete observation.
-                        return ()
-                    if time.monotonic() - started_at > timeout_seconds:
-                        return ()
-
-                    try:
                     info = item.element_info
                     control_type = self._normalize_control_type(
                         getattr(info, "control_type", None)
@@ -311,7 +312,7 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
                         getattr(info, "class_name", None)
                     )
                     runtime_id = self._runtime_id(item)
-                    if not runtime_id:
+                    if not runtime_id or runtime_id in seen_runtime_ids:
                         continue
 
                     rectangle = item.rectangle()
@@ -328,6 +329,7 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
                 except Exception:
                     continue
 
+                seen_runtime_ids.add(runtime_id)
                 element_id = f"uia:{runtime_id}"
                 label = "Tabela"
                 capability = InteractionCapability.NOT_INTERACTIVE
@@ -397,8 +399,6 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
                         evidence=evidence,
                     )
                 )
-        except Exception:
-            return ()
 
         return tuple(elements)
 
