@@ -45,6 +45,7 @@ def _inspect_dialog_uia(desktop, hwnd: int, dialog_index: int) -> dict:
     result = {
         "dialog_index": dialog_index,
         "uia_scan_status": "not_started",
+        "uia_error_type": None,
         "uia_descendant_count": 0,
         "control_type_counts": {},
         "class_name_counts": {},
@@ -58,13 +59,15 @@ def _inspect_dialog_uia(desktop, hwnd: int, dialog_index: int) -> dict:
     }
 
     try:
-        from pywinauto.controls.uiawrapper import UIAWrapper
-        from pywinauto.windows.uia_element_info import UIAElementInfo
-
-        wrapper = UIAWrapper(UIAElementInfo(handle=hwnd))
+        # Use pywinauto's public Desktop.window(...).wrapper_object() path.
+        # Avoid importing internal UIAWrapper/UIAElementInfo implementation
+        # modules, whose import paths vary between pywinauto releases.
+        dialog_spec = desktop.window(handle=hwnd)
+        wrapper = dialog_spec.wrapper_object()
         descendants = tuple(wrapper.descendants())
     except Exception as exc:
         result["uia_scan_status"] = f"failed:{type(exc).__name__}"
+        result["uia_error_type"] = type(exc).__name__
         return result
 
     control_types: Counter[str] = Counter()
@@ -138,6 +141,7 @@ def _inspect_dialog_uia(desktop, hwnd: int, dialog_index: int) -> dict:
     result.update(
         {
             "uia_scan_status": "ok",
+            "uia_error_type": None,
             "uia_descendant_count": len(descendants),
             "control_type_counts": dict(sorted(control_types.items())),
             "class_name_counts": dict(sorted(class_names.items())),
