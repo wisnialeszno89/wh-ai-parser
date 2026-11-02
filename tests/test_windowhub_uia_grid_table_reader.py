@@ -112,7 +112,9 @@ def test_reader_returns_only_requested_bounded_grid_page():
 
 def test_reader_uses_explicit_positional_headers_when_uia_has_no_headers():
     class GridWithoutHeaders(FakeGrid):
-        iface_table = None
+        def __init__(self, rows):
+            super().__init__(rows)
+            self.iface_table = None
 
     grid = GridWithoutHeaders(make_rows())
     reader = WindowHubUIAGridTableReader(
