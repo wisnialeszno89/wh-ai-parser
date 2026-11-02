@@ -78,6 +78,12 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
         "treeitem",
     })
 
+    # Tables are semantic read targets, never click/action targets.
+    TABLE_CONTROL_TYPES = frozenset({
+        "datagrid",
+        "table",
+    })
+
     def __init__(
         self,
         *,
@@ -189,6 +195,70 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
         window_spec = desktop.window(handle=hwnd)
         return window_spec.wrapper_object()
 
+    def resolve_table_element(
+        self,
+        target: ScreenElement,
+        observation: EnvironmentObservation,
+    ):
+        """Re-resolve one table target in the current window; never use a cached wrapper."""
+        metadata = target.metadata or {}
+        if target.kind != "table":
+            raise ValueError("uia_table_target_kind_invalid")
+        if metadata.get("source") != "windowhub_ui_automation":
+            raise ValueError("uia_table_target_source_invalid")
+
+        expected_runtime_id = metadata.get("uia_runtime_id")
+        expected_control_type = self._normalize_control_type(
+            metadata.get("uia_control_type")
+        )
+        if (
+            not isinstance(expected_runtime_id, str)
+            or not expected_runtime_id.strip()
+            or expected_control_type not in self.TABLE_CONTROL_TYPES
+        ):
+            raise ValueError("uia_table_target_identity_missing")
+
+        desktop = (
+            self._desktop_factory()
+            if self._desktop_factory is not None
+            else self._default_desktop()
+        )
+        window = self._active_window(
+            desktop,
+            observation,
+            allow_test_factory_fallback=(
+                self._desktop_factory is not None
+            ),
+        )
+
+        expected_title = observation.state.active_window_title
+        if expected_title and window.window_text() != expected_title:
+            raise RuntimeError("uia_table_active_window_changed")
+
+        matches = []
+        for item in window.descendants():
+            try:
+                control_type = self._normalize_control_type(
+                    getattr(item.element_info, "control_type", None)
+                )
+                runtime_id = self._runtime_id(item)
+                visible = bool(
+                    getattr(item.element_info, "visible", True)
+                )
+            except Exception:
+                continue
+
+            if (
+                visible
+                and control_type == expected_control_type
+                and runtime_id == expected_runtime_id
+            ):
+                matches.append(item)
+
+        if len(matches) != 1:
+            raise LookupError("uia_table_target_not_unique_or_not_found")
+        return matches[0]
+
     @staticmethod
     def _tracked_objects(observation):
         runtime = observation.metadata.get("execution_runtime")
@@ -234,7 +304,11 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
         if not visible:
             return None
 
-        if control_type not in self.INTERACTIVE_CONTROL_TYPES:
+        is_table = control_type in self.TABLE_CONTROL_TYPES
+        if (
+            control_type not in self.INTERACTIVE_CONTROL_TYPES
+            and not is_table
+        ):
             return None
 
         semantic_label, semantic_source = (
@@ -248,6 +322,12 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
                 label_candidates=label_candidates,
             )
         )
+
+        # A nameless DataGrid is still a useful structural target. Keep its
+        # label explicitly generic rather than borrowing an ambiguous label.
+        if not semantic_label and is_table:
+            semantic_label = "Tabela danych"
+            semantic_source = "uia_control_type"
 
         if not semantic_label:
             return None
@@ -266,9 +346,9 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
         # display label. It remains available only in provider metadata.
         label = semantic_label
         capability = (
-            InteractionCapability.CLICKABLE
-            if enabled
-            else InteractionCapability.NOT_INTERACTIVE
+            InteractionCapability.NOT_INTERACTIVE
+            if is_table or not enabled
+            else InteractionCapability.CLICKABLE
         )
 
         element_id = (
@@ -322,7 +402,11 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
             ),
         ]
 
-        current_value = self._current_control_value(item)
+        # Never ask a table/grid for its aggregate text here. Row values
+        # are available only through an explicitly authorized observation.
+        current_value = (
+            None if is_table else self._current_control_value(item)
+        )
         ancestor_context = self._ancestor_context(item)
         document_scope = self._document_scope(item)
         tab_scope = (
@@ -373,7 +457,7 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
             metadata["tracked_object_id"] = tracked_id
 
         return ScreenElement(
-            kind=control_type,
+            kind="table" if is_table else control_type,
             label=label,
             x=rect.left,
             y=rect.top,
