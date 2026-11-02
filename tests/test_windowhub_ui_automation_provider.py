@@ -832,16 +832,24 @@ def test_structure_only_diagnostics_report_non_table_structure_without_ui_text()
     )
 
     assert elements == ()
-    assert len(diagnostics) == 2
-    assert diagnostics[0]["automation_id"] == "IDC_ZAMAWIAJACY"
-    assert diagnostics[1]["control_type"] == "pane"
-    assert diagnostics[1]["class_name"] == "popupcontent"
-    assert diagnostics[1]["ancestor_structure"] == (
+    element_records = [
+        record for record in diagnostics
+        if record.get("diagnostic_type") is None
+    ]
+    assert len(element_records) == 2
+    assert element_records[0]["automation_id"] == "IDC_ZAMAWIAJACY"
+    assert element_records[1]["control_type"] == "pane"
+    assert element_records[1]["class_name"] == "popupcontent"
+    assert element_records[1]["ancestor_structure"] == (
         {
             "control_type": "custom",
             "class_name": "lookupedit",
             "automation_id": "idc_zamawiajacy",
         },
+    )
+    assert any(
+        record.get("diagnostic_type") == "root_scan_completed"
+        for record in diagnostics
     )
     assert all(
         not ({"name", "value", "text", "current_value"} & set(record))
