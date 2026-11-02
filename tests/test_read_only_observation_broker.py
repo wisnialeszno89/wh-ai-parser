@@ -522,7 +522,7 @@ def test_broker_rejects_boolean_as_world_revision():
         broker.observe(
             request,
             task_id="task-001",
-            world_revision=1,
+            world_revision=9,
             max_observation_items=5,
             max_evidence_bytes=8_192,
         )
