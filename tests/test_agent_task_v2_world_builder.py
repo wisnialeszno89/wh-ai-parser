@@ -208,7 +208,13 @@ def test_world_builder_bounds_entity_count():
     )
 
     assert len(snapshot.payload["entities"]) == 200
-    assert snapshot.payload["projection_limitations"] == [
+    limitation_evidence = snapshot.payload["evidence"][-1]
+    assert limitation_evidence["content"] == {
+        "kind": "projection_limitations",
+        "omitted_entities": 5,
+        "omitted_evidence": 0,
+    }
+    assert limitation_evidence["limitations"] == [
         "5 scene elements omitted by the v2 entity limit."
     ]
     assert len(snapshot.reference_map.refs) == 200
