@@ -1,3 +1,6 @@
+from app.agent.bridge.agent_task_contract_v2 import (
+    validate_agent_task_v2_payload,
+)
 from app.agent.bridge.agent_task_v2_world_builder import (
     AgentTaskV2WorldBuilder,
 )
@@ -218,3 +221,39 @@ def test_world_builder_bounds_entity_count():
         "5 scene elements omitted by the v2 entity limit."
     ]
     assert len(snapshot.reference_map.refs) == 200
+
+
+
+def test_built_world_snapshot_satisfies_the_v2_request_contract():
+    snapshot = AgentTaskV2WorldBuilder().build(
+        make_scene(),
+        task_id="task-001",
+        world_revision=7,
+        observed_at="2026-11-02T06:00:00Z",
+    )
+    request = {
+        "version": "2",
+        "task_id": "task-001",
+        "goal": "Understand the visible form.",
+        "intent": "computer_use",
+        "session_id": None,
+        "task_state": {
+            "cycle": 1,
+            "max_cycles": 30,
+            "reasoning_calls_remaining": 5,
+        },
+        "world": dict(snapshot.payload),
+        "capabilities": {"observations": [], "actions": []},
+        "knowledge": None,
+        "experience": [],
+        "constraints": {
+            "max_observations_per_cycle": 1,
+            "max_observation_items": 20,
+            "max_evidence_bytes": 32_768,
+            "semantic_only": True,
+            "verify_each_action": True,
+        },
+        "metadata": {},
+    }
+
+    validate_agent_task_v2_payload(request)
