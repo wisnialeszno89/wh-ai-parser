@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+import time
 from dataclasses import dataclass
 from typing import Callable
 
@@ -196,6 +197,179 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
         window_spec = desktop.window(handle=hwnd)
         return window_spec.wrapper_object()
 
+    def perceive_structure_only(
+        self,
+        observation: EnvironmentObservation,
+        *,
+        max_descendants: int = 5_000,
+        timeout_seconds: float = 2.0,
+    ) -> tuple[ScreenElement, ...]:
+        """Observe visible table structure without reading UI text or values.
+
+        This path deliberately does not access window titles, element names,
+        values, labels, headers, cell text, or GridPattern items. It requires
+        the explicit top-level WindowHub handle from EnvironmentObservation.
+        """
+        if (
+            isinstance(max_descendants, bool)
+            or not isinstance(max_descendants, int)
+            or not 1 <= max_descendants <= 20_000
+        ):
+            raise ValueError("uia_structure_only_descendant_limit_invalid")
+        if (
+            isinstance(timeout_seconds, bool)
+            or not isinstance(timeout_seconds, (int, float))
+            or timeout_seconds <= 0
+        ):
+            raise ValueError("uia_structure_only_timeout_invalid")
+
+        if self._desktop_factory is None and __import__("os").name != "nt":
+            return ()
+
+        window_handle = observation.metadata.get("window_handle")
+        if (
+            isinstance(window_handle, bool)
+            or not isinstance(window_handle, int)
+            or window_handle <= 0
+        ):
+            # Never fall back to whichever window happens to be foreground.
+            return ()
+
+        window_rect = observation.metadata.get("window_rect")
+        origin_x = int(getattr(window_rect, "left", 0))
+        origin_y = int(getattr(window_rect, "top", 0))
+
+        started_at = time.monotonic()
+        try:
+            desktop = (
+                self._desktop_factory()
+                if self._desktop_factory is not None
+                else self._default_desktop()
+            )
+            window = desktop.window(
+                handle=window_handle,
+            ).wrapper_object()
+            descendants = window.descendants()
+        except Exception:
+            return ()
+
+        elements: list[ScreenElement] = []
+        try:
+            for index, item in enumerate(descendants):
+                if index >= max_descendants:
+                    # Do not return a partial tree: a missing grid could make
+                    # a false negative look like a complete observation.
+                    return ()
+                if time.monotonic() - started_at > timeout_seconds:
+                    return ()
+
+                try:
+                    info = item.element_info
+                    control_type = self._normalize_control_type(
+                        getattr(info, "control_type", None)
+                    )
+                    if control_type not in self.TABLE_CONTROL_TYPES:
+                        continue
+
+                    visible = bool(getattr(info, "visible", True))
+                    if not visible:
+                        continue
+
+                    automation_id = self._string(
+                        getattr(info, "automation_id", None)
+                    )
+                    class_name = self._string(
+                        getattr(info, "class_name", None)
+                    )
+                    runtime_id = self._runtime_id(item)
+                    if not runtime_id:
+                        continue
+
+                    rectangle = item.rectangle()
+                    rect = _UIARect(
+                        left=int(rectangle.left) - origin_x,
+                        top=int(rectangle.top) - origin_y,
+                        width=int(rectangle.width()),
+                        height=int(rectangle.height()),
+                    )
+                    if rect.width <= 0 or rect.height <= 0:
+                        continue
+
+                    ancestor_structure = self._ancestor_structure(item)
+                except Exception:
+                    continue
+
+                element_id = f"uia:{runtime_id}"
+                label = "Tabela"
+                capability = InteractionCapability.NOT_INTERACTIVE
+                evidence = (
+                    SemanticEvidence(
+                        source=EvidenceSource.ACCESSIBILITY,
+                        kind=EvidenceKind.LABEL,
+                        value=label,
+                        confidence=0.99,
+                        element_id=element_id,
+                    ),
+                    SemanticEvidence(
+                        source=EvidenceSource.ACCESSIBILITY,
+                        kind=EvidenceKind.ROLE,
+                        value=control_type,
+                        confidence=0.99,
+                        element_id=element_id,
+                    ),
+                    SemanticEvidence(
+                        source=EvidenceSource.ACCESSIBILITY,
+                        kind=EvidenceKind.INTERACTION_CAPABILITY,
+                        value=capability.value,
+                        confidence=0.99,
+                        element_id=element_id,
+                    ),
+                    SemanticEvidence(
+                        source=EvidenceSource.ACCESSIBILITY,
+                        kind=EvidenceKind.BOUNDS,
+                        value=(
+                            rect.left,
+                            rect.top,
+                            rect.width,
+                            rect.height,
+                        ),
+                        confidence=0.99,
+                        element_id=element_id,
+                    ),
+                )
+                elements.append(
+                    ScreenElement(
+                        kind="table",
+                        label=label,
+                        x=rect.left,
+                        y=rect.top,
+                        width=rect.width,
+                        height=rect.height,
+                        confidence=0.99,
+                        metadata={
+                            "source": "windowhub_ui_automation",
+                            "provider_element_id": element_id,
+                            "semantic_name": label,
+                            "semantic_label_source": "structure_only",
+                            "uia_ancestor_structure": ancestor_structure,
+                            "automation_id": automation_id,
+                            "uia_class_name": class_name,
+                            "uia_control_type": control_type,
+                            "uia_visible": True,
+                            "uia_runtime_id": runtime_id,
+                            "interaction_capability": capability.value,
+                            "interaction_capability_confidence": 0.99,
+                            "perception_mode": "structure_only",
+                        },
+                        interaction_capability=capability,
+                        evidence=evidence,
+                    )
+                )
+        except Exception:
+            return ()
+
+        return tuple(elements)
+
     def resolve_table_element(
         self,
         target: ScreenElement,
@@ -263,7 +437,11 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
         )
 
         expected_title = observation.state.active_window_title
-        if expected_title and window.window_text() != expected_title:
+        if (
+            expected_title
+            and metadata.get("perception_mode") != "structure_only"
+            and window.window_text() != expected_title
+        ):
             raise RuntimeError("uia_table_active_window_changed")
 
         matches = []
