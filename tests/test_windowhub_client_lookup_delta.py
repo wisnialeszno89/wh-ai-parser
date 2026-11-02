@@ -109,7 +109,7 @@ def test_uia_snapshot_counts_only_structure_and_known_ids():
 
     assert snapshot["lookup_automation_id_count"] == 1
     assert snapshot["grid_automation_id_count"] == 1
-    assert snapshot["descendant_count"] == 3
+    assert snapshot["structural_descendant_count"] == 2
     assert snapshot["structural_counts"] == Counter(
         {
             ("custom", "lookupedit", True): 1,
@@ -120,7 +120,7 @@ def test_uia_snapshot_counts_only_structure_and_known_ids():
 
 def test_structure_delta_reports_new_and_removed_structural_elements():
     before = {
-        "descendant_count": 2,
+        "structural_descendant_count": 2,
         "structural_counts": Counter(
             {
                 ("custom", "lookupedit", True): 1,
@@ -133,7 +133,7 @@ def test_structure_delta_reports_new_and_removed_structural_elements():
         "datatable_class_count": 0,
     }
     after = {
-        "descendant_count": 3,
+        "structural_descendant_count": 2,
         "structural_counts": Counter(
             {
                 ("custom", "lookupedit", True): 1,
