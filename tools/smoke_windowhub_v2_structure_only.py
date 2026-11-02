@@ -27,9 +27,18 @@ def main() -> int:
     prepared = None
     try:
         raw_observation = WindowHubEnvironmentAdapter().observe()
-        if raw_observation.metadata.get("window_focused") is not True:
-            print("SMOKE_BLOCKED=WindowHub_not_foreground")
+        window_handle = raw_observation.metadata.get("window_handle")
+        if (
+            isinstance(window_handle, bool)
+            or not isinstance(window_handle, int)
+            or window_handle <= 0
+        ):
+            print("SMOKE_BLOCKED=WindowHub_window_handle_unavailable")
             return 2
+        print(
+            "WINDOWHUB_WINDOW_FOCUSED="
+            + str(raw_observation.metadata.get("window_focused") is True)
+        )
 
         # Do not forward the native window title into the V2 world.
         observation = replace(
@@ -67,7 +76,6 @@ def main() -> int:
 
         if prepared.observation_capability is None:
             print("RESULT=CLIENT_LOOKUP_GRID_NOT_PROVEN")
-            prepared.revoke()
             return 3
 
         descriptor = prepared.observation_capability
