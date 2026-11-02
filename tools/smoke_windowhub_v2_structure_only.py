@@ -104,6 +104,8 @@ def main() -> int:
 
         elements = provider.perceive_structure_only(
             observation,
+            timeout_seconds=6.0,
+            max_descendants=10_000,
             diagnostic_callback=collect_structural_diagnostic,
             diagnostic_limit=120,
         )
@@ -144,7 +146,14 @@ def main() -> int:
         ]
         print("CLIENT_LOOKUP_EDIT_FOUND=" + str(bool(lookup_edit_records)))
         print("CLIENT_LOOKUP_GRID_STRUCTURAL_MATCHES=" + str(len(lookup_grid_records)))
+        root_status_records = [
+            record for record in structural_diagnostics
+            if record.get("diagnostic_type") is not None
+        ]
         print("UIA_STRUCTURAL_DIAGNOSTIC_COUNT=" + str(len(structural_diagnostics)))
+        print("UIA_ROOT_SCAN_STATUS_COUNT=" + str(len(root_status_records)))
+        for record in root_status_records:
+            print("UIA_ROOT_STATUS=" + repr(record))
         for index, record in enumerate(structural_diagnostics):
             print("UIA_NODE_" + str(index + 1) + "=" + repr(record))
         print(
