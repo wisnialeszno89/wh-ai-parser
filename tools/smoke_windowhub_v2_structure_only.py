@@ -152,6 +152,22 @@ def main() -> int:
         ]
         print("UIA_STRUCTURAL_DIAGNOSTIC_COUNT=" + str(len(structural_diagnostics)))
         print("UIA_ROOT_SCAN_STATUS_COUNT=" + str(len(root_status_records)))
+        completed_roots = [
+            record for record in root_status_records
+            if record.get("diagnostic_type") == "root_scan_completed"
+        ]
+        incomplete_roots = [
+            record for record in root_status_records
+            if record.get("diagnostic_type") in {
+                "root_scan_skipped",
+                "scan_incomplete",
+                "root_lookup_failed",
+                "root_descendants_failed",
+                "desktop_creation_failed",
+            }
+        ]
+        print("UIA_ROOTS_COMPLETED=" + str(len(completed_roots)))
+        print("UIA_ROOTS_INCOMPLETE_OR_FAILED=" + str(len(incomplete_roots)))
         for record in root_status_records:
             print("UIA_ROOT_STATUS=" + repr(record))
         for index, record in enumerate(structural_diagnostics):
