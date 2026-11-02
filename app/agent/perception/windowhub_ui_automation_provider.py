@@ -270,7 +270,11 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
                 and runtime_id == expected_runtime_id
                 and (
                     expected_automation_id is None
-                    or automation_id == expected_automation_id
+                    or (
+                        isinstance(automation_id, str)
+                        and automation_id.casefold()
+                        == expected_automation_id.casefold()
+                    )
                 )
                 and self._has_ancestor_automation_ids(
                     item,
