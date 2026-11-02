@@ -173,14 +173,21 @@ def _native_owner_class_chain(api, hwnd: int) -> list[str]:
 
 def _lookup_native_handle(lookup_wrapper) -> int:
     """Try pywinauto wrapper and UIA element-info HWND projections."""
-    for candidate in (
-        getattr(lookup_wrapper, "handle", None),
-        getattr(
+    candidates = []
+    for accessor in (
+        lambda: getattr(lookup_wrapper, "handle", None),
+        lambda: getattr(
             getattr(lookup_wrapper, "element_info", None),
             "handle",
             None,
         ),
     ):
+        try:
+            candidates.append(accessor())
+        except Exception:
+            continue
+
+    for candidate in candidates:
         try:
             handle = _hwnd_value(candidate)
         except (TypeError, ValueError):
