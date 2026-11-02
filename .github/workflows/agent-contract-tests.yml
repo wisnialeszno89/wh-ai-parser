@@ -30,7 +30,12 @@ jobs:
             tests/test_knowledge_context.py \
             tests/test_navimind_task_reasoner.py \
             tests/test_navimind_task_reasoner_v2.py \
+            tests/test_agent_task_contract_v2.py \
+            tests/test_agent_task_v2_world_builder.py \
             tests/test_autonomous_agent_runtime.py \
+            tests/test_windowhub_environment_adapter.py \
+            tests/test_windowhub_lookup_grid_adapter.py \
             tests/test_windowhub_ui_automation_provider.py \
+            tests/test_windowhub_v2_observation_session.py \
             tests/test_windowhub_tab_selection.py \
             tests/test_active_document_context.py
