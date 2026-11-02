@@ -98,6 +98,34 @@ class WindowHubLookupGridAdapter:
             observation,
         )
 
+    def register_structure_capability(
+        self,
+        broker,
+        observation: EnvironmentObservation,
+        *,
+        timeout_seconds: float = 2.0,
+    ) -> str:
+        """Register the grid-structure-only reader with a local v2 broker."""
+        from app.agent.runtime.windowhub_uia_grid_structure_reader import (
+            WindowHubUIAGridStructureReader,
+            windowhub_grid_structure_capability_spec,
+        )
+
+        register = getattr(broker, "register", None)
+        if not callable(register):
+            raise TypeError("windowhub_lookup_grid_broker_invalid")
+
+        reader = WindowHubUIAGridStructureReader(
+            grid_resolver=self.resolver_for_observation(observation),
+        )
+        register(
+            windowhub_grid_structure_capability_spec(
+                timeout_seconds=timeout_seconds,
+            ),
+            reader,
+        )
+        return "windowhub_inspect_grid_structure"
+
     @classmethod
     def query(cls) -> SemanticTargetQuery:
         """Expose the immutable query for local skills and tests."""
