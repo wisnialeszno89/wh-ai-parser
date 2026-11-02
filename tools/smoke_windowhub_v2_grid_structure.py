@@ -7,6 +7,7 @@ a record, invoke NaviMind, plan an action, or save an offer.
 from __future__ import annotations
 
 import ctypes
+import ctypes.wintypes
 import json
 import os
 from pathlib import Path
@@ -42,6 +43,73 @@ def _window_area(window: object) -> int:
         return max(0, int(rect.width())) * max(0, int(rect.height()))
     except Exception:
         return 0
+
+
+def _foreground_relation_matches(
+    *,
+    foreground_handle: int,
+    foreground_root_handle: int,
+    foreground_root_owner_handle: int,
+    windowhub_handle: int,
+) -> bool:
+    """Accept the main WindowHub window or one of its owned popup windows."""
+    return (
+        windowhub_handle > 0
+        and (
+            foreground_handle == windowhub_handle
+            or foreground_root_handle == windowhub_handle
+            or foreground_root_owner_handle == windowhub_handle
+        )
+    )
+
+
+def _foreground_windowhub_relation(windowhub_handle: int) -> dict[str, bool]:
+    """Read foreground HWND ancestry using pointer-sized Win32 types."""
+    user32 = ctypes.WinDLL("user32", use_last_error=True)
+
+    get_foreground = user32.GetForegroundWindow
+    get_foreground.argtypes = ()
+    get_foreground.restype = ctypes.wintypes.HWND
+
+    get_ancestor = user32.GetAncestor
+    get_ancestor.argtypes = (
+        ctypes.wintypes.HWND,
+        ctypes.wintypes.UINT,
+    )
+    get_ancestor.restype = ctypes.wintypes.HWND
+
+    foreground_raw = get_foreground()
+    foreground_handle = int(foreground_raw or 0)
+
+    foreground_root_handle = 0
+    foreground_root_owner_handle = 0
+    if foreground_handle > 0:
+        foreground_hwnd = ctypes.wintypes.HWND(foreground_handle)
+        foreground_root_handle = int(
+            get_ancestor(foreground_hwnd, 2) or 0
+        )  # GA_ROOT
+        foreground_root_owner_handle = int(
+            get_ancestor(foreground_hwnd, 3) or 0
+        )  # GA_ROOTOWNER
+
+    belongs = _foreground_relation_matches(
+        foreground_handle=foreground_handle,
+        foreground_root_handle=foreground_root_handle,
+        foreground_root_owner_handle=foreground_root_owner_handle,
+        windowhub_handle=windowhub_handle,
+    )
+    return {
+        "foreground_matches_windowhub": (
+            foreground_handle == windowhub_handle
+        ),
+        "foreground_root_matches_windowhub": (
+            foreground_root_handle == windowhub_handle
+        ),
+        "foreground_root_owner_matches_windowhub": (
+            foreground_root_owner_handle == windowhub_handle
+        ),
+        "belongs_to_windowhub": belongs,
+    }
 
 
 def _windowhub_window(desktop):
@@ -201,10 +269,13 @@ def main() -> int:
         if window_handle <= 0:
             raise RuntimeError("windowhub_handle_invalid")
 
-        foreground = int(ctypes.windll.user32.GetForegroundWindow())
-        if foreground != window_handle:
+        foreground_relation = _foreground_windowhub_relation(
+            window_handle
+        )
+        if not foreground_relation["belongs_to_windowhub"]:
             raise RuntimeError(
-                "windowhub_not_foreground:bring_WindowHub_to_front_and_rerun"
+                "windowhub_not_foreground_or_owned_popup:"
+                "bring_WindowHub_to_front_and_rerun"
             )
 
         grids = _find_grid(window)
