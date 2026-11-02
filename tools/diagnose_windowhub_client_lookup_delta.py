@@ -342,6 +342,38 @@ def _inspect_changed_window(api, desktop, record: dict) -> dict:
     return result
 
 
+def _wait_for_form_and_lookup(
+    finder,
+    *,
+    timeout_seconds: float = 45.0,
+    poll_interval_seconds: float = 1.0,
+    clock=time.monotonic,
+    sleeper=time.sleep,
+):
+    """Wait for the offer form to exist; do not require it before launch."""
+    deadline = clock() + timeout_seconds
+    attempts = 0
+    last_error = None
+
+    while True:
+        attempts += 1
+        try:
+            return finder(), attempts
+        except RuntimeError as exc:
+            message = str(exc)
+            if not message.startswith("client_form_match_count_invalid:0"):
+                raise
+            last_error = exc
+
+        remaining = deadline - clock()
+        if remaining <= 0:
+            raise RuntimeError(
+                f"client_form_not_found_after_wait:{attempts}"
+            ) from last_error
+
+        sleeper(min(poll_interval_seconds, remaining))
+
+
 def _score(changes: list[dict], delta: dict) -> int:
     return (
         len(changes) * 10
@@ -379,18 +411,29 @@ def main() -> int:
         if process_id.value == 0:
             raise RuntimeError("windowhub_process_id_unavailable")
 
-        form, process_count = _find_form_and_lookup(
-            desktop,
-            api,
-            enum_proc,
-            root_hwnd,
-            int(process_id.value),
+        print(
+            "OTWÓRZ FORMULARZ NOWEJ OFERTY W WINDOWHUB. "
+            "Pole Klient pozostaw zamknięte. "
+            "Czekam maksymalnie 45 sekund na wykrycie formularza...",
+            flush=True,
+        )
+
+        (form, process_count), form_detection_attempts = (
+            _wait_for_form_and_lookup(
+                lambda: _find_form_and_lookup(
+                    desktop,
+                    api,
+                    enum_proc,
+                    root_hwnd,
+                    int(process_id.value),
+                )
+            )
         )
         form_wrapper = form["form_wrapper"]
 
         print(
-            "PRZYGOTOWANIE: pozostaw formularz nowej oferty otwarty, "
-            "a liste Klient ZAMKNIETA. Zbieram stan bazowy...",
+            "FORMULARZ WYKRYTY. Zbieram stan bazowy; "
+            "lista Klient nadal musi być zamknięta...",
             flush=True,
         )
         baseline_windows = _native_window_snapshot(
@@ -453,6 +496,7 @@ def main() -> int:
         result = {
             "result": "DIAGNOSTIC_ONLY",
             "windowhub_process_top_window_count": process_count,
+            "form_detection_attempts": form_detection_attempts,
             "observation_seconds": OBSERVATION_SECONDS,
             "poll_samples": samples,
             "baseline_native_window_count": len(baseline_windows),
