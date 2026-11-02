@@ -849,6 +849,50 @@ def test_structure_only_diagnostics_report_non_table_structure_without_ui_text()
     )
 
 
+def test_structure_only_diagnostics_report_table_candidate_with_unavailable_bounds():
+    class NoBoundsGrid(_StructureOnlyUIAItem):
+        def rectangle(self):
+            raise RuntimeError("bounds unavailable")
+
+    lookup = _StructureOnlyUIAItem(
+        control_type="Custom",
+        automation_id="IDC_ZAMAWIAJACY",
+        class_name="lookupedit",
+        runtime_id=(9, 8, 51),
+    )
+    grid = NoBoundsGrid(
+        control_type="DataGrid",
+        automation_id="PART_GridControl",
+        runtime_id=(9, 8, 52),
+        parent=lookup,
+    )
+    diagnostics = []
+    provider = WindowHubUIAutomationProvider(
+        desktop_factory=lambda: _StructureOnlyDesktop(
+            _StructureOnlyUIAWindow((lookup, grid))
+        ),
+    )
+
+    elements = provider.perceive_structure_only(
+        _structure_only_observation(),
+        diagnostic_callback=diagnostics.append,
+        diagnostic_limit=10,
+    )
+
+    assert elements == ()
+    table_records = [
+        record for record in diagnostics
+        if record.get("candidate_kind") == "table_control"
+    ]
+    assert len(table_records) == 1
+    assert table_records[0]["automation_id"] == "PART_GridControl"
+    assert table_records[0]["rejection_reason"] == "rectangle_error"
+    assert table_records[0]["rectangle_error_type"] == "RuntimeError"
+    assert table_records[0]["ancestor_structure"][0]["automation_id"] == (
+        "idc_zamawiajacy"
+    )
+
+
 def test_structure_only_diagnostics_are_bounded():
     items = tuple(
         _StructureOnlyUIAItem(
