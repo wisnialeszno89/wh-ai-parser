@@ -349,6 +349,8 @@ class ReadOnlyObservationBroker:
         registered = self._registered.get(capability_name)
         if registered is None:
             raise ValueError("observation_capability_not_registered")
+        if len(self._bindings) >= 64:
+            raise ValueError("observation_capability_binding_limit_reached")
 
         target = snapshot.reference_map.resolve(
             target_ref,
