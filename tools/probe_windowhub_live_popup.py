@@ -113,6 +113,9 @@ def _inspect_uia_subtree(desktop, hwnd: int) -> dict:
             class_name = str(
                 getattr(info, "class_name", "") or ""
             ).strip().casefold()
+            automation_id = str(
+                getattr(info, "automation_id", "") or ""
+            ).strip().casefold()
         except Exception:
             continue
 
