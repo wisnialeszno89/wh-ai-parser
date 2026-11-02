@@ -26,11 +26,12 @@ class TargetResolver:
     """
     Resolves a requested target against the current ScreenScene.
 
-    v1 intentionally uses only deterministic information already
-    present in ScreenElement.
+    String targets retain the original deterministic label/id behavior.
+    Typed SemanticTargetQuery targets can additionally constrain role,
+    provider-local identity and explicit UIA ancestor relationships.
 
-    Semantic vision/reasoning will be added later without changing
-    the resolver contract.
+    The resolver never uses geometry to infer semantic identity and rejects
+    ambiguous matches rather than guessing.
     """
 
     def resolve(
