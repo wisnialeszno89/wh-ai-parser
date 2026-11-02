@@ -62,11 +62,21 @@ def main() -> int:
         root_owner_handle = raw_observation.metadata.get(
             "foreground_root_owner_handle"
         )
+        app_root_owner_handle = raw_observation.metadata.get(
+            "window_root_owner_handle"
+        ) or window_handle
+        print(
+            "WINDOWHUB_ROOT_OWNER_AVAILABLE="
+            + str(
+                raw_observation.metadata.get("window_root_owner_handle")
+                is not None
+            )
+        )
         print(
             "WINDOWHUB_OWNED_FOREGROUND_POPUP="
             + str(
                 foreground_handle != window_handle
-                and root_owner_handle == window_handle
+                and root_owner_handle == app_root_owner_handle
             )
         )
 
