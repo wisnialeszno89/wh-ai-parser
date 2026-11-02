@@ -407,10 +407,15 @@ class ReadOnlyObservationBroker:
             _fail("task_scope_mismatch")
         if binding.world_revision != world_revision:
             _fail("binding_stale")
+        _bounded_text(request["target_ref"], "target_ref", 128)
         if request["target_ref"] != binding.target_ref:
             _fail("target_ref_mismatch")
-        if request["based_on_world_revision"] != world_revision:
-            _fail("request_revision_stale")
+        _bounded_int(
+            request["based_on_world_revision"],
+            "based_on_world_revision",
+            world_revision,
+            world_revision,
+        )
         if (
             isinstance(max_observation_items, bool)
             or not 1 <= max_observation_items <= MAX_CAPABILITY_ITEMS
@@ -444,12 +449,20 @@ class ReadOnlyObservationBroker:
             deadline_monotonic=deadline,
         )
 
+        # The synchronous broker cannot forcibly interrupt a blocked COM call.
+        # Registered adapters must pass this deadline to bounded provider calls
+        # and return promptly; the broker rejects any result that arrives late.
         started = self._clock()
-        result = binding.registered.reader(
-            binding.target,
-            parameters,
-            context,
-        )
+        try:
+            result = binding.registered.reader(
+                binding.target,
+                parameters,
+                context,
+            )
+        except ObservationRejected:
+            raise
+        except Exception as exc:
+            _fail(f"reader_failed:{type(exc).__name__}")
         elapsed = self._clock() - started
         if elapsed > spec.timeout_seconds:
             _fail("observation_time_budget_exceeded")
