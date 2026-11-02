@@ -136,6 +136,11 @@ def test_environment_observation_captures_foreground_owned_popup_handles(monkeyp
         "_foreground_window_context",
         staticmethod(lambda: (501, 500)),
     )
+    monkeypatch.setattr(
+        WindowHubEnvironmentAdapter,
+        "_window_root_owner_handle",
+        staticmethod(lambda _handle: 500),
+    )
 
     adapter = WindowHubEnvironmentAdapter()
     adapter.screenshot_engine = SimpleNamespace(
@@ -148,6 +153,7 @@ def test_environment_observation_captures_foreground_owned_popup_handles(monkeyp
     assert observation.metadata["window_focused"] is False
     assert observation.metadata["foreground_window_handle"] == 501
     assert observation.metadata["foreground_root_owner_handle"] == 500
+    assert observation.metadata["window_root_owner_handle"] == 500
 
 
 def test_environment_observation_does_not_claim_unowned_foreground_popup(monkeypatch):
@@ -166,6 +172,11 @@ def test_environment_observation_does_not_claim_unowned_foreground_popup(monkeyp
         WindowHubEnvironmentAdapter,
         "_foreground_window_context",
         staticmethod(lambda: (601, 600)),
+    )
+    monkeypatch.setattr(
+        WindowHubEnvironmentAdapter,
+        "_window_root_owner_handle",
+        staticmethod(lambda _handle: 500),
     )
 
     adapter = WindowHubEnvironmentAdapter()
