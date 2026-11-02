@@ -272,6 +272,21 @@ def test_v2_session_executes_valid_observe_response_through_local_broker():
     assert grid.iface_grid.cell_reads == 0
 
 
+def test_v2_session_allows_only_one_observation_per_world_cycle():
+    session, scene, grid = make_session()
+    prepared = prepare(session, scene)
+    response = make_observe_response(prepared)
+
+    first = prepared.execute_observation_decision(response)
+    assert first["source"] == "uia_grid_structure"
+    assert grid.iface_grid.cell_reads == 0
+
+    with pytest.raises(ValueError, match="decision_already_consumed"):
+        prepared.execute_observation_decision(response)
+
+    assert grid.iface_grid.cell_reads == 0
+
+
 def test_v2_session_rejects_unexposed_capability_before_observation():
     session, scene, grid = make_session()
     prepared = prepare(session, scene)
