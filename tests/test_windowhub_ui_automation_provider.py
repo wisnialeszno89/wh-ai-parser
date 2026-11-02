@@ -595,3 +595,36 @@ def test_ui_automation_provider_exposes_bounded_ancestor_context():
     assert elements[0].metadata["uia_ancestor_context"] == (
         ("Pane", "Afx:Pane", "Konstrukcja"),
     )
+
+
+
+def test_ui_automation_provider_preserves_lookupedit_ancestor_structure():
+    lookup = FakeUIAItem(
+        name="Zamawiający",
+        control_type="Custom",
+        automation_id="IDC_ZAMAWIAJACY",
+        class_name="lookupedit",
+    )
+    grid = FakeUIAItem(
+        name="",
+        control_type="DataGrid",
+        automation_id="PART_GridControl",
+        parent=lookup,
+        runtime_id=(7, 18708, 63003992),
+    )
+    desktop = FakeDesktop(FakeUIAWindow((lookup, grid)))
+
+    elements = WindowHubUIAutomationProvider(
+        desktop_factory=lambda: desktop,
+    ).perceive(make_observation())
+
+    tables = tuple(element for element in elements if element.kind == "table")
+    assert len(tables) == 1
+    ancestry = tables[0].metadata["uia_ancestor_structure"]
+    assert ancestry == (
+        {
+            "control_type": "custom",
+            "class_name": "lookupedit",
+            "automation_id": "idc_zamawiajacy",
+        },
+    )
