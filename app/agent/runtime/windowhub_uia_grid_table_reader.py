@@ -309,15 +309,17 @@ class WindowHubUIAGridTableReader:
                 candidate = element
 
         element_info = getattr(candidate, "element_info", None)
-        sources = (
-            getattr(element_info, "name", None),
-            getattr(element_info, "rich_text", None),
-            getattr(candidate, "window_text", None),
-            getattr(candidate, "get_value", None),
-            getattr(candidate, "CurrentName", None),
-        )
-        for source in sources:
+        for owner, attribute_name in (
+            (element_info, "name"),
+            (element_info, "rich_text"),
+            (candidate, "window_text"),
+            (candidate, "get_value"),
+            (candidate, "CurrentName"),
+        ):
             try:
+                if owner is None:
+                    continue
+                source = getattr(owner, attribute_name, None)
                 value = source() if callable(source) else source
             except Exception:
                 continue
