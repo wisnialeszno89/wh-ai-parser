@@ -269,18 +269,51 @@ def main() -> int:
         if window_handle <= 0:
             raise RuntimeError("windowhub_handle_invalid")
 
+        # First inspect only semantic identity/visibility metadata. If the
+        # popup grid is already visible, do not activate the parent window:
+        # doing so could dismiss that popup. If no grid is open, safely bring
+        # the main WindowHub window forward before opening the known lookup.
+        grids = _find_grid(window)
+        if len(grids) > 1:
+            raise RuntimeError("multiple_matching_windowhub_grids")
+
+        brought_to_foreground = False
         foreground_relation = _foreground_windowhub_relation(
             window_handle
         )
         if not foreground_relation["belongs_to_windowhub"]:
-            raise RuntimeError(
-                "windowhub_not_foreground_or_owned_popup:"
-                "bring_WindowHub_to_front_and_rerun"
-            )
+            if grids:
+                raise RuntimeError(
+                    "windowhub_grid_visible_but_not_foreground:"
+                    "refusing_to_dismiss_an_already_open_popup"
+                )
 
-        grids = _find_grid(window)
-        if len(grids) > 1:
-            raise RuntimeError("multiple_matching_windowhub_grids")
+            try:
+                if bool(window.is_minimized()):
+                    window.restore()
+                window.set_focus()
+            except Exception as exc:
+                raise RuntimeError(
+                    f"windowhub_activation_failed:{type(exc).__name__}"
+                ) from exc
+
+            activation_deadline = time.monotonic() + 2.0
+            while time.monotonic() < activation_deadline:
+                time.sleep(0.1)
+                foreground_relation = _foreground_windowhub_relation(
+                    window_handle
+                )
+                if foreground_relation["belongs_to_windowhub"]:
+                    brought_to_foreground = True
+                    break
+
+            if not foreground_relation["belongs_to_windowhub"]:
+                raise RuntimeError(
+                    "windowhub_activation_not_confirmed:"
+                    "focus_WindowHub_manually_and_rerun"
+                )
+        else:
+            brought_to_foreground = False
 
         if not grids:
             lookups = _find_lookup(window)
@@ -452,6 +485,7 @@ def main() -> int:
         result = {
             "result": "PASS",
             "windowhub_focused": True,
+            "windowhub_brought_to_foreground_by_script": brought_to_foreground,
             "lookup_popup_opened_by_script": opened_by_script,
             "semantic_table_found": True,
             "observation_protocol": "v2",
