@@ -38,7 +38,6 @@ class WindowHubLookupGridAdapter:
         role="table",
         automation_id=WINDOWHUB_LOOKUP_GRID_AUTOMATION_ID,
         within=SemanticAncestorConstraint(
-            control_type="button",
             class_name="lookupedit",
             automation_id=WINDOWHUB_CLIENT_LOOKUP_AUTOMATION_ID,
         ),
@@ -82,7 +81,6 @@ class WindowHubLookupGridAdapter:
                 WINDOWHUB_CLIENT_LOOKUP_AUTOMATION_ID,
             ),
             required_ancestor_properties={
-                "control_type": "button",
                 "class_name": "lookupedit",
                 "automation_id": WINDOWHUB_CLIENT_LOOKUP_AUTOMATION_ID,
             },
