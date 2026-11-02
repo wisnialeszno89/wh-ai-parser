@@ -186,6 +186,7 @@ class AgentTaskV2WorldBuilder:
         local_map: dict[str, ScreenElement] = {}
         entities: list[dict[str, object]] = []
         evidence: list[dict[str, object]] = []
+        omitted_evidence = 0
 
         for index, element in enumerate(selected_elements, start=1):
             entity_ref = f"ent_{index:04d}"
@@ -205,19 +206,27 @@ class AgentTaskV2WorldBuilder:
                 state_payload["value_present"] = value_present
 
             evidence_refs: list[str] = []
-            for item in element.evidence[:MAX_EVIDENCE_PER_ELEMENT]:
+            element_evidence = element.evidence[:MAX_EVIDENCE_PER_ELEMENT]
+            omitted_evidence += max(
+                0,
+                len(element.evidence) - len(element_evidence),
+            )
+            for item in element_evidence:
                 kind = _enum_text(item.kind)
                 source = _enum_text(item.source)
                 if (
                     kind is None
                     or source is None
                     or kind.casefold() in _PRIVATE_EVIDENCE_KINDS
-                    or len(evidence) >= MAX_WORLD_EVIDENCE
                 ):
+                    continue
+                if len(evidence) >= MAX_WORLD_EVIDENCE - 1:
+                    omitted_evidence += 1
                     continue
 
                 safe_value = _safe_json_value(item.value)
                 if safe_value is _UNSUPPORTED:
+                    omitted_evidence += 1
                     continue
 
                 evidence_ref = f"ev_{len(evidence) + 1:04d}"
@@ -256,10 +265,31 @@ class AgentTaskV2WorldBuilder:
             )
 
         omitted_entities = max(0, len(elements) - len(selected_elements))
-        limitations: list[str] = []
-        if omitted_entities:
-            limitations.append(
-                f"{omitted_entities} scene elements omitted by the v2 entity limit."
+        if omitted_entities or omitted_evidence:
+            limitation_messages = []
+            if omitted_entities:
+                limitation_messages.append(
+                    f"{omitted_entities} scene elements omitted by the v2 entity limit."
+                )
+            if omitted_evidence:
+                limitation_messages.append(
+                    f"{omitted_evidence} evidence items omitted by v2 projection bounds."
+                )
+            evidence.append(
+                {
+                    "ref": f"ev_{len(evidence) + 1:04d}",
+                    "source": "runtime",
+                    "observed_at": timestamp,
+                    "world_revision": world_revision,
+                    "scope": "world_projection",
+                    "confidence": None,
+                    "content": {
+                        "kind": "projection_limitations",
+                        "omitted_entities": omitted_entities,
+                        "omitted_evidence": omitted_evidence,
+                    },
+                    "limitations": limitation_messages,
+                }
             )
 
         world: dict[str, object] = {
@@ -276,8 +306,6 @@ class AgentTaskV2WorldBuilder:
             "evidence": evidence,
         }
 
-        if omitted_entities:
-            world["projection_limitations"] = limitations
 
         return AgentTaskV2WorldSnapshot(
             payload=world,
