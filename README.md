@@ -71,3 +71,31 @@ the local action allowlist or execution permissions.
 
 The current stage adds the contract, validation and transport only. No web
 research is executed yet.
+
+
+## Universal Windows desktop computer use (V2)
+
+The application-neutral Windows runtime observes the active foreground window.
+It combines Windows UI Automation with OCR text extraction when Tesseract is
+installed. OCR is evidence about visible text only: OCR-only labels are not
+clickable and do not grant action permissions.
+
+Python package:
+
+```powershell
+python -m pip install -r requirements.txt
+```
+
+The OCR provider also requires the Tesseract OCR executable. Install Tesseract
+for Windows and make sure `tesseract.exe` is on PATH, or set `TESSERACT_CMD`
+to its full path. Set `COMPUTER_USE_OCR_LANG` to an installed language set
+such as `deu+eng` when German and English trained data are available. The
+default language is `eng`. If Tesseract is absent or fails, the provider
+records a diagnostic and the UI Automation path continues.
+
+The V2 desktop runtime requires `NAVIMIND_AGENT_V2_URL` and optionally
+`NAVIMIND_AGENT_V2_SECRET`. It defaults to DRY_RUN. Real mouse and keyboard
+input requires the explicit `COMPUTER_USE_LIVE=1` opt-in.
+
+This is the first generic Windows foreground-window stage; it does not yet
+enumerate every desktop window, taskbar control or every application surface.
