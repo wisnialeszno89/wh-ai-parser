@@ -44,6 +44,11 @@ MAX_PARENT_DEPTH = 8
 def _configure_parent_api(api):
     api.GetParent.argtypes = (ctypes.wintypes.HWND,)
     api.GetParent.restype = ctypes.wintypes.HWND
+    api.GetWindow.argtypes = (
+        ctypes.wintypes.HWND,
+        ctypes.wintypes.UINT,
+    )
+    api.GetWindow.restype = ctypes.wintypes.HWND
     return api
 
 
@@ -144,6 +149,47 @@ def _native_parent_chain(api, hwnd: int) -> list[str]:
     return chain
 
 
+def _native_owner_chain(api, hwnd: int) -> list[int]:
+    """Return private owner HWNDs; never serialize the values."""
+    chain = []
+    current = hwnd
+    seen = {hwnd}
+    for _ in range(MAX_PARENT_DEPTH):
+        owner = _hwnd_value(api.GetWindow(current, 4))  # GW_OWNER
+        if owner <= 0 or owner in seen:
+            break
+        seen.add(owner)
+        chain.append(owner)
+        current = owner
+    return chain
+
+
+def _native_owner_class_chain(api, hwnd: int) -> list[str]:
+    return [
+        _class_name(api, owner)
+        for owner in _native_owner_chain(api, hwnd)
+    ]
+
+
+def _lookup_native_handle(lookup_wrapper) -> int:
+    """Try pywinauto wrapper and UIA element-info HWND projections."""
+    for candidate in (
+        getattr(lookup_wrapper, "handle", None),
+        getattr(
+            getattr(lookup_wrapper, "element_info", None),
+            "handle",
+            None,
+        ),
+    ):
+        try:
+            handle = _hwnd_value(candidate)
+        except (TypeError, ValueError):
+            continue
+        if handle > 0:
+            return handle
+    return 0
+
+
 def _uia_descendants(wrapper):
     return tuple(wrapper.descendants())
 
@@ -206,7 +252,7 @@ def _find_form_and_lookup(desktop, api, enum_proc, root_hwnd, process_id):
     return matches[0], len(process_windows)
 
 
-def _inspect_datatable(api, desktop, form_hwnd, lookup_rect, hwnd):
+def _inspect_datatable(api, desktop, form_hwnd, lookup_native_hwnd, lookup_rect, hwnd, root_hwnd):
     class_name = _class_name(api, hwnd)
     visible = bool(api.IsWindowVisible(hwnd))
     rect = _read_win32_rect(api, hwnd)
@@ -233,13 +279,28 @@ def _inspect_datatable(api, desktop, form_hwnd, lookup_rect, hwnd):
         role_counts = {}
 
     parent_chain = _native_parent_chain(api, hwnd)
+    owner_handles = _native_owner_chain(api, hwnd)
     return {
         "native_class_name": class_name,
         "visible": visible,
         "nonempty_bounds": rect is not None,
         "native_parent_chain": parent_chain,
-        "is_nested_under_form_hwnd": (
+        "native_owner_class_chain": _native_owner_class_chain(api, hwnd),
+        "parent_chain_contains_form": (
             form_hwnd in _native_parent_handles(api, hwnd)
+        ),
+        "owner_chain_contains_form": form_hwnd in owner_handles,
+        "root_owner_is_windowhub": (
+            _hwnd_value(api.GetAncestor(hwnd, GA_ROOTOWNER)) == root_hwnd
+        ),
+        "lookup_native_hwnd_available": lookup_native_hwnd > 0,
+        "lookup_native_handle_matches_popup_parent": (
+            lookup_native_hwnd > 0
+            and lookup_native_hwnd in _native_parent_handles(api, hwnd)
+        ),
+        "lookup_native_handle_matches_popup_owner": (
+            lookup_native_hwnd > 0
+            and lookup_native_hwnd in owner_handles
         ),
         "geometry_to_client_lookup": _geometry_relation(
             lookup_rect,
@@ -301,12 +362,7 @@ def main() -> int:
 
         lookup = form["lookup_wrapper"]
         lookup_rect = _read_uia_rect(lookup)
-        try:
-            lookup_native_hwnd = _hwnd_value(
-                getattr(lookup, "handle", None)
-            )
-        except Exception:
-            lookup_native_hwnd = 0
+        lookup_native_hwnd = _lookup_native_handle(lookup)
 
         lookup_native_class = (
             _class_name(api, lookup_native_hwnd)
@@ -336,8 +392,10 @@ def main() -> int:
                 api,
                 desktop,
                 form["form_hwnd"],
+                lookup_native_hwnd,
                 lookup_rect,
                 hwnd,
+                root_hwnd,
             )
             for hwnd in sorted(datatable_handles)
         ]
@@ -345,7 +403,10 @@ def main() -> int:
         datatable_reports.sort(
             key=lambda item: (
                 not item["visible"],
-                not item["is_nested_under_form_hwnd"],
+                not item["owner_chain_contains_form"],
+                not item["parent_chain_contains_form"],
+                not item["lookup_native_handle_matches_popup_parent"],
+                not item["lookup_native_handle_matches_popup_owner"],
                 not item["geometry_to_client_lookup"]["horizontal_overlap"],
                 not item["geometry_to_client_lookup"]["popup_below_lookup"],
             )
@@ -365,6 +426,11 @@ def main() -> int:
                 ),
                 "lookup_native_class_name": lookup_native_class,
                 "lookup_bounds_available": lookup_rect is not None,
+                "lookup_native_parent_class_chain": (
+                    _native_parent_chain(api, lookup_native_hwnd)
+                    if lookup_native_hwnd > 0
+                    else []
+                ),
             },
             "datatable5_candidate_count": len(datatable_reports),
             "datatable5_candidates": datatable_reports[:20],
