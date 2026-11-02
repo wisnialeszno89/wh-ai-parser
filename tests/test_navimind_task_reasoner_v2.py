@@ -1,13 +1,14 @@
 import json
 from urllib.error import HTTPError, URLError
 
+import pytest
+
+import app.agent.reasoning.navimind_task_reasoner_v2 as reasoner_v2_module
 from app.agent.bridge.agent_task_contract_v2 import AgentTaskV2Contract
-from app.agent.reasoning.navimind_task_reasoner import (
-    NaviMindTaskReasonerConfig,
-)
 from app.agent.reasoning.navimind_task_reasoner_v2 import (
     MAX_RESPONSE_BYTES,
     NaviMindTaskReasonerV2,
+    NaviMindTaskReasonerV2Config,
 )
 
 
@@ -120,8 +121,8 @@ def _observe_response(request_payload):
 
 def _reasoner(opener, *, secret="test-secret", timeout=12):
     return NaviMindTaskReasonerV2(
-        config=NaviMindTaskReasonerConfig(
-            url="http://localhost:3000/api/agent/task",
+        config=NaviMindTaskReasonerV2Config(
+            url="http://localhost:3000/api/agent/task/v2",
             secret=secret,
             timeout_seconds=timeout,
         ),
@@ -292,3 +293,35 @@ def test_v2_reasoner_omits_secret_header_when_not_configured():
     reasoner = _reasoner(opener, secret=None)
     assert reasoner.reason(_request_payload()) is not None
     assert "x-navimind-agent-secret" not in captured["headers"]
+
+
+def test_v2_config_uses_only_v2_environment_variables(monkeypatch):
+    monkeypatch.setattr(reasoner_v2_module, "load_dotenv", lambda: False)
+    monkeypatch.setenv("NAVIMIND_AGENT_URL", "http://localhost:3000/api/agent/task")
+    monkeypatch.setenv("NAVIMIND_AGENT_SECRET", "v1-secret")
+    monkeypatch.setenv("NAVIMIND_AGENT_V2_URL", "http://localhost:3000/api/agent/task/v2")
+    monkeypatch.setenv("NAVIMIND_AGENT_V2_SECRET", "v2-secret")
+    monkeypatch.setenv("NAVIMIND_AGENT_V2_TIMEOUT_SECONDS", "9.5")
+
+    config = NaviMindTaskReasonerV2Config.from_environment()
+
+    assert config.url == "http://localhost:3000/api/agent/task/v2"
+    assert config.secret == "v2-secret"
+    assert config.timeout_seconds == 9.5
+
+
+def test_v2_config_does_not_fall_back_to_v1_endpoint(monkeypatch):
+    monkeypatch.setattr(reasoner_v2_module, "load_dotenv", lambda: False)
+    monkeypatch.setenv("NAVIMIND_AGENT_URL", "http://localhost:3000/api/agent/task")
+    monkeypatch.delenv("NAVIMIND_AGENT_V2_URL", raising=False)
+
+    with pytest.raises(RuntimeError, match="NAVIMIND_AGENT_V2_URL"):
+        NaviMindTaskReasonerV2Config.from_environment()
+
+
+def test_v2_config_rejects_invalid_timeout():
+    with pytest.raises(ValueError, match="timeout_invalid"):
+        NaviMindTaskReasonerV2Config(
+            url="http://localhost:3000/api/agent/task/v2",
+            timeout_seconds=float("nan"),
+        )
