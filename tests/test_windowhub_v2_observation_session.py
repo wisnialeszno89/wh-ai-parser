@@ -287,6 +287,21 @@ def test_v2_session_allows_only_one_observation_per_world_cycle():
     assert grid.iface_grid.cell_reads == 0
 
 
+def test_v2_session_rejects_business_record_fields_before_cell_access():
+    session, scene, grid = make_session()
+    prepared = prepare(session, scene)
+
+    with pytest.raises(ValueError, match="field_not_allowed"):
+        prepared.execute_observation_decision(
+            make_observe_response(
+                prepared,
+                fields=["customer_name"],
+            )
+        )
+
+    assert grid.iface_grid.cell_reads == 0
+
+
 def test_v2_session_rejects_unexposed_capability_before_observation():
     session, scene, grid = make_session()
     prepared = prepare(session, scene)
