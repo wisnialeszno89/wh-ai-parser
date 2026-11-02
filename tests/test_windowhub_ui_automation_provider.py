@@ -998,7 +998,7 @@ def test_structure_only_perception_finds_grid_in_windowhub_owned_foreground_popu
     table = elements[0]
     assert table.metadata["automation_id"] == "PART_GridControl"
     assert table.metadata["uia_root_window_handle"] == 992
-    assert desktop.requested_handles == [991, 992]
+    assert desktop.requested_handles == [992, 991]
 
     scene = ScreenScene(
         observation=observation,
@@ -1051,7 +1051,7 @@ def test_structure_only_perception_accepts_popup_owned_by_app_root_not_modal_for
     assert len(elements) == 1
     assert elements[0].metadata["automation_id"] == "PART_GridControl"
     assert elements[0].metadata["uia_root_window_handle"] == 992
-    assert desktop.requested_handles == [991, 992]
+    assert desktop.requested_handles == [992, 991]
 
 
 def test_structure_only_perception_scans_owned_foreground_popup_before_large_main_tree():
