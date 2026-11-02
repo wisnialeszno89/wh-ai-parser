@@ -239,6 +239,25 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
         origin_x = int(getattr(window_rect, "left", 0))
         origin_y = int(getattr(window_rect, "top", 0))
 
+        foreground_handle = observation.metadata.get(
+            "foreground_window_handle"
+        )
+        foreground_root_owner_handle = observation.metadata.get(
+            "foreground_root_owner_handle"
+        )
+
+        # The main WindowHub form and an owned foreground popup are the only
+        # permitted roots. An unrelated foreground application is never scanned.
+        root_handles = [window_handle]
+        if (
+            isinstance(foreground_handle, int)
+            and not isinstance(foreground_handle, bool)
+            and foreground_handle > 0
+            and foreground_handle != window_handle
+            and foreground_root_owner_handle == window_handle
+        ):
+            root_handles.append(foreground_handle)
+
         started_at = time.monotonic()
         try:
             desktop = (
@@ -246,24 +265,34 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
                 if self._desktop_factory is not None
                 else self._default_desktop()
             )
-            window = desktop.window(
-                handle=window_handle,
-            ).wrapper_object()
-            descendants = window.descendants()
         except Exception:
             return ()
 
         elements: list[ScreenElement] = []
+        seen_runtime_ids: set[str] = set()
+        total_descendants = 0
         try:
-            for index, item in enumerate(descendants):
-                if index >= max_descendants:
-                    # Do not return a partial tree: a missing grid could make
-                    # a false negative look like a complete observation.
-                    return ()
+            for root_handle in root_handles:
                 if time.monotonic() - started_at > timeout_seconds:
                     return ()
-
                 try:
+                    window = desktop.window(
+                        handle=root_handle,
+                    ).wrapper_object()
+                    descendants = window.descendants()
+                except Exception:
+                    continue
+
+                for item in descendants:
+                    total_descendants += 1
+                    if total_descendants > max_descendants:
+                        # Do not return a partial tree: a missing grid could
+                        # make a false negative look like a complete observation.
+                        return ()
+                    if time.monotonic() - started_at > timeout_seconds:
+                        return ()
+
+                    try:
                     info = item.element_info
                     control_type = self._normalize_control_type(
                         getattr(info, "control_type", None)
@@ -357,6 +386,9 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
                             "uia_control_type": control_type,
                             "uia_visible": True,
                             "uia_runtime_id": runtime_id,
+                            # Local-only identity used to re-resolve a popup
+                            # in the next broker call; never sent to NaviMind.
+                            "uia_root_window_handle": root_handle,
                             "interaction_capability": capability.value,
                             "interaction_capability_confidence": 0.99,
                             "perception_mode": "structure_only",
@@ -428,13 +460,40 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
             if self._desktop_factory is not None
             else self._default_desktop()
         )
-        window = self._active_window(
-            desktop,
-            observation,
-            allow_test_factory_fallback=(
-                self._desktop_factory is not None
-            ),
-        )
+        if metadata.get("perception_mode") == "structure_only":
+            root_handle = metadata.get("uia_root_window_handle")
+            main_handle = observation.metadata.get("window_handle")
+            foreground_handle = observation.metadata.get(
+                "foreground_window_handle"
+            )
+            foreground_owner = observation.metadata.get(
+                "foreground_root_owner_handle"
+            )
+            if (
+                isinstance(root_handle, bool)
+                or not isinstance(root_handle, int)
+                or root_handle <= 0
+                or isinstance(main_handle, bool)
+                or not isinstance(main_handle, int)
+                or main_handle <= 0
+            ):
+                raise ValueError("uia_structure_only_root_identity_invalid")
+            if root_handle != main_handle and not (
+                root_handle == foreground_handle
+                and foreground_owner == main_handle
+            ):
+                raise RuntimeError("uia_structure_only_popup_owner_changed")
+            window = desktop.window(
+                handle=root_handle,
+            ).wrapper_object()
+        else:
+            window = self._active_window(
+                desktop,
+                observation,
+                allow_test_factory_fallback=(
+                    self._desktop_factory is not None
+                ),
+            )
 
         expected_title = observation.state.active_window_title
         if (
