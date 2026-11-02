@@ -104,7 +104,7 @@ def main() -> int:
 
         elements = provider.perceive_structure_only(
             observation,
-            timeout_seconds=6.0,
+            timeout_seconds=8.0,
             max_descendants=10_000,
             diagnostic_callback=collect_structural_diagnostic,
             diagnostic_limit=120,
