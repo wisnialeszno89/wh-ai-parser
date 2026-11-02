@@ -297,9 +297,9 @@ def test_v2_session_rejects_non_observe_decisions_in_observation_dispatch():
     session, scene, grid = make_session()
     prepared = prepare(session, scene)
     response = make_observe_response(prepared)
-    response["decision"] = "done"
+    response["decision"] = "manual_review"
     response["observation_request"] = None
-    response["completion"] = {"evidence_refs": ["ev_0001"]}
+    response["requires_manual_review"] = True
 
     with pytest.raises(ValueError, match="expected_observe_decision"):
         prepared.execute_observation_decision(response)
