@@ -345,7 +345,8 @@ class ComputerUseV2ActionSession:
 
         source = metadata.get("source")
         has_uia = (
-            source in _UIA_SOURCES
+            isinstance(source, str)
+            and source in _UIA_SOURCES
             and metadata.get("uia_enabled") is True
             and metadata.get("uia_visible") is True
             and isinstance(metadata.get("uia_runtime_id"), str)
@@ -359,11 +360,15 @@ class ComputerUseV2ActionSession:
     def _is_editable_uia_target(element: ScreenElement) -> bool:
         metadata = element.metadata or {}
         source = metadata.get("source")
-        control_type = str(
-            metadata.get("uia_control_type", element.kind)
-        ).strip().casefold()
+        control_type_value = metadata.get("uia_control_type") or element.kind
+        control_type = (
+            control_type_value.strip().casefold()
+            if isinstance(control_type_value, str)
+            else ""
+        )
         return (
-            source in _UIA_SOURCES
+            isinstance(source, str)
+            and source in _UIA_SOURCES
             and metadata.get("uia_enabled") is True
             and metadata.get("uia_visible") is True
             and isinstance(metadata.get("uia_runtime_id"), str)

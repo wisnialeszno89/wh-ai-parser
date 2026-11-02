@@ -57,6 +57,7 @@ _SUPPORTED_POSTCONDITIONS = frozenset(
         "entity_state_equals",
         "relationship_exists",
         "application_state_equals",
+        "scene_changed",
     }
 )
 
@@ -675,7 +676,11 @@ def _validate_postcondition(value: object, entity_refs: set[str]) -> None:
             _json_value(item["expected_value"], "postcondition.expected_value")
     if kind == "entity_state_equals":
         _text(item.get("state"), "postcondition.state", 128)
-        _json_value(item.get("expected_value"), "postcondition.expected_value")
+        if "expected_value" not in item:
+            _fail("postcondition.expected_value_required")
+        _json_value(item["expected_value"], "postcondition.expected_value")
+    if kind == "scene_changed" and set(item) != {"kind"}:
+        _fail("postcondition.scene_changed_fields_invalid")
     if kind == "relationship_exists":
         from_ref = _ref(item.get("from_ref"), "postcondition.from_ref")
         to_ref = _ref(item.get("to_ref"), "postcondition.to_ref")

@@ -11,6 +11,9 @@ from app.agent.verification.verification_result import (
 )
 
 
+_UNSUPPORTED_STATE = object()
+
+
 class OutcomeVerifier:
     """
     Verifies whether the perceived environment matches
@@ -267,6 +270,54 @@ class OutcomeVerifier:
                 )
 
 
+        if (
+            expected.expected_element_state_name is not None
+            and expected.expected_element_label is not None
+        ):
+            found = scene.find_by_label(
+                expected.expected_element_label
+            )
+            if len(found) != 1:
+                return VerificationResult(
+                    verified=False,
+                    reason=(
+                        "Expected element state could not be checked "
+                        "because the target was missing or ambiguous."
+                    ),
+                    confidence=0.95,
+                    metadata={
+                        "expected_label": expected.expected_element_label,
+                        "match_count": len(found),
+                    },
+                )
+
+            actual_state = self._element_state(
+                found[0],
+                expected.expected_element_state_name,
+            )
+            if actual_state is _UNSUPPORTED_STATE:
+                return VerificationResult(
+                    verified=False,
+                    reason="Requested semantic element state is unsupported.",
+                    confidence=1.0,
+                    metadata={
+                        "state": expected.expected_element_state_name,
+                    },
+                )
+            if actual_state != expected.expected_element_state_value:
+                return VerificationResult(
+                    verified=False,
+                    reason="Targeted semantic element state did not match.",
+                    confidence=0.95,
+                    metadata={
+                        "expected_label": expected.expected_element_label,
+                        "state": expected.expected_element_state_name,
+                        "expected_value": expected.expected_element_state_value,
+                        "actual_value": actual_state,
+                    },
+                )
+
+
         return VerificationResult(
             verified=True,
             reason=(
@@ -275,6 +326,26 @@ class OutcomeVerifier:
             confidence=1.0,
         )
 
+
+    @staticmethod
+    def _element_state(element, state_name: str):
+        metadata = element.metadata or {}
+        if state_name in {
+            "uia_selected",
+            "uia_enabled",
+            "uia_visible",
+        }:
+            return metadata.get(state_name)
+        if state_name == "current_value":
+            return OutcomeVerifier._current_value(element)
+        if state_name == "interaction_capability":
+            value = getattr(element.interaction_capability, "value", element.interaction_capability)
+            return value if isinstance(value, str) else _UNSUPPORTED_STATE
+        if state_name == "kind":
+            return element.kind
+        if state_name == "label":
+            return element.label
+        return _UNSUPPORTED_STATE
 
     @staticmethod
     def _current_value(element) -> str | None:

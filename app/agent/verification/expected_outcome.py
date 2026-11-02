@@ -32,3 +32,9 @@ class ExpectedOutcome:
     require_scene_change: bool = False
 
     baseline_scene_signature: tuple[tuple[object, ...], ...] | None = None
+
+    # Optional provider-neutral state assertion for a uniquely identified
+    # semantic element (for example uia_selected or uia_enabled).
+    expected_element_state_name: str | None = None
+
+    expected_element_state_value: object | None = None
