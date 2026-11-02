@@ -12,6 +12,9 @@ from app.agent.perception.screen_element import ScreenElement
 from app.agent.perception.windows_ui_automation_provider import (
     WindowsUIAutomationProvider,
 )
+from app.agent.perception.windows_screen_text_provider import (
+    WindowsScreenTextProvider,
+)
 from app.agent.perception.windowhub_ui_automation_provider import (
     WindowHubUIAutomationProvider,
 )
@@ -155,6 +158,10 @@ def test_windows_desktop_control_loop_defaults_to_dry_run(monkeypatch):
     assert isinstance(
         loop.perception_engine.providers[0],
         WindowsUIAutomationProvider,
+    )
+    assert isinstance(
+        loop.perception_engine.providers[1],
+        WindowsScreenTextProvider,
     )
 
 

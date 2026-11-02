@@ -8,6 +8,9 @@ from uuid import uuid4
 
 from app.agent.agent_action import AgentAction
 from app.agent.agent_intent import AgentIntent
+from app.agent.bridge.agent_task_contract_v2 import (
+    validate_agent_task_v2_response,
+)
 from app.agent.agent_request import AgentRequest
 from app.agent.perception.screen_scene import ScreenScene
 from app.agent.planning.action_plan import ActionPlan
@@ -131,6 +134,29 @@ class WindowsDesktopV2AgentRuntime:
                     reason=str(reason or "navimind_v2_returned_no_decision"),
                     stopped=True,
                     manual=True,
+                )
+
+            try:
+                validate_agent_task_v2_response(
+                    response,
+                    prepared.request_payload,
+                )
+            except (TypeError, ValueError) as exc:
+                cycle_results.append(
+                    ComputerUseV2CycleResult(
+                        cycle=cycle,
+                        decision="invalid",
+                        rationale="",
+                        reason=f"invalid_v2_decision:{str(exc)[:160]}",
+                    )
+                )
+                return self._result(
+                    resolved_task_id,
+                    resolved_session_id,
+                    cycle_results,
+                    stopped=True,
+                    manual=True,
+                    reason="invalid_v2_decision",
                 )
 
             decision = response.get("decision")

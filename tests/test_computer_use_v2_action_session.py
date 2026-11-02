@@ -220,3 +220,19 @@ def test_v2_cycle_rejects_action_bound_to_a_different_target():
                 target_ref="ent_9999",
             )
         )
+
+
+
+def test_ocr_only_text_never_becomes_an_executable_action_capability():
+    ocr_text = ScreenElement(
+        kind="text",
+        label="Save workbook",
+        interaction_capability=InteractionCapability.NOT_INTERACTIVE,
+        metadata={
+            "source": "windows_ocr",
+            "ocr_confidence": 0.97,
+        },
+    )
+    prepared = _prepare(_scene((ocr_text,)))
+
+    assert prepared.request_payload["capabilities"]["actions"] == []

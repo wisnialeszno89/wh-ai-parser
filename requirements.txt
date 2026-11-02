@@ -7,4 +7,5 @@ pydantic>=2
 python-dotenv
 pywinauto
 pyautogui
-mss\npytesseract\n
+mss
+pytesseract
