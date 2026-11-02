@@ -13,6 +13,14 @@ import json
 import os
 import sys
 from collections import Counter
+from pathlib import Path
+
+# When executed as `python tools/<script>.py`, Python puts the tools/
+# directory (not the repository root) at sys.path[0]. Add the repository
+# root so the shared diagnostics module can be imported reliably.
+REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
+if str(REPOSITORY_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPOSITORY_ROOT))
 
 from tools.diagnose_windowhub_win32_children import (
     WINDOWHUB_TITLE_PREFIX,
