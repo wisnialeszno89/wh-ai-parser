@@ -4,7 +4,9 @@ from collections import Counter
 
 from tools.diagnose_windowhub_client_lookup_delta import (
     _diff_window_snapshots,
+    _find_known_control_paths,
     _structure_delta,
+    _uia_parent_path,
     _uia_structure_snapshot,
     _wait_for_form_and_lookup,
 )
@@ -67,8 +69,12 @@ class _Info:
 
 
 class _Element:
-    def __init__(self, info):
+    def __init__(self, info, parent=None):
         self.element_info = info
+        self._parent = parent
+
+    def parent(self):
+        return self._parent
 
 
 class _Wrapper:
@@ -236,3 +242,77 @@ def test_wait_for_form_does_not_swallow_other_runtime_errors():
         assert str(exc) == "windowhub_root_handle_invalid"
     else:
         raise AssertionError("Expected the original runtime error")
+
+
+
+def test_grid_control_path_exposes_only_structural_parent_metadata():
+    form_container = _Element(
+        _Info(
+            control_type="custom",
+            class_name="idd_oferta_prop_view",
+        )
+    )
+    grid = _Element(
+        _Info(
+            control_type="datagrid",
+            class_name="gridcontrol",
+            automation_id="PART_GridControl",
+        ),
+        parent=form_container,
+    )
+
+    path = _uia_parent_path(grid)
+
+    assert path == [
+        {
+            "control_type": "datagrid",
+            "class_name": "gridcontrol",
+            "is_lookup_control": False,
+            "is_grid_control": True,
+            "is_form_container": False,
+            "is_popup_container": False,
+        },
+        {
+            "control_type": "custom",
+            "class_name": "idd_oferta_prop_view",
+            "is_lookup_control": False,
+            "is_grid_control": False,
+            "is_form_container": True,
+            "is_popup_container": False,
+        },
+    ]
+
+
+def test_known_control_path_lookup_matches_only_requested_automation_id():
+    wrapper = _Wrapper(
+        [
+            _Element(
+                _Info(
+                    control_type="custom",
+                    class_name="lookupedit",
+                    automation_id="IDC_ZAMAWIAJACY",
+                )
+            ),
+            _Element(
+                _Info(
+                    control_type="datagrid",
+                    class_name="gridcontrol",
+                    automation_id="PART_GridControl",
+                )
+            ),
+        ]
+    )
+
+    lookup_paths = _find_known_control_paths(
+        wrapper,
+        "IDC_ZAMAWIAJACY",
+    )
+    grid_paths = _find_known_control_paths(
+        wrapper,
+        "PART_GridControl",
+    )
+
+    assert len(lookup_paths) == 1
+    assert lookup_paths[0][0]["is_lookup_control"] is True
+    assert len(grid_paths) == 1
+    assert grid_paths[0][0]["is_grid_control"] is True
