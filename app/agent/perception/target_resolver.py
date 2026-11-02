@@ -2,6 +2,9 @@ from dataclasses import dataclass
 
 from app.agent.perception.screen_element import ScreenElement
 from app.agent.perception.screen_scene import ScreenScene
+from app.agent.perception.semantic_target_query import (
+    SemanticTargetQuery,
+)
 
 
 @dataclass(frozen=True)
@@ -33,8 +36,16 @@ class TargetResolver:
     def resolve(
         self,
         scene: ScreenScene,
-        target: str,
+        target: str | SemanticTargetQuery,
     ) -> TargetResolution:
+        if isinstance(target, SemanticTargetQuery):
+            return self._resolve_query(scene, target)
+
+        if not isinstance(target, str):
+            return TargetResolution(
+                resolved=False,
+                reason="Target must be a string or SemanticTargetQuery.",
+            )
 
         normalized = target.strip().casefold()
 
@@ -119,6 +130,104 @@ class TargetResolver:
             reason=(
                 "No visible screen element matched the target."
             ),
+        )
+
+    @classmethod
+    def _resolve_query(
+        cls,
+        scene: ScreenScene,
+        query: SemanticTargetQuery,
+    ) -> TargetResolution:
+        """Resolve a typed query using explicit role, label and ancestry evidence."""
+        candidates = []
+        matched_constraints = []
+
+        for element in scene.elements:
+            metadata = element.metadata or {}
+
+            if query.role is not None:
+                requested_role = query.role.strip().casefold()
+                element_roles = {
+                    str(element.kind).strip().casefold(),
+                    str(metadata.get("uia_control_type", "")).strip().casefold(),
+                }
+                if requested_role not in element_roles:
+                    continue
+
+            if query.label is not None:
+                labels = {
+                    str(element.label or "").strip().casefold(),
+                    str(metadata.get("semantic_name", "")).strip().casefold(),
+                    str(metadata.get("semantic_label", "")).strip().casefold(),
+                }
+                if query.label.strip().casefold() not in labels:
+                    continue
+
+            if query.automation_id is not None:
+                actual_id = metadata.get("automation_id")
+                if (
+                    not isinstance(actual_id, str)
+                    or actual_id.strip().casefold()
+                    != query.automation_id.strip().casefold()
+                ):
+                    continue
+
+            if query.within is not None:
+                ancestry = metadata.get("uia_ancestor_structure")
+                if not isinstance(ancestry, (tuple, list)):
+                    continue
+                if not any(
+                    query.within.matches(ancestor)
+                    for ancestor in ancestry
+                ):
+                    continue
+
+            candidates.append(element)
+
+        if not candidates:
+            return TargetResolution(
+                resolved=False,
+                reason=(
+                    f"No screen element satisfied semantic query "
+                    f"'{query.description}'."
+                ),
+            )
+
+        matched_constraints = tuple(
+            name
+            for name, value in (
+                ("role", query.role),
+                ("label", query.label),
+                ("automation_id", query.automation_id),
+                ("ancestor", query.within),
+            )
+            if value is not None
+        )
+
+        resolution = cls._resolve_scoped_candidates(
+            scene=scene,
+            candidates=candidates,
+            match_reason=(
+                f"Semantic query '{query.description}' matched "
+                f"constraints: {', '.join(matched_constraints)}."
+            ),
+            score=0.99,
+        )
+
+        if resolution is None:
+            return TargetResolution(
+                resolved=False,
+                reason="Semantic query produced no eligible candidate.",
+            )
+
+        if not resolution.resolved:
+            return resolution
+
+        return TargetResolution(
+            resolved=True,
+            element=resolution.element,
+            reason=resolution.reason,
+            score=resolution.score,
         )
 
     @classmethod
