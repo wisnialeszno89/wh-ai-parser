@@ -62,6 +62,10 @@ class WindowHubEnvironmentAdapter(EnvironmentAdapter):
         except (TypeError, ValueError):
             window_handle = 0
 
+        foreground_handle, foreground_root_owner_handle = (
+            self._foreground_window_context()
+        )
+
         screenshot = self.screenshot_engine.capture(
             window_rect
         )
@@ -84,24 +88,59 @@ class WindowHubEnvironmentAdapter(EnvironmentAdapter):
                     if window_handle > 0
                     else None
                 ),
-                "window_focused": self._is_foreground_window(
-                    window_handle
+                "window_focused": (
+                    window_handle > 0
+                    and foreground_handle == window_handle
+                ),
+                # Native handles remain local runtime metadata. They are
+                # never projected into the NaviMind V2 world contract.
+                "foreground_window_handle": (
+                    foreground_handle if foreground_handle > 0 else None
+                ),
+                "foreground_root_owner_handle": (
+                    foreground_root_owner_handle
+                    if foreground_root_owner_handle > 0
+                    else None
                 ),
             },
         )
 
     @staticmethod
-    def _is_foreground_window(window_handle: int) -> bool:
+    def _foreground_window_context() -> tuple[int, int]:
+        """Return foreground HWND and its GA_ROOTOWNER HWND, without UI text."""
+        try:
+            from ctypes import wintypes
+
+            user32 = ctypes.WinDLL("user32", use_last_error=True)
+            get_foreground = user32.GetForegroundWindow
+            get_foreground.argtypes = ()
+            get_foreground.restype = wintypes.HWND
+
+            get_ancestor = user32.GetAncestor
+            get_ancestor.argtypes = (wintypes.HWND, wintypes.UINT)
+            get_ancestor.restype = wintypes.HWND
+
+            foreground_value = get_foreground()
+            foreground = int(foreground_value or 0)
+            if foreground <= 0:
+                return 0, 0
+
+            # GA_ROOTOWNER = 3. This proves ownership without inspecting
+            # titles, captions, text, control names, or field values.
+            owner_value = get_ancestor(
+                wintypes.HWND(foreground),
+                3,
+            )
+            root_owner = int(owner_value or 0)
+            return foreground, root_owner
+        except Exception:
+            return 0, 0
+
+    @classmethod
+    def _is_foreground_window(cls, window_handle: int) -> bool:
         if window_handle <= 0:
             return False
-
-        try:
-            foreground = int(
-                ctypes.windll.user32.GetForegroundWindow()
-            )
-        except Exception:
-            return False
-
+        foreground, _root_owner = cls._foreground_window_context()
         return foreground == window_handle
 
     @staticmethod
