@@ -163,6 +163,7 @@ def _uia_structure_snapshot(wrapper) -> dict:
     grid_id_count = 0
     form_class_count = 0
     datatable_class_count = 0
+    structural_descendant_count = 0
 
     for item in descendants:
         try:
@@ -170,6 +171,13 @@ def _uia_structure_snapshot(wrapper) -> dict:
             role = str(
                 getattr(info, "control_type", "") or ""
             ).strip().casefold()
+        except Exception:
+            continue
+
+        if role in CONTENT_ROLES:
+            continue
+
+        try:
             class_name = str(
                 getattr(info, "class_name", "") or ""
             ).strip().casefold()
@@ -180,6 +188,7 @@ def _uia_structure_snapshot(wrapper) -> dict:
         except Exception:
             continue
 
+        structural_descendant_count += 1
         lookup_id_count += int(
             automation_id == LOOKUP_AUTOMATION_ID.casefold()
         )
@@ -188,13 +197,10 @@ def _uia_structure_snapshot(wrapper) -> dict:
         datatable_class_count += int(
             DATATABLE_CLASS_TOKEN in class_name
         )
-
-        if role in CONTENT_ROLES:
-            continue
         pairs[(role or "<unknown>", class_name or "<unknown>", visible)] += 1
 
     return {
-        "descendant_count": len(descendants),
+        "structural_descendant_count": structural_descendant_count,
         "structural_counts": pairs,
         "lookup_automation_id_count": lookup_id_count,
         "grid_automation_id_count": grid_id_count,
@@ -229,8 +235,12 @@ def _structure_delta(before: dict, after: dict) -> dict:
         return rows[:40]
 
     return {
-        "descendant_count_before": before["descendant_count"],
-        "descendant_count_after": after["descendant_count"],
+        "structural_descendant_count_before": (
+            before["structural_descendant_count"]
+        ),
+        "structural_descendant_count_after": (
+            after["structural_descendant_count"]
+        ),
         "added_structural_elements": pack(added),
         "removed_structural_elements": pack(removed),
         "lookup_automation_id_count_before": (
@@ -270,6 +280,7 @@ def _inspect_changed_window(desktop, record: dict) -> dict:
         lookup_count = 0
         grid_count = 0
         datatable_count = 0
+        structural_descendant_count = 0
 
         for item in descendants:
             try:
@@ -277,6 +288,13 @@ def _inspect_changed_window(desktop, record: dict) -> dict:
                 role = str(
                     getattr(info, "control_type", "") or ""
                 ).strip().casefold()
+            except Exception:
+                continue
+
+            if role in CONTENT_ROLES:
+                continue
+
+            try:
                 class_name = str(
                     getattr(info, "class_name", "") or ""
                 ).strip().casefold()
@@ -286,7 +304,8 @@ def _inspect_changed_window(desktop, record: dict) -> dict:
             except Exception:
                 continue
 
-            if role and role not in CONTENT_ROLES:
+            structural_descendant_count += 1
+            if role:
                 roles[role] += 1
             if class_name:
                 classes[class_name] += 1
@@ -301,9 +320,9 @@ def _inspect_changed_window(desktop, record: dict) -> dict:
         result.update(
             {
                 "uia_scan_status": "ok",
-                "uia_descendant_count": len(descendants),
+                "uia_structural_descendant_count": structural_descendant_count,
                 "structural_control_type_counts": dict(sorted(roles.items())),
-                "class_name_counts": dict(sorted(classes.items())) ,
+                "class_name_counts": dict(sorted(classes.items())),
                 "lookup_automation_id_count": lookup_count,
                 "grid_automation_id_count": grid_count,
                 "datatable_class_count": datatable_count,
@@ -313,7 +332,7 @@ def _inspect_changed_window(desktop, record: dict) -> dict:
         result.update(
             {
                 "uia_scan_status": f"failed:{type(exc).__name__}",
-                "uia_descendant_count": 0,
+                "uia_structural_descendant_count": 0,
                 "structural_control_type_counts": {},
                 "class_name_counts": {},
                 "lookup_automation_id_count": 0,
@@ -330,8 +349,8 @@ def _score(changes: list[dict], delta: dict) -> int:
         + len(delta["added_structural_elements"]) * 3
         + len(delta["removed_structural_elements"])
         + abs(
-            delta["descendant_count_after"]
-            - delta["descendant_count_before"]
+            delta["structural_descendant_count_after"]
+            - delta["structural_descendant_count_before"]
         )
     )
 
