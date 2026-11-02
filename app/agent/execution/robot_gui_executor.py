@@ -303,8 +303,10 @@ class RobotGUIExecutor(ActionExecutor):
     def _is_uia_only_target(element) -> bool:
         metadata = element.metadata or {}
 
+        source = metadata.get("source")
         return (
-            metadata.get("source") in {
+            isinstance(source, str)
+            and source in {
                 "windowhub_ui_automation",
                 "windows_ui_automation",
             }

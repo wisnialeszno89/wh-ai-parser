@@ -346,3 +346,21 @@ def test_v2_contract_does_not_mutate_the_callers_payload():
     validate_agent_task_v2_payload(payload)
 
     assert payload == original
+
+
+
+def test_v2_act_decision_accepts_semantic_scene_change_postcondition():
+    request = make_request()
+    response = make_response("act")
+    response["observation_request"] = None
+    response["action"] = {
+        "name": "open_lookup",
+        "target_ref": "ent_customer_lookup",
+        "value": None,
+        "expected_postcondition": {
+            "kind": "scene_changed",
+        },
+        "requires_confirmation": False,
+    }
+
+    validate_agent_task_v2_response(response, request)

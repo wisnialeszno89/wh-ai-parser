@@ -12,7 +12,6 @@ from app.agent.agent_request import AgentRequest
 from app.agent.perception.screen_scene import ScreenScene
 from app.agent.planning.action_plan import ActionPlan
 from app.agent.planning.action_step import ActionStep
-from app.agent.runtime.agent_control_loop import AgentControlLoop
 from app.agent.runtime.computer_use_v2_action_session import (
     ComputerUseV2ActionSession,
     PreparedComputerUseV2Cycle,
@@ -20,6 +19,7 @@ from app.agent.runtime.computer_use_v2_action_session import (
 )
 from app.agent.runtime.execution_context import ExecutionContext
 from app.agent.verification.expected_outcome import ExpectedOutcome
+from app.agent.verification.expectation_resolver import ExpectationResolver
 
 
 _SUPPORTED_ELEMENT_STATES = frozenset(
@@ -71,7 +71,10 @@ class WindowsDesktopV2AgentRuntime:
         reasoner,
         action_session: ComputerUseV2ActionSession | None = None,
     ) -> None:
-        if not isinstance(control_loop, AgentControlLoop):
+        if (
+            not callable(getattr(control_loop, "observe_scene", None))
+            or not callable(getattr(control_loop, "run", None))
+        ):
             raise TypeError("windows_desktop_v2_control_loop_invalid")
         if not callable(getattr(reasoner, "reason", None)):
             raise TypeError("windows_desktop_v2_reasoner_invalid")
@@ -361,10 +364,7 @@ class WindowsDesktopV2AgentRuntime:
                 description="The semantic desktop scene changes after the action.",
                 require_scene_change=True,
                 baseline_scene_signature=(
-                    __import__(
-                        "app.agent.reasoning.expectation_resolver",
-                        fromlist=["ExpectationResolver"],
-                    ).ExpectationResolver._scene_signature(scene)
+                    ExpectationResolver._scene_signature(scene)
                 ),
             )
 
