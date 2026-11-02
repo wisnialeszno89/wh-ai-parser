@@ -121,7 +121,9 @@ class WindowHubEnvironmentAdapter(EnvironmentAdapter):
             get_ancestor.restype = wintypes.HWND
 
             foreground_value = get_foreground()
-            foreground = int(foreground_value or 0)
+            foreground = WindowHubEnvironmentAdapter._native_handle_value(
+                foreground_value
+            )
             if foreground <= 0:
                 return 0, 0
 
@@ -131,10 +133,21 @@ class WindowHubEnvironmentAdapter(EnvironmentAdapter):
                 wintypes.HWND(foreground),
                 3,
             )
-            root_owner = int(owner_value or 0)
+            root_owner = WindowHubEnvironmentAdapter._native_handle_value(
+                owner_value
+            )
             return foreground, root_owner
         except Exception:
             return 0, 0
+
+    @staticmethod
+    def _native_handle_value(value) -> int:
+        """Normalize ctypes HWND values and plain integer test doubles."""
+        raw = getattr(value, "value", value)
+        try:
+            return int(raw or 0)
+        except (TypeError, ValueError, OverflowError):
+            return 0
 
     @classmethod
     def _is_foreground_window(cls, window_handle: int) -> bool:
