@@ -2,11 +2,16 @@ from types import SimpleNamespace
 
 from app.agent.environment.environment_observation import EnvironmentObservation
 from app.agent.environment.environment_state import EnvironmentState
-from app.agent.perception.windowhub_ui_automation_provider import (
-    WindowHubUIAutomationProvider,
+from app.agent.bridge.agent_task_v2_world_builder import (
+    AgentTaskV2WorldBuilder,
 )
+from app.agent.perception.screen_scene import ScreenScene
 from app.agent.runtime.read_only_observation_broker import (
     ObservationReadContext,
+    ReadOnlyObservationBroker,
+)
+from app.agent.perception.windowhub_ui_automation_provider import (
+    WindowHubUIAutomationProvider,
 )
 from app.agent.runtime.windowhub_lookup_grid_adapter import (
     WINDOWHUB_CLIENT_LOOKUP_AUTOMATION_ID,
@@ -297,3 +302,76 @@ def test_adapter_rejects_same_lookup_automation_id_on_wrong_ancestor_class():
         raise AssertionError(
             "A grid under a different class with the same AutomationId was accepted"
         )
+
+
+
+def test_adapter_registers_ui_structure_capability_with_v2_broker():
+    window, grid = make_window(client_lookup_parent=True)
+    adapter, provider = make_adapter(window)
+    observation = make_observation()
+    scene = ScreenScene(
+        observation=observation,
+        elements=provider.perceive(observation),
+    )
+
+    resolution = adapter.resolve_scene_target(scene)
+    assert resolution.resolved is True
+    assert resolution.element is not None
+
+    task_id = "windowhub-client-grid-v2"
+    revision = 4
+    snapshot = AgentTaskV2WorldBuilder().build(
+        scene,
+        task_id=task_id,
+        world_revision=revision,
+        observed_at="2026-11-02T08:00:00Z",
+    )
+    target_ref = next(
+        ref
+        for ref in snapshot.reference_map.refs
+        if snapshot.reference_map.resolve(
+            ref,
+            task_id=task_id,
+            world_revision=revision,
+        ) is resolution.element
+    )
+
+    broker = ReadOnlyObservationBroker()
+    capability_name = adapter.register_structure_capability(
+        broker,
+        observation,
+    )
+    descriptor = broker.bind(
+        snapshot,
+        capability_name=capability_name,
+        target_ref=target_ref,
+    )
+
+    evidence = broker.observe(
+        {
+            "capability_id": descriptor["id"],
+            "target_ref": target_ref,
+            "parameters": {
+                "fields": [
+                    "row_count",
+                    "column_count",
+                    "grid_pattern_available",
+                ]
+            },
+            "based_on_world_revision": revision,
+        },
+        task_id=task_id,
+        world_revision=revision,
+        max_observation_items=10,
+        max_evidence_bytes=2_048,
+    )
+
+    assert evidence["source"] == "uia_grid_structure"
+    assert evidence["content"] == {
+        "fields": {
+            "row_count": 17,
+            "column_count": 4,
+            "grid_pattern_available": True,
+        }
+    }
+    assert grid.iface_grid.cell_reads == 0
