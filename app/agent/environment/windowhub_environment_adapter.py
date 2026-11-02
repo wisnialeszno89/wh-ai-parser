@@ -65,6 +65,9 @@ class WindowHubEnvironmentAdapter(EnvironmentAdapter):
         foreground_handle, foreground_root_owner_handle = (
             self._foreground_window_context()
         )
+        window_root_owner_handle = self._window_root_owner_handle(
+            window_handle
+        )
 
         screenshot = self.screenshot_engine.capture(
             window_rect
@@ -91,6 +94,13 @@ class WindowHubEnvironmentAdapter(EnvironmentAdapter):
                 "window_focused": (
                     window_handle > 0
                     and foreground_handle == window_handle
+                ),
+                # GA_ROOTOWNER of the observed WindowHub HWND. The selected
+                # form can be an owned dialog whose root owner is the app frame.
+                "window_root_owner_handle": (
+                    window_root_owner_handle
+                    if window_root_owner_handle > 0
+                    else None
                 ),
                 # Native handles remain local runtime metadata. They are
                 # never projected into the NaviMind V2 world contract.
@@ -139,6 +149,32 @@ class WindowHubEnvironmentAdapter(EnvironmentAdapter):
             return foreground, root_owner
         except Exception:
             return 0, 0
+
+    @staticmethod
+    def _window_root_owner_handle(window_handle: int) -> int:
+        """Return GA_ROOTOWNER for the observed WindowHub HWND, fail-closed."""
+        if (
+            isinstance(window_handle, bool)
+            or not isinstance(window_handle, int)
+            or window_handle <= 0
+        ):
+            return 0
+        try:
+            from ctypes import wintypes
+
+            user32 = ctypes.WinDLL("user32", use_last_error=True)
+            get_ancestor = user32.GetAncestor
+            get_ancestor.argtypes = (wintypes.HWND, wintypes.UINT)
+            get_ancestor.restype = wintypes.HWND
+            owner_value = get_ancestor(
+                wintypes.HWND(window_handle),
+                3,  # GA_ROOTOWNER
+            )
+            return WindowHubEnvironmentAdapter._native_handle_value(
+                owner_value
+            )
+        except Exception:
+            return 0
 
     @staticmethod
     def _native_handle_value(value) -> int:
