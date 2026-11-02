@@ -15,11 +15,17 @@ from app.agent.perception.perception_engine import (
 from app.agent.perception.screen_element import (
     ScreenElement,
 )
+from app.agent.perception.screen_scene import (
+    ScreenScene,
+)
 from app.agent.perception.target_resolver import (
     TargetResolver,
 )
 from app.agent.perception.windowhub_ui_automation_provider import (
     WindowHubUIAutomationProvider,
+)
+from app.agent.runtime.windowhub_lookup_grid_adapter import (
+    WindowHubLookupGridAdapter,
 )
 from app.agent.perception.windowhub_vision_provider import (
     WindowHubVisionProvider,
@@ -628,3 +634,178 @@ def test_ui_automation_provider_preserves_lookupedit_ancestor_structure():
             "automation_id": "idc_zamawiajacy",
         },
     )
+
+
+class _StructureOnlyUIAInfo:
+    def __init__(
+        self,
+        *,
+        control_type,
+        automation_id="",
+        class_name="",
+        runtime_id=(9, 8, 7),
+        visible=True,
+    ):
+        self.control_type = control_type
+        self.automation_id = automation_id
+        self.class_name = class_name
+        self.runtime_id = runtime_id
+        self.visible = visible
+
+    @property
+    def name(self):
+        raise AssertionError("Structure-only perception must not read UIA names")
+
+    @property
+    def value(self):
+        raise AssertionError("Structure-only perception must not read UIA values")
+
+    @property
+    def rich_text(self):
+        raise AssertionError("Structure-only perception must not read UIA rich text")
+
+
+class _StructureOnlyUIAItem:
+    def __init__(
+        self,
+        *,
+        control_type,
+        automation_id="",
+        class_name="",
+        runtime_id=(9, 8, 7),
+        parent=None,
+    ):
+        self.element_info = _StructureOnlyUIAInfo(
+            control_type=control_type,
+            automation_id=automation_id,
+            class_name=class_name,
+            runtime_id=runtime_id,
+        )
+        self._parent = parent
+        self._rectangle = SimpleNamespace(
+            left=120,
+            top=220,
+            width=lambda: 420,
+            height=lambda: 260,
+        )
+
+    def parent(self):
+        return self._parent
+
+    def rectangle(self):
+        return self._rectangle
+
+
+class _StructureOnlyUIAWindow:
+    def __init__(self, items):
+        self._items = tuple(items)
+
+    def descendants(self):
+        return self._items
+
+    def window_text(self):
+        raise AssertionError("Structure-only perception must not read window title")
+
+
+class _StructureOnlyDesktop:
+    def __init__(self, window):
+        self._window = window
+        self.requested_handles = []
+
+    def window(self, *, handle):
+        self.requested_handles.append(handle)
+        return SimpleNamespace(wrapper_object=lambda: self._window)
+
+
+def _structure_only_observation(*, include_window_handle=True):
+    metadata = {
+        "window_rect": SimpleNamespace(
+            left=100,
+            top=200,
+            width=1000,
+            height=800,
+        )
+    }
+    if include_window_handle:
+        metadata["window_handle"] = 991
+    return EnvironmentObservation(
+        state=EnvironmentState(
+            active_application="WindowHub",
+            active_window_title="Okna - WindowHub",
+        ),
+        metadata=metadata,
+    )
+
+
+def test_structure_only_perception_never_reads_ui_text_or_values():
+    lookup = _StructureOnlyUIAItem(
+        control_type="Custom",
+        automation_id="IDC_ZAMAWIAJACY",
+        class_name="lookupedit",
+        runtime_id=(9, 8, 1),
+    )
+    grid = _StructureOnlyUIAItem(
+        control_type="DataGrid",
+        automation_id="PART_GridControl",
+        runtime_id=(9, 8, 2),
+        parent=lookup,
+    )
+    window = _StructureOnlyUIAWindow((lookup, grid))
+    desktop = _StructureOnlyDesktop(window)
+    provider = WindowHubUIAutomationProvider(
+        desktop_factory=lambda: desktop,
+    )
+    observation = _structure_only_observation()
+
+    elements = provider.perceive_structure_only(observation)
+
+    assert len(elements) == 1
+    table = elements[0]
+    assert table.kind == "table"
+    assert table.label == "Tabela"
+    assert table.x == 20
+    assert table.y == 20
+    assert table.width == 420
+    assert table.height == 260
+    assert table.metadata["perception_mode"] == "structure_only"
+    assert table.metadata["automation_id"] == "PART_GridControl"
+    assert table.metadata["uia_ancestor_structure"] == (
+        {
+            "control_type": "custom",
+            "class_name": "lookupedit",
+            "automation_id": "idc_zamawiajacy",
+        },
+    )
+    assert "name" not in table.metadata
+    assert "current_value" not in table.metadata
+    assert desktop.requested_handles == [991]
+
+    # The exact same structure-only target must survive adapter resolution
+    # without asking the current window for its title or the grid for text.
+    scene = ScreenScene(
+        observation=observation,
+        elements=elements,
+    )
+    adapter = WindowHubLookupGridAdapter(provider=provider)
+    resolution = adapter.resolve_scene_target(scene)
+
+    assert resolution.resolved is True
+    assert resolution.element is table
+    assert adapter.resolve_current_grid(
+        table,
+        observation,
+    ) is grid
+
+
+def test_structure_only_perception_requires_explicit_window_handle():
+    desktop_factory_calls = []
+    provider = WindowHubUIAutomationProvider(
+        desktop_factory=lambda: desktop_factory_calls.append(True),
+    )
+
+    elements = provider.perceive_structure_only(
+        _structure_only_observation(include_window_handle=False)
+    )
+
+    assert elements == ()
+    assert desktop_factory_calls == []
