@@ -1,10 +1,8 @@
-"""Read-only UIA diagnostics for the WindowHub lookup target.
+"""Read-only UIA/Win32 ownership diagnostics for WindowHub.
 
-Reads only structural UIA properties: control type, class name, automation-id
-match booleans, visibility, enabled state, and bounds presence. A window
-caption is compared to a fixed prefix internally; its text is never output.
-No control names/values, table headers/cells, clicks, focus changes, or
-pattern invocations are performed.
+Reads structural metadata only. Window captions are compared to a fixed
+prefix but never emitted. Control names/values and all table content remain
+untouched. No clicks, focus changes, or UIA pattern invocations occur.
 """
 from __future__ import annotations
 
@@ -19,6 +17,7 @@ from collections import Counter
 LOOKUP_AUTOMATION_ID = "IDC_ZAMAWIAJACY"
 GRID_AUTOMATION_ID = "PART_GridControl"
 WINDOWHUB_TITLE_PREFIX = "Okna -"
+GA_ROOTOWNER = 3
 
 
 def _string(value: object) -> str:
@@ -151,22 +150,37 @@ def _inspect_root(window: object) -> dict:
     }
 
 
-def _foreground_related(window_handle: int) -> bool:
-    user32 = ctypes.WinDLL("user32", use_last_error=True)
-    get_foreground = user32.GetForegroundWindow
-    get_foreground.argtypes = ()
-    get_foreground.restype = ctypes.wintypes.HWND
-    get_ancestor = user32.GetAncestor
+def _user32():
+    api = ctypes.WinDLL("user32", use_last_error=True)
+    get_ancestor = api.GetAncestor
     get_ancestor.argtypes = (ctypes.wintypes.HWND, ctypes.wintypes.UINT)
     get_ancestor.restype = ctypes.wintypes.HWND
+    get_foreground = api.GetForegroundWindow
+    get_foreground.argtypes = ()
+    get_foreground.restype = ctypes.wintypes.HWND
+    return api
 
-    foreground = int(get_foreground() or 0)
+
+def _root_owner_handle(api, handle: int) -> int:
+    if handle <= 0:
+        return 0
+    try:
+        return int(
+            api.GetAncestor(
+                ctypes.wintypes.HWND(handle),
+                GA_ROOTOWNER,
+            ) or 0
+        )
+    except Exception:
+        return 0
+
+
+def _foreground_related(api, window_handle: int) -> bool:
+    foreground = int(api.GetForegroundWindow() or 0)
     if not foreground:
         return False
-    hwnd = ctypes.wintypes.HWND(foreground)
-    root = int(get_ancestor(hwnd, 2) or 0)
-    root_owner = int(get_ancestor(hwnd, 3) or 0)
-    return window_handle in {foreground, root, root_owner}
+    root_owner = _root_owner_handle(api, foreground)
+    return window_handle in {foreground, root_owner}
 
 
 def main() -> int:
@@ -178,42 +192,63 @@ def main() -> int:
     try:
         from pywinauto import Desktop
 
+        api = _user32()
         desktop = Desktop(backend="uia")
         windows = tuple(desktop.windows())
-        roots = []
+        entries = []
+
         for index, window in enumerate(windows):
             try:
                 handle = int(window.handle)
-                # The caption is used only for a fixed-prefix boolean; it is
-                # never printed, stored, or passed to any external service.
                 try:
                     caption = _string(window.window_text())
-                    title_prefix_match = (
-                        caption.casefold().startswith(
-                            WINDOWHUB_TITLE_PREFIX.casefold()
-                        )
+                    title_match = caption.casefold().startswith(
+                        WINDOWHUB_TITLE_PREFIX.casefold()
                     )
                 except Exception:
-                    title_prefix_match = False
+                    title_match = False
 
                 data = _inspect_root(window)
                 data["top_level_window_index"] = index
-                data["windowhub_title_prefix_match"] = title_prefix_match
+                data["windowhub_title_prefix_match"] = title_match
+                data["root_owner_is_windowhub"] = False
                 data["foreground_related_to_root"] = (
-                    _foreground_related(handle) if handle > 0 else False
+                    _foreground_related(api, handle) if handle > 0 else False
                 )
-                roots.append(data)
+                entries.append((handle, data))
             except Exception as exc:
-                roots.append(
-                    {
-                        "top_level_window_index": index,
-                        "root_inspection_error": type(exc).__name__,
-                    }
+                entries.append(
+                    (
+                        0,
+                        {
+                            "top_level_window_index": index,
+                            "root_inspection_error": type(exc).__name__,
+                        },
+                    )
                 )
 
-        roots.sort(
+        windowhub_handles = {
+            handle
+            for handle, data in entries
+            if handle > 0 and data.get("windowhub_title_prefix_match")
+        }
+
+        output = []
+        for handle, data in entries:
+            owner_root = _root_owner_handle(api, handle)
+            data["root_owner_is_windowhub"] = (
+                owner_root in windowhub_handles if owner_root else False
+            )
+            data["is_windowhub_owned_popup_candidate"] = (
+                data["root_owner_is_windowhub"]
+                and not data.get("windowhub_title_prefix_match", False)
+            )
+            output.append(data)
+
+        output.sort(
             key=lambda item: (
                 not item.get("windowhub_title_prefix_match", False),
+                not item.get("is_windowhub_owned_popup_candidate", False),
                 not bool(
                     item.get("exact_lookup_id_count", 0)
                     or item.get("lookupedit_class_count", 0)
@@ -222,31 +257,23 @@ def main() -> int:
                 -int(item.get("window_area_pixels", 0)),
             )
         )
-        title_match_count = sum(
-            bool(item.get("windowhub_title_prefix_match"))
-            for item in roots
-        )
-        structural_match_count = sum(
-            bool(
-                item.get("exact_lookup_id_count", 0)
-                or item.get("lookupedit_class_count", 0)
-                or item.get("exact_grid_id_datagrid_count", 0)
-            )
-            for item in roots
+
+        owned_count = sum(
+            bool(item.get("is_windowhub_owned_popup_candidate"))
+            for item in output
         )
         result = {
             "result": "DIAGNOSTIC_ONLY",
             "top_level_window_count": len(windows),
-            "windowhub_title_prefix_match_count": title_match_count,
-            "windows_with_any_expected_structural_match": (
-                structural_match_count
-            ),
-            "windows": roots[:12],
+            "windowhub_root_count": len(windowhub_handles),
+            "windowhub_owned_popup_candidate_count": owned_count,
+            "windows": output[:16],
             "privacy": {
-                "window_captions_read_for_prefix_match_only": True,
+                "captions_compared_to_fixed_prefix_only": True,
                 "window_captions_output": False,
                 "control_names_or_values_read": False,
                 "table_headers_or_cells_read": False,
+                "native_handles_output": False,
                 "clicks_or_invocations": 0,
                 "focus_changes": 0,
                 "record_selection": False,
