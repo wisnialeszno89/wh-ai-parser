@@ -2,6 +2,9 @@ name: WH Agent Contract Tests
 
 on:
   pull_request:
+  push:
+    branches:
+      - architecture/navimind-world-model-v2
 
 jobs:
   targeted-tests:
