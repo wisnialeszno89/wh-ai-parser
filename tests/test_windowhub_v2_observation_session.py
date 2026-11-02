@@ -237,6 +237,21 @@ def test_v2_session_builds_valid_contract_and_binds_only_client_grid():
     assert WINDOWHUB_LOOKUP_GRID_AUTOMATION_ID.casefold() not in serialized
 
 
+def test_v2_session_applies_requested_observation_budgets_to_capability():
+    session, scene, _grid = make_session()
+    prepared = prepare(
+        session,
+        scene,
+        max_observation_items=3,
+        max_evidence_bytes=1_536,
+    )
+
+    assert prepared.observation_capability is not None
+    assert prepared.observation_capability["max_items"] == 3
+    assert prepared.max_observation_items == 3
+    assert prepared.max_evidence_bytes == 1_536
+
+
 def test_v2_session_executes_valid_observe_response_through_local_broker():
     session, scene, grid = make_session()
     prepared = prepare(session, scene)
