@@ -103,14 +103,6 @@ def _native_window_snapshot(
             "class_name": _class_name(api, hwnd),
             "visible": bool(api.IsWindowVisible(hwnd)),
             "rect": _native_rect(api, hwnd),
-            "parent_class_chain": [
-                _class_name(api, parent)
-                for parent in _native_parent_handles(api, hwnd)
-            ],
-            "owner_class_chain": [
-                _class_name(api, owner)
-                for owner in _native_owner_chain(api, hwnd)
-            ],
         }
     return snapshot
 
@@ -140,8 +132,6 @@ def _diff_window_snapshots(
                     "class_name": current["class_name"],
                     "visible": current["visible"],
                     "has_bounds": current["rect"] is not None,
-                    "parent_class_chain": current["parent_class_chain"],
-                    "owner_class_chain": current["owner_class_chain"],
                     "change_kinds": kinds,
                 }
             )
@@ -264,12 +254,21 @@ def _structure_delta(before: dict, after: dict) -> dict:
     }
 
 
-def _inspect_changed_window(desktop, record: dict) -> dict:
+def _inspect_changed_window(api, desktop, record: dict) -> dict:
+    hwnd = record["_hwnd"]
     result = {
         key: value
         for key, value in record.items()
         if not key.startswith("_")
     }
+    result["native_parent_class_chain"] = [
+        _class_name(api, parent)
+        for parent in _native_parent_handles(api, hwnd)
+    ]
+    result["native_owner_class_chain"] = [
+        _class_name(api, owner)
+        for owner in _native_owner_chain(api, hwnd)
+    ]
     try:
         wrapper = desktop.window(
             handle=record["_hwnd"]
@@ -447,7 +446,7 @@ def main() -> int:
             }
 
         changed_windows = [
-            _inspect_changed_window(desktop, record)
+            _inspect_changed_window(api, desktop, record)
             for record in best["changes"][:30]
         ]
 
