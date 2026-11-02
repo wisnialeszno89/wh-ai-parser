@@ -5,8 +5,8 @@ local and are never part of NaviMind's public task contract.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
 from collections.abc import Mapping
+from dataclasses import dataclass
 
 
 def _optional_text(value: str | None, field_name: str) -> None:
