@@ -729,7 +729,8 @@ def _structure_only_observation(*, include_window_handle=True):
             top=200,
             width=1000,
             height=800,
-        )
+        ),
+        "window_root_owner_handle": 991,
     }
     if include_window_handle:
         metadata["window_handle"] = 991
@@ -957,6 +958,48 @@ def test_structure_only_perception_finds_grid_in_windowhub_owned_foreground_popu
     assert resolution.resolved is True
     assert adapter.resolve_current_grid(table, observation) is grid
     assert desktop.requested_handles[-1] == 992
+
+
+def test_structure_only_perception_accepts_popup_owned_by_app_root_not_modal_form():
+    lookup = _StructureOnlyUIAItem(
+        control_type="Custom",
+        automation_id="IDC_ZAMAWIAJACY",
+        class_name="lookupedit",
+        runtime_id=(9, 8, 18),
+    )
+    grid = _StructureOnlyUIAItem(
+        control_type="DataGrid",
+        automation_id="PART_GridControl",
+        runtime_id=(9, 8, 19),
+        parent=lookup,
+    )
+    desktop = _StructureOnlyDesktop(
+        windows={
+            991: _StructureOnlyUIAWindow(()),
+            992: _StructureOnlyUIAWindow((lookup, grid)),
+        }
+    )
+    provider = WindowHubUIAutomationProvider(
+        desktop_factory=lambda: desktop,
+    )
+    base = _structure_only_observation()
+    observation = EnvironmentObservation(
+        state=base.state,
+        metadata={
+            **base.metadata,
+            "window_handle": 991,
+            "window_root_owner_handle": 990,
+            "foreground_window_handle": 992,
+            "foreground_root_owner_handle": 990,
+        },
+    )
+
+    elements = provider.perceive_structure_only(observation)
+
+    assert len(elements) == 1
+    assert elements[0].metadata["automation_id"] == "PART_GridControl"
+    assert elements[0].metadata["uia_root_window_handle"] == 992
+    assert desktop.requested_handles == [991, 992]
 
 
 def test_structure_only_perception_never_scans_unowned_foreground_window():
