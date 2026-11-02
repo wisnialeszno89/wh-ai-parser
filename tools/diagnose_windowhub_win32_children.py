@@ -20,15 +20,46 @@ from collections import Counter
 
 WINDOWHUB_TITLE_PREFIX = "Okna -"
 GA_ROOTOWNER = 3
-GWL_STYLE = -16
-GWL_EXSTYLE = -20
 
 
 def _text(value: object) -> str:
     return value.strip() if isinstance(value, str) else ""
 
 
-def _rect_nonempty(api, hwnd) -> bool:
+def _hwnd_value(value: object) -> int:
+    """Normalize HWND values across CPython/ctypes representations."""
+    if value is None:
+        return 0
+    if isinstance(value, int):
+        return value
+
+    raw = getattr(value, "value", None)
+    if isinstance(raw, int):
+        return raw
+    if isinstance(raw, (bytes, bytearray)):
+        return int.from_bytes(raw, byteorder=sys.byteorder, signed=False)
+    if isinstance(value, (bytes, bytearray)):
+        return int.from_bytes(value, byteorder=sys.byteorder, signed=False)
+
+    try:
+        pointer_value = ctypes.cast(value, ctypes.c_void_p).value
+    except (TypeError, ValueError, ctypes.ArgumentError) as exc:
+        raise TypeError(
+            f"unsupported_hwnd_representation:{type(value).__name__}"
+        ) from exc
+
+    if pointer_value is None:
+        return 0
+    if isinstance(pointer_value, (bytes, bytearray)):
+        return int.from_bytes(
+            pointer_value,
+            byteorder=sys.byteorder,
+            signed=False,
+        )
+    return int(pointer_value)
+
+
+def _rect_nonempty(api, hwnd: int) -> bool:
     rect = ctypes.wintypes.RECT()
     try:
         if not api.GetWindowRect(hwnd, ctypes.byref(rect)):
@@ -38,7 +69,7 @@ def _rect_nonempty(api, hwnd) -> bool:
         return False
 
 
-def _class_name(api, hwnd) -> str:
+def _class_name(api, hwnd: int) -> str:
     buffer = ctypes.create_unicode_buffer(256)
     try:
         length = api.GetClassNameW(hwnd, buffer, len(buffer))
@@ -119,13 +150,13 @@ def _find_windowhub_root(desktop):
     return matches[0]
 
 
-def _enumerate_child_hwnds(api, enum_proc, root_hwnd):
-    found = []
+def _enumerate_child_hwnds(api, enum_proc, root_hwnd: int):
+    found: list[int] = []
 
     def callback(hwnd, _lparam):
-        handle = int(hwnd or 0)
+        handle = _hwnd_value(hwnd)
         if handle:
-            found.append(hwnd)
+            found.append(handle)
         return True
 
     callback_ref = enum_proc(callback)
@@ -137,14 +168,16 @@ def _enumerate_child_hwnds(api, enum_proc, root_hwnd):
     return found
 
 
-def _enumerate_process_top_windows(api, enum_proc, process_id):
-    found = []
+def _enumerate_process_top_windows(api, enum_proc, process_id: int):
+    found: list[int] = []
 
     def callback(hwnd, _lparam):
         pid = ctypes.wintypes.DWORD()
         api.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
         if int(pid.value) == process_id:
-            found.append(hwnd)
+            handle = _hwnd_value(hwnd)
+            if handle:
+                found.append(handle)
         return True
 
     callback_ref = enum_proc(callback)
@@ -156,7 +189,7 @@ def _enumerate_process_top_windows(api, enum_proc, process_id):
     return found
 
 
-def _summarize_hwnds(api, handles, root_hwnd):
+def _summarize_hwnds(api, handles: list[int], root_hwnd: int):
     classes = Counter()
     visible_classes = Counter()
     candidates = []
@@ -171,8 +204,8 @@ def _summarize_hwnds(api, handles, root_hwnd):
         if control_id != 0:
             nonzero_control_id_count += 1
 
-        root_owner = api.GetAncestor(hwnd, GA_ROOTOWNER)
-        owner_matches = int(root_owner or 0) == int(root_hwnd)
+        root_owner = _hwnd_value(api.GetAncestor(hwnd, GA_ROOTOWNER))
+        owner_matches = root_owner == root_hwnd
         if owner_matches:
             owner_root_matches += 1
 
@@ -224,7 +257,9 @@ def main() -> int:
         api, enum_proc = _configure_api()
         desktop = Desktop(backend="uia")
         root = _find_windowhub_root(desktop)
-        root_hwnd = ctypes.wintypes.HWND(int(root.handle))
+        root_hwnd = _hwnd_value(root.handle)
+        if root_hwnd <= 0:
+            raise RuntimeError("windowhub_root_handle_invalid")
 
         process_id = ctypes.wintypes.DWORD()
         api.GetWindowThreadProcessId(
