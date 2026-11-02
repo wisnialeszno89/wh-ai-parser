@@ -48,8 +48,7 @@ POPUP_CLASS_TOKENS = (
     "grid",
     "lookup",
     "dropdown",
-    "edit",
-    "data",
+    "datatable",
 )
 
 
@@ -101,6 +100,9 @@ def _inspect_uia_subtree(desktop, hwnd: int) -> dict:
     datagrid_count = 0
     table_count = 0
     datatable_count = 0
+    lookup_id_count = 0
+    grid_id_count = 0
+    lookupedit_class_count = 0
 
     for item in descendants:
         try:
@@ -121,6 +123,9 @@ def _inspect_uia_subtree(desktop, hwnd: int) -> dict:
         datagrid_count += int(role == "datagrid")
         table_count += int(role == "table")
         datatable_count += int("datatable" in class_name)
+        lookup_id_count += int(automation_id == "idc_zamawiajacy")
+        grid_id_count += int(automation_id == "part_gridcontrol")
+        lookupedit_class_count += int("lookupedit" in class_name)
 
     return {
         "uia_scan_status": "ok",
@@ -130,6 +135,9 @@ def _inspect_uia_subtree(desktop, hwnd: int) -> dict:
         "datagrid_control_type_count": datagrid_count,
         "table_control_type_count": table_count,
         "datatable_class_count": datatable_count,
+        "expected_lookup_automation_id_count": lookup_id_count,
+        "expected_grid_automation_id_count": grid_id_count,
+        "lookupedit_class_count": lookupedit_class_count,
     }
 
 
@@ -275,7 +283,7 @@ def main() -> int:
         deadline = time.monotonic() + OBSERVATION_SECONDS
         best_records: list[dict] = []
         best_counts: dict = {}
-        best_signature: tuple = ()
+        best_score = (-1, -1)
         samples = 0
 
         while time.monotonic() < deadline:
@@ -287,25 +295,17 @@ def main() -> int:
             )
             samples += 1
 
-            signature = tuple(
-                sorted(
-                    (
-                        item["native_class_name"],
-                        item["source"],
-                        item["root_owner_matches_windowhub"],
-                        tuple(item["owner_class_chain"]),
-                    )
-                    for item in records
-                )
+            # Keep the richest snapshot observed during the interval. This
+            # preserves a popup even if it closes before the timer expires.
+            specificity = sum(
+                _is_popup_class(item["native_class_name"])
+                for item in records
             )
-            if signature and signature != best_signature:
+            score = (len(records), specificity)
+            if records and score > best_score:
                 best_records = records
                 best_counts = counts
-                best_signature = signature
-            elif signature and len(records) > len(best_records):
-                best_records = records
-                best_counts = counts
-                best_signature = signature
+                best_score = score
 
             time.sleep(POLL_INTERVAL_SECONDS)
 
