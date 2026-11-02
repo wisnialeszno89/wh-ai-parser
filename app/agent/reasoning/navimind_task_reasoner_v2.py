@@ -7,8 +7,13 @@ Local brokers and the runtime remain responsible for observations and actions.
 from __future__ import annotations
 
 import json
+import math
+import os
 from collections.abc import Mapping
+from dataclasses import dataclass
 from typing import Callable
+
+from dotenv import load_dotenv
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
@@ -18,12 +23,62 @@ from app.agent.bridge.agent_task_contract_v2 import (
     validate_agent_task_v2_payload,
     validate_agent_task_v2_response,
 )
-from app.agent.reasoning.navimind_task_reasoner import (
-    NaviMindTaskReasonerConfig,
-)
-
-
 MAX_RESPONSE_BYTES = 64 * 1024
+
+
+@dataclass(frozen=True)
+class NaviMindTaskReasonerV2Config:
+    """Dedicated HTTP configuration for the V2 endpoint."""
+
+    url: str
+    secret: str | None = None
+    timeout_seconds: float = 20.0
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.url, str) or not self.url.strip():
+            raise ValueError("navimind_v2_url_invalid")
+        if (
+            isinstance(self.timeout_seconds, bool)
+            or not isinstance(self.timeout_seconds, (int, float))
+            or not math.isfinite(float(self.timeout_seconds))
+            or self.timeout_seconds <= 0
+        ):
+            raise ValueError("navimind_v2_timeout_invalid")
+        if self.secret is not None and not isinstance(self.secret, str):
+            raise ValueError("navimind_v2_secret_invalid")
+
+    @classmethod
+    def from_environment(cls) -> "NaviMindTaskReasonerV2Config":
+        load_dotenv()
+
+        url = os.getenv("NAVIMIND_AGENT_V2_URL", "").strip()
+        if not url:
+            raise RuntimeError("NAVIMIND_AGENT_V2_URL is not configured.")
+
+        secret = os.getenv("NAVIMIND_AGENT_V2_SECRET")
+        try:
+            timeout_seconds = float(
+                os.getenv("NAVIMIND_AGENT_V2_TIMEOUT_SECONDS", "20")
+            )
+        except (TypeError, ValueError) as exc:
+            raise RuntimeError(
+                "NAVIMIND_AGENT_V2_TIMEOUT_SECONDS is invalid."
+            ) from exc
+
+        try:
+            return cls(
+                url=url,
+                secret=(
+                    secret.strip()
+                    if isinstance(secret, str) and secret.strip()
+                    else None
+                ),
+                timeout_seconds=timeout_seconds,
+            )
+        except ValueError as exc:
+            raise RuntimeError(
+                "NaviMind V2 environment configuration is invalid."
+            ) from exc
 
 
 class NaviMindTaskReasonerV2:
@@ -32,13 +87,13 @@ class NaviMindTaskReasonerV2:
     def __init__(
         self,
         *,
-        config: NaviMindTaskReasonerConfig | None = None,
+        config: NaviMindTaskReasonerV2Config | None = None,
         opener: Callable = urlopen,
     ) -> None:
         self.config = (
             config
             if config is not None
-            else NaviMindTaskReasonerConfig.from_environment()
+            else NaviMindTaskReasonerV2Config.from_environment()
         )
         self.opener = opener
         self.last_error: str | None = None
