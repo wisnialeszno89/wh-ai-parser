@@ -237,7 +237,7 @@ def test_broker_rejects_out_of_bounds_and_untyped_table_requests():
         raise AssertionError("Arbitrary selector was accepted.")
 
 
-def test_broker_rejects_oversized_or_invalid_reader_results():
+def test_broker_rejects_oversized_nested_result_lists():
     broker = ReadOnlyObservationBroker()
     broker.register(
         table_spec(),
@@ -271,9 +271,47 @@ def test_broker_rejects_oversized_or_invalid_reader_results():
             max_evidence_bytes=8_192,
         )
     except ObservationRejected as exc:
+        assert "result_list_too_large" in str(exc)
+    else:
+        raise AssertionError("Oversized nested result list was accepted.")
+
+
+def test_broker_rejects_table_rows_with_mismatched_cell_count():
+    broker = ReadOnlyObservationBroker()
+    broker.register(
+        table_spec(),
+        lambda target, parameters, context: ObservationReadResult(
+            content={
+                "headers": ["Name"],
+                "rows": [["A", "unexpected extra cell"]],
+                "offset": 0,
+                "has_more": False,
+            }
+        ),
+    )
+    descriptor = broker.bind(
+        make_snapshot(),
+        capability_name="read_table_page",
+        target_ref="ent_0001",
+    )
+
+    try:
+        broker.observe(
+            {
+                "capability_id": descriptor["id"],
+                "target_ref": "ent_0001",
+                "parameters": {"offset": 0, "limit": 1},
+                "based_on_world_revision": 9,
+            },
+            task_id="task-001",
+            world_revision=9,
+            max_observation_items=5,
+            max_evidence_bytes=8_192,
+        )
+    except ObservationRejected as exc:
         assert "table_page_row_shape_invalid" in str(exc)
     else:
-        raise AssertionError("Invalid table result was accepted.")
+        raise AssertionError("Table row with mismatched cell count was accepted.")
 
 
 def test_broker_rejects_provider_identifiers_in_returned_evidence():
