@@ -15,6 +15,7 @@ if str(_REPOSITORY_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPOSITORY_ROOT))
 
 from dataclasses import replace
+import time
 
 from app.agent.environment.windowhub_environment_adapter import (
     WindowHubEnvironmentAdapter,
@@ -34,6 +35,14 @@ from app.agent.runtime.windowhub_v2_observation_session import (
 def main() -> int:
     prepared = None
     try:
+        print(
+            "SMOKE_PREPARE=Switch to WindowHub and open the Client dropdown "
+            "during the next 10 seconds."
+        )
+        for remaining in range(10, 0, -1):
+            print("SMOKE_STARTS_IN=" + str(remaining))
+            time.sleep(1)
+
         raw_observation = WindowHubEnvironmentAdapter().observe()
         window_handle = raw_observation.metadata.get("window_handle")
         if (
