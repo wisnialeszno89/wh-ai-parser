@@ -1,8 +1,10 @@
 """Read-only UIA diagnostics for the WindowHub lookup target.
 
-No text properties, window captions, values, headers, or table cells are read.
-No clicks, focus changes, or pattern invocations are performed.
-Output contains only structural counts and safe control-role metadata.
+Reads only structural UIA properties: control type, class name, automation-id
+match booleans, visibility, enabled state, and bounds presence. A window
+caption is compared to a fixed prefix internally; its text is never output.
+No control names/values, table headers/cells, clicks, focus changes, or
+pattern invocations are performed.
 """
 from __future__ import annotations
 
@@ -16,6 +18,7 @@ from collections import Counter
 
 LOOKUP_AUTOMATION_ID = "IDC_ZAMAWIAJACY"
 GRID_AUTOMATION_ID = "PART_GridControl"
+WINDOWHUB_TITLE_PREFIX = "Okna -"
 
 
 def _string(value: object) -> str:
@@ -61,6 +64,18 @@ def _window_area(window: object) -> int:
 
 def _inspect_root(window: object) -> dict:
     try:
+        root_info = window.element_info
+        root_role = _string(
+            getattr(root_info, "control_type", None)
+        ).casefold() or None
+        root_class = _string(
+            getattr(root_info, "class_name", None)
+        ).casefold() or None
+    except Exception:
+        root_role = None
+        root_class = None
+
+    try:
         descendants = tuple(window.descendants())
         scan_error = None
     except Exception as exc:
@@ -68,6 +83,7 @@ def _inspect_root(window: object) -> dict:
         scan_error = type(exc).__name__
 
     role_counts: Counter[str] = Counter()
+    class_counts: Counter[str] = Counter()
     candidates: list[dict] = []
     exact_lookup_count = 0
     lookup_class_count = 0
@@ -86,6 +102,8 @@ def _inspect_root(window: object) -> dict:
 
         if role:
             role_counts[role] += 1
+        if class_name:
+            class_counts[class_name] += 1
 
         is_lookup_id = automation_id == LOOKUP_AUTOMATION_ID
         is_lookup_class = "lookupedit" in class_name
@@ -119,6 +137,8 @@ def _inspect_root(window: object) -> dict:
         )
     )
     return {
+        "root_control_type": root_role,
+        "root_class_name": root_class,
         "window_area_pixels": _window_area(window),
         "descendant_count": len(descendants),
         "scan_error": scan_error,
@@ -126,6 +146,7 @@ def _inspect_root(window: object) -> dict:
         "lookupedit_class_count": lookup_class_count,
         "exact_grid_id_datagrid_count": exact_grid_count,
         "control_type_counts": dict(sorted(role_counts.items())),
+        "most_common_class_names": dict(class_counts.most_common(12)),
         "structural_candidates": candidates[:12],
     }
 
@@ -163,8 +184,21 @@ def main() -> int:
         for index, window in enumerate(windows):
             try:
                 handle = int(window.handle)
+                # The caption is used only for a fixed-prefix boolean; it is
+                # never printed, stored, or passed to any external service.
+                try:
+                    caption = _string(window.window_text())
+                    title_prefix_match = (
+                        caption.casefold().startswith(
+                            WINDOWHUB_TITLE_PREFIX.casefold()
+                        )
+                    )
+                except Exception:
+                    title_prefix_match = False
+
                 data = _inspect_root(window)
                 data["top_level_window_index"] = index
+                data["windowhub_title_prefix_match"] = title_prefix_match
                 data["foreground_related_to_root"] = (
                     _foreground_related(handle) if handle > 0 else False
                 )
@@ -177,28 +211,41 @@ def main() -> int:
                     }
                 )
 
-        candidates = [
-            item for item in roots
-            if item.get("exact_lookup_id_count", 0)
-            or item.get("lookupedit_class_count", 0)
-            or item.get("exact_grid_id_datagrid_count", 0)
-        ]
-        candidates.sort(
+        roots.sort(
             key=lambda item: (
-                -int(item.get("exact_lookup_id_count", 0)),
-                -int(item.get("lookupedit_class_count", 0)),
-                -int(item.get("exact_grid_id_datagrid_count", 0)),
+                not item.get("windowhub_title_prefix_match", False),
+                not bool(
+                    item.get("exact_lookup_id_count", 0)
+                    or item.get("lookupedit_class_count", 0)
+                    or item.get("exact_grid_id_datagrid_count", 0)
+                ),
                 -int(item.get("window_area_pixels", 0)),
             )
+        )
+        title_match_count = sum(
+            bool(item.get("windowhub_title_prefix_match"))
+            for item in roots
+        )
+        structural_match_count = sum(
+            bool(
+                item.get("exact_lookup_id_count", 0)
+                or item.get("lookupedit_class_count", 0)
+                or item.get("exact_grid_id_datagrid_count", 0)
+            )
+            for item in roots
         )
         result = {
             "result": "DIAGNOSTIC_ONLY",
             "top_level_window_count": len(windows),
-            "relevant_window_count": len(candidates),
-            "windows": candidates[:12],
+            "windowhub_title_prefix_match_count": title_match_count,
+            "windows_with_any_expected_structural_match": (
+                structural_match_count
+            ),
+            "windows": roots[:12],
             "privacy": {
-                "captions_or_control_names_read": False,
-                "control_values_read": False,
+                "window_captions_read_for_prefix_match_only": True,
+                "window_captions_output": False,
+                "control_names_or_values_read": False,
                 "table_headers_or_cells_read": False,
                 "clicks_or_invocations": 0,
                 "focus_changes": 0,
