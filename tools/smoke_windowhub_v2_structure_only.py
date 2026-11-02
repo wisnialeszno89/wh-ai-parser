@@ -36,10 +36,10 @@ def main() -> int:
     prepared = None
     try:
         print(
-            "SMOKE_PREPARE=Switch to WindowHub and open the Client dropdown "
-            "during the next 10 seconds."
+            "SMOKE_PREPARE=Open the new-offer form, expand Client, then switch "
+            "to WindowHub during the next 15 seconds."
         )
-        for remaining in range(10, 0, -1):
+        for remaining in range(15, 0, -1):
             print("SMOKE_STARTS_IN=" + str(remaining))
             time.sleep(1)
 
@@ -52,19 +52,25 @@ def main() -> int:
         ):
             print("SMOKE_BLOCKED=WindowHub_window_handle_unavailable")
             return 2
-        print(
-            "WINDOWHUB_WINDOW_FOCUSED="
-            + str(raw_observation.metadata.get("window_focused") is True)
-        )
         foreground_handle = raw_observation.metadata.get(
             "foreground_window_handle"
         )
         root_owner_handle = raw_observation.metadata.get(
             "foreground_root_owner_handle"
         )
-        app_root_owner_handle = raw_observation.metadata.get(
+        window_root_owner_handle = raw_observation.metadata.get(
             "window_root_owner_handle"
-        ) or window_handle
+        )
+        app_root_owner_handle = window_root_owner_handle or window_handle
+
+        print("WINDOWHUB_WINDOW_HANDLE=" + str(window_handle))
+        print("WINDOWHUB_WINDOW_ROOT_OWNER_HANDLE=" + str(window_root_owner_handle))
+        print("FOREGROUND_WINDOW_HANDLE=" + str(foreground_handle))
+        print("FOREGROUND_ROOT_OWNER_HANDLE=" + str(root_owner_handle))
+        print(
+            "WINDOWHUB_WINDOW_FOCUSED="
+            + str(raw_observation.metadata.get("window_focused") is True)
+        )
         print(
             "WINDOWHUB_ROOT_OWNER_AVAILABLE="
             + str(
@@ -93,13 +99,13 @@ def main() -> int:
         structural_diagnostics = []
 
         def collect_structural_diagnostic(record):
-            if len(structural_diagnostics) < 80:
+            if len(structural_diagnostics) < 120:
                 structural_diagnostics.append(record)
 
         elements = provider.perceive_structure_only(
             observation,
             diagnostic_callback=collect_structural_diagnostic,
-            diagnostic_limit=80,
+            diagnostic_limit=120,
         )
         scene = ScreenScene(
             observation=observation,
@@ -118,6 +124,26 @@ def main() -> int:
         )
 
         print("STRUCTURE_ONLY_TABLE_CANDIDATES=" + str(len(elements)))
+        lookup_edit_records = [
+            record for record in structural_diagnostics
+            if str(record.get("automation_id", "")).casefold()
+            == "idc_zamawiajacy"
+            and str(record.get("class_name", "")).casefold()
+            == "lookupedit"
+        ]
+        lookup_grid_records = [
+            record for record in structural_diagnostics
+            if record.get("candidate_kind") == "table_control"
+            and any(
+                ancestor.get("automation_id", "").casefold()
+                == "idc_zamawiajacy"
+                and ancestor.get("class_name", "").casefold()
+                == "lookupedit"
+                for ancestor in record.get("ancestor_structure", ())
+            )
+        ]
+        print("CLIENT_LOOKUP_EDIT_FOUND=" + str(bool(lookup_edit_records)))
+        print("CLIENT_LOOKUP_GRID_STRUCTURAL_MATCHES=" + str(len(lookup_grid_records)))
         print("UIA_STRUCTURAL_DIAGNOSTIC_COUNT=" + str(len(structural_diagnostics)))
         for index, record in enumerate(structural_diagnostics):
             print("UIA_NODE_" + str(index + 1) + "=" + repr(record))
