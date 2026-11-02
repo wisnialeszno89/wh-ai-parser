@@ -286,15 +286,6 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
         root_handles.append(main_handle)
 
         started_at = time.monotonic()
-        try:
-            desktop = (
-                self._desktop_factory()
-                if self._desktop_factory is not None
-                else self._default_desktop()
-            )
-        except Exception:
-            return ()
-
         elements: list[ScreenElement] = []
         seen_runtime_ids: set[str] = set()
         total_descendants = 0
@@ -304,12 +295,42 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
             nonlocal diagnostic_count
             if diagnostic_callback is None or diagnostic_count >= diagnostic_limit:
                 return
+            diagnostic_type = record.get("diagnostic_type")
+            is_lookup_edit = (
+                str(record.get("automation_id", "")).casefold()
+                == "idc_zamawiajacy"
+                and str(record.get("class_name", "")).casefold()
+                == "lookupedit"
+            )
+            is_priority = (
+                diagnostic_type is not None
+                or record.get("candidate_kind") == "table_control"
+                or is_lookup_edit
+            )
+            # Reserve up to 16 entries for root lifecycle, Client LookupEdit,
+            # and DataGrid candidates so a large MDI tree cannot crowd them out.
+            normal_record_limit = max(0, diagnostic_limit - 16)
+            if not is_priority and diagnostic_count >= normal_record_limit:
+                return
             diagnostic_count += 1
             try:
                 diagnostic_callback(record)
             except Exception:
                 # Diagnostics must never break the actual observation path.
                 return
+
+        try:
+            desktop = (
+                self._desktop_factory()
+                if self._desktop_factory is not None
+                else self._default_desktop()
+            )
+        except Exception as exc:
+            emit_diagnostic({
+                "diagnostic_type": "desktop_creation_failed",
+                "error_type": type(exc).__name__,
+            })
+            return ()
 
         for root_handle in root_handles:
             elapsed = time.monotonic() - started_at
