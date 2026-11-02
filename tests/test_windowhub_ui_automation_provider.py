@@ -1046,6 +1046,95 @@ def test_structure_only_perception_accepts_popup_owned_by_app_root_not_modal_for
     assert desktop.requested_handles == [991, 992]
 
 
+def test_structure_only_perception_scans_owned_foreground_popup_before_large_main_tree():
+    grid = _StructureOnlyUIAItem(
+        control_type="DataGrid",
+        automation_id="PART_GridControl",
+        runtime_id=(9, 8, 61),
+    )
+    main_window = _StructureOnlyUIAWindow(())
+    popup_window = _StructureOnlyUIAWindow((grid,))
+    desktop = _StructureOnlyDesktop(
+        windows={991: main_window, 992: popup_window}
+    )
+    provider = WindowHubUIAutomationProvider(
+        desktop_factory=lambda: desktop,
+    )
+    base = _structure_only_observation()
+    observation = EnvironmentObservation(
+        state=base.state,
+        metadata={
+            **base.metadata,
+            "foreground_window_handle": 992,
+            "foreground_root_owner_handle": 991,
+            "window_root_owner_handle": 991,
+        },
+    )
+    diagnostics = []
+
+    elements = provider.perceive_structure_only(
+        observation,
+        diagnostic_callback=diagnostics.append,
+    )
+
+    assert len(elements) == 1
+    assert desktop.requested_handles == [992, 991]
+    assert diagnostics[0]["diagnostic_type"] == "root_scan_started"
+    assert diagnostics[0]["root_window_handle"] == 992
+    assert any(
+        record.get("diagnostic_type") == "root_scan_completed"
+        and record.get("root_window_handle") == 992
+        for record in diagnostics
+    )
+
+
+def test_structure_only_perception_reports_root_descendants_errors():
+    class BrokenWindow:
+        def descendants(self):
+            raise RuntimeError("UIA provider unavailable")
+
+    desktop = _StructureOnlyDesktop(
+        windows={991: BrokenWindow()}
+    )
+    provider = WindowHubUIAutomationProvider(
+        desktop_factory=lambda: desktop,
+    )
+    diagnostics = []
+
+    elements = provider.perceive_structure_only(
+        _structure_only_observation(),
+        diagnostic_callback=diagnostics.append,
+    )
+
+    assert elements == ()
+    assert any(
+        record.get("diagnostic_type") == "root_descendants_failed"
+        and record.get("error_type") == "RuntimeError"
+        for record in diagnostics
+    )
+
+
+def test_structure_only_perception_reports_no_items_as_completed_empty_root():
+    diagnostics = []
+    provider = WindowHubUIAutomationProvider(
+        desktop_factory=lambda: _StructureOnlyDesktop(
+            _StructureOnlyUIAWindow(())
+        ),
+    )
+
+    elements = provider.perceive_structure_only(
+        _structure_only_observation(),
+        diagnostic_callback=diagnostics.append,
+    )
+
+    assert elements == ()
+    assert any(
+        record.get("diagnostic_type") == "root_scan_completed"
+        and record.get("descendant_count") == 0
+        for record in diagnostics
+    )
+
+
 def test_structure_only_perception_never_scans_unowned_foreground_window():
     unrelated_grid = _StructureOnlyUIAItem(
         control_type="DataGrid",
