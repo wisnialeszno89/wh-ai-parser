@@ -51,7 +51,9 @@ class WindowHubLookupGridAdapter:
         provider: WindowHubUIAutomationProvider,
         target_resolver: TargetResolver | None = None,
     ) -> None:
-        if not isinstance(provider, WindowHubUIAutomationProvider):
+        if not callable(
+            getattr(provider, "resolve_table_element", None)
+        ):
             raise TypeError("windowhub_lookup_grid_provider_invalid")
         self._provider = provider
         self._target_resolver = target_resolver or TargetResolver()
