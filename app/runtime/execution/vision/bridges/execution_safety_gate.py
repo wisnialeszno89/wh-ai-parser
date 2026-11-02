@@ -98,7 +98,10 @@ class ExecutionSafetyGate:
         if not isinstance(metadata, dict):
             return False
 
-        if metadata.get("source") != "windowhub_ui_automation":
+        if metadata.get("source") not in {
+            "windowhub_ui_automation",
+            "windows_ui_automation",
+        }:
             return False
 
         if metadata.get("uia_enabled") is not True:

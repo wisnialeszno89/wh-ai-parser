@@ -16,6 +16,7 @@ from app.agent.perception.screen_scene import ScreenScene
 
 MAX_WORLD_ENTITIES = 200
 MAX_WORLD_EVIDENCE = 100
+MAX_WORLD_AFFORDANCES = 200
 MAX_EVIDENCE_PER_ELEMENT = 12
 MAX_EVIDENCE_VALUE_DEPTH = 4
 MAX_EVIDENCE_COLLECTION_ITEMS = 32
@@ -50,6 +51,25 @@ _PRIVATE_KEYS = frozenset(
     }
 )
 _PRIVATE_EVIDENCE_KINDS = frozenset({"bounds", "position"})
+_CONFIRMATION_LABEL_TERMS = (
+    "delete",
+    "remove",
+    "submit",
+    "send",
+    "pay",
+    "purchase",
+    "buy",
+    "approve",
+    "place order",
+    "löschen",
+    "entfernen",
+    "senden",
+    "bezahlen",
+    "kaufen",
+    "bestellen",
+    "freigeben",
+    "stornieren",
+)
 _UNSUPPORTED = object()
 
 
@@ -99,6 +119,75 @@ def _safe_json_value(value: object, depth: int = 0) -> object:
             result[key[:128]] = safe
         return result
     return _UNSUPPORTED
+
+
+def _requires_confirmation(label: str) -> bool:
+    normalized = " ".join(label.casefold().split())
+    return any(
+        term in normalized
+        for term in _CONFIRMATION_LABEL_TERMS
+    )
+
+
+def _build_affordances(
+    elements: tuple[ScreenElement, ...],
+) -> list[dict[str, object]]:
+    """Describe bounded, evidence-backed UI actions without exposing native ids."""
+    affordances: list[dict[str, object]] = []
+
+    for index, element in enumerate(elements, start=1):
+        label = element.label.strip() if isinstance(element.label, str) else ""
+        metadata = element.metadata or {}
+        capability = _enum_text(element.interaction_capability)
+
+        if capability != "clickable" or not label:
+            continue
+        if metadata.get("uia_enabled") is False:
+            continue
+        if metadata.get("uia_visible") is False:
+            continue
+
+        control_type = (
+            metadata.get("uia_control_type")
+            or metadata.get("control_type")
+            or element.kind
+        )
+        control_type = (
+            control_type.strip().casefold()
+            if isinstance(control_type, str)
+            else ""
+        )
+
+        actions = [
+            (
+                "click",
+                f"Click the visible control labeled '{label}'.",
+                _requires_confirmation(label),
+            )
+        ]
+        if control_type in {"edit", "combobox"}:
+            actions.append(
+                (
+                    "write_text",
+                    f"Enter text in the editable control labeled '{label}'.",
+                    False,
+                )
+            )
+
+        for action_name, description, requires_confirmation in actions:
+            if len(affordances) >= MAX_WORLD_AFFORDANCES:
+                return affordances
+            affordances.append(
+                {
+                    "id": f"aff_{len(affordances) + 1:04d}",
+                    "entity_ref": f"ent_{index:04d}",
+                    "name": action_name,
+                    "description": description,
+                    "requires_confirmation": requires_confirmation,
+                }
+            )
+
+    return affordances
 
 
 def _timestamp(value: str | None) -> str:
@@ -322,9 +411,10 @@ class AgentTaskV2WorldBuilder:
             "entities": entities,
             # The current ScreenScene model has no verified relationship graph.
             "relationships": [],
-            # Interaction capability is not execution authorization. Concrete
-            # affordances are published only when backed by local action policy.
-            "affordances": [],
+            # Affordances describe observed possibilities; they do not grant
+            # execution authority. The local action broker must separately bind
+            # and validate every action before it can be dispatched.
+            "affordances": _build_affordances(selected_elements),
             "evidence": evidence,
         }
 

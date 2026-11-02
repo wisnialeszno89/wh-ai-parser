@@ -104,7 +104,15 @@ def test_world_builder_projects_existing_scene_and_evidence():
         "observed": True,
     }
     assert world["relationships"] == []
-    assert world["affordances"] == []
+    assert [item["name"] for item in world["affordances"]] == [
+        "click",
+        "write_text",
+    ]
+    assert all(
+        item["entity_ref"] == "ent_0001"
+        for item in world["affordances"]
+    )
+    assert world["affordances"][1]["requires_confirmation"] is False
 
 
 def test_world_builder_never_exposes_native_ids_coordinates_or_raw_values():
@@ -342,3 +350,37 @@ def test_reference_map_rejects_element_mapped_to_multiple_refs():
             task_id="reference-task",
             world_revision=8,
         )
+
+
+
+def test_world_builder_marks_destructive_click_affordances_for_confirmation():
+    element = ScreenElement(
+        kind="button",
+        label="Delete customer",
+        interaction_capability=InteractionCapability.CLICKABLE,
+    )
+    snapshot = AgentTaskV2WorldBuilder().build(
+        _scene_with_element(element),
+        task_id="confirmation-task",
+        world_revision=1,
+    )
+
+    affordance = snapshot.payload["affordances"][0]
+    assert affordance["name"] == "click"
+    assert affordance["requires_confirmation"] is True
+
+
+def test_world_builder_does_not_publish_actions_for_non_interactive_controls():
+    element = ScreenElement(
+        kind="button",
+        label="Disabled button",
+        metadata={"uia_enabled": False},
+        interaction_capability=InteractionCapability.CLICKABLE,
+    )
+    snapshot = AgentTaskV2WorldBuilder().build(
+        _scene_with_element(element),
+        task_id="disabled-task",
+        world_revision=1,
+    )
+
+    assert snapshot.payload["affordances"] == []

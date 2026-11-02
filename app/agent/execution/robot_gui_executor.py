@@ -304,7 +304,10 @@ class RobotGUIExecutor(ActionExecutor):
         metadata = element.metadata or {}
 
         return (
-            metadata.get("source") == "windowhub_ui_automation"
+            metadata.get("source") in {
+                "windowhub_ui_automation",
+                "windows_ui_automation",
+            }
             and metadata.get("uia_enabled") is True
             and metadata.get("uia_visible") is True
             and isinstance(
