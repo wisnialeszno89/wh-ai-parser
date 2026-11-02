@@ -203,12 +203,15 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
         *,
         max_descendants: int = 5_000,
         timeout_seconds: float = 2.0,
+        diagnostic_callback: Callable[[dict[str, object]], None] | None = None,
+        diagnostic_limit: int = 80,
     ) -> tuple[ScreenElement, ...]:
-        """Observe visible table structure without reading UI text or values.
+        """Observe table structure and optionally emit bounded, text-free diagnostics.
 
-        The only roots are the observed WindowHub form and, when Windows
-        reports it as an owned foreground popup, that popup. No window title,
-        element name, value, label, header, cell text or GridPattern item is read.
+        Only the observed WindowHub form and its Windows-confirmed owned
+        foreground popup are traversed. Diagnostic records contain UIA control
+        type, class, AutomationId and bounded ancestor structure only. They
+        never contain element/window text, values, headers or cell contents.
         """
         if (
             isinstance(max_descendants, bool)
@@ -222,6 +225,15 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
             or timeout_seconds <= 0
         ):
             raise ValueError("uia_structure_only_timeout_invalid")
+
+        if (
+            isinstance(diagnostic_limit, bool)
+            or not isinstance(diagnostic_limit, int)
+            or not 0 <= diagnostic_limit <= 500
+        ):
+            raise ValueError("uia_structure_only_diagnostic_limit_invalid")
+        if diagnostic_callback is not None and not callable(diagnostic_callback):
+            raise ValueError("uia_structure_only_diagnostic_callback_invalid")
 
         if self._desktop_factory is None and __import__("os").name != "nt":
             return ()
@@ -271,6 +283,18 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
         elements: list[ScreenElement] = []
         seen_runtime_ids: set[str] = set()
         total_descendants = 0
+        diagnostic_count = 0
+
+        def emit_diagnostic(record: dict[str, object]) -> None:
+            nonlocal diagnostic_count
+            if diagnostic_callback is None or diagnostic_count >= diagnostic_limit:
+                return
+            diagnostic_count += 1
+            try:
+                diagnostic_callback(record)
+            except Exception:
+                # Diagnostics must never break the actual observation path.
+                return
 
         for root_handle in root_handles:
             if time.monotonic() - started_at > timeout_seconds:
@@ -298,13 +322,7 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
                     control_type = self._normalize_control_type(
                         getattr(info, "control_type", None)
                     )
-                    if control_type not in self.TABLE_CONTROL_TYPES:
-                        continue
-
                     visible = bool(getattr(info, "visible", True))
-                    if not visible:
-                        continue
-
                     automation_id = self._string(
                         getattr(info, "automation_id", None)
                     )
@@ -312,7 +330,21 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
                         getattr(info, "class_name", None)
                     )
                     runtime_id = self._runtime_id(item)
-                    if not runtime_id or runtime_id in seen_runtime_ids:
+                    if not runtime_id:
+                        continue
+
+                    ancestor_structure = self._ancestor_structure(item)
+                    if control_type not in self.TABLE_CONTROL_TYPES:
+                        emit_diagnostic({
+                            "root_window_handle": root_handle,
+                            "control_type": control_type,
+                            "class_name": class_name or "",
+                            "automation_id": automation_id or "",
+                            "visible": visible,
+                            "ancestor_structure": ancestor_structure,
+                        })
+                        continue
+                    if not visible or runtime_id in seen_runtime_ids:
                         continue
 
                     rectangle = item.rectangle()
@@ -324,8 +356,6 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
                     )
                     if rect.width <= 0 or rect.height <= 0:
                         continue
-
-                    ancestor_structure = self._ancestor_structure(item)
                 except Exception:
                     continue
 
