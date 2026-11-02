@@ -1,3 +1,5 @@
+import pytest
+
 from app.agent.bridge.agent_task_contract_v2 import (
     validate_agent_task_v2_payload,
 )
@@ -260,10 +262,22 @@ def test_built_world_snapshot_satisfies_the_v2_request_contract():
 
 
 
+def _scene_with_element(element):
+    return ScreenScene(
+        observation=EnvironmentObservation(
+            state=EnvironmentState(
+                active_application="WindowHub",
+                active_window_title="Nowa oferta",
+            )
+        ),
+        elements=(element,),
+    )
+
+
 def test_reference_map_resolves_unique_ref_for_exact_local_element():
     element = ScreenElement(kind="button", label="Nowa oferta")
     snapshot = AgentTaskV2WorldBuilder().build(
-        _scene(element),
+        _scene_with_element(element),
         task_id="reference-task",
         world_revision=8,
         observed_at="2026-11-02T09:00:00Z",
@@ -286,7 +300,7 @@ def test_reference_map_resolves_unique_ref_for_exact_local_element():
 def test_reference_map_rejects_wrong_task_or_revision():
     element = ScreenElement(kind="button", label="Nowa oferta")
     snapshot = AgentTaskV2WorldBuilder().build(
-        _scene(element),
+        _scene_with_element(element),
         task_id="reference-task",
         world_revision=8,
     )
@@ -309,7 +323,15 @@ def test_reference_map_rejects_wrong_task_or_revision():
 def test_reference_map_rejects_element_mapped_to_multiple_refs():
     element = ScreenElement(kind="button", label="Nowa oferta")
     snapshot = AgentTaskV2WorldBuilder().build(
-        _scene(element, element),
+        ScreenScene(
+            observation=EnvironmentObservation(
+                state=EnvironmentState(
+                    active_application="WindowHub",
+                    active_window_title="Nowa oferta",
+                )
+            ),
+            elements=(element, element),
+        ),
         task_id="reference-task",
         world_revision=8,
     )
