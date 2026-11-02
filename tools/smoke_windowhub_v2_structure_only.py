@@ -6,6 +6,14 @@ cells, customer names, or business-record fields are requested.
 """
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+
+# Direct execution sets sys.path[0] to tools/, not the repository root.
+_REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
+if str(_REPOSITORY_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPOSITORY_ROOT))
+
 from dataclasses import replace
 
 from app.agent.environment.windowhub_environment_adapter import (
