@@ -55,3 +55,5 @@ The targeted bridge CI covers the existing V1 bridge tests and the isolated
 V2 client tests for request validation, authentication headers, bounded
 response reads, HTTP/network failures, task correlation, current-revision
 checks, and capability-bound observation decisions.
+
+The V2 bridge contract suite also runs independently on Ubuntu through `.github/workflows/navimind-v2-bridge.yml`; this isolates transport/contract verification from Windows-only UI Automation tests.
