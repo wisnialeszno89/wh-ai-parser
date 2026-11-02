@@ -257,16 +257,28 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
         foreground_root_owner_handle = observation.metadata.get(
             "foreground_root_owner_handle"
         )
+        window_root_owner_handle = observation.metadata.get(
+            "window_root_owner_handle"
+        )
+        if (
+            isinstance(window_root_owner_handle, bool)
+            or not isinstance(window_root_owner_handle, int)
+            or window_root_owner_handle <= 0
+        ):
+            # Backward-compatible observations created before root-owner
+            # identity was captured. The live adapter supplies this value.
+            window_root_owner_handle = main_handle
 
-        # The main WindowHub form and an owned foreground popup are the only
-        # permitted roots. An unrelated foreground application is never scanned.
+        # The observed form and a foreground HWND with the same Windows
+        # GA_ROOTOWNER are the only permitted roots. This supports owned
+        # modal forms without widening observation to unrelated applications.
         root_handles = [main_handle]
         if (
             isinstance(foreground_handle, int)
             and not isinstance(foreground_handle, bool)
             and foreground_handle > 0
             and foreground_handle != main_handle
-            and foreground_root_owner_handle == main_handle
+            and foreground_root_owner_handle == window_root_owner_handle
         ):
             root_handles.append(foreground_handle)
 
@@ -499,6 +511,15 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
             foreground_owner = observation.metadata.get(
                 "foreground_root_owner_handle"
             )
+            app_root_owner = observation.metadata.get(
+                "window_root_owner_handle"
+            )
+            if (
+                isinstance(app_root_owner, bool)
+                or not isinstance(app_root_owner, int)
+                or app_root_owner <= 0
+            ):
+                app_root_owner = main_handle
             if (
                 isinstance(root_handle, bool)
                 or not isinstance(root_handle, int)
@@ -510,7 +531,7 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
                 raise ValueError("uia_structure_only_root_identity_invalid")
             if root_handle != main_handle and not (
                 root_handle == foreground_handle
-                and foreground_owner == main_handle
+                and foreground_owner == app_root_owner
             ):
                 raise RuntimeError("uia_structure_only_popup_owner_changed")
             window = desktop.window(
