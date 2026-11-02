@@ -254,6 +254,75 @@ def _structure_delta(before: dict, after: dict) -> dict:
     }
 
 
+def _uia_node_metadata(item) -> dict:
+    """Return structural UIA metadata and booleans for known controls."""
+    info = item.element_info
+    role = str(
+        getattr(info, "control_type", "") or ""
+    ).strip().casefold()
+    class_name = str(
+        getattr(info, "class_name", "") or ""
+    ).strip().casefold()
+    automation_id = str(
+        getattr(info, "automation_id", "") or ""
+    ).strip().casefold()
+    return {
+        "control_type": role or None,
+        "class_name": class_name or None,
+        "is_lookup_control": (
+            automation_id == LOOKUP_AUTOMATION_ID.casefold()
+        ),
+        "is_grid_control": automation_id == GRID_AUTOMATION_ID,
+        "is_form_container": FORM_CLASS_TOKEN in class_name,
+        "is_popup_container": (
+            role == "window" and class_name == "popup"
+        ),
+    }
+
+
+def _uia_parent_path(item, *, max_depth: int = 12) -> list[dict]:
+    """Describe a UIA node and its parents without reading text or values."""
+    path = []
+    current = item
+
+    for _ in range(max_depth):
+        try:
+            path.append(_uia_node_metadata(current))
+        except Exception:
+            break
+
+        getter = getattr(current, "parent", None)
+        if not callable(getter):
+            break
+        try:
+            parent = getter()
+        except Exception:
+            break
+        if parent is None:
+            break
+        current = parent
+
+    return path
+
+
+def _find_known_control_paths(wrapper, automation_id: str) -> list[list[dict]]:
+    """Find an internal known AutomationId and return structural parent paths."""
+    matches = []
+    expected = automation_id.casefold()
+
+    for item in wrapper.descendants():
+        try:
+            current_id = str(
+                getattr(item.element_info, "automation_id", "") or ""
+            ).strip().casefold()
+        except Exception:
+            continue
+        if current_id == expected:
+            matches.append(_uia_parent_path(item))
+
+    return matches
+
+
 def _inspect_changed_window(api, desktop, record: dict) -> dict:
     hwnd = record["_hwnd"]
     result = {
@@ -316,6 +385,15 @@ def _inspect_changed_window(api, desktop, record: dict) -> dict:
                 DATATABLE_CLASS_TOKEN in class_name
             )
 
+        grid_paths = _find_known_control_paths(
+            wrapper,
+            GRID_AUTOMATION_ID,
+        )
+        lookup_paths = _find_known_control_paths(
+            wrapper,
+            LOOKUP_AUTOMATION_ID,
+        )
+
         result.update(
             {
                 "uia_scan_status": "ok",
@@ -325,6 +403,8 @@ def _inspect_changed_window(api, desktop, record: dict) -> dict:
                 "lookup_automation_id_count": lookup_count,
                 "grid_automation_id_count": grid_count,
                 "datatable_class_count": datatable_count,
+                "lookup_control_uia_paths": lookup_paths,
+                "grid_control_uia_paths": grid_paths,
             }
         )
     except Exception as exc:
@@ -492,6 +572,14 @@ def main() -> int:
             _inspect_changed_window(api, desktop, record)
             for record in best["changes"][:30]
         ]
+        form_lookup_paths = _find_known_control_paths(
+            form_wrapper,
+            LOOKUP_AUTOMATION_ID,
+        )
+        form_grid_paths = _find_known_control_paths(
+            form_wrapper,
+            GRID_AUTOMATION_ID,
+        )
 
         result = {
             "result": "DIAGNOSTIC_ONLY",
@@ -502,6 +590,12 @@ def main() -> int:
             "baseline_native_window_count": len(baseline_windows),
             "changed_native_window_count": len(best["changes"]),
             "changed_native_windows": changed_windows,
+            "form_control_uia_paths": {
+                "lookup_control_count": len(form_lookup_paths),
+                "lookup_control_paths": form_lookup_paths,
+                "grid_control_count": len(form_grid_paths),
+                "grid_control_paths": form_grid_paths,
+            },
             "form_uia_delta": best["delta"],
             "privacy": {
                 "window_captions_compared_to_fixed_prefix_only": True,
