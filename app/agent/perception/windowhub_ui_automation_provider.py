@@ -269,18 +269,21 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
             # identity was captured. The live adapter supplies this value.
             window_root_owner_handle = main_handle
 
-        # The observed form and a foreground HWND with the same Windows
-        # GA_ROOTOWNER are the only permitted roots. This supports owned
-        # modal forms without widening observation to unrelated applications.
-        root_handles = [main_handle]
-        if (
+        # When a WindowHub-owned popup is foreground, scan it first. The
+        # application root can contain a large MDI tree; scanning it first can
+        # consume the whole deadline before the active lookup popup is inspected.
+        # Both roots are still validated against the same Windows GA_ROOTOWNER.
+        root_handles = []
+        owned_foreground_popup = (
             isinstance(foreground_handle, int)
             and not isinstance(foreground_handle, bool)
             and foreground_handle > 0
             and foreground_handle != main_handle
             and foreground_root_owner_handle == window_root_owner_handle
-        ):
+        )
+        if owned_foreground_popup:
             root_handles.append(foreground_handle)
+        root_handles.append(main_handle)
 
         started_at = time.monotonic()
         try:
@@ -309,24 +312,66 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
                 return
 
         for root_handle in root_handles:
-            if time.monotonic() - started_at > timeout_seconds:
+            elapsed = time.monotonic() - started_at
+            if elapsed > timeout_seconds:
+                emit_diagnostic({
+                    "diagnostic_type": "root_scan_skipped",
+                    "root_window_handle": root_handle,
+                    "reason": "overall_timeout",
+                    "elapsed_seconds": round(elapsed, 3),
+                })
                 return ()
 
+            emit_diagnostic({
+                "diagnostic_type": "root_scan_started",
+                "root_window_handle": root_handle,
+            })
             try:
                 window = desktop.window(
                     handle=root_handle,
                 ).wrapper_object()
-                descendants = window.descendants()
-            except Exception:
+            except Exception as exc:
+                emit_diagnostic({
+                    "diagnostic_type": "root_lookup_failed",
+                    "root_window_handle": root_handle,
+                    "error_type": type(exc).__name__,
+                })
                 continue
 
+            try:
+                descendants = window.descendants()
+            except Exception as exc:
+                emit_diagnostic({
+                    "diagnostic_type": "root_descendants_failed",
+                    "root_window_handle": root_handle,
+                    "error_type": type(exc).__name__,
+                })
+                continue
+
+            root_descendant_count = 0
             for item in descendants:
                 total_descendants += 1
+                root_descendant_count += 1
                 if total_descendants > max_descendants:
+                    emit_diagnostic({
+                        "diagnostic_type": "scan_incomplete",
+                        "root_window_handle": root_handle,
+                        "reason": "max_descendants_exceeded",
+                        "max_descendants": max_descendants,
+                        "observed_descendants": total_descendants,
+                    })
                     # Do not return a partial tree: a missing grid could make
                     # a false negative look like a complete observation.
                     return ()
-                if time.monotonic() - started_at > timeout_seconds:
+                elapsed = time.monotonic() - started_at
+                if elapsed > timeout_seconds:
+                    emit_diagnostic({
+                        "diagnostic_type": "scan_incomplete",
+                        "root_window_handle": root_handle,
+                        "reason": "overall_timeout",
+                        "elapsed_seconds": round(elapsed, 3),
+                        "observed_descendants": total_descendants,
+                    })
                     return ()
 
                 try:
@@ -343,7 +388,12 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
                     )
                     runtime_id = self._runtime_id(item)
                     ancestor_structure = self._ancestor_structure(item)
-                except Exception:
+                except Exception as exc:
+                    emit_diagnostic({
+                        "diagnostic_type": "node_metadata_failed",
+                        "root_window_handle": root_handle,
+                        "error_type": type(exc).__name__,
+                    })
                     continue
 
                 if control_type not in self.TABLE_CONTROL_TYPES:
@@ -481,6 +531,17 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
                         evidence=evidence,
                     )
                 )
+
+            emit_diagnostic({
+                "diagnostic_type": "root_scan_completed",
+                "root_window_handle": root_handle,
+                "descendant_count": root_descendant_count,
+                "table_candidate_count": sum(
+                    1 for element in elements
+                    if (element.metadata or {}).get("uia_root_window_handle")
+                    == root_handle
+                ),
+            })
 
         return tuple(elements)
 
