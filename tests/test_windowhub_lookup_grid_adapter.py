@@ -104,7 +104,11 @@ def make_observation():
     )
 
 
-def make_window(*, client_lookup_parent=True):
+def make_window(
+    *,
+    client_lookup_parent=True,
+    wrong_lookup_ancestor_class=False,
+):
     lookup = FakeUIAItem(
         name="Zamawiający",
         control_type="Button",
@@ -122,9 +126,17 @@ def make_window(*, client_lookup_parent=True):
             if client_lookup_parent
             else FakeUIAItem(
                 name="",
-                control_type="Pane",
-                class_name="documentview",
-                automation_id="IDC_DOKUMENT",
+                control_type="Button" if wrong_lookup_ancestor_class else "Pane",
+                class_name=(
+                    "otherlookup"
+                    if wrong_lookup_ancestor_class
+                    else "documentview"
+                ),
+                automation_id=(
+                    WINDOWHUB_CLIENT_LOOKUP_AUTOMATION_ID
+                    if wrong_lookup_ancestor_class
+                    else "IDC_DOKUMENT"
+                ),
                 runtime_id=(4, 10, 22),
             )
         ),
@@ -266,3 +278,22 @@ def test_adapter_connects_to_structure_reader_without_reading_cells():
         }
     }
     assert pattern.cell_reads == 0
+
+
+
+def test_adapter_rejects_same_lookup_automation_id_on_wrong_ancestor_class():
+    wrong_window, _wrong_grid = make_window(
+        client_lookup_parent=False,
+        wrong_lookup_ancestor_class=True,
+    )
+    adapter, _provider = make_adapter(wrong_window)
+    target, _old_adapter, _old_provider, observation = make_client_grid_target()
+
+    try:
+        adapter.resolve_current_grid(target, observation)
+    except LookupError as exc:
+        assert "not_unique_or_not_found" in str(exc)
+    else:
+        raise AssertionError(
+            "A grid under a different class with the same AutomationId was accepted"
+        )
