@@ -47,6 +47,19 @@ def main() -> int:
             "WINDOWHUB_WINDOW_FOCUSED="
             + str(raw_observation.metadata.get("window_focused") is True)
         )
+        foreground_handle = raw_observation.metadata.get(
+            "foreground_window_handle"
+        )
+        root_owner_handle = raw_observation.metadata.get(
+            "foreground_root_owner_handle"
+        )
+        print(
+            "WINDOWHUB_OWNED_FOREGROUND_POPUP="
+            + str(
+                foreground_handle != window_handle
+                and root_owner_handle == window_handle
+            )
+        )
 
         # Do not forward the native window title into the V2 world.
         observation = replace(
