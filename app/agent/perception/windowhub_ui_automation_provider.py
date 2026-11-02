@@ -309,7 +309,8 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
             )
             # Reserve up to 16 entries for root lifecycle, Client LookupEdit,
             # and DataGrid candidates so a large MDI tree cannot crowd them out.
-            normal_record_limit = max(0, diagnostic_limit - 16)
+            reserved_records = min(16, max(1, diagnostic_limit // 4))
+            normal_record_limit = max(0, diagnostic_limit - reserved_records)
             if not is_priority and diagnostic_count >= normal_record_limit:
                 return
             diagnostic_count += 1
