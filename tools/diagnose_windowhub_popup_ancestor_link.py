@@ -18,6 +18,7 @@ import ctypes.wintypes
 import json
 import os
 import sys
+import time
 from collections import Counter
 from pathlib import Path
 
@@ -47,6 +48,10 @@ from tools.diagnose_windowhub_win32_children import (
     _hwnd_value,
     _rect_nonempty,
 )
+
+
+OBSERVATION_SECONDS = 20.0
+POLL_INTERVAL_SECONDS = 0.20
 
 
 def _native_rect(api, hwnd: int):
@@ -181,6 +186,61 @@ def _inspect_dialog_ancestor(api, desktop, hwnd: int, form_hwnd: int) -> dict:
         }
 
 
+def _visible_datatable_handles(api, enum_proc, root_hwnd: int) -> list[int]:
+    descendants = _enumerate_child_hwnds(api, enum_proc, root_hwnd)
+    return sorted(
+        {
+            hwnd for hwnd in descendants
+            if DATATABLE_CLASS_TOKEN in _class_name(api, hwnd)
+            and bool(api.IsWindowVisible(hwnd))
+        }
+    )
+
+
+def _capture_peak_datatable_snapshot(
+    api,
+    enum_proc,
+    root_hwnd: int,
+    *,
+    duration_seconds: float = OBSERVATION_SECONDS,
+    poll_interval_seconds: float = POLL_INTERVAL_SECONDS,
+) -> tuple[list[int], int]:
+    """Keep the largest visible DataTable5 set observed while user opens popup."""
+    deadline = time.monotonic() + duration_seconds
+    best_handles: list[int] = []
+    samples = 0
+
+    print(
+        "OBSERVACJA AKTYWNA przez 20 sekund. "
+        "Przejdz teraz do WindowHub i otworz strzalke pola Klient. "
+        "Nie wybieraj zadnego rekordu. Pozostaw liste otwarta do konca.",
+        flush=True,
+    )
+
+    while time.monotonic() < deadline:
+        handles = _visible_datatable_handles(
+            api,
+            enum_proc,
+            root_hwnd,
+        )
+        samples += 1
+        if len(handles) > len(best_handles):
+            best_handles = handles
+        time.sleep(poll_interval_seconds)
+
+    # If the popup remained open, take a final fresh snapshot. Prefer it when
+    # it is at least as rich as the best intermediate snapshot.
+    final_handles = _visible_datatable_handles(
+        api,
+        enum_proc,
+        root_hwnd,
+    )
+    samples += 1
+    if len(final_handles) >= len(best_handles):
+        best_handles = final_handles
+    return best_handles, samples
+
+
 def _inspect_table_ancestors(
     api,
     desktop,
@@ -274,17 +334,10 @@ def main() -> int:
             if item["native_hwnd_available"]
         ]
 
-        native_descendants = _enumerate_child_hwnds(
+        table_handles, poll_samples = _capture_peak_datatable_snapshot(
             api,
             enum_proc,
             root_hwnd,
-        )
-        table_handles = sorted(
-            {
-                hwnd for hwnd in native_descendants
-                if DATATABLE_CLASS_TOKEN in _class_name(api, hwnd)
-                and bool(api.IsWindowVisible(hwnd))
-            }
         )
 
         tables = [
@@ -306,6 +359,9 @@ def main() -> int:
         result = {
             "result": "DIAGNOSTIC_ONLY",
             "windowhub_process_top_window_count": process_count,
+            "popup_observation_seconds": OBSERVATION_SECONDS,
+            "poll_samples": poll_samples,
+            "peak_visible_datatable5_count": len(table_handles),
             "form": {
                 "form_descendant_count": form["form_descendant_count"],
                 "client_lookup_match_count": form["lookup_control_count"],
