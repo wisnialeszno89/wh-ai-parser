@@ -25,6 +25,7 @@ class ActionPolicy:
                 InteractionAction.CLICK,
                 InteractionAction.WRITE,
                 InteractionAction.KEY_PRESS,
+                InteractionAction.ACTIVATE_WINDOW,
             })
         )
 
