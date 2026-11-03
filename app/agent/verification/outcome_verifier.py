@@ -351,31 +351,39 @@ class OutcomeVerifier:
 
         expected_label = expected.expected_element_label
         expected_automation_id = expected.expected_element_automation_id
-        matches = []
+        identity_matches = []
         for element in scene.elements:
             metadata = element.metadata or {}
-            if metadata.get("source") not in {
-                "windows_ui_automation",
-                "windowhub_ui_automation",
-            }:
-                continue
-            if metadata.get("uia_runtime_id") != runtime_id:
-                continue
             if (
-                isinstance(expected_automation_id, str)
-                and metadata.get("automation_id") != expected_automation_id
+                metadata.get("source") in {
+                    "windows_ui_automation",
+                    "windowhub_ui_automation",
+                }
+                and metadata.get("uia_runtime_id") == runtime_id
             ):
-                continue
-            if (
-                isinstance(expected_label, str)
-                and (
-                    not isinstance(element.label, str)
-                    or element.label.casefold() != expected_label.casefold()
-                )
-            ):
-                continue
-            matches.append(element)
-        return tuple(matches)
+                identity_matches.append(element)
+
+        # A duplicated native identity is ambiguous even when labels or
+        # AutomationIds would filter one duplicate away.
+        if len(identity_matches) != 1:
+            return tuple(identity_matches)
+
+        element = identity_matches[0]
+        metadata = element.metadata or {}
+        if (
+            isinstance(expected_automation_id, str)
+            and metadata.get("automation_id") != expected_automation_id
+        ):
+            return ()
+        if (
+            isinstance(expected_label, str)
+            and (
+                not isinstance(element.label, str)
+                or element.label.casefold() != expected_label.casefold()
+            )
+        ):
+            return ()
+        return (element,)
 
     @staticmethod
     def _element_state(element, state_name: str):
