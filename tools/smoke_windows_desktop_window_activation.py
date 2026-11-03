@@ -60,6 +60,51 @@ def select_target_window(
     return matches[0]
 
 
+
+def _print_target_diagnostics(
+    windows: Sequence[DesktopWindowSnapshot],
+    *,
+    process_name: str,
+    title_contains: str,
+    foreground_application: str | None,
+    foreground_title: str | None,
+) -> None:
+    """Explain why same-process windows were excluded, without exposing HWNDs."""
+    process_key = process_name.strip().casefold()
+    title_key = title_contains.strip().casefold()
+    print("=== TARGET MATCH DIAGNOSTICS ===")
+    print(f"Current foreground application: {foreground_application or 'unknown'}")
+    print(f"Current foreground title: {foreground_title or 'untitled'}")
+    candidates = [
+        window
+        for window in windows
+        if isinstance(window, DesktopWindowSnapshot)
+        and isinstance(window.application, str)
+        and window.application.strip().casefold() == process_key
+    ]
+    print(f"Windows found for process {process_name}: {len(candidates)}")
+    if not candidates:
+        print("No enumerated window has the requested process name.")
+        return
+
+    for index, window in enumerate(candidates, start=1):
+        title = window.title or "Untitled window"
+        flags = []
+        if window.is_foreground is True:
+            flags.append("FOREGROUND")
+        if window.is_minimized is True:
+            flags.append("MINIMIZED")
+        if window.is_visible is not True:
+            flags.append("NOT_VISIBLE")
+        if not isinstance(window.title, str) or title_key not in window.title.casefold():
+            flags.append("TITLE_MISMATCH")
+        if window.is_foreground is True:
+            flags.append("ALREADY_FOREGROUND_NOT_ACTIVATED")
+        print(
+            f"{index:02d}. {window.application} — {title}"
+            + (f" [{' | '.join(flags)}]" if flags else " [MATCH CANDIDATE]")
+        )
+
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
@@ -116,7 +161,14 @@ def main() -> int:
         )
     except ValueError as exc:
         print(str(exc))
-        print("No window was activated. Refine the process/title selectors.")
+        _print_target_diagnostics(
+            windows,
+            process_name=args.target_process,
+            title_contains=args.target_title_contains,
+            foreground_application=observation.state.active_application,
+            foreground_title=observation.state.active_window_title,
+        )
+        print("No window was activated. Review the diagnostics before retrying.")
         return 2
 
     foreground_handle = observation.metadata.get(
