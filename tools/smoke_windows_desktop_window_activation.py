@@ -65,16 +65,19 @@ def _print_target_diagnostics(
     windows: Sequence[DesktopWindowSnapshot],
     *,
     process_name: str,
-    title_contains: str,
+    title_contains: str | None,
+    title_must_be_empty: bool,
     foreground_application: str | None,
     foreground_title: str | None,
 ) -> None:
-    """Explain why same-process windows were excluded, without exposing HWNDs."""
+    """Explain candidate selection without exposing native window handles."""
     process_key = process_name.strip().casefold()
-    title_key = title_contains.strip().casefold()
+    title_key = title_contains.strip().casefold() if isinstance(title_contains, str) else ""
     print("=== TARGET MATCH DIAGNOSTICS ===")
     print(f"Current foreground application: {foreground_application or 'unknown'}")
-    print(f"Current foreground title: {foreground_title or 'untitled'}")
+    print(f"Current foreground title: {foreground_title or '<BRAK TYTUŁU>'}")
+    selector = "<BRAK TYTUŁU>" if title_must_be_empty else repr(title_contains)
+    print(f"Requested title selector: {selector}")
     candidates = [
         window
         for window in windows
@@ -88,21 +91,38 @@ def _print_target_diagnostics(
         return
 
     for index, window in enumerate(candidates, start=1):
-        title = window.title or "Untitled window"
+        has_title = isinstance(window.title, str) and bool(window.title.strip())
+        title = window.title if has_title else "<BRAK TYTUŁU>"
         flags = []
         if window.is_foreground is True:
-            flags.append("FOREGROUND")
+            flags.extend(("FOREGROUND", "ALREADY_FOREGROUND_NOT_ACTIVATED"))
         if window.is_minimized is True:
             flags.append("MINIMIZED")
         if window.is_visible is not True:
             flags.append("NOT_VISIBLE")
-        if not isinstance(window.title, str) or title_key not in window.title.casefold():
+        if title_must_be_empty:
+            if has_title:
+                flags.append("TITLE_PRESENT")
+            if window.root_owner_handle != window.handle:
+                flags.append("OWNED_BY_OTHER_WINDOW")
+        elif not has_title or title_key not in title.casefold():
             flags.append("TITLE_MISMATCH")
-        if window.is_foreground is True:
-            flags.append("ALREADY_FOREGROUND_NOT_ACTIVATED")
+        if window.is_foreground is False and window.is_visible is True:
+            title_ok = (
+                (not has_title and window.root_owner_handle == window.handle)
+                if title_must_be_empty
+                else (has_title and title_key in title.casefold())
+            )
+            if title_ok:
+                flags.append("MATCH_CANDIDATE")
+        dimensions = (
+            f"{window.rect.width}x{window.rect.height}"
+            if window.rect is not None
+            else "unknown-size"
+        )
         print(
-            f"{index:02d}. {window.application} — {title}"
-            + (f" [{' | '.join(flags)}]" if flags else " [MATCH CANDIDATE]")
+            f"{index:02d}. {window.application} — {title} ({dimensions})"
+            + (f" [{' | '.join(flags)}]" if flags else "")
         )
 
 def _parse_args() -> argparse.Namespace:
@@ -117,10 +137,15 @@ def _parse_args() -> argparse.Namespace:
         required=True,
         help="Exact process basename, for example Okna.exe",
     )
-    parser.add_argument(
+    title_group = parser.add_mutually_exclusive_group(required=True)
+    title_group.add_argument(
         "--target-title-contains",
-        required=True,
-        help="A title fragment that uniquely identifies the target window",
+        help="A real title fragment that uniquely identifies the target window",
+    )
+    title_group.add_argument(
+        "--target-title-empty",
+        action="store_true",
+        help="Select a truly empty-title root window (not a display placeholder)",
     )
     return parser.parse_args()
 
