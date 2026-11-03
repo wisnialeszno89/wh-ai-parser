@@ -16,3 +16,5 @@ class InteractionAction(Enum):
     WAIT = "wait"
 
     VERIFY = "verify"
+
+    KEY_PRESS = "key_press"
