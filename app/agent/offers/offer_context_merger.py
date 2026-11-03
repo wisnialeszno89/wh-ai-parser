@@ -30,7 +30,8 @@ class OfferContextMerger:
 
         profile = existing.profile
         profile_source = existing.profile_source
-        conflicts = list(existing.conflicts)
+        # Validation is recomputed after the merge; never carry stale conflicts.
+        conflicts = []
 
         if (
             update.profile_source
@@ -47,13 +48,6 @@ class OfferContextMerger:
             profile = None
             profile_source = ProfileSelectionSource.UNKNOWN
 
-            conflict = (
-                "Profile was mentioned but could not be resolved."
-            )
-
-            if conflict not in conflicts:
-                conflicts.append(conflict)
-
         elif (
             existing.profile is None
             and update.profile_source
@@ -62,6 +56,11 @@ class OfferContextMerger:
         ):
             profile = update.profile
             profile_source = update.profile_source
+
+        if profile_source == ProfileSelectionSource.UNKNOWN:
+            conflicts.append(
+                "Profile was mentioned but could not be resolved."
+            )
 
         return OfferContext(
             raw_request=existing.raw_request,
