@@ -50,10 +50,10 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--focus-delay-seconds",
         type=int,
-        default=12,
+        default=15,
         help=(
             "Seconds to wait after launch so you can bring WindowHub to the "
-            "foreground before the fresh observation (0-60, default: 12)."
+            "foreground before the fresh observation (0-60, default: 15)."
         ),
     )
     return parser.parse_args()
