@@ -281,3 +281,73 @@ def test_activation_smoke_supports_diagnose_only_without_activation(monkeypatch)
     assert args.target_title_empty is True
     assert args.target_title_contains is None
     assert args.diagnose_only is True
+
+
+
+def test_activation_smoke_selects_one_independent_root_window_without_title():
+    main_window = _window(
+        "Okna.exe",
+        "Okna - OFR/4522-",
+        handle=100,
+    )
+    owned_properties = DesktopWindowSnapshot(
+        handle=200,
+        title="Właściwości dokumentu",
+        rect=WindowRect(left=10, top=10, width=869, height=752),
+        application="Okna.exe",
+        root_owner_handle=100,
+        is_foreground=False,
+        is_visible=True,
+    )
+    tiny_owned_window = DesktopWindowSnapshot(
+        handle=300,
+        title=None,
+        rect=WindowRect(left=0, top=0, width=1, height=1),
+        application="Okna.exe",
+        root_owner_handle=100,
+        is_foreground=False,
+        is_visible=True,
+    )
+
+    selected = select_target_window(
+        (main_window, owned_properties, tiny_owned_window),
+        process_name="Okna.exe",
+        root_window_only=True,
+    )
+
+    assert selected is main_window
+
+
+def test_activation_smoke_refuses_multiple_independent_root_windows():
+    windows = (
+        _window("Okna.exe", "Okna - Angebot 1", handle=100),
+        _window("Okna.exe", "Okna - Angebot 2", handle=200),
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="activation_smoke_target_not_unique: matches=2",
+    ):
+        select_target_window(
+            windows,
+            process_name="Okna.exe",
+            root_window_only=True,
+        )
+
+
+def test_activation_smoke_requires_exactly_one_identity_selector():
+    windows = (_window("Okna.exe", "Okna - Angebot", handle=100),)
+
+    with pytest.raises(ValueError, match="activation_smoke_selectors_required"):
+        select_target_window(
+            windows,
+            process_name="Okna.exe",
+        )
+
+    with pytest.raises(ValueError, match="activation_smoke_selectors_required"):
+        select_target_window(
+            windows,
+            process_name="Okna.exe",
+            title_contains="Angebot",
+            root_window_only=True,
+        )
