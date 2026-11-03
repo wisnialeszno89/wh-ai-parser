@@ -3,6 +3,7 @@ from app.agent.agent_action import AgentAction
 from app.agent.runtime.execution_context import (
     ExecutionContext,
 )
+from app.agent.perception.semantic_target_query import SemanticTargetQuery
 
 from app.agent.verification.expected_outcome import (
     ExpectedOutcome,
@@ -111,10 +112,21 @@ class ExpectationResolver:
             )
 
         if action.name == "write_text":
-            target = (
-                action.target.strip()
-                if isinstance(action.target, str)
+            target_query = (
+                action.target
+                if isinstance(action.target, SemanticTargetQuery)
                 else None
+            )
+            target = (
+                target_query.label.strip()
+                if target_query is not None
+                and isinstance(target_query.label, str)
+                and target_query.label.strip()
+                else (
+                    action.target.strip()
+                    if isinstance(action.target, str)
+                    else None
+                )
             )
             value = (
                 action.value
@@ -133,6 +145,16 @@ class ExpectationResolver:
                 expected_element_label=target,
                 element_should_exist=True,
                 expected_element_current_value=value,
+                expected_element_uia_runtime_id=(
+                    target_query.uia_runtime_id
+                    if target_query is not None
+                    else None
+                ),
+                expected_element_automation_id=(
+                    target_query.automation_id
+                    if target_query is not None
+                    else None
+                ),
             )
 
         return None
