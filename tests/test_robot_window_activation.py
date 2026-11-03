@@ -15,6 +15,9 @@ from app.runtime.execution.robot_action_executor import (
     RobotActionExecutor,
     RobotExecutionMode,
 )
+from app.runtime.execution.vision.bridges.execution_safety_gate import (
+    ExecutionSafetyGate,
+)
 
 
 class _SafetyGate:
@@ -277,3 +280,37 @@ def test_robot_gui_executor_rejects_activation_without_v2_local_binding():
 
     assert result.success is False
     assert calls == []
+
+
+def test_robot_action_executor_rejects_boolean_window_handle():
+    gate = _SafetyGate()
+    activator = _WindowActivator()
+    executor = RobotActionExecutor(
+        mode=RobotExecutionMode.LIVE,
+        safety_gate=gate,
+        window_activator=activator,
+        mouse=SimpleNamespace(),
+    )
+
+    result = executor.execute_window_activation(
+        window_handle=True,
+        observed_window_handles=(1,),
+    )
+
+    assert result.success is False
+    assert result.executed is False
+    assert gate.calls == []
+    assert activator.calls == []
+
+
+def test_windows_safety_gate_rejects_unobserved_or_boolean_window_handles():
+    gate = ExecutionSafetyGate()
+
+    assert gate.can_activate_window(
+        window_handle=777,
+        observed_window_handles=(501,),
+    ) is False
+    assert gate.can_activate_window(
+        window_handle=True,
+        observed_window_handles=(True,),
+    ) is False
