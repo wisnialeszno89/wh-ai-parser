@@ -86,8 +86,7 @@ class GuidedLearningService:
             raise ValueError("guided_learning_scope_mismatch")
         if not session.steps:
             raise ValueError("guided_learning_steps_required")
-        session.closed = True
-        return ExperienceEpisode(
+        draft = ExperienceEpisode(
             tenant_id=session.tenant_id,
             operator_id=session.operator_id,
             application_id=session.application_id,
@@ -97,6 +96,8 @@ class GuidedLearningService:
             outcome=outcome,
             approved_by_operator=False,
         )
+        session.closed = True
+        return draft
 
     def approve(
         self,
