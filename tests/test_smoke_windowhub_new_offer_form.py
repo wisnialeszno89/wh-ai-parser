@@ -11,6 +11,7 @@ def test_form_inspector_reports_semantics_but_never_field_values():
         label="Kunde",
         metadata={
             "automation_id": "IDC_CUSTOMER",
+            "source": "windows_ui_automation",
             "uia_runtime_id": "7-10-20",
             "uia_enabled": True,
             "uia_focused": True,
@@ -29,6 +30,7 @@ def test_form_inspector_reports_semantics_but_never_field_values():
             "automation_id": "IDC_CUSTOMER",
             "class_name": "",
             "enabled": True,
+            "runtime_identity": "unique",
             "focused": True,
             "value_present": True,
             "label_source": "uia_name",
@@ -88,3 +90,63 @@ def test_form_inspector_deduplicates_same_uia_control():
 def test_form_inspector_rejects_invalid_control_limits(limit):
     with pytest.raises(ValueError, match="new_offer_form_control_limit_invalid"):
         summarize_controls((), max_controls=limit)
+
+
+def test_form_inspector_flags_missing_and_untrusted_runtime_identity():
+    missing = ScreenElement(
+        kind="edit",
+        label="Menge",
+        metadata={"source": "windows_ui_automation"},
+    )
+    untrusted = ScreenElement(
+        kind="edit",
+        label="Breite",
+        metadata={
+            "source": "another_provider",
+            "uia_runtime_id": "1-2-3",
+        },
+    )
+
+    records = summarize_controls((missing, untrusted))
+
+    assert records[0]["runtime_identity"] == "missing"
+    assert records[1]["runtime_identity"] == "untrusted_source"
+
+
+def test_form_inspector_flags_duplicate_runtime_identity():
+    first = ScreenElement(
+        kind="edit",
+        label="Breite",
+        metadata={
+            "source": "windows_ui_automation",
+            "uia_runtime_id": "duplicate",
+        },
+    )
+    second = ScreenElement(
+        kind="edit",
+        label="Höhe",
+        metadata={
+            "source": "windows_ui_automation",
+            "uia_runtime_id": "duplicate",
+        },
+    )
+
+    records = summarize_controls((first, second))
+
+    assert len(records) == 2
+    assert all(record["runtime_identity"] == "ambiguous" for record in records)
+
+
+def test_form_inspector_marks_unique_runtime_identity():
+    element = ScreenElement(
+        kind="button",
+        label="Weiter",
+        metadata={
+            "source": "windowhub_ui_automation",
+            "uia_runtime_id": "unique-runtime",
+        },
+    )
+
+    records = summarize_controls((element,))
+
+    assert records[0]["runtime_identity"] == "unique"
