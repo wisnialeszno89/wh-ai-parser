@@ -32,11 +32,47 @@ def test_form_inspector_reports_semantics_but_never_field_values():
             "enabled": True,
             "runtime_identity": "unique",
             "focused": True,
+            "selected": None,
             "value_present": True,
             "label_source": "uia_name",
         },
     )
     assert "Customer Secret Name" not in str(records)
+
+
+def test_form_inspector_reports_selected_state_separately_from_focus():
+    focused_unselected = ScreenElement(
+        kind="radiobutton",
+        label="Drzwi",
+        metadata={
+            "source": "windowhub_ui_automation",
+            "automation_id": "1335",
+            "uia_runtime_id": "radio-door",
+            "uia_enabled": True,
+            "uia_focused": True,
+            "uia_selected": False,
+        },
+        interaction_capability=InteractionCapability.CLICKABLE,
+    )
+    unknown_selection = ScreenElement(
+        kind="radiobutton",
+        label="Okno",
+        metadata={
+            "source": "windowhub_ui_automation",
+            "automation_id": "1329",
+            "uia_runtime_id": "radio-window",
+            "uia_enabled": True,
+            "uia_focused": True,
+        },
+        interaction_capability=InteractionCapability.CLICKABLE,
+    )
+
+    records = summarize_controls((focused_unselected, unknown_selection))
+
+    assert records[0]["focused"] is True
+    assert records[0]["selected"] is False
+    assert records[1]["focused"] is True
+    assert records[1]["selected"] is None
 
 
 def test_form_inspector_excludes_unlabeled_and_non_form_elements():

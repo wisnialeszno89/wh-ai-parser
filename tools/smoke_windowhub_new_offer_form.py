@@ -192,6 +192,13 @@ def summarize_controls(
                     if isinstance(metadata.get("uia_focused"), bool)
                     else None
                 ),
+                # Selection is independent of keyboard focus. Only a boolean
+                # is exposed; unknown provider state remains None.
+                "selected": (
+                    metadata.get("uia_selected")
+                    if isinstance(metadata.get("uia_selected"), bool)
+                    else None
+                ),
                 # Only a boolean is exposed. The actual value is discarded.
                 "value_present": bool(value_present),
                 "label_source": (
@@ -257,7 +264,7 @@ def main() -> int:
         return 1
 
     print(f"Semantic controls found: {len(records)}")
-    print("\nNO. | TYPE | LABEL | AUTOMATION_ID | ENABLED | RUNTIME_IDENTITY | FOCUSED | VALUE_PRESENT | LABEL_SOURCE")
+    print("\nNO. | TYPE | LABEL | AUTOMATION_ID | ENABLED | RUNTIME_IDENTITY | FOCUSED | SELECTED | VALUE_PRESENT | LABEL_SOURCE")
     print("-" * 170)
 
     for index, record in enumerate(records, start=1):
@@ -269,6 +276,7 @@ def main() -> int:
             f"{'yes' if record['enabled'] else 'no'} | "
             f"{record['runtime_identity']} | "
             f"{record['focused'] if record['focused'] is not None else '-'} | "
+            f"{record['selected'] if record['selected'] is not None else '-'} | "
             f"{'yes' if record['value_present'] else 'no'} | "
             f"{record['label_source'] or '-'}"
         )

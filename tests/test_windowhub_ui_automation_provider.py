@@ -59,6 +59,8 @@ class FakeUIAItem:
         value=None,
         parent=None,
         class_name="",
+        selected=None,
+        focused=None,
     ):
         self.element_info = SimpleNamespace(
             name=name,
@@ -69,7 +71,12 @@ class FakeUIAItem:
             runtime_id=runtime_id,
             rich_text=value,
             class_name=class_name,
+            has_keyboard_focus=focused,
         )
+        if isinstance(selected, bool):
+            self.iface_selection_item = SimpleNamespace(
+                CurrentIsSelected=selected,
+            )
         self._parent = parent
         self._rectangle = SimpleNamespace(
             left=left,
@@ -188,6 +195,44 @@ def test_ui_automation_provider_exposes_semantic_name_and_capability():
     assert element.y == 20
     assert element.width == 110
     assert element.height == 110
+
+
+def test_ui_automation_provider_reports_radio_selection_independently_of_focus():
+    item = FakeUIAItem(
+        name="Drzwi",
+        control_type="RadioButton",
+        automation_id="1335",
+        selected=False,
+        focused=True,
+    )
+    provider = WindowHubUIAutomationProvider(
+        desktop_factory=lambda: FakeDesktop(FakeUIAWindow((item,))),
+    )
+
+    elements = provider.perceive(make_observation())
+
+    assert len(elements) == 1
+    assert elements[0].kind == "radiobutton"
+    assert elements[0].metadata["uia_selected"] is False
+    assert elements[0].metadata["uia_focused"] is True
+
+
+def test_ui_automation_provider_keeps_unavailable_radio_selection_unknown():
+    item = FakeUIAItem(
+        name="Okno",
+        control_type="RadioButton",
+        automation_id="1329",
+        focused=True,
+    )
+    provider = WindowHubUIAutomationProvider(
+        desktop_factory=lambda: FakeDesktop(FakeUIAWindow((item,))),
+    )
+
+    elements = provider.perceive(make_observation())
+
+    assert len(elements) == 1
+    assert elements[0].metadata["uia_selected"] is None
+    assert elements[0].metadata["uia_focused"] is True
 
 
 def test_ui_automation_provider_exposes_datagrid_as_noninteractive_table():

@@ -38,4 +38,5 @@ jobs:
             tests/test_windowhub_ui_automation_provider.py \
             tests/test_windowhub_v2_observation_session.py \
             tests/test_windowhub_tab_selection.py \
-            tests/test_active_document_context.py
+            tests/test_active_document_context.py \
+            tests/test_smoke_windowhub_new_offer_form.py

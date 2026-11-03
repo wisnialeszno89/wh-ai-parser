@@ -876,9 +876,12 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
             if control_type == "tabitem"
             else None
         )
+        # SelectionItemPattern is meaningful for document tabs and radio
+        # buttons. Keyboard focus is reported separately and must never be
+        # used as a substitute for the selected state.
         selected = (
             self._selection_state(item)
-            if tab_scope == "document"
+            if control_type == "radiobutton" or tab_scope == "document"
             else None
         )
 
@@ -1222,8 +1225,9 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
         """
         Read SelectionItemPattern state for selectable UIA controls.
 
-        WindowHub exposes document tabs through TabItem controls. The
-        selection state is observed from UIA rather than inferred from
+        WindowHub exposes document tabs and radio-button options through
+        UIA selection-item controls. The selection state is observed from
+        SelectionItemPattern rather than inferred from keyboard focus,
         position, styling, or window title.
         """
         try:
