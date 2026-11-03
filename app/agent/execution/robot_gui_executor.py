@@ -124,10 +124,13 @@ class RobotGUIExecutor(ActionExecutor):
                 "foreground_window_handle",
                 metadata.get("window_handle"),
             )
-            try:
-                foreground_handle = int(foreground_handle)
-            except (TypeError, ValueError, OverflowError):
+            if isinstance(foreground_handle, bool):
                 foreground_handle = 0
+            else:
+                try:
+                    foreground_handle = int(foreground_handle)
+                except (TypeError, ValueError, OverflowError):
+                    foreground_handle = 0
 
             local_binding = context.get_value(
                 "_computer_use_v2_window_activation_binding"
