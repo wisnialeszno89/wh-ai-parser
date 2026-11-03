@@ -8,6 +8,7 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+import time
 from pathlib import Path
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
@@ -46,6 +47,15 @@ def _parse_args() -> argparse.Namespace:
         action="store_true",
         help="Explicitly authorize the single live field action.",
     )
+    parser.add_argument(
+        "--focus-delay-seconds",
+        type=int,
+        default=12,
+        help=(
+            "Seconds to wait after launch so you can bring WindowHub to the "
+            "foreground before the fresh observation (0-60, default: 12)."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -66,6 +76,9 @@ def main() -> int:
     if args.quantity < 1:
         print("ABORTED: --quantity must be a positive integer.")
         return 2
+    if not 0 <= args.focus_delay_seconds <= 60:
+        print("ABORTED: --focus-delay-seconds must be between 0 and 60.")
+        return 2
     if not args.execute_live:
         print("ABORTED: pass --execute-live to authorize the one field action.")
         return 2
@@ -75,6 +88,14 @@ def main() -> int:
     if os.environ.get("COMPUTER_USE_LIVE") != "1":
         print("ABORTED: set COMPUTER_USE_LIVE=1 to enable real desktop input.")
         return 2
+
+    if args.focus_delay_seconds:
+        print(
+            "FOCUS WINDOWHUB NOW: activate the 'Dodawanie nowej pozycji' "
+            f"window. Fresh observation starts in {args.focus_delay_seconds}s.",
+            flush=True,
+        )
+        time.sleep(args.focus_delay_seconds)
 
     try:
         control_loop = create_windows_desktop_agent_control_loop()
