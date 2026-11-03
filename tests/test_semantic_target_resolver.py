@@ -149,3 +149,71 @@ def test_ancestor_constraint_requires_at_least_one_property():
         assert "constraint_empty" in str(exc)
     else:
         raise AssertionError("An empty ancestor constraint must be rejected")
+
+
+def _uia_edit(label, automation_id, runtime_id):
+    return ScreenElement(
+        kind="edit",
+        label=label,
+        metadata={
+            "source": "windows_ui_automation",
+            "automation_id": automation_id,
+            "uia_control_type": "edit",
+            "uia_runtime_id": runtime_id,
+        },
+    )
+
+
+def test_semantic_target_resolves_duplicate_labels_by_local_uia_runtime_id():
+    first = _uia_edit("Szerokość", "1000", "[window-width]")
+    second = _uia_edit("Szerokość", "1014", "[sash-width]")
+    query = SemanticTargetQuery(
+        role="edit",
+        label="Szerokość",
+        automation_id="1014",
+        uia_runtime_id="[sash-width]",
+        description="Exact sash width edit",
+    )
+
+    result = TargetResolver().resolve(_scene(first, second), query)
+
+    assert result.resolved is True
+    assert result.element is second
+    assert "uia_runtime_id" in result.reason or result.score == 0.99
+
+
+def test_semantic_target_rejects_duplicate_uia_runtime_id():
+    first = _uia_edit("Szerokość", "1000", "[duplicate]")
+    second = _uia_edit("Wysokość", "1001", "[duplicate]")
+    query = SemanticTargetQuery(
+        role="edit",
+        uia_runtime_id="[duplicate]",
+        description="Duplicate runtime identity",
+    )
+
+    result = TargetResolver().resolve(_scene(first, second), query)
+
+    assert result.resolved is False
+    assert result.element is None
+
+
+def test_semantic_target_runtime_id_is_scoped_to_windows_uia_sources():
+    foreign = ScreenElement(
+        kind="edit",
+        label="Szerokość",
+        metadata={
+            "source": "browser_dom",
+            "uia_control_type": "edit",
+            "uia_runtime_id": "[target]",
+        },
+    )
+    query = SemanticTargetQuery(
+        role="edit",
+        uia_runtime_id="[target]",
+        description="Windows UIA-only target",
+    )
+
+    result = TargetResolver().resolve(_scene(foreign), query)
+
+    assert result.resolved is False
+    assert result.element is None
