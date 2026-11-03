@@ -195,10 +195,7 @@ def test_desktop_scene_signature_changes_when_foreground_window_changes():
     )
     after = type(before)(
         observation=EnvironmentObservation(
-            state=EnvironmentState(
-                active_application="OUTLOOK.EXE",
-                active_window_title="Inbox - Outlook",
-            ),
+            state=before.observation.state,
             metadata=before.observation.metadata,
         ),
         elements=updated_elements,
