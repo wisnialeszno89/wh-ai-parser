@@ -26,7 +26,7 @@ from app.runtime.execution.keyboard.keyboard_input_policy import (
 
 
 MAX_V2_ACTION_CAPABILITIES = 64
-MAX_DESKTOP_WINDOW_ACTION_CAPABILITIES = 8
+MAX_DESKTOP_WINDOW_ACTION_CAPABILITIES = 16
 _UIA_SOURCES = frozenset(
     {
         "windows_ui_automation",
