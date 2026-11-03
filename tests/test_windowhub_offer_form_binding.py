@@ -267,6 +267,10 @@ def test_wrong_application_and_unknown_step_do_not_bind_controls():
 
     assert wrong_app.step is None
     assert unknown_step.step is None
+    assert all(
+        item.status == WindowHubBindingStatus.STEP_NOT_OBSERVED
+        for item in wrong_app.fields
+    )
     assert wrong_app.reason == "windowhub_step_not_observed"
     assert unknown_step.reason == "windowhub_step_not_observed"
 
