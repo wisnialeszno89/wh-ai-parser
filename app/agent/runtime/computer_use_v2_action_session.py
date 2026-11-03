@@ -18,6 +18,7 @@ from app.agent.bridge.agent_task_v2_world_builder import (
 from app.agent.perception.interaction_capability import InteractionCapability
 from app.agent.perception.screen_element import ScreenElement
 from app.agent.perception.screen_scene import ScreenScene
+from app.agent.perception.semantic_target_query import SemanticTargetQuery
 from app.agent.perception.target_resolver import TargetResolver
 from app.runtime.execution.keyboard.keyboard_input_policy import (
     SAFE_KEY_SEQUENCES,
@@ -187,7 +188,7 @@ class PreparedComputerUseV2Cycle:
         elif binding.semantic_action == "write_text":
             canonical_name = "write_text"
             description = f"Enter the requested text in '{label}'."
-            action_target = label
+            action_target = self._local_target_query(element, label)
             action_value = value
         elif binding.semantic_action == "activate_window":
             self._validate_window_postcondition(expected_postcondition)
@@ -198,7 +199,7 @@ class PreparedComputerUseV2Cycle:
         else:
             canonical_name = "click_screen_element"
             description = f"Click the visible control '{label}'."
-            action_target = label
+            action_target = self._local_target_query(element, label)
             action_value = None
 
         action = AgentAction(
@@ -257,11 +258,90 @@ class PreparedComputerUseV2Cycle:
             )
 
     def _is_unique_current_target(self, element: ScreenElement) -> bool:
+        if self._has_unique_uia_runtime_identity(self.scene, element):
+            return True
         label = element.label
         if not isinstance(label, str) or not label.strip():
             return False
         resolution = TargetResolver().resolve(self.scene, label)
         return resolution.resolved and resolution.element is element
+
+    @staticmethod
+    def _has_unique_uia_runtime_identity(
+        scene: ScreenScene,
+        element: ScreenElement,
+    ) -> bool:
+        metadata = element.metadata or {}
+        source = metadata.get("source")
+        runtime_id = metadata.get("uia_runtime_id")
+        control_type = metadata.get("uia_control_type") or element.kind
+        if (
+            source not in _UIA_SOURCES
+            or not isinstance(runtime_id, str)
+            or not runtime_id.strip()
+            or metadata.get("uia_enabled") is not True
+            or metadata.get("uia_visible") is not True
+            or not isinstance(control_type, str)
+            or control_type.strip().casefold() not in {
+                "button",
+                "edit",
+                "checkbox",
+                "combobox",
+                "hyperlink",
+                "listitem",
+                "menuitem",
+                "radiobutton",
+                "splitbutton",
+                "tabitem",
+                "treeitem",
+            }
+            or not any(candidate is element for candidate in scene.elements)
+        ):
+            return False
+
+        matches = 0
+        for candidate in scene.elements:
+            candidate_metadata = candidate.metadata or {}
+            if (
+                candidate_metadata.get("source") in _UIA_SOURCES
+                and candidate_metadata.get("uia_runtime_id") == runtime_id
+            ):
+                matches += 1
+                if matches > 1:
+                    return False
+        return matches == 1
+
+    @staticmethod
+    def _local_target_query(
+        element: ScreenElement,
+        label: str,
+    ) -> str | SemanticTargetQuery:
+        metadata = element.metadata or {}
+        source = metadata.get("source")
+        runtime_id = metadata.get("uia_runtime_id")
+        control_type = metadata.get("uia_control_type") or element.kind
+        if (
+            source in _UIA_SOURCES
+            and isinstance(runtime_id, str)
+            and runtime_id.strip()
+            and isinstance(control_type, str)
+            and control_type.strip()
+        ):
+            automation_id = metadata.get("automation_id")
+            return SemanticTargetQuery(
+                role=control_type.strip().casefold(),
+                label=label,
+                automation_id=(
+                    automation_id.strip()
+                    if isinstance(automation_id, str) and automation_id.strip()
+                    else None
+                ),
+                uia_runtime_id=runtime_id.strip(),
+                description=(
+                    f"UIA {control_type.strip().casefold()} '{label}'"
+                ),
+            )
+        return label
 
 
 class ComputerUseV2ActionSession:
@@ -533,10 +613,25 @@ class ComputerUseV2ActionSession:
         resolver: TargetResolver,
         element: ScreenElement,
     ) -> bool:
+        if PreparedComputerUseV2Cycle._has_unique_uia_runtime_identity(
+            scene,
+            element,
+        ):
+            return True
         if not isinstance(element.label, str) or not element.label.strip():
             return False
         resolution = resolver.resolve(scene, element.label)
         return resolution.resolved and resolution.element is element
+
+    @staticmethod
+    def _has_unique_uia_runtime_identity(
+        scene: ScreenScene,
+        element: ScreenElement,
+    ) -> bool:
+        return PreparedComputerUseV2Cycle._has_unique_uia_runtime_identity(
+            scene,
+            element,
+        )
 
     @staticmethod
     def _is_clickable_target(element: ScreenElement) -> bool:
