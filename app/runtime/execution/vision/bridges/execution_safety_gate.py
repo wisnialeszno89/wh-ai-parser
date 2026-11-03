@@ -208,16 +208,17 @@ class ExecutionSafetyGate:
             return False
 
         import ctypes
+        from ctypes import wintypes
 
         try:
             user32 = ctypes.WinDLL("user32", use_last_error=True)
-            hwnd = ctypes.wintypes.HWND(handle)
+            hwnd = wintypes.HWND(handle)
             is_window = user32.IsWindow
-            is_window.argtypes = (ctypes.wintypes.HWND,)
-            is_window.restype = ctypes.wintypes.BOOL
+            is_window.argtypes = (wintypes.HWND,)
+            is_window.restype = wintypes.BOOL
             is_visible = user32.IsWindowVisible
-            is_visible.argtypes = (ctypes.wintypes.HWND,)
-            is_visible.restype = ctypes.wintypes.BOOL
+            is_visible.argtypes = (wintypes.HWND,)
+            is_visible.restype = wintypes.BOOL
             return bool(is_window(hwnd) and is_visible(hwnd))
         except Exception:
             return False
