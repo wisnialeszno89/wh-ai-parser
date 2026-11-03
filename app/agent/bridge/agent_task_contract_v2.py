@@ -361,7 +361,9 @@ def _validate_world(value: object) -> tuple[int, set[str], set[str]]:
                 "evidence_refs",
             },
         )
-        if item["from_ref"] not in entity_ref_set or item["to_ref"] not in entity_ref_set:
+        from_ref = _ref(item["from_ref"], "relationship.from_ref")
+        to_ref = _ref(item["to_ref"], "relationship.to_ref")
+        if from_ref not in entity_ref_set or to_ref not in entity_ref_set:
             _fail("relationship.references_unknown_entity")
         _text(item["relationship"], "relationship.name", 128)
         _number(item["confidence"], "relationship.confidence", 0, 1)
@@ -396,7 +398,8 @@ def _validate_world(value: object) -> tuple[int, set[str], set[str]]:
         if affordance_id in affordance_ids:
             _fail("world.affordance_ids_duplicate")
         affordance_ids.add(affordance_id)
-        if item["entity_ref"] not in entity_ref_set:
+        entity_ref = _ref(item["entity_ref"], "affordance.entity_ref")
+        if entity_ref not in entity_ref_set:
             _fail("affordance.references_unknown_entity")
         _text(item["name"], "affordance.name", 128)
         _text(item["description"], "affordance.description", 1_000)
@@ -454,9 +457,11 @@ def _validate_capabilities(
         capability_id = _ref(item["id"], "observation_capability.id")
         if capability_id in observation_map:
             _fail("capabilities.observation_ids_duplicate")
-        if item["target_ref"] not in entity_refs:
+        target_ref = _ref(item["target_ref"], "observation_capability.target_ref")
+        if target_ref not in entity_refs:
             _fail("observation_capability.references_unknown_entity")
         _text(item["description"], "observation_capability.description", 1_000)
+        _text(item["input_contract"], "observation_capability.input_contract", 64)
         if item["input_contract"] not in _OBSERVATION_CONTRACTS:
             _fail("observation_capability.unsupported_input_contract")
         _integer(item["max_items"], "observation_capability.max_items", 1, MAX_OBSERVATION_ITEMS)
@@ -481,8 +486,10 @@ def _validate_capabilities(
             _fail("capabilities.action_names_duplicate")
         _text(item["description"], "action_capability.description", 1_000)
         target_ref = item["target_ref"]
-        if target_ref is not None and target_ref not in entity_refs:
-            _fail("action_capability.references_unknown_entity")
+        if target_ref is not None:
+            target_ref = _ref(target_ref, "action_capability.target_ref")
+            if target_ref not in entity_refs:
+                _fail("action_capability.references_unknown_entity")
         if not isinstance(item["requires_confirmation"], bool):
             _fail("action_capability.requires_confirmation_must_be_boolean")
         action_map[name] = item
@@ -562,13 +569,11 @@ def validate_agent_task_v2_payload(value: object) -> None:
     _validate_task_state(payload["task_state"])
     constraints = _validate_constraints(payload["constraints"])
     _, entity_refs, evidence_refs = _validate_world(payload["world"])
-    observations, _ = _validate_capabilities(
+    _validate_capabilities(
         payload["capabilities"],
         entity_refs,
         constraints,
     )
-    if len(observations) > constraints["max_observations_per_cycle"]:
-        _fail("capabilities.too_many_observations_for_cycle")
 
     if payload["knowledge"] is not None:
         _object(payload["knowledge"], "knowledge")
@@ -689,7 +694,9 @@ def _validate_postcondition(value: object, entity_refs: set[str]) -> None:
         _text(item.get("relationship"), "postcondition.relationship", 128)
     if kind == "application_state_equals":
         _text(item.get("application"), "postcondition.application", 256)
-        _json_value(item.get("expected_value"), "postcondition.expected_value")
+        if "expected_value" not in item:
+            _fail("postcondition.expected_value_required")
+        _json_value(item["expected_value"], "postcondition.expected_value")
 
 
 def validate_agent_task_v2_response(
