@@ -96,7 +96,12 @@ def _print_target_diagnostics(
         selector = "<BRAK TYTUŁU>"
     else:
         selector = repr(title_contains)
-    print(f"Requested target selector: {selector}")
+    selector_label = (
+        "Requested root-window selector"
+        if root_window_only
+        else "Requested title selector"
+    )
+    print(f"{selector_label}: {selector}")
     candidates = [
         window
         for window in windows
