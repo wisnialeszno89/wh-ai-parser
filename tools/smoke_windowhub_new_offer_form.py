@@ -111,10 +111,12 @@ def summarize_controls(
         metadata = element.metadata or {}
         automation_id = metadata.get("automation_id")
         class_name = metadata.get("uia_class_name")
+        runtime_id = metadata.get("uia_runtime_id")
         identity = (
             control_type,
             label.casefold(),
             automation_id if isinstance(automation_id, str) else "",
+            runtime_id if isinstance(runtime_id, str) else "",
         )
         if identity in seen:
             continue
