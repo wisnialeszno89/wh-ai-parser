@@ -142,6 +142,12 @@ class ExpectationResolver:
         scene,
     ) -> tuple[tuple[object, ...], ...]:
         signature = []
+        state = scene.observation.state
+        signature.append((
+            "__active_window__",
+            getattr(state, "active_application", None),
+            getattr(state, "active_window_title", None),
+        ))
 
         for element in scene.elements:
             metadata = element.metadata or {}
@@ -158,6 +164,7 @@ class ExpectationResolver:
                     metadata.get("uia_enabled"),
                     metadata.get("uia_visible"),
                     metadata.get("uia_selected"),
+                    metadata.get("uia_focused"),
                     metadata.get("current_value"),
                 )
             )
