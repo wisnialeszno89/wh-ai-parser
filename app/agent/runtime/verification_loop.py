@@ -92,19 +92,19 @@ class VerificationLoop:
 
             verification_result = None
 
-            if (
-                execution_result.success
-                and expected_outcome is not None
-            ):
+            if execution_result.success:
                 execution_was_performed = (
                     execution_result.metadata or {}
                 ).get("executed")
 
-                # A DRY_RUN action may legitimately report success while
-                # explicitly stating that no hardware interaction occurred.
-                # In that case the real environment cannot prove the expected
-                # post-action state, so verification must not manufacture a
-                # failure from the unchanged dry-run scene.
+                # Refresh perception after every successful real action,
+                # even when no action-specific verification expectation is
+                # registered. NaviMind must plan the next step from the
+                # current environment, not from a stale scene.
+                #
+                # A DRY_RUN action may report success while explicitly
+                # stating that no hardware interaction occurred. In that
+                # case, keep the existing scene and skip observation.
                 if execution_was_performed is not False:
                     observation = (
                         self.environment.observe()
@@ -122,12 +122,13 @@ class VerificationLoop:
 
                     context.update_scene(scene)
 
-                    verification_result = (
-                        self.outcome_verifier.verify(
-                            expected_outcome,
-                            scene,
+                    if expected_outcome is not None:
+                        verification_result = (
+                            self.outcome_verifier.verify(
+                                expected_outcome,
+                                scene,
+                            )
                         )
-                    )
 
             attempt = ExecutionAttempt(
                 action=action,
