@@ -262,6 +262,7 @@ def main() -> int:
     print(f"Current foreground application: {observation.state.active_application}")
     print(f"Target application: {target.application}")
     print(f"Target window: {target.title or '<BRAK TYTUŁU>'}")
+    print(f"Target window size: {target.rect.width}x{target.rect.height}")
     print("The test will only bring this window to the foreground.")
     print("It will not click, type, save, or change application data.")
 
