@@ -69,6 +69,8 @@ class SemanticTargetQuery:
     role: str | None = None
     label: str | None = None
     automation_id: str | None = None
+    # Local-only Windows UIA identity. Never projected into the model contract.
+    uia_runtime_id: str | None = None
     within: SemanticAncestorConstraint | None = None
     description: str = "semantic target"
 
@@ -77,6 +79,7 @@ class SemanticTargetQuery:
             ("role", self.role),
             ("label", self.label),
             ("automation_id", self.automation_id),
+            ("uia_runtime_id", self.uia_runtime_id),
             ("description", self.description),
         )
         for field_name, value in values:
@@ -84,7 +87,12 @@ class SemanticTargetQuery:
 
         if not any(
             value is not None
-            for value in (self.role, self.label, self.automation_id)
+            for value in (
+                self.role,
+                self.label,
+                self.automation_id,
+                self.uia_runtime_id,
+            )
         ):
             raise ValueError("semantic_target_query_has_no_selector")
         if not isinstance(self.description, str) or not self.description.strip():
