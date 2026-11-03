@@ -320,3 +320,36 @@ def test_robot_gui_executor_fails_closed_for_duplicate_uia_runtime_identity():
 
     assert result.success is False
     assert mouse.points == []
+
+
+def test_robot_gui_executor_rejects_duplicate_uia_identity_even_for_unique_label():
+    mouse = RecordingMouse()
+    executor = RobotGUIExecutor(
+        robot_action_executor=RobotActionExecutor(
+            mode=RobotExecutionMode.DRY_RUN,
+            mouse=mouse,
+        ),
+    )
+    unique_label = make_uia_element(
+        label="Customer reference",
+        runtime_id="duplicate-runtime",
+        automation_id="IDC_REFERENCE",
+    )
+    unrelated = make_uia_element(
+        label="Different label",
+        runtime_id="duplicate-runtime",
+        automation_id="IDC_OTHER",
+    )
+
+    result = executor.execute(
+        AgentAction(
+            name="click_screen_element",
+            description="Click Customer reference",
+            target="Customer reference",
+        ),
+        make_context(elements=(unique_label, unrelated)),
+    )
+
+    assert result.success is False
+    assert result.requires_manual_review is True
+    assert mouse.points == []
