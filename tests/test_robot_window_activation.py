@@ -40,6 +40,19 @@ class _WindowActivator:
         return self.result
 
 
+class _ForegroundChangingGate:
+    def __init__(self, actual_foreground_handle):
+        self.actual_foreground_handle = actual_foreground_handle
+        self.calls = []
+
+    def can_activate_window(self, **kwargs):
+        self.calls.append(kwargs)
+        return (
+            kwargs.get("expected_foreground_handle")
+            == self.actual_foreground_handle
+        )
+
+
 def test_window_activation_is_in_the_explicit_action_policy():
     assert ActionPolicy().can_execute(InteractionAction.ACTIVATE_WINDOW)
 
@@ -328,7 +341,8 @@ def test_windows_safety_gate_rejects_unobserved_or_boolean_window_handles():
 
 
 def test_live_window_activation_fails_closed_when_foreground_guard_rejects_stale_snapshot():
-    gate = _SafetyGate(allowed=False)
+    # The observed foreground was 501, but Windows now reports 900.
+    gate = _ForegroundChangingGate(actual_foreground_handle=900)
     activator = _WindowActivator()
     executor = RobotActionExecutor(
         mode=RobotExecutionMode.LIVE,
