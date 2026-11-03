@@ -273,7 +273,7 @@ class RobotGUIExecutor(ActionExecutor):
                         "Resolved screen element has no tracked object id "
                         "and is not a guarded UIA target"
                     ),
-                    requires_manual_review=False,
+                    requires_manual_review=True,
                     metadata={
                         "target": target_label,
                         "resolution_score": resolution.score,
