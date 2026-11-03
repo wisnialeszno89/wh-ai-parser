@@ -351,3 +351,26 @@ def test_activation_smoke_requires_exactly_one_identity_selector():
             title_contains="Angebot",
             root_window_only=True,
         )
+
+
+
+def test_activation_smoke_cli_accepts_root_window_selector(monkeypatch):
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "smoke_windows_desktop_window_activation.py",
+            "--target-process",
+            "Okna.exe",
+            "--target-root-window",
+            "--diagnose-only",
+        ],
+    )
+
+    args = _parse_args()
+
+    assert args.target_process == "Okna.exe"
+    assert args.target_root_window is True
+    assert args.target_title_contains is None
+    assert args.target_title_empty is False
+    assert args.diagnose_only is True
