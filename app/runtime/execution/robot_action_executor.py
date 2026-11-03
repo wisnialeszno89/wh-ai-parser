@@ -321,12 +321,22 @@ class RobotActionExecutor:
                 reason="Window activation policy rejected action",
             )
 
+        if isinstance(window_handle, bool):
+            return RobotActionResult(
+                False,
+                action,
+                self.mode,
+                False,
+                reason="Desktop window handle is invalid",
+            )
         try:
             handle = int(window_handle)
             observed_handles = {
-                int(candidate)
+                candidate
                 for candidate in observed_window_handles
-                if not isinstance(candidate, bool)
+                if isinstance(candidate, int)
+                and not isinstance(candidate, bool)
+                and candidate > 0
             }
         except (TypeError, ValueError, OverflowError):
             return RobotActionResult(
