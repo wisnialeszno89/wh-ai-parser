@@ -56,6 +56,7 @@ def test_dry_run_window_activation_does_not_call_native_activator():
 
     result = executor.execute_window_activation(
         window_handle=777,
+        expected_foreground_handle=501,
         observed_window_handles=(501, 777),
     )
 
@@ -78,6 +79,7 @@ def test_live_window_activation_requires_current_inventory_and_gate():
 
     result = executor.execute_window_activation(
         window_handle=777,
+        expected_foreground_handle=501,
         observed_window_handles=(501, 777),
     )
 
@@ -123,6 +125,7 @@ def test_live_window_activation_fails_closed_when_safety_gate_rejects():
 
     result = executor.execute_window_activation(
         window_handle=777,
+        expected_foreground_handle=501,
         observed_window_handles=(501, 777),
     )
 
@@ -165,6 +168,7 @@ def test_robot_gui_executor_routes_only_locally_bound_window_handle():
         "_computer_use_v2_window_activation_binding",
         {
             "window_handle": 777,
+            "foreground_window_handle": 501,
             "target_ref": "ent_0002",
             "label": "Inbox - Outlook — OUTLOOK.EXE",
         },
@@ -218,6 +222,7 @@ def test_robot_gui_executor_rejects_active_window_activation():
         "_computer_use_v2_window_activation_binding",
         {
             "window_handle": 501,
+            "foreground_window_handle": 501,
             "target_ref": "ent_0001",
             "label": "Workbook - Excel — EXCEL.EXE",
         },
@@ -308,9 +313,46 @@ def test_windows_safety_gate_rejects_unobserved_or_boolean_window_handles():
 
     assert gate.can_activate_window(
         window_handle=777,
+        expected_foreground_handle=501,
         observed_window_handles=(501,),
     ) is False
     assert gate.can_activate_window(
         window_handle=True,
-        observed_window_handles=(True,),
+        expected_foreground_handle=501,
+        observed_window_handles=(True, 501),
+    ) is False
+
+
+def test_live_window_activation_rejects_a_foreground_change_since_observation():
+    gate = _SafetyGate(allowed=True)
+    activator = _WindowActivator()
+    executor = RobotActionExecutor(
+        mode=RobotExecutionMode.LIVE,
+        safety_gate=gate,
+        window_activator=activator,
+        mouse=SimpleNamespace(),
+    )
+
+    result = executor.execute_window_activation(
+        window_handle=777,
+        expected_foreground_handle=501,
+        observed_window_handles=(501, 777),
+    )
+
+    assert result.success is True
+    assert result.executed is True
+    assert gate.calls == [{
+        "window_handle": 777,
+        "expected_foreground_handle": 501,
+        "observed_window_handles": (501, 777),
+    }]
+
+
+def test_windows_safety_gate_rejects_target_equal_to_expected_foreground():
+    gate = ExecutionSafetyGate()
+
+    assert gate.can_activate_window(
+        window_handle=501,
+        expected_foreground_handle=501,
+        observed_window_handles=(501, 777),
     ) is False
