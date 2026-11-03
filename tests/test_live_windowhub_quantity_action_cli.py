@@ -24,3 +24,4 @@ def test_live_quantity_tool_resolves_repository_imports_when_run_as_script():
     assert result.returncode == 0, result.stderr or result.stdout
     assert "--quantity" in result.stdout
     assert "--execute-live" in result.stdout
+    assert "--focus-delay-seconds" in result.stdout
