@@ -74,6 +74,7 @@ class WindowsDesktopV2AgentRuntime:
         control_loop: AgentControlLoop,
         reasoner,
         action_session: ComputerUseV2ActionSession | None = None,
+        experience_provider=None,
     ) -> None:
         if (
             not callable(getattr(control_loop, "observe_scene", None))
@@ -85,6 +86,7 @@ class WindowsDesktopV2AgentRuntime:
         self.control_loop = control_loop
         self.reasoner = reasoner
         self.action_session = action_session or ComputerUseV2ActionSession()
+        self.experience_provider = experience_provider
 
     def run(
         self,
@@ -106,6 +108,7 @@ class WindowsDesktopV2AgentRuntime:
         for cycle in range(max_cycles):
             try:
                 scene = self.control_loop.observe_scene()
+                experience = self._retrieve_experience(scene, goal)
                 prepared = self.action_session.prepare_cycle(
                     scene,
                     task_id=resolved_task_id,
@@ -114,6 +117,7 @@ class WindowsDesktopV2AgentRuntime:
                     session_id=resolved_session_id,
                     cycle=cycle,
                     max_cycles=max_cycles,
+                    experience=experience,
                 )
             except Exception as exc:
                 return self._result(
@@ -414,6 +418,39 @@ class WindowsDesktopV2AgentRuntime:
             cycle_results,
             stopped=True,
             reason="max_cycles_reached_without_completion",
+        )
+
+    def _retrieve_experience(
+        self,
+        scene: ScreenScene,
+        goal: str,
+    ) -> tuple[Mapping[str, object], ...]:
+        """Load a few approved examples for the observed application only."""
+        provider = self.experience_provider
+        retrieve = getattr(provider, "retrieve", None)
+        if not callable(retrieve):
+            return ()
+
+        application_id = scene.observation.state.active_application
+        if not isinstance(application_id, str) or not application_id.strip():
+            return ()
+        try:
+            records = retrieve(
+                application_id=application_id,
+                goal=goal,
+                max_items=3,
+            )
+        except Exception:
+            # Experience is advisory. An unavailable memory store must not
+            # stop a normal desktop task or weaken execution safety.
+            return ()
+
+        if not isinstance(records, (tuple, list)):
+            return ()
+        return tuple(
+            dict(record)
+            for record in records[:3]
+            if isinstance(record, Mapping)
         )
 
     @staticmethod
