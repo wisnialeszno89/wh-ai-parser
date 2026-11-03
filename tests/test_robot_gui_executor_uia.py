@@ -8,6 +8,7 @@ from app.agent.execution.robot_gui_executor import RobotGUIExecutor
 from app.agent.perception.interaction_capability import InteractionCapability
 from app.agent.perception.screen_element import ScreenElement
 from app.agent.perception.screen_scene import ScreenScene
+from app.agent.perception.semantic_target_query import SemanticTargetQuery
 from app.agent.runtime.execution_context import ExecutionContext
 from app.runtime.execution.interactions.interaction_action import InteractionAction
 from app.runtime.execution.robot_action_executor import (
@@ -79,12 +80,15 @@ def make_uia_element(
     enabled=True,
     visible=True,
     runtime_id="1-2-3",
+    automation_id="Nowa_oferta",
+    x=20,
+    y=30,
 ):
     return ScreenElement(
         kind="button",
         label=label,
-        x=20,
-        y=30,
+        x=x,
+        y=y,
         width=110,
         height=110,
         confidence=0.99,
@@ -95,8 +99,8 @@ def make_uia_element(
         ),
         metadata={
             "source": "windowhub_ui_automation",
-            "provider_element_id": "uia:1-2-3",
-            "automation_id": "Nowa_oferta",
+            "provider_element_id": f"uia:{runtime_id}",
+            "automation_id": automation_id,
             "uia_control_type": "button",
             "uia_enabled": enabled,
             "uia_visible": visible,
@@ -236,4 +240,83 @@ def test_robot_action_executor_live_uia_path_requires_known_origin():
     assert result.success is False
     assert result.executed is False
     assert "requires a known screen origin" in result.reason
+    assert mouse.points == []
+
+
+def test_robot_gui_executor_targets_duplicate_labels_by_exact_uia_runtime_id():
+    mouse = RecordingMouse()
+    robot = RobotActionExecutor(
+        mode=RobotExecutionMode.DRY_RUN,
+        mouse=mouse,
+    )
+    executor = RobotGUIExecutor(robot_action_executor=robot)
+
+    first = make_uia_element(
+        runtime_id="first-control",
+        automation_id="IDC_WIDTH",
+        x=20,
+        y=30,
+    )
+    second = make_uia_element(
+        runtime_id="second-control",
+        automation_id="IDC_SASH_WIDTH",
+        x=80,
+        y=40,
+    )
+    query = SemanticTargetQuery(
+        role="button",
+        label="NOWA OFERTA",
+        automation_id="IDC_SASH_WIDTH",
+        uia_runtime_id="second-control",
+        description="WindowHub sash width control",
+    )
+
+    result = executor.execute(
+        AgentAction(
+            name="click_screen_element",
+            description="Click the uniquely bound UIA control",
+            target=query,
+        ),
+        make_context(elements=(first, second)),
+    )
+
+    assert result.success is True
+    assert result.metadata["target_id"] == "uia:second-control"
+    assert result.metadata["point"] == (235, 295)
+    assert mouse.points == [(235, 295)]
+
+
+def test_robot_gui_executor_fails_closed_for_duplicate_uia_runtime_identity():
+    mouse = RecordingMouse()
+    executor = RobotGUIExecutor(
+        robot_action_executor=RobotActionExecutor(
+            mode=RobotExecutionMode.DRY_RUN,
+            mouse=mouse,
+        ),
+    )
+    first = make_uia_element(
+        runtime_id="same-runtime",
+        automation_id="IDC_WIDTH",
+    )
+    second = make_uia_element(
+        runtime_id="same-runtime",
+        automation_id="IDC_HEIGHT",
+    )
+    query = SemanticTargetQuery(
+        role="button",
+        label="NOWA OFERTA",
+        uia_runtime_id="same-runtime",
+        description="Duplicate UIA runtime identity",
+    )
+
+    result = executor.execute(
+        AgentAction(
+            name="click_screen_element",
+            description="Click an ambiguous UIA target",
+            target=query,
+        ),
+        make_context(elements=(first, second)),
+    )
+
+    assert result.success is False
     assert mouse.points == []
