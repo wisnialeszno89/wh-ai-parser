@@ -168,3 +168,20 @@ def test_compiler_rejects_profile_not_present_in_supported_catalog():
 
     assert AgentConstructionCompiler().compile(context) is None
 
+
+def test_compiler_keeps_outside_only_color_on_the_outside():
+    context = OfferContext(
+        raw_request="okno 1200x1500 DKR antracyt z zewnątrz",
+        width=1200,
+        height=1500,
+        product_type="window",
+        opening="RIGHT_TILT_TURN",
+        color_outside="anthracite",
+    )
+
+    project = AgentConstructionCompiler().compile(context)
+
+    assert project is not None
+    assert project.offer.color_inside == ""
+    assert project.offer.color_outside == "7016"
+
