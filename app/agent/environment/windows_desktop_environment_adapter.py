@@ -61,6 +61,10 @@ class WindowsDesktopEnvironmentAdapter(EnvironmentAdapter):
             snapshot_provider or self._capture_foreground_window
         )
         self._window_inventory_provider = window_inventory_provider
+        self._use_native_inventory = (
+            snapshot_provider is None
+            and window_inventory_provider is None
+        )
 
     def observe(self) -> EnvironmentObservation:
         snapshot = self._snapshot_provider()
@@ -111,11 +115,15 @@ class WindowsDesktopEnvironmentAdapter(EnvironmentAdapter):
                 supplied_windows,
                 snapshot,
             )
-        elif os.name == "nt":
+        elif self._use_native_inventory and os.name == "nt":
             desktop_windows = self._capture_visible_windows(
                 snapshot.handle,
                 snapshot=snapshot,
             )
+        else:
+            # Injected foreground snapshots must remain deterministic in
+            # tests; the active window is still represented in the inventory.
+            desktop_windows = self._validate_window_inventory((), snapshot)
 
         state = EnvironmentState(
             active_application=application,
