@@ -165,6 +165,7 @@ class ExpectationResolver:
                     metadata.get("uia_visible"),
                     metadata.get("uia_selected"),
                     metadata.get("uia_focused"),
+                    metadata.get("is_foreground"),
                     metadata.get("current_value"),
                 )
             )
