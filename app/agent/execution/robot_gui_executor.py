@@ -1,3 +1,5 @@
+from collections.abc import Mapping
+
 from app.agent.agent_action import AgentAction
 from app.agent.execution.action_executor import ActionExecutor
 from app.agent.execution.execution_result import ExecutionResult
@@ -127,7 +129,28 @@ class RobotGUIExecutor(ActionExecutor):
             except (TypeError, ValueError, OverflowError):
                 foreground_handle = 0
 
-            if target_handle == foreground_handle or target_handle not in observed_handles:
+            local_binding = context.get_value(
+                "_computer_use_v2_window_activation_binding"
+            )
+            if (
+                not isinstance(local_binding, Mapping)
+                or local_binding.get("window_handle") != target_handle
+                or local_binding.get("label") != action.target
+                or not isinstance(local_binding.get("target_ref"), str)
+            ):
+                return ExecutionResult(
+                    action_name=action.name,
+                    success=False,
+                    message="No matching V2-local window activation binding",
+                    requires_manual_review=True,
+                    metadata={"target": action.target, "executed": False},
+                )
+
+            if (
+                foreground_handle <= 0
+                or target_handle == foreground_handle
+                or target_handle not in observed_handles
+            ):
                 return ExecutionResult(
                     action_name=action.name,
                     success=False,
