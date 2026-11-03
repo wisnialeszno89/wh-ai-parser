@@ -19,17 +19,17 @@ from app.agent.verification.outcome_verifier import OutcomeVerifier
 from app.agent.verification.verification_result import VerificationResult
 
 
-def _scene():
+def _scene(label="Select item"):
     evidence = SemanticEvidence(
         source=EvidenceSource.ACCESSIBILITY,
         kind=EvidenceKind.LABEL,
-        value="Save",
+        value=label,
         confidence=0.99,
         element_id="uia:save",
     )
     element = ScreenElement(
         kind="button",
-        label="Save",
+        label=label,
         x=10,
         y=20,
         width=100,
@@ -165,7 +165,7 @@ def test_v2_runtime_does_not_treat_dry_run_as_successful_computer_action():
     result = WindowsDesktopV2AgentRuntime(
         control_loop=control,
         reasoner=reasoner,
-    ).run("Save the workbook", max_cycles=2)
+    ).run("Select the item", max_cycles=2)
 
     assert result.success is False
     assert result.completed is False
@@ -173,6 +173,32 @@ def test_v2_runtime_does_not_treat_dry_run_as_successful_computer_action():
     assert result.reason == "dry_run_no_hardware_action_performed"
     assert result.cycles[0].executed is False
     assert control.run_calls == 1
+
+
+
+
+def test_v2_runtime_requires_confirmation_before_saving_an_offer():
+    scene = _scene("Save offer")
+    reasoner = _Reasoner(
+        lambda request, _call: _act_response(
+            request,
+            postcondition={"kind": "scene_changed"},
+        )
+    )
+    control = _ControlLoop(scene, executed=True, verified=True)
+
+    result = WindowsDesktopV2AgentRuntime(
+        control_loop=control,
+        reasoner=reasoner,
+    ).run("Save the offer", max_cycles=2)
+
+    assert result.success is False
+    assert result.completed is False
+    assert result.stopped is True
+    assert result.requires_manual_review is True
+    assert result.reason == "explicit_user_confirmation_required"
+    assert result.cycles[0].executed is False
+    assert control.run_calls == 0
 
 
 def test_v2_runtime_reasons_again_only_after_verified_live_action():
@@ -192,7 +218,7 @@ def test_v2_runtime_reasons_again_only_after_verified_live_action():
     result = WindowsDesktopV2AgentRuntime(
         control_loop=control,
         reasoner=reasoner,
-    ).run("Save the workbook", max_cycles=3)
+    ).run("Select the item", max_cycles=3)
 
     assert result.success is True
     assert result.completed is True
@@ -225,7 +251,7 @@ def test_v2_runtime_maps_element_state_postcondition_to_local_verification():
     result = WindowsDesktopV2AgentRuntime(
         control_loop=control,
         reasoner=reasoner,
-    ).run("Save the workbook", max_cycles=1)
+    ).run("Select the item", max_cycles=1)
 
     expected = control.last_context.get_value("expected_outcomes")[
         "click_screen_element"
@@ -241,7 +267,7 @@ def test_outcome_verifier_checks_a_named_ui_automation_state():
     scene = _scene()
     expected = ExpectedOutcome(
         description="The control should be selected.",
-        expected_element_label="Save",
+        expected_element_label="Select item",
         expected_element_state_name="uia_selected",
         expected_element_state_value=True,
     )
