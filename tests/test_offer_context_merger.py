@@ -474,3 +474,45 @@ def test_merger_preserves_existing_opening_when_update_has_none():
     result = merger.merge(existing, update)
 
     assert result.opening == "RIGHT_TILT_TURN"
+
+
+def test_merger_updates_multiple_openings_and_clears_single_opening():
+    merger = OfferContextMerger()
+
+    existing = OfferContext(
+        raw_request="okno 1200x1500 DKR",
+        width=1200,
+        height=1500,
+        product_type="window",
+        opening="RIGHT_TILT_TURN",
+        openings=("RIGHT_TILT_TURN",),
+    )
+
+    update = OfferContext(
+        raw_request="teraz dwa skrzydła: DKR i FIX",
+        openings=("RIGHT_TILT_TURN", "FIX"),
+    )
+
+    result = merger.merge(existing, update)
+
+    assert result.openings == ("RIGHT_TILT_TURN", "FIX")
+    assert result.opening is None
+
+
+def test_merger_preserves_multiple_openings_when_update_has_no_opening():
+    merger = OfferContextMerger()
+
+    existing = OfferContext(
+        raw_request="okno dwuskrzydłowe",
+        openings=("RIGHT_TILT_TURN", "FIX"),
+    )
+
+    update = OfferContext(
+        raw_request="kolor antracyt",
+        color_outside="anthracite",
+    )
+
+    result = merger.merge(existing, update)
+
+    assert result.openings == ("RIGHT_TILT_TURN", "FIX")
+
