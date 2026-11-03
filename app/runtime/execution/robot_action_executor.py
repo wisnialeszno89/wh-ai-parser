@@ -8,6 +8,9 @@ from app.runtime.execution.robot_mouse import RobotMouse, RobotMouseMode
 from app.runtime.execution.keyboard.keyboard_controller import (
     KeyboardController,
 )
+from app.runtime.execution.keyboard.keyboard_input_policy import (
+    normalize_keyboard_sequence,
+)
 from app.runtime.execution.verification import ExecutionVerifier
 from app.runtime.execution.vision.models.control_type import ControlType
 from app.runtime.execution.vision.models.rect import Rect
@@ -219,6 +222,79 @@ class RobotActionExecutor:
             reason=mouse_result.reason,
         )
 
+
+
+    def execute_keyboard_input(
+        self,
+        *,
+        sequence: str,
+        window_handle=None,
+    ) -> RobotActionResult:
+        """Execute one allowlisted navigation key/shortcut on the active window."""
+        action = InteractionAction.KEY_PRESS
+
+        if not self.action_policy.can_execute(action):
+            return RobotActionResult(
+                False,
+                action,
+                self.mode,
+                False,
+                reason="Keyboard action policy rejected action",
+            )
+
+        try:
+            keys = normalize_keyboard_sequence(sequence)
+        except (TypeError, ValueError) as exc:
+            return RobotActionResult(
+                False,
+                action,
+                self.mode,
+                False,
+                reason=str(exc),
+            )
+
+        if self.mode is RobotExecutionMode.DRY_RUN:
+            return RobotActionResult(
+                True,
+                action,
+                self.mode,
+                False,
+                reason="DRY_RUN keyboard input; hardware not touched",
+            )
+
+        if not self.safety_gate.can_execute_keyboard_input(
+            window_handle=window_handle,
+            require_foreground=True,
+        ):
+            return RobotActionResult(
+                False,
+                action,
+                self.mode,
+                False,
+                reason="Keyboard safety gate rejected non-foreground target",
+            )
+
+        try:
+            if len(keys) == 1:
+                self.keyboard.press(keys[0])
+            else:
+                self.keyboard.hotkey(*keys)
+        except Exception as exc:
+            return RobotActionResult(
+                False,
+                action,
+                self.mode,
+                False,
+                reason=f"LIVE keyboard input failed: {type(exc).__name__}",
+            )
+
+        return RobotActionResult(
+            True,
+            action,
+            self.mode,
+            True,
+            reason=f"LIVE keyboard sequence executed: {sequence}",
+        )
 
     def execute_uia_screen_element(
         self,
