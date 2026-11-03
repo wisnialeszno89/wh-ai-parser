@@ -364,3 +364,60 @@ def test_v2_act_decision_accepts_semantic_scene_change_postcondition():
     }
 
     validate_agent_task_v2_response(response, request)
+
+
+def test_v2_request_can_advertise_multiple_observation_capabilities():
+    payload = make_request()
+    payload["capabilities"]["observations"].append(
+        {
+            "id": "inspect_customer_field",
+            "description": "Inspect the customer lookup field.",
+            "target_ref": "ent_customer_lookup",
+            "input_contract": "entity_inspection_v1",
+            "max_items": 1,
+            "data_classification": "business_records",
+            "read_only": True,
+        }
+    )
+
+    # The request can expose alternatives; the per-cycle execution budget
+    # still limits the agent to one observation in a single reasoning cycle.
+    validate_agent_task_v2_payload(payload)
+
+
+def test_v2_act_rejects_application_state_postcondition_without_expected_value():
+    request = make_request()
+    response = make_response("act")
+    response["observation_request"] = None
+    response["action"] = {
+        "name": "open_lookup",
+        "target_ref": "ent_customer_lookup",
+        "value": None,
+        "expected_postcondition": {
+            "kind": "application_state_equals",
+            "application": "WindowHub",
+        },
+        "requires_confirmation": False,
+    }
+
+    with pytest.raises(ValueError, match="postcondition.expected_value_required"):
+        validate_agent_task_v2_response(response, request)
+
+
+def test_v2_request_rejects_non_text_observation_contract_identifier():
+    payload = make_request()
+    payload["capabilities"]["observations"][0]["input_contract"] = ["table_page_v1"]
+
+    with pytest.raises(
+        ValueError,
+        match="observation_capability.input_contract_must_be_text",
+    ):
+        validate_agent_task_v2_payload(payload)
+
+
+def test_v2_request_rejects_non_text_semantic_relationship_references():
+    payload = make_request()
+    payload["world"]["relationships"][0]["from_ref"] = []
+
+    with pytest.raises(ValueError, match="relationship.from_ref_must_be_text"):
+        validate_agent_task_v2_payload(payload)
