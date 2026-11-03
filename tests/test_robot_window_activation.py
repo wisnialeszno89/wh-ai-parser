@@ -374,3 +374,56 @@ def test_windows_safety_gate_rejects_target_equal_to_expected_foreground():
         expected_foreground_handle=501,
         observed_window_handles=(501, 777),
     ) is False
+
+
+def test_robot_gui_executor_rejects_window_activation_after_observed_foreground_changes():
+    calls = []
+
+    class FakeRobotExecutor:
+        def execute_window_activation(self, **kwargs):
+            calls.append(kwargs)
+            return SimpleNamespace(success=True, executed=True, reason="unexpected")
+
+    observation = EnvironmentObservation(
+        state=EnvironmentState(
+            active_application="BROWSER.EXE",
+            active_window_title="Browser",
+        ),
+        metadata={
+            "window_handle": 900,
+            "foreground_window_handle": 900,
+            "desktop_windows": (
+                SimpleNamespace(handle=501),
+                SimpleNamespace(handle=777),
+                SimpleNamespace(handle=900),
+            ),
+        },
+    )
+    context = ExecutionContext(
+        request=AgentRequest(message="Switch to Outlook.")
+    )
+    context.update_scene(ScreenScene(observation=observation))
+    context.set_value(
+        "_computer_use_v2_window_activation_binding",
+        {
+            "window_handle": 777,
+            "foreground_window_handle": 501,
+            "target_ref": "ent_0002",
+            "label": "Inbox - Outlook — OUTLOOK.EXE",
+        },
+    )
+
+    result = RobotGUIExecutor(
+        robot_action_executor=FakeRobotExecutor(),
+    ).execute(
+        AgentAction(
+            name="activate_window",
+            description="Activate Outlook.",
+            target="Inbox - Outlook — OUTLOOK.EXE",
+            value="777",
+        ),
+        context,
+    )
+
+    assert result.success is False
+    assert calls == []
