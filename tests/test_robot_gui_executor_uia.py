@@ -113,6 +113,164 @@ def make_uia_element(
     )
 
 
+def make_quantity_element(*, runtime_id="quantity-runtime", label="Ile sztuk", automation_id="1001"):
+    return ScreenElement(
+        kind="edit",
+        label=label,
+        x=40,
+        y=50,
+        width=120,
+        height=28,
+        confidence=0.99,
+        interaction_capability=InteractionCapability.CLICKABLE,
+        metadata={
+            "source": "windows_ui_automation",
+            "provider_element_id": f"uia:{runtime_id}",
+            "automation_id": automation_id,
+            "uia_control_type": "edit",
+            "uia_enabled": True,
+            "uia_visible": True,
+            "uia_runtime_id": runtime_id,
+            "interaction_capability_confidence": 0.99,
+        },
+    )
+
+
+def make_windowhub_form_context(elements, *, application="Okna.exe", title="Dodawanie nowej pozycji"):
+    observation = EnvironmentObservation(
+        state=EnvironmentState(
+            active_application=application,
+            active_window_title=title,
+        ),
+        metadata={
+            "window_handle": 1234,
+            "window_rect": SimpleNamespace(left=100, top=200, width=1200, height=800),
+        },
+    )
+    scene = ScreenScene(observation=observation, elements=tuple(elements))
+    return ExecutionContext(
+        request=AgentRequest(message="Set WindowHub quantity"),
+        last_observation=observation,
+        current_scene=scene,
+    )
+
+
+def _quantity_scope(runtime_id="quantity-runtime"):
+    return {
+        "field_name": "quantity_input",
+        "application": "Okna.exe",
+        "window_title": "Dodawanie nowej pozycji",
+        "label": "Ile sztuk",
+        "control_type": "edit",
+        "automation_id": "1001",
+        "uia_runtime_id": runtime_id,
+    }
+
+
+def test_windowhub_form_scope_rejects_when_foreground_application_changes():
+    element = make_quantity_element()
+    context = make_windowhub_form_context(
+        (element,),
+        application="Code.exe",
+        title="source.py",
+    )
+    context.set_value("_windowhub_form_action_scope", _quantity_scope())
+    mouse = RecordingMouse()
+    executor = RobotGUIExecutor(
+        robot_action_executor=RobotActionExecutor(
+            mode=RobotExecutionMode.DRY_RUN,
+            mouse=mouse,
+        ),
+    )
+    action = AgentAction(
+        name="write_text",
+        description="Set quantity",
+        target=SemanticTargetQuery(
+            role="edit",
+            label="Ile sztuk",
+            automation_id="1001",
+            uia_runtime_id="quantity-runtime",
+            description="WindowHub quantity field",
+        ),
+        value="2",
+    )
+
+    result = executor.execute(action, context)
+
+    assert result.success is False
+    assert result.requires_manual_review is True
+    assert result.metadata["executed"] is False
+    assert "Fresh observation" in result.message
+    assert mouse.points == []
+
+
+def test_windowhub_form_scope_rejects_reused_automation_id_for_description_field():
+    description = make_quantity_element(
+        runtime_id="description-runtime",
+        label="Opis pozycji",
+        automation_id="1001",
+    )
+    context = make_windowhub_form_context((description,))
+    context.set_value("_windowhub_form_action_scope", _quantity_scope("quantity-runtime"))
+    mouse = RecordingMouse()
+    executor = RobotGUIExecutor(
+        robot_action_executor=RobotActionExecutor(
+            mode=RobotExecutionMode.DRY_RUN,
+            mouse=mouse,
+        ),
+    )
+    action = AgentAction(
+        name="write_text",
+        description="Set quantity",
+        target=SemanticTargetQuery(
+            role="edit",
+            label="Ile sztuk",
+            automation_id="1001",
+            uia_runtime_id="quantity-runtime",
+            description="WindowHub quantity field",
+        ),
+        value="2",
+    )
+
+    result = executor.execute(action, context)
+
+    assert result.success is False
+    assert result.requires_manual_review is True
+    assert result.metadata["executed"] is False
+    assert mouse.points == []
+
+
+def test_windowhub_form_scope_allows_only_exact_fresh_quantity_control():
+    quantity = make_quantity_element()
+    context = make_windowhub_form_context((quantity,))
+    context.set_value("_windowhub_form_action_scope", _quantity_scope())
+    mouse = RecordingMouse()
+    executor = RobotGUIExecutor(
+        robot_action_executor=RobotActionExecutor(
+            mode=RobotExecutionMode.DRY_RUN,
+            mouse=mouse,
+        ),
+    )
+    action = AgentAction(
+        name="write_text",
+        description="Set quantity",
+        target=SemanticTargetQuery(
+            role="edit",
+            label="Ile sztuk",
+            automation_id="1001",
+            uia_runtime_id="quantity-runtime",
+            description="WindowHub quantity field",
+        ),
+        value="2",
+    )
+
+    result = executor.execute(action, context)
+
+    assert result.success is True
+    assert result.metadata["execution_path"] == "uia_only"
+    assert mouse.points == [(200, 264)]
+
+
 def test_robot_gui_executor_clicks_uia_only_target_in_dry_run():
     mouse = RecordingMouse()
 
