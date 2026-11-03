@@ -1,3 +1,6 @@
+import re
+
+from app.catalog.profiles import PROFILE_CATALOG
 from app.wh.runtime.construction_project import ConstructionProject
 from app.wh.runtime.construction_schema import ConstructionSchema
 from app.wh.runtime.construction_offer import ConstructionOffer
@@ -75,11 +78,68 @@ class AgentConstructionCompiler:
         offer = self.offer_enricher.enrich(
             context.raw_request
         )
+        if not self._apply_context_offer_details(offer, context):
+            return None
 
         return ConstructionProject(
             schema=schema,
             offer=offer
         )
+
+    @staticmethod
+    def _resolve_color_code(value):
+        if not isinstance(value, str) or not value.strip():
+            return None
+
+        normalized = value.strip().casefold()
+        if normalized in {"white", "biały", "białe", "biała"}:
+            # The legacy WindowHub offer model uses an empty color override
+            # for the standard white finish.
+            return ""
+        if normalized in {"anthracite", "antracyt"}:
+            return "7016"
+        if re.fullmatch(r"\d{4}", normalized):
+            return normalized
+        return None
+
+    def _apply_context_offer_details(self, offer, context) -> bool:
+        """Apply normalized multi-turn context to the legacy offer model."""
+        profile_code = getattr(context, "profile", None)
+        if profile_code is not None:
+            profile_product = PROFILE_CATALOG.get(profile_code)
+            if profile_product is None:
+                return False
+            profile = self.offer_enricher.profile_parser.parse(
+                profile_product.name
+            )
+            if not profile.manufacturer or not profile.system:
+                return False
+            offer.profile = profile
+
+        glazing = getattr(context, "glazing", None)
+        if glazing is not None:
+            glass_type = {
+                "double": "2glass",
+                "triple": "3glass",
+            }.get(glazing)
+            if glass_type is None:
+                return False
+            offer.glass.type = glass_type
+
+        for context_field, offer_field in (
+            ("color_inside", "color_inside"),
+            ("color_outside", "color_outside"),
+        ):
+            color = getattr(context, context_field, None)
+            if color is None:
+                continue
+            color_code = self._resolve_color_code(color)
+            if color_code is None:
+                # Do not silently drop an explicitly requested finish.
+                return False
+            setattr(offer, offer_field, color_code)
+
+        return True
 
     def _resolve_pattern(self, openings):
         construction = self.construction_resolver.resolve(
