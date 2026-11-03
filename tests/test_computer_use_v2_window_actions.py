@@ -36,7 +36,7 @@ def _snapshot(handle, title, application, *, foreground, minimized=False):
     )
 
 
-def _prepare():
+def _prepare(*, include_foreground=True):
     foreground = _snapshot(
         501,
         "Workbook - Excel",
@@ -50,17 +50,22 @@ def _prepare():
         foreground=False,
         minimized=True,
     )
+    metadata = {
+        "source": "windows_desktop",
+        "window_handle": 501,
+        "foreground_window_handle": 501,
+        "desktop_windows": (foreground, target),
+    }
+    if not include_foreground:
+        metadata.pop("window_handle")
+        metadata.pop("foreground_window_handle")
+
     observation = EnvironmentObservation(
         state=EnvironmentState(
             active_application="EXCEL.EXE",
             active_window_title="Workbook - Excel",
         ),
-        metadata={
-            "source": "windows_desktop",
-            "window_handle": 501,
-            "foreground_window_handle": 501,
-            "desktop_windows": (foreground, target),
-        },
+        metadata=metadata,
     )
     elements = WindowsDesktopWindowProvider().perceive(observation)
     scene = ScreenScene(
@@ -205,4 +210,14 @@ def test_desktop_scene_signature_changes_when_foreground_window_changes():
     assert (
         ExpectationResolver._scene_signature(before)
         != ExpectationResolver._scene_signature(after)
+    )
+
+
+def test_v2_request_does_not_expose_window_activation_without_foreground_identity():
+    prepared = _prepare(include_foreground=False)
+    actions = prepared.request_payload["capabilities"]["actions"]
+
+    assert not any(
+        item["name"].startswith("activate_window_")
+        for item in actions
     )
