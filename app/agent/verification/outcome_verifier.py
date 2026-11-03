@@ -153,7 +153,9 @@ class OutcomeVerifier:
                 return VerificationResult(
                     verified=False,
                     reason=(
-                        "Expected element was not found."
+                        "Expected UIA runtime identity is missing or ambiguous."
+                        if expected.expected_element_uia_runtime_id is not None
+                        else "Expected element was not found."
                     ),
                     confidence=0.9,
                     metadata={
