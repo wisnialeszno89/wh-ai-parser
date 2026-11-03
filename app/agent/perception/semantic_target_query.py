@@ -69,10 +69,11 @@ class SemanticTargetQuery:
     role: str | None = None
     label: str | None = None
     automation_id: str | None = None
-    # Local-only Windows UIA identity. Never projected into the model contract.
-    uia_runtime_id: str | None = None
     within: SemanticAncestorConstraint | None = None
     description: str = "semantic target"
+    # Local-only Windows UIA identity. Kept last for positional API compatibility.
+    # Never projected into the model contract.
+    uia_runtime_id: str | None = None
 
     def __post_init__(self) -> None:
         values = (
