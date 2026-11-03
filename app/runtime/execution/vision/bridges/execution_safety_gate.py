@@ -178,3 +178,30 @@ class ExecutionSafetyGate:
             return False
 
         return foreground == handle
+
+
+    def can_execute_keyboard_input(
+        self,
+        *,
+        window_handle=None,
+        require_foreground: bool = False,
+    ) -> bool:
+        """Allow global keyboard input only while the observed window is foreground."""
+        if not require_foreground:
+            return True
+
+        try:
+            handle = int(window_handle)
+        except (TypeError, ValueError, OverflowError):
+            return False
+        if handle <= 0 or __import__("os").name != "nt":
+            return False
+
+        import ctypes
+
+        try:
+            foreground = int(ctypes.windll.user32.GetForegroundWindow())
+        except Exception:
+            return False
+
+        return foreground == handle
