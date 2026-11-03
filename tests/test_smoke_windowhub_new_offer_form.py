@@ -1,3 +1,8 @@
+from pathlib import Path
+import os
+import subprocess
+import sys
+
 import pytest
 
 from app.agent.perception.interaction_capability import InteractionCapability
@@ -186,3 +191,21 @@ def test_form_inspector_marks_unique_runtime_identity():
     records = summarize_controls((element,))
 
     assert records[0]["runtime_identity"] == "unique"
+
+
+
+@pytest.mark.skipif(os.name != "nt", reason="The live WindowHub inspector is Windows-only.")
+def test_smoke_inspector_exposes_optional_focus_delay_cli():
+    repository_root = Path(__file__).resolve().parents[1]
+    script = repository_root / "tools" / "smoke_windowhub_new_offer_form.py"
+    result = subprocess.run(
+        [sys.executable, str(script), "--help"],
+        cwd=repository_root,
+        capture_output=True,
+        text=True,
+        timeout=20,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr or result.stdout
+    assert "--focus-delay-seconds" in result.stdout
