@@ -16,6 +16,9 @@ from app.agent.perception.windows_ui_automation_provider import (
 from app.agent.perception.windows_screen_text_provider import (
     WindowsScreenTextProvider,
 )
+from app.agent.perception.windows_desktop_window_provider import (
+    WindowsDesktopWindowProvider,
+)
 from app.agent.reasoning.plan_reasoner import PlanReasoner
 from app.agent.runtime.agent_control_loop import AgentControlLoop
 from app.agent.runtime.default_agent_control_loop import (
@@ -59,6 +62,7 @@ def create_windows_desktop_agent_control_loop(
         perception_providers=(
             WindowsUIAutomationProvider(),
             WindowsScreenTextProvider(),
+            WindowsDesktopWindowProvider(),
         ),
         plan_reasoner=plan_reasoner,
     )
