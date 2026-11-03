@@ -109,8 +109,15 @@ class WindowHubOfferFormPlanBuilder:
             blockers.append("compiled_profile_identity_missing")
 
         glazing_type = project.offer.glass.type
-        if glazing_type not in {"2glass", "3glass"}:
-            blockers.append("compiled_glazing_type_unsupported")
+        expected_glazing_type = {
+            "double": "2glass",
+            "triple": "3glass",
+        }.get(context.glazing)
+        if context.glazing is not None:
+            if expected_glazing_type is None:
+                blockers.append("context_glazing_type_unsupported")
+            elif glazing_type != expected_glazing_type:
+                blockers.append("compiled_glazing_does_not_match_offer_context")
 
         if blockers:
             return self._result((), blockers, review_items)
@@ -163,26 +170,36 @@ class WindowHubOfferFormPlanBuilder:
                     "identity and selection flow have not yet been observed."
                 ),
             ),
-            WindowHubPlannedField(
-                field_name="glazing_package",
-                desired_value=glazing_type,
-                source="ConstructionProject.offer.glass.type",
-                handling=WindowHubPlanHandling.CATALOG_SELECTION,
-                note=(
-                    "The glazing combo box is known, but its live options and "
-                    "exact option-to-value mapping have not yet been observed."
-                ),
-            ),
         ]
 
         review_items.extend(
             (
                 "dimension_control_slots_require_semantic_verification",
                 "profile_selector_options_and_selection_flow_unverified",
-                "glazing_package_options_unverified",
                 "opening_pattern_to_windowhub_geometry_mapping_unverified",
             )
         )
+
+        if context.glazing is None:
+            # ConstructionOffer currently defaults to 2glass. That default is
+            # not evidence that the salesperson requested a double-glazed unit.
+            review_items.append(
+                "glazing_type_not_explicitly_set_in_offer_context"
+            )
+        else:
+            entries.append(
+                WindowHubPlannedField(
+                    field_name="glazing_package",
+                    desired_value=glazing_type,
+                    source="OfferContext.glazing",
+                    handling=WindowHubPlanHandling.CATALOG_SELECTION,
+                    note=(
+                        "The glazing combo box is known, but its live options "
+                        "and exact option-to-value mapping have not yet been observed."
+                    ),
+                )
+            )
+            review_items.append("glazing_package_options_unverified")
 
         if context.color_inside is not None or context.color_outside is not None:
             entries.append(
