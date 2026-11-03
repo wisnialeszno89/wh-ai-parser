@@ -48,9 +48,16 @@ class ExperienceRetriever:
         } if isinstance(goal, str) else set()
 
         def score(episode) -> tuple[int, str]:
-            known = set(episode.tags)
-            known.add(episode.task_kind)
-            known.update(step.target for step in episode.steps)
+            known_values = (
+                *episode.tags,
+                episode.task_kind,
+                *(step.target for step in episode.steps),
+            )
+            known = {
+                token.casefold()
+                for value in known_values
+                for token in re.findall(r"[a-zA-Z0-9_.-]{2,}", value)
+            }
             overlap = len(terms.intersection(known))
             return overlap, episode.created_at_utc
 
