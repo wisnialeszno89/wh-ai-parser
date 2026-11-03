@@ -281,10 +281,29 @@ class WindowsDesktopV2AgentRuntime:
                         manual=True,
                         reason="local_window_activation_binding_invalid",
                     )
+                foreground_handle = scene.observation.metadata.get(
+                    "foreground_window_handle",
+                    scene.observation.metadata.get("window_handle"),
+                )
+                if (
+                    isinstance(foreground_handle, bool)
+                    or not isinstance(foreground_handle, int)
+                    or foreground_handle <= 0
+                    or local_window_handle == foreground_handle
+                ):
+                    return self._result(
+                        resolved_task_id,
+                        resolved_session_id,
+                        cycle_results,
+                        stopped=True,
+                        manual=True,
+                        reason="local_window_activation_foreground_changed",
+                    )
                 context.set_value(
                     "_computer_use_v2_window_activation_binding",
                     {
                         "window_handle": local_window_handle,
+                        "foreground_window_handle": foreground_handle,
                         "target_ref": resolved.target_ref,
                         "label": resolved.action.target,
                     },
