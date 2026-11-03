@@ -269,6 +269,26 @@ class WindowsDesktopV2AgentRuntime:
                 )
             )
             context.update_scene(scene)
+            if resolved.action.name == "activate_window":
+                try:
+                    local_window_handle = int(resolved.action.value)
+                except (TypeError, ValueError, OverflowError):
+                    return self._result(
+                        resolved_task_id,
+                        resolved_session_id,
+                        cycle_results,
+                        stopped=True,
+                        manual=True,
+                        reason="local_window_activation_binding_invalid",
+                    )
+                context.set_value(
+                    "_computer_use_v2_window_activation_binding",
+                    {
+                        "window_handle": local_window_handle,
+                        "target_ref": resolved.target_ref,
+                        "label": resolved.action.target,
+                    },
+                )
             context.set_value(
                 "expected_outcomes",
                 {resolved.action.name: expected},
