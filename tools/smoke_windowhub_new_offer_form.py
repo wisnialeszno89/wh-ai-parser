@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+import time
 from pathlib import Path
 from typing import Sequence
 
@@ -78,6 +79,15 @@ def _parse_args() -> argparse.Namespace:
         type=int,
         default=250,
         help="Maximum number of semantic controls to print (1-500)",
+    )
+    parser.add_argument(
+        "--focus-delay-seconds",
+        type=int,
+        default=0,
+        help=(
+            "Wait before observing so you can activate the target WindowHub "
+            "window (0-60 seconds; default: 0)."
+        ),
     )
     return parser.parse_args()
 
@@ -223,6 +233,17 @@ def main() -> int:
     if not 1 <= args.max_controls <= 500:
         print("--max-controls must be between 1 and 500.")
         return 2
+    if not 0 <= args.focus_delay_seconds <= 60:
+        print("--focus-delay-seconds must be between 0 and 60.")
+        return 2
+
+    if args.focus_delay_seconds:
+        print(
+            "FOCUS WINDOWHUB NOW: activate the target form window. "
+            f"Read-only inspection starts in {args.focus_delay_seconds}s.",
+            flush=True,
+        )
+        time.sleep(args.focus_delay_seconds)
 
     try:
         observation = WindowsDesktopEnvironmentAdapter().observe()
