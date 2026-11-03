@@ -28,6 +28,7 @@ from app.agent.verification.expectation_resolver import ExpectationResolver
 _SUPPORTED_ELEMENT_STATES = frozenset(
     {
         "uia_selected",
+        "uia_focused",
         "uia_enabled",
         "uia_visible",
         "current_value",
