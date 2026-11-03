@@ -1,5 +1,8 @@
-﻿from dataclasses import dataclass
+﻿import ctypes
+import os
+from dataclasses import dataclass
 from enum import Enum
+from ctypes import wintypes
 
 from app.runtime.execution.action_policy import ActionPolicy
 from app.runtime.execution.action_result import ActionResult
@@ -59,6 +62,7 @@ class RobotActionExecutor:
         action_policy=None,
         verifier=None,
         keyboard=None,
+        window_activator=None,
     ):
         self.mode = mode
         self.action_policy = action_policy or ActionPolicy()
@@ -73,6 +77,9 @@ class RobotActionExecutor:
         )
         self.mouse = mouse or RobotMouse(mode=mouse_mode)
         self.keyboard = keyboard or KeyboardController()
+        self.window_activator = (
+            window_activator or self._activate_windows_window
+        )
 
     def execute(
         self,
@@ -295,6 +302,146 @@ class RobotActionExecutor:
             True,
             reason=f"LIVE keyboard sequence executed: {sequence}",
         )
+
+    def execute_window_activation(
+        self,
+        *,
+        window_handle,
+        observed_window_handles,
+    ) -> RobotActionResult:
+        """Activate one HWND only when it is present in the latest local inventory."""
+        action = InteractionAction.ACTIVATE_WINDOW
+
+        if not self.action_policy.can_execute(action):
+            return RobotActionResult(
+                False,
+                action,
+                self.mode,
+                False,
+                reason="Window activation policy rejected action",
+            )
+
+        try:
+            handle = int(window_handle)
+            observed_handles = {
+                int(candidate)
+                for candidate in observed_window_handles
+                if not isinstance(candidate, bool)
+            }
+        except (TypeError, ValueError, OverflowError):
+            return RobotActionResult(
+                False,
+                action,
+                self.mode,
+                False,
+                reason="Desktop window inventory is invalid",
+            )
+
+        if handle <= 0 or handle not in observed_handles:
+            return RobotActionResult(
+                False,
+                action,
+                self.mode,
+                False,
+                reason="Window handle is not in the latest observed inventory",
+            )
+
+        if self.mode is RobotExecutionMode.DRY_RUN:
+            return RobotActionResult(
+                True,
+                action,
+                self.mode,
+                False,
+                target_id=str(handle),
+                reason="DRY_RUN window activation; desktop not changed",
+            )
+
+        gate = getattr(self.safety_gate, "can_activate_window", None)
+        if not callable(gate) or not gate(
+            window_handle=handle,
+            observed_window_handles=tuple(observed_handles),
+        ):
+            return RobotActionResult(
+                False,
+                action,
+                self.mode,
+                False,
+                target_id=str(handle),
+                reason="Window activation safety gate rejected target",
+            )
+
+        try:
+            activated = bool(self.window_activator(handle))
+        except Exception as exc:
+            return RobotActionResult(
+                False,
+                action,
+                self.mode,
+                False,
+                target_id=str(handle),
+                reason=f"Window activation failed: {type(exc).__name__}",
+            )
+
+        if not activated:
+            return RobotActionResult(
+                False,
+                action,
+                self.mode,
+                False,
+                target_id=str(handle),
+                reason="Windows did not confirm the requested foreground window",
+            )
+
+        return RobotActionResult(
+            True,
+            action,
+            self.mode,
+            True,
+            target_id=str(handle),
+            reason="Requested desktop window is now foreground",
+        )
+
+    @staticmethod
+    def _activate_windows_window(window_handle: int) -> bool:
+        if os.name != "nt":
+            return False
+
+        user32 = ctypes.WinDLL("user32", use_last_error=True)
+        hwnd = wintypes.HWND(window_handle)
+
+        is_window = user32.IsWindow
+        is_window.argtypes = (wintypes.HWND,)
+        is_window.restype = wintypes.BOOL
+        is_visible = user32.IsWindowVisible
+        is_visible.argtypes = (wintypes.HWND,)
+        is_visible.restype = wintypes.BOOL
+        is_iconic = user32.IsIconic
+        is_iconic.argtypes = (wintypes.HWND,)
+        is_iconic.restype = wintypes.BOOL
+
+        if not is_window(hwnd) or not is_visible(hwnd):
+            return False
+
+        show_window = user32.ShowWindow
+        show_window.argtypes = (wintypes.HWND, ctypes.c_int)
+        show_window.restype = wintypes.BOOL
+        show_window(hwnd, 9 if is_iconic(hwnd) else 5)  # SW_RESTORE / SW_SHOW
+
+        bring_to_top = user32.BringWindowToTop
+        bring_to_top.argtypes = (wintypes.HWND,)
+        bring_to_top.restype = wintypes.BOOL
+        bring_to_top(hwnd)
+
+        set_foreground = user32.SetForegroundWindow
+        set_foreground.argtypes = (wintypes.HWND,)
+        set_foreground.restype = wintypes.BOOL
+        set_foreground(hwnd)
+
+        get_foreground = user32.GetForegroundWindow
+        get_foreground.argtypes = ()
+        get_foreground.restype = wintypes.HWND
+        foreground_value = get_foreground()
+        return int(getattr(foreground_value, "value", foreground_value) or 0) == window_handle
 
     def execute_uia_screen_element(
         self,
