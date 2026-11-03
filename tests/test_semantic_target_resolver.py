@@ -217,3 +217,24 @@ def test_semantic_target_runtime_id_is_scoped_to_windows_uia_sources():
 
     assert result.resolved is False
     assert result.element is None
+
+
+def test_semantic_target_query_preserves_legacy_positional_argument_order():
+    within = SemanticAncestorConstraint(
+        control_type="pane",
+        automation_id="FORM",
+    )
+    query = SemanticTargetQuery(
+        "edit",
+        "Szerokość",
+        "1000",
+        within,
+        "Legacy positional query",
+    )
+
+    assert query.role == "edit"
+    assert query.label == "Szerokość"
+    assert query.automation_id == "1000"
+    assert query.within is within
+    assert query.description == "Legacy positional query"
+    assert query.uia_runtime_id is None
