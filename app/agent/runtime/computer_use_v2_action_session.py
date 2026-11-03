@@ -325,7 +325,7 @@ class ComputerUseV2ActionSession:
         resolver = self._target_resolver_factory()
 
         for affordance in snapshot.payload.get("affordances", []):
-            if len(capabilities) >= MAX_V2_ACTION_CAPABILITIES:
+            if len(capabilities) >= MAX_V2_ACTION_CAPABILITIES - len(SAFE_KEY_SEQUENCES):
                 break
             if not isinstance(affordance, Mapping):
                 continue
