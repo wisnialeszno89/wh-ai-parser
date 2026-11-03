@@ -168,6 +168,7 @@ def test_activation_diagnostics_explain_foreground_and_title_mismatches(
         windows,
         process_name="Okna.exe",
         title_contains="Untitled window",
+        title_must_be_empty=false,
         foreground_application="Okna.exe",
         foreground_title="Untitled window",
     )
@@ -179,3 +180,79 @@ def test_activation_diagnostics_explain_foreground_and_title_mismatches(
     assert "TITLE_MISMATCH" in output
     assert "200" not in output
     assert "300" not in output
+
+
+
+def test_activation_smoke_selects_only_a_uniquely_untitled_root_window():
+    titled_offer = _window(
+        "Okna.exe",
+        "Okna - OFR/4522-",
+        handle=200,
+    )
+    untitled_root = _window(
+        "Okna.exe",
+        None,
+        handle=300,
+    )
+
+    selected = select_target_window(
+        (titled_offer, untitled_root),
+        process_name="Okna.exe",
+        title_must_be_empty=True,
+    )
+
+    assert selected is untitled_root
+
+
+def test_activation_smoke_rejects_untitled_window_owned_by_other_window():
+    owned_dialog = _window(
+        "Okna.exe",
+        None,
+        handle=300,
+    )
+    owned_dialog = DesktopWindowSnapshot(
+        handle=owned_dialog.handle,
+        title=owned_dialog.title,
+        rect=owned_dialog.rect,
+        application=owned_dialog.application,
+        root_owner_handle=200,
+        is_foreground=owned_dialog.is_foreground,
+        is_minimized=owned_dialog.is_minimized,
+        is_visible=owned_dialog.is_visible,
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="activation_smoke_target_not_unique: matches=0",
+    ):
+        select_target_window(
+            (owned_dialog,),
+            process_name="Okna.exe",
+            title_must_be_empty=True,
+        )
+
+
+def test_activation_diagnostics_distinguish_missing_title_from_placeholder(
+    capsys,
+):
+    from tools.smoke_windows_desktop_window_activation import (
+        _print_target_diagnostics,
+    )
+
+    untitled = _window("Okna.exe", None, handle=200)
+
+    _print_target_diagnostics(
+        (untitled,),
+        process_name="Okna.exe",
+        title_contains=None,
+        title_must_be_empty=True,
+        foreground_application="Code.exe",
+        foreground_title="Visual Studio Code",
+    )
+
+    output = capsys.readouterr().out
+    assert "Requested title selector: <BRAK TYTUŁU>" in output
+    assert "<BRAK TYTUŁU>" in output
+    assert "MATCH_CANDIDATE" in output
+    assert "Untitled window" not in output
+    assert "200" not in output
