@@ -318,6 +318,12 @@ class AgentTaskV2WorldBuilder:
             focused = (element.metadata or {}).get("uia_focused")
             if isinstance(focused, bool):
                 state_payload["uia_focused"] = focused
+            is_foreground = (element.metadata or {}).get("is_foreground")
+            if isinstance(is_foreground, bool):
+                state_payload["is_foreground"] = is_foreground
+            is_minimized = (element.metadata or {}).get("is_minimized")
+            if isinstance(is_minimized, bool):
+                state_payload["is_minimized"] = is_minimized
 
             evidence_refs: list[str] = []
             element_evidence = element.evidence[:MAX_EVIDENCE_PER_ELEMENT]
@@ -366,13 +372,26 @@ class AgentTaskV2WorldBuilder:
             if confidence is None or not math.isfinite(float(confidence)):
                 confidence = 0.0
 
+            attributes_payload: list[dict[str, object]] = []
+            if (element.metadata or {}).get("source") == "windows_desktop_window":
+                process_name = (element.metadata or {}).get("process_name")
+                window_title = (element.metadata or {}).get("window_title")
+                if isinstance(process_name, str) and process_name.strip():
+                    attributes_payload.append(
+                        {"name": "application", "value": process_name.strip()[:256]}
+                    )
+                if isinstance(window_title, str) and window_title.strip():
+                    attributes_payload.append(
+                        {"name": "window_title", "value": window_title.strip()[:1_000]}
+                    )
+
             entities.append(
                 {
                     "ref": entity_ref,
                     "type": str(element.kind)[:128] or "unknown",
                     "label": element.label,
                     "state": state_payload,
-                    "attributes": [],
+                    "attributes": attributes_payload,
                     "confidence": max(0.0, min(1.0, float(confidence))),
                     "evidence_refs": evidence_refs,
                 }
