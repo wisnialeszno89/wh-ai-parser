@@ -80,8 +80,8 @@ def _print_target_diagnostics(
     process_name: str,
     title_contains: str | None,
     title_must_be_empty: bool,
-    root_window_only: bool,
-    foreground_application: str | None,
+    root_window_only: bool = False,
+    foreground_application: str | None = None,
     foreground_title: str | None,
 ) -> None:
     """Explain candidate selection without exposing native window handles."""
