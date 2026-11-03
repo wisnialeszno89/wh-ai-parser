@@ -8,6 +8,7 @@ from app.wh.runtime.schema.construction_schema_factory_v2 import (
     ConstructionSchemaFactoryV2
 )
 from app.wh.runtime.offer_enricher import OfferEnricher
+from app.wh.runtime.profile_parser import ProfileParser
 from app.wh.model.opening import Opening
 from app.knowledge.constructions.construction_resolver import (
     ConstructionResolver
@@ -109,9 +110,7 @@ class AgentConstructionCompiler:
             profile_product = PROFILE_CATALOG.get(profile_code)
             if profile_product is None:
                 return False
-            profile = self.offer_enricher.profile_parser.parse(
-                profile_product.name
-            )
+            profile = ProfileParser().parse(profile_product.name)
             if not profile.manufacturer or not profile.system:
                 return False
             offer.profile = profile
@@ -126,18 +125,25 @@ class AgentConstructionCompiler:
                 return False
             offer.glass.type = glass_type
 
-        for context_field, offer_field in (
-            ("color_inside", "color_inside"),
-            ("color_outside", "color_outside"),
-        ):
-            color = getattr(context, context_field, None)
-            if color is None:
-                continue
-            color_code = self._resolve_color_code(color)
-            if color_code is None:
-                # Do not silently drop an explicitly requested finish.
-                return False
-            setattr(offer, offer_field, color_code)
+        color_inside = getattr(context, "color_inside", None)
+        color_outside = getattr(context, "color_outside", None)
+        if color_inside is not None or color_outside is not None:
+            # Rebuild both sides from the normalized context. The legacy text
+            # parser can otherwise mistake an outside-only color for an inside
+            # color because it does not understand side-specific phrases.
+            for context_field, offer_field in (
+                ("color_inside", "color_inside"),
+                ("color_outside", "color_outside"),
+            ):
+                color = getattr(context, context_field, None)
+                if color is None:
+                    setattr(offer, offer_field, "")
+                    continue
+                color_code = self._resolve_color_code(color)
+                if color_code is None:
+                    # Do not silently drop an explicitly requested finish.
+                    return False
+                setattr(offer, offer_field, color_code)
 
         return True
 
