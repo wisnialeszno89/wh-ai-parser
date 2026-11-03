@@ -353,3 +353,59 @@ def test_robot_gui_executor_rejects_duplicate_uia_identity_even_for_unique_label
     assert result.success is False
     assert result.requires_manual_review is True
     assert mouse.points == []
+
+
+def test_robot_gui_executor_checks_uia_identity_even_with_visual_tracking():
+    mouse = RecordingMouse()
+    executor = RobotGUIExecutor(
+        robot_action_executor=RobotActionExecutor(
+            mode=RobotExecutionMode.DRY_RUN,
+            mouse=mouse,
+        ),
+    )
+    first = make_uia_element(
+        label="Customer reference",
+        runtime_id="duplicate-runtime",
+        automation_id="IDC_REFERENCE",
+    )
+    first = ScreenElement(
+        kind=first.kind,
+        label=first.label,
+        x=first.x,
+        y=first.y,
+        width=first.width,
+        height=first.height,
+        confidence=first.confidence,
+        interaction_capability=first.interaction_capability,
+        metadata={**dict(first.metadata), "tracked_object_id": "tracked-1"},
+    )
+    second = make_uia_element(
+        label="Delivery address",
+        runtime_id="duplicate-runtime",
+        automation_id="IDC_ADDRESS",
+    )
+    second = ScreenElement(
+        kind=second.kind,
+        label=second.label,
+        x=second.x,
+        y=second.y,
+        width=second.width,
+        height=second.height,
+        confidence=second.confidence,
+        interaction_capability=second.interaction_capability,
+        metadata={**dict(second.metadata), "tracked_object_id": "tracked-2"},
+    )
+
+    result = executor.execute(
+        AgentAction(
+            name="click_screen_element",
+            description="Click Customer reference",
+            target="Customer reference",
+        ),
+        make_context(elements=(first, second)),
+    )
+
+    assert result.success is False
+    assert result.requires_manual_review is True
+    assert result.metadata["executed"] is False
+    assert mouse.points == []
