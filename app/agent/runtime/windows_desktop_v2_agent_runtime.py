@@ -483,11 +483,36 @@ class WindowsDesktopV2AgentRuntime:
         if not target_label:
             raise ValueError("postcondition_target_label_missing")
 
+        target_metadata = target.metadata or {}
+        target_source = target_metadata.get("source")
+        target_runtime_id = target_metadata.get("uia_runtime_id")
+        target_automation_id = target_metadata.get("automation_id")
+        local_uia_identity = {}
+        if (
+            target_source in {
+                "windows_ui_automation",
+                "windowhub_ui_automation",
+            }
+            and isinstance(target_runtime_id, str)
+            and target_runtime_id.strip()
+        ):
+            local_uia_identity["expected_element_uia_runtime_id"] = (
+                target_runtime_id.strip()
+            )
+            if (
+                isinstance(target_automation_id, str)
+                and target_automation_id.strip()
+            ):
+                local_uia_identity["expected_element_automation_id"] = (
+                    target_automation_id.strip()
+                )
+
         if kind == "entity_present":
             return ExpectedOutcome(
                 description=f"Element '{target_label}' remains present.",
                 expected_element_label=target_label,
                 element_should_exist=True,
+                **local_uia_identity,
             )
 
         if kind == "entity_value_equals":
@@ -502,6 +527,7 @@ class WindowsDesktopV2AgentRuntime:
                 expected_element_label=target_label,
                 element_should_exist=True,
                 expected_element_current_value=expected_value,
+                **local_uia_identity,
             )
 
         if kind == "entity_state_equals":
@@ -517,6 +543,7 @@ class WindowsDesktopV2AgentRuntime:
                 expected_element_label=target_label,
                 expected_element_state_name=state_name,
                 expected_element_state_value=postcondition["expected_value"],
+                **local_uia_identity,
             )
 
         raise ValueError(f"postcondition_not_supported:{kind}")
