@@ -8,6 +8,7 @@ from app.agent.environment.windows_desktop_environment_adapter import (
 from app.runtime.execution.window.window_rect import WindowRect
 from tools.smoke_windows_desktop_window_activation import (
     _configure_console_output as configure_activation_console,
+    _parse_args,
     _print_target_diagnostics,
     select_target_window,
 )
@@ -256,3 +257,27 @@ def test_activation_diagnostics_distinguish_missing_title_from_placeholder(
     assert "MATCH_CANDIDATE" in output
     assert "Untitled window" not in output
     assert "200" not in output
+
+
+
+def test_activation_smoke_supports_diagnose_only_without_activation(monkeypatch):
+    import sys
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "smoke_windows_desktop_window_activation.py",
+            "--target-process",
+            "Okna.exe",
+            "--target-title-empty",
+            "--diagnose-only",
+        ],
+    )
+
+    args = _parse_args()
+
+    assert args.target_process == "Okna.exe"
+    assert args.target_title_empty is True
+    assert args.target_title_contains is None
+    assert args.diagnose_only is True
