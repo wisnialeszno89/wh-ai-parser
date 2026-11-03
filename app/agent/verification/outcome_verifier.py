@@ -127,9 +127,20 @@ class OutcomeVerifier:
             is not None
         ):
 
-            found = scene.find_by_label(
-                expected.expected_element_label
-            )
+            found = self._find_expected_elements(expected, scene)
+            if (
+                expected.expected_element_uia_runtime_id is not None
+                and len(found) > 1
+            ):
+                return VerificationResult(
+                    verified=False,
+                    reason="Expected UIA runtime identity was ambiguous.",
+                    confidence=0.99,
+                    metadata={
+                        "match_count": len(found),
+                        "uia_runtime_id": expected.expected_element_uia_runtime_id,
+                    },
+                )
 
             exists = bool(found)
 
@@ -181,16 +192,14 @@ class OutcomeVerifier:
             and expected.expected_element_label
             is not None
         ):
-            found = scene.find_by_label(
-                expected.expected_element_label
-            )
+            found = self._find_expected_elements(expected, scene)
 
-            if not found:
+            if len(found) != 1:
                 return VerificationResult(
                     verified=False,
                     reason=(
                         "Expected value could not be checked "
-                        "because the target element was not found."
+                        "because the target element was missing or ambiguous."
                     ),
                     confidence=0.9,
                 )
@@ -274,9 +283,7 @@ class OutcomeVerifier:
             expected.expected_element_state_name is not None
             and expected.expected_element_label is not None
         ):
-            found = scene.find_by_label(
-                expected.expected_element_label
-            )
+            found = self._find_expected_elements(expected, scene)
             if len(found) != 1:
                 return VerificationResult(
                     verified=False,
@@ -326,6 +333,49 @@ class OutcomeVerifier:
             confidence=1.0,
         )
 
+
+    @staticmethod
+    def _find_expected_elements(expected, scene: ScreenScene):
+        """Resolve an expected element by exact local UIA identity when present."""
+        runtime_id = expected.expected_element_uia_runtime_id
+        if runtime_id is None:
+            label = expected.expected_element_label
+            return (
+                scene.find_by_label(label)
+                if isinstance(label, str)
+                else ()
+            )
+
+        if not isinstance(runtime_id, str) or not runtime_id.strip():
+            return ()
+
+        expected_label = expected.expected_element_label
+        expected_automation_id = expected.expected_element_automation_id
+        matches = []
+        for element in scene.elements:
+            metadata = element.metadata or {}
+            if metadata.get("source") not in {
+                "windows_ui_automation",
+                "windowhub_ui_automation",
+            }:
+                continue
+            if metadata.get("uia_runtime_id") != runtime_id:
+                continue
+            if (
+                isinstance(expected_automation_id, str)
+                and metadata.get("automation_id") != expected_automation_id
+            ):
+                continue
+            if (
+                isinstance(expected_label, str)
+                and (
+                    not isinstance(element.label, str)
+                    or element.label.casefold() != expected_label.casefold()
+                )
+            ):
+                continue
+            matches.append(element)
+        return tuple(matches)
 
     @staticmethod
     def _element_state(element, state_name: str):
