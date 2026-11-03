@@ -384,3 +384,36 @@ def test_world_builder_does_not_publish_actions_for_non_interactive_controls():
     )
 
     assert snapshot.payload["affordances"] == []
+
+
+
+def test_world_builder_exposes_root_window_role_without_native_owner_handle():
+    window = ScreenElement(
+        kind="application_window",
+        label="Okna - OFR/4522- — Okna.exe",
+        confidence=0.99,
+        metadata={
+            "source": "windows_desktop_window",
+            "window_handle": 987654,
+            "root_owner_handle": 987654,
+            "is_root_window": True,
+            "window_area": 1936 * 1168,
+            "is_foreground": False,
+            "is_minimized": False,
+            "is_visible": True,
+        },
+        interaction_capability=InteractionCapability.UNKNOWN,
+    )
+    snapshot = AgentTaskV2WorldBuilder().build(
+        _scene_with_element(window),
+        task_id="root-window-task",
+        world_revision=2,
+        observed_at="2026-11-03T10:00:00Z",
+    )
+
+    entity = snapshot.payload["entities"][0]
+    assert entity["state"]["is_root_window"] is True
+    assert entity["state"]["window_area"] == 1936 * 1168
+    assert "987654" not in str(snapshot.payload)
+    assert "root_owner_handle" not in str(snapshot.payload)
+    assert "window_handle" not in str(snapshot.payload)
