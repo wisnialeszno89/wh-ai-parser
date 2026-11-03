@@ -307,6 +307,7 @@ class RobotActionExecutor:
         self,
         *,
         window_handle,
+        expected_foreground_handle,
         observed_window_handles,
     ) -> RobotActionResult:
         """Activate one HWND only when it is present in the latest local inventory."""
@@ -321,7 +322,10 @@ class RobotActionExecutor:
                 reason="Window activation policy rejected action",
             )
 
-        if isinstance(window_handle, bool):
+        if (
+            isinstance(window_handle, bool)
+            or isinstance(expected_foreground_handle, bool)
+        ):
             return RobotActionResult(
                 False,
                 action,
@@ -331,6 +335,7 @@ class RobotActionExecutor:
             )
         try:
             handle = int(window_handle)
+            expected_foreground = int(expected_foreground_handle)
             observed_handles = tuple(
                 dict.fromkeys(
                     candidate
@@ -349,7 +354,13 @@ class RobotActionExecutor:
                 reason="Desktop window inventory is invalid",
             )
 
-        if handle <= 0 or handle not in observed_handles:
+        if (
+            handle <= 0
+            or expected_foreground <= 0
+            or handle == expected_foreground
+            or expected_foreground not in observed_handles
+            or handle not in observed_handles
+        ):
             return RobotActionResult(
                 False,
                 action,
@@ -371,6 +382,7 @@ class RobotActionExecutor:
         gate = getattr(self.safety_gate, "can_activate_window", None)
         if not callable(gate) or not gate(
             window_handle=handle,
+            expected_foreground_handle=expected_foreground,
             observed_window_handles=observed_handles,
         ):
             return RobotActionResult(
