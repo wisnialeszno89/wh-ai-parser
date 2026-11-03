@@ -9,6 +9,8 @@ from app.agent.experience.experience_models import (
 from app.agent.experience.experience_retriever import ExperienceRetriever
 from app.agent.experience.experience_store import ExperienceStore
 from app.agent.experience.guided_learning_service import GuidedLearningService
+from app.agent.experience.offer_learning_adapter import record_offer_context
+from app.agent.offers.offer_context import OfferContext
 from app.agent.runtime.windows_desktop_v2_agent_runtime import (
     WindowsDesktopV2AgentRuntime,
 )
@@ -266,3 +268,95 @@ def test_experience_factory_requires_both_tenant_and_operator_scope(monkeypatch,
     retriever = _create_experience_retriever()
 
     assert isinstance(retriever, ExperienceRetriever)
+
+
+
+def test_offer_learning_adapter_keeps_only_normalized_technical_fields(tmp_path):
+    store = ExperienceStore(tmp_path)
+    service = GuidedLearningService(
+        store=store,
+        tenant_id="company-a",
+        operator_id="operator-a",
+    )
+    session = service.begin(
+        application_id="okna.exe",
+        task_kind="create_window_offer",
+        tags=("window_offer",),
+    )
+    context = OfferContext(
+        raw_request="Offer for Max Mustermann, private address removed from memory",
+        width=1500,
+        height=1400,
+        quantity=1,
+        product_type="window",
+        profile="profile-82",
+        configuration="double_leaf",
+        opening="right_tilt_turn",
+        openings=("left_fixed", "right_tilt_turn"),
+        color_inside="white",
+        color_outside="anthracite",
+        glazing="triple",
+    )
+
+    facts = record_offer_context(session, context)
+    session.record_step(_step())
+    draft = service.complete(session, outcome="completed")
+    approved = service.approve(draft, operator_confirmed=True)
+    retriever = ExperienceRetriever(
+        store=store,
+        tenant_id="company-a",
+        operator_id="operator-a",
+    )
+    result = retriever.retrieve(
+        application_id="okna.exe",
+        goal="Create window offer",
+    )
+
+    assert {fact.key for fact in facts} == {
+        "width",
+        "height",
+        "quantity",
+        "product_type",
+        "profile",
+        "configuration",
+        "opening",
+        "openings",
+        "color_inside",
+        "color_outside",
+        "glazing",
+    }
+    assert approved.facts
+    assert result[0]["example_facts"]["width"] == 1500
+    assert result[0]["example_facts"]["height"] == 1400
+    assert result[0]["example_facts"]["glazing"] == "triple"
+    assert result[0]["evidence_type"] == (
+        "approved_demonstration_example_not_a_universal_rule"
+    )
+    serialized = str(approved.to_storage_dict())
+    assert "Max Mustermann" not in serialized
+    assert "raw_request" not in serialized
+
+
+def test_offer_learning_adapter_omits_missing_and_conflicting_fields():
+    from app.agent.experience.offer_learning_adapter import (
+        facts_from_offer_context,
+    )
+
+    context = OfferContext(
+        raw_request="Some customer text that must not be retained",
+        width=1200,
+        height=None,
+        product_type="window",
+        color_outside=None,
+        glazing="triple",
+    )
+
+    facts = facts_from_offer_context(context)
+    by_key = {fact.key: fact.value for fact in facts}
+
+    assert by_key == {
+        "width": 1200,
+        "quantity": 1,
+        "product_type": "window",
+        "glazing": "triple",
+    }
