@@ -238,6 +238,18 @@ class WindowHubOfferFormMap:
             if spec.step == step
         )
 
+    def spec_for_field(
+        self,
+        field_name: str,
+    ) -> WindowHubControlSpec | None:
+        return next(
+            (
+                spec for spec in self._specs
+                if spec.field_name == field_name
+            ),
+            None,
+        )
+
     def inspect(
         self,
         scene: ScreenScene,
