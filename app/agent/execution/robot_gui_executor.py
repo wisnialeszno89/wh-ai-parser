@@ -468,7 +468,7 @@ class RobotGUIExecutor(ActionExecutor):
         title = getattr(state, "active_window_title", None)
         if not isinstance(application, str) or not isinstance(title, str):
             return False
-        process_name = application.replace("\\\\", "/").rsplit("/", 1)[-1]
+        process_name = application.replace("\\", "/").rsplit("/", 1)[-1]
         if (
             process_name.casefold() != "okna.exe"
             or title.strip().casefold() != "dodawanie nowej pozycji"
