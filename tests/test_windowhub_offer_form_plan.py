@@ -151,3 +151,31 @@ def test_plan_flags_multi_segment_geometry_for_review():
 def test_builder_rejects_wrong_input_type():
     with pytest.raises(TypeError, match="windowhub_offer_plan_context_invalid"):
         WindowHubOfferFormPlanBuilder().build("not-context", None)
+
+def test_plan_does_not_treat_compiler_default_glazing_as_user_selection():
+    context = _context(glazing=None)
+    project = _project(context)
+
+    assert project is not None
+    assert project.offer.glass.type == "2glass"
+
+    plan = WindowHubOfferFormPlanBuilder().build(context, project)
+
+    assert plan.is_valid is True
+    assert not any(entry.field_name == "glazing_package" for entry in plan.entries)
+    assert (
+        "glazing_type_not_explicitly_set_in_offer_context"
+        in plan.review_items
+    )
+
+
+def test_plan_blocks_glazing_that_disagrees_with_normalized_context():
+    context = _context(glazing="triple")
+    project = _project(context)
+    project.offer.glass.type = "2glass"
+
+    plan = WindowHubOfferFormPlanBuilder().build(context, project)
+
+    assert plan.is_valid is False
+    assert "compiled_glazing_does_not_match_offer_context" in plan.blockers
+    assert plan.entries == ()
