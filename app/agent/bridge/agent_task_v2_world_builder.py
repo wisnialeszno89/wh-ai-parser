@@ -315,6 +315,9 @@ class AgentTaskV2WorldBuilder:
             }
             if isinstance(current_value, str):
                 state_payload["value_present"] = value_present
+            focused = (element.metadata or {}).get("uia_focused")
+            if isinstance(focused, bool):
+                state_payload["uia_focused"] = focused
 
             evidence_refs: list[str] = []
             element_evidence = element.evidence[:MAX_EVIDENCE_PER_ELEMENT]
