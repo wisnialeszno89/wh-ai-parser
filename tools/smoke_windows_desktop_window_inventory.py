@@ -3,6 +3,14 @@
 from __future__ import annotations
 
 import os
+import sys
+from pathlib import Path
+
+# Direct execution (python tools/...) puts tools/ on sys.path, not the
+# repository root. Add the project root before importing the application.
+REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
+if str(REPOSITORY_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPOSITORY_ROOT))
 
 from app.agent.environment.windows_desktop_environment_adapter import (
     DesktopWindowSnapshot,
