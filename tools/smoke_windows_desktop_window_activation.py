@@ -34,13 +34,23 @@ def select_target_window(
     windows: Sequence[DesktopWindowSnapshot],
     *,
     process_name: str,
-    title_contains: str,
+    title_contains: str | None = None,
+    title_must_be_empty: bool = False,
 ) -> DesktopWindowSnapshot:
-    """Return exactly one visible, inactive window matching both selectors."""
+    """Return exactly one visible, inactive, independently owned target window."""
     process_key = process_name.strip().casefold()
-    title_key = title_contains.strip().casefold()
-    if not process_key or not title_key:
+    title_key = title_contains.strip().casefold() if isinstance(title_contains, str) else ""
+    if (
+        not process_key
+        or (title_must_be_empty and title_key)
+        or (not title_must_be_empty and not title_key)
+    ):
         raise ValueError("activation_smoke_selectors_required")
+
+    def title_matches(window: DesktopWindowSnapshot) -> bool:
+        if title_must_be_empty:
+            return not isinstance(window.title, str) or not window.title.strip()
+        return isinstance(window.title, str) and title_key in window.title.casefold()
 
     matches = [
         window
@@ -50,16 +60,17 @@ def select_target_window(
         and window.is_foreground is False
         and isinstance(window.application, str)
         and window.application.strip().casefold() == process_key
-        and isinstance(window.title, str)
-        and title_key in window.title.casefold()
+        and title_matches(window)
+        and (
+            not title_must_be_empty
+            or window.root_owner_handle == window.handle
+        )
     ]
     if len(matches) != 1:
         raise ValueError(
             f"activation_smoke_target_not_unique: matches={len(matches)}"
         )
     return matches[0]
-
-
 
 def _print_target_diagnostics(
     windows: Sequence[DesktopWindowSnapshot],
@@ -183,6 +194,7 @@ def main() -> int:
             windows,
             process_name=args.target_process,
             title_contains=args.target_title_contains,
+            title_must_be_empty=args.target_title_empty,
         )
     except ValueError as exc:
         print(str(exc))
@@ -190,6 +202,7 @@ def main() -> int:
             windows,
             process_name=args.target_process,
             title_contains=args.target_title_contains,
+            title_must_be_empty=args.target_title_empty,
             foreground_application=observation.state.active_application,
             foreground_title=observation.state.active_window_title,
         )
@@ -225,7 +238,7 @@ def main() -> int:
     print("=== WINDOWS DESKTOP ACTIVATION SMOKE TEST ===")
     print(f"Current foreground application: {observation.state.active_application}")
     print(f"Target application: {target.application}")
-    print(f"Target window: {target.title}")
+    print(f"Target window: {target.title or '<BRAK TYTUŁU>'}")
     print("The test will only bring this window to the foreground.")
     print("It will not click, type, save, or change application data.")
 
