@@ -1,4 +1,7 @@
-from types import SimpleNamespace
+from app.agent.environment.windows_desktop_environment_adapter import (
+    DesktopWindowSnapshot,
+)
+from app.runtime.execution.window.window_rect import WindowRect
 
 import pytest
 
@@ -15,10 +18,12 @@ def _window(
     foreground=False,
     visible=True,
 ):
-    return SimpleNamespace(
+    return DesktopWindowSnapshot(
         handle=handle,
-        application=application,
         title=title,
+        rect=WindowRect(left=0, top=0, width=800, height=600),
+        application=application,
+        root_owner_handle=handle,
         is_foreground=foreground,
         is_visible=visible,
     )
@@ -109,5 +114,5 @@ def test_activation_smoke_never_selects_foreground_or_invisible_windows():
         select_target_window(
             windows,
             process_name="Okna.exe",
-            title_contains="",
+            title_contains="i",
         )
