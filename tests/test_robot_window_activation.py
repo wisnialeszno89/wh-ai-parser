@@ -88,6 +88,7 @@ def test_live_window_activation_requires_current_inventory_and_gate():
     assert activator.calls == [777]
     assert gate.calls == [{
         "window_handle": 777,
+        "expected_foreground_handle": 501,
         "observed_window_handles": (501, 777),
     }]
 
@@ -104,6 +105,7 @@ def test_live_window_activation_rejects_unobserved_handle_before_native_call():
 
     result = executor.execute_window_activation(
         window_handle=999,
+        expected_foreground_handle=501,
         observed_window_handles=(501, 777),
     )
 
@@ -191,6 +193,7 @@ def test_robot_gui_executor_routes_only_locally_bound_window_handle():
     assert result.metadata["executed"] is True
     assert calls == [{
         "window_handle": 777,
+        "expected_foreground_handle": 501,
         "observed_window_handles": (501, 777),
     }]
 
@@ -299,6 +302,7 @@ def test_robot_action_executor_rejects_boolean_window_handle():
 
     result = executor.execute_window_activation(
         window_handle=True,
+        expected_foreground_handle=1,
         observed_window_handles=(1,),
     )
 
@@ -323,8 +327,8 @@ def test_windows_safety_gate_rejects_unobserved_or_boolean_window_handles():
     ) is False
 
 
-def test_live_window_activation_rejects_a_foreground_change_since_observation():
-    gate = _SafetyGate(allowed=True)
+def test_live_window_activation_fails_closed_when_foreground_guard_rejects_stale_snapshot():
+    gate = _SafetyGate(allowed=False)
     activator = _WindowActivator()
     executor = RobotActionExecutor(
         mode=RobotExecutionMode.LIVE,
@@ -339,14 +343,14 @@ def test_live_window_activation_rejects_a_foreground_change_since_observation():
         observed_window_handles=(501, 777),
     )
 
-    assert result.success is True
-    assert result.executed is True
+    assert result.success is False
+    assert result.executed is False
     assert gate.calls == [{
         "window_handle": 777,
         "expected_foreground_handle": 501,
         "observed_window_handles": (501, 777),
     }]
-
+    assert activator.calls == []
 
 def test_windows_safety_gate_rejects_target_equal_to_expected_foreground():
     gate = ExecutionSafetyGate()
