@@ -100,7 +100,7 @@ def _keyboard_action_names():
 
 def test_v2_cycle_exposes_only_locally_executable_semantic_actions():
     scene = _scene((
-        _element("button", "Save workbook", automation_id="save"),
+        _element("button", "Open workbook", automation_id="save"),
         _element("edit", "Customer name", automation_id="customer"),
         ScreenElement(
             kind="button",
@@ -135,7 +135,7 @@ def test_v2_cycle_exposes_only_locally_executable_semantic_actions():
 
 def test_v2_cycle_resolves_click_to_the_exact_local_semantic_element():
     scene = _scene((
-        _element("button", "Save workbook", automation_id="save"),
+        _element("button", "Open workbook", automation_id="save"),
     ))
     prepared = _prepare(scene)
 
@@ -149,7 +149,7 @@ def test_v2_cycle_resolves_click_to_the_exact_local_semantic_element():
 
     assert resolved.action.name == "click_screen_element"
     assert isinstance(resolved.action.target, SemanticTargetQuery)
-    assert resolved.action.target.label == "Save workbook"
+    assert resolved.action.target.label == "Open workbook"
     assert resolved.action.target.uia_runtime_id == "[save]"
     assert resolved.target_ref == "ent_0001"
     assert resolved.action.requires_confirmation is False
@@ -255,7 +255,7 @@ def test_v2_cycle_rejects_duplicate_uia_runtime_ids():
 
 def test_v2_cycle_action_decision_is_single_use():
     scene = _scene((
-        _element("button", "Save workbook", automation_id="save"),
+        _element("button", "Open workbook", automation_id="save"),
     ))
     prepared = _prepare(scene)
     response = _act_response(
@@ -271,7 +271,7 @@ def test_v2_cycle_action_decision_is_single_use():
 
 def test_v2_cycle_rejects_action_bound_to_a_different_target():
     scene = _scene((
-        _element("button", "Save workbook", automation_id="save"),
+        _element("button", "Open workbook", automation_id="save"),
         _element("button", "Cancel", automation_id="cancel"),
     ))
     prepared = _prepare(scene)
@@ -290,7 +290,7 @@ def test_v2_cycle_rejects_action_bound_to_a_different_target():
 def test_ocr_only_text_never_becomes_an_executable_action_capability():
     ocr_text = ScreenElement(
         kind="text",
-        label="Save workbook",
+        label="Open workbook",
         interaction_capability=InteractionCapability.NOT_INTERACTIVE,
         metadata={
             "source": "windows_ocr",
