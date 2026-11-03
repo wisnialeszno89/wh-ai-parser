@@ -1,12 +1,17 @@
+import sys
+
+import pytest
+
 from app.agent.environment.windows_desktop_environment_adapter import (
     DesktopWindowSnapshot,
 )
 from app.runtime.execution.window.window_rect import WindowRect
-
-import pytest
-
 from tools.smoke_windows_desktop_window_activation import (
+    _configure_console_output as configure_activation_console,
     select_target_window,
+)
+from tools.smoke_windows_desktop_window_inventory import (
+    _configure_console_output as configure_inventory_console,
 )
 
 
@@ -116,3 +121,25 @@ def test_activation_smoke_never_selects_foreground_or_invisible_windows():
             process_name="Okna.exe",
             title_contains="i",
         )
+
+
+
+@pytest.mark.parametrize(
+    "configure_console",
+    (configure_inventory_console, configure_activation_console),
+)
+def test_smoke_scripts_escape_unicode_characters_unsupported_by_console(
+    monkeypatch,
+    configure_console,
+):
+    calls = []
+
+    class _FakeStdout:
+        def reconfigure(self, **kwargs):
+            calls.append(kwargs)
+
+    monkeypatch.setattr(sys, "stdout", _FakeStdout())
+
+    configure_console()
+
+    assert calls == [{"errors": "backslashreplace"}]
