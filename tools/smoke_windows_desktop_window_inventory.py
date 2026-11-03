@@ -18,7 +18,16 @@ from app.agent.environment.windows_desktop_environment_adapter import (
 )
 
 
+def _configure_console_output() -> None:
+    """Prevent unsupported Unicode characters in Windows titles from aborting output."""
+    reconfigure = getattr(sys.stdout, "reconfigure", None)
+    if callable(reconfigure):
+        reconfigure(errors="backslashreplace")
+
+
 def main() -> int:
+    _configure_console_output()
+
     if os.name != "nt":
         print("This smoke test requires Windows.")
         return 2
