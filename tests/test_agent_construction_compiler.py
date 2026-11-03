@@ -118,3 +118,53 @@ def test_compiles_known_multi_opening_construction():
 
     assert project.schema.segments[1].opening == Opening.FIX
     assert project.schema.segments[1].direction == "NONE"
+
+
+def test_compiler_uses_normalized_multi_turn_offer_details():
+    context = OfferContext(
+        raw_request="Potrzebuję okno 1200x1500 DKR",
+        width=1200,
+        height=1500,
+        product_type="window",
+        profile="VEKA_82",
+        opening="RIGHT_TILT_TURN",
+        color_inside="white",
+        color_outside="anthracite",
+        glazing="triple",
+    )
+
+    project = AgentConstructionCompiler().compile(context)
+
+    assert project is not None
+    assert project.offer.profile.manufacturer == "VEKA"
+    assert project.offer.profile.system == "Softline 82 MD"
+    assert project.offer.glass.type == "3glass"
+    assert project.offer.color_inside == ""
+    assert project.offer.color_outside == "7016"
+
+
+def test_compiler_rejects_explicit_color_without_known_legacy_mapping():
+    context = OfferContext(
+        raw_request="Potrzebuję okno 1200x1500 DKR",
+        width=1200,
+        height=1500,
+        product_type="window",
+        opening="RIGHT_TILT_TURN",
+        color_outside="brown",
+    )
+
+    assert AgentConstructionCompiler().compile(context) is None
+
+
+def test_compiler_rejects_profile_not_present_in_supported_catalog():
+    context = OfferContext(
+        raw_request="Potrzebuję okno 1200x1500 DKR",
+        width=1200,
+        height=1500,
+        product_type="window",
+        profile="UNSUPPORTED_PROFILE",
+        opening="RIGHT_TILT_TURN",
+    )
+
+    assert AgentConstructionCompiler().compile(context) is None
+
