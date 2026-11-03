@@ -10,6 +10,7 @@ from app.agent.experience.experience_retriever import ExperienceRetriever
 from app.agent.experience.experience_store import ExperienceStore
 from app.agent.experience.guided_learning_service import GuidedLearningService
 from app.agent.experience.offer_learning_adapter import record_offer_context
+from app.agent.experience.offer_learning_service import OfferLearningService
 from app.agent.offers.offer_context import OfferContext
 from app.agent.runtime.windows_desktop_v2_agent_runtime import (
     WindowsDesktopV2AgentRuntime,
@@ -360,3 +361,65 @@ def test_offer_learning_adapter_omits_missing_and_conflicting_fields():
         "product_type": "window",
         "glazing": "triple",
     }
+
+
+
+def test_offer_learning_service_captures_and_approves_a_complete_demo(tmp_path):
+    store = ExperienceStore(tmp_path)
+    learning = OfferLearningService(
+        store=store,
+        tenant_id="company-a",
+        operator_id="operator-a",
+    )
+    session = learning.begin_offer_demo(application_id="Okna.exe")
+    learning.record_step(
+        session,
+        action="click",
+        target="new_offer_button",
+        purpose="Start a new offer",
+        verification="The blank offer form is displayed",
+    )
+    learning.record_step(
+        session,
+        action="select",
+        target="glazing_selector",
+        purpose="Select the requested glazing pack",
+        verification="The selected glazing pack is visible",
+    )
+    learning.record_final_offer(
+        session,
+        OfferContext(
+            raw_request="Private customer request is not retained",
+            width=1500,
+            height=1400,
+            product_type="window",
+            glazing="triple",
+            color_outside="anthracite",
+        ),
+    )
+
+    draft = learning.finish_demo(session)
+    saved = learning.approve_demo(draft, operator_confirmed=True)
+    examples = ExperienceRetriever(
+        store=store,
+        tenant_id="company-a",
+        operator_id="operator-a",
+    ).retrieve(
+        application_id="Okna.exe",
+        goal="Create a new window offer and choose triple glazing",
+    )
+
+    assert saved.approved_by_operator is True
+    assert len(examples) == 1
+    assert examples[0]["task_kind"] == "create_window_offer"
+    assert examples[0]["example_facts"] == {
+        "width": 1500,
+        "height": 1400,
+        "quantity": 1,
+        "product_type": "window",
+        "color_outside": "anthracite",
+        "glazing": "triple",
+    }
+    assert examples[0]["evidence_type"] == (
+        "approved_demonstration_example_not_a_universal_rule"
+    )
