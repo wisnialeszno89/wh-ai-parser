@@ -18,3 +18,5 @@ class InteractionAction(Enum):
     VERIFY = "verify"
 
     KEY_PRESS = "key_press"
+
+    ACTIVATE_WINDOW = "activate_window"
