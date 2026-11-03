@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ctypes
 import os
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from ctypes import wintypes
 
@@ -25,6 +26,20 @@ class ForegroundWindowSnapshot:
     root_owner_handle: int | None
 
 
+@dataclass(frozen=True)
+class DesktopWindowSnapshot:
+    """Local-only metadata for one enumerated visible desktop window."""
+
+    handle: int
+    title: str | None
+    rect: WindowRect
+    application: str | None
+    root_owner_handle: int | None
+    is_foreground: bool = False
+    is_minimized: bool = False
+    is_visible: bool = True
+
+
 class WindowsDesktopEnvironmentAdapter(EnvironmentAdapter):
     """Capture the current foreground window, independent of application identity.
 
@@ -37,11 +52,15 @@ class WindowsDesktopEnvironmentAdapter(EnvironmentAdapter):
         *,
         screenshot_engine=None,
         snapshot_provider=None,
+        window_inventory_provider: (
+            Callable[[int], Sequence[DesktopWindowSnapshot]] | None
+        ) = None,
     ) -> None:
         self.screenshot_engine = screenshot_engine or MSSScreenshotEngine()
         self._snapshot_provider = (
             snapshot_provider or self._capture_foreground_window
         )
+        self._window_inventory_provider = window_inventory_provider
 
     def observe(self) -> EnvironmentObservation:
         snapshot = self._snapshot_provider()
@@ -83,6 +102,21 @@ class WindowsDesktopEnvironmentAdapter(EnvironmentAdapter):
             else None
         )
 
+        desktop_windows: tuple[DesktopWindowSnapshot, ...] = ()
+        if self._window_inventory_provider is not None:
+            supplied_windows = self._window_inventory_provider(snapshot.handle)
+            if supplied_windows is None:
+                raise TypeError("windows_desktop_inventory_invalid")
+            desktop_windows = self._validate_window_inventory(
+                supplied_windows,
+                snapshot,
+            )
+        elif os.name == "nt":
+            desktop_windows = self._capture_visible_windows(
+                snapshot.handle,
+                snapshot=snapshot,
+            )
+
         state = EnvironmentState(
             active_application=application,
             active_window_title=title,
@@ -100,8 +134,198 @@ class WindowsDesktopEnvironmentAdapter(EnvironmentAdapter):
                 "window_root_owner_handle": root_owner,
                 "foreground_window_handle": snapshot.handle,
                 "foreground_root_owner_handle": root_owner,
+                "desktop_windows": desktop_windows,
+                "desktop_window_count": len(desktop_windows),
             },
         )
+
+    @classmethod
+    def _validate_window_inventory(
+        cls,
+        windows: Sequence[DesktopWindowSnapshot],
+        foreground: ForegroundWindowSnapshot,
+    ) -> tuple[DesktopWindowSnapshot, ...]:
+        if isinstance(windows, (str, bytes)) or not isinstance(windows, Sequence):
+            raise TypeError("windows_desktop_inventory_invalid")
+
+        validated: list[DesktopWindowSnapshot] = []
+        seen_handles: set[int] = set()
+        for item in windows[:64]:
+            if not isinstance(item, DesktopWindowSnapshot):
+                raise TypeError("windows_desktop_inventory_item_invalid")
+            if (
+                isinstance(item.handle, bool)
+                or not isinstance(item.handle, int)
+                or item.handle <= 0
+                or item.handle in seen_handles
+                or item.rect is None
+                or int(item.rect.width) <= 0
+                or int(item.rect.height) <= 0
+                or item.is_visible is not True
+            ):
+                continue
+            seen_handles.add(item.handle)
+            validated.append(item)
+
+        if foreground.handle not in seen_handles:
+            validated.insert(
+                0,
+                DesktopWindowSnapshot(
+                    handle=foreground.handle,
+                    title=foreground.title,
+                    rect=foreground.rect,
+                    application=foreground.active_application,
+                    root_owner_handle=foreground.root_owner_handle,
+                    is_foreground=True,
+                    is_minimized=False,
+                    is_visible=True,
+                ),
+            )
+        else:
+            validated = [
+                DesktopWindowSnapshot(
+                    handle=item.handle,
+                    title=item.title,
+                    rect=item.rect,
+                    application=item.application,
+                    root_owner_handle=item.root_owner_handle,
+                    is_foreground=(item.handle == foreground.handle),
+                    is_minimized=item.is_minimized,
+                    is_visible=item.is_visible,
+                )
+                for item in validated
+            ]
+
+        return tuple(validated[:64])
+
+    @classmethod
+    def _capture_visible_windows(
+        cls,
+        foreground_handle: int,
+        *,
+        snapshot: ForegroundWindowSnapshot,
+        max_windows: int = 64,
+    ) -> tuple[DesktopWindowSnapshot, ...]:
+        if os.name != "nt":
+            return ()
+
+        user32 = ctypes.WinDLL("user32", use_last_error=True)
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+
+        is_visible = user32.IsWindowVisible
+        is_visible.argtypes = (wintypes.HWND,)
+        is_visible.restype = wintypes.BOOL
+
+        is_iconic = user32.IsIconic
+        is_iconic.argtypes = (wintypes.HWND,)
+        is_iconic.restype = wintypes.BOOL
+
+        get_rect = user32.GetWindowRect
+        get_rect.argtypes = (wintypes.HWND, ctypes.POINTER(wintypes.RECT))
+        get_rect.restype = wintypes.BOOL
+
+        get_text_length = user32.GetWindowTextLengthW
+        get_text_length.argtypes = (wintypes.HWND,)
+        get_text_length.restype = ctypes.c_int
+        get_text = user32.GetWindowTextW
+        get_text.argtypes = (wintypes.HWND, wintypes.LPWSTR, ctypes.c_int)
+        get_text.restype = ctypes.c_int
+
+        get_thread_process_id = user32.GetWindowThreadProcessId
+        get_thread_process_id.argtypes = (
+            wintypes.HWND,
+            ctypes.POINTER(wintypes.DWORD),
+        )
+        get_thread_process_id.restype = wintypes.DWORD
+
+        get_ancestor = user32.GetAncestor
+        get_ancestor.argtypes = (wintypes.HWND, wintypes.UINT)
+        get_ancestor.restype = wintypes.HWND
+
+        collected: list[DesktopWindowSnapshot] = []
+
+        def visit(hwnd_value, _lparam):
+            if len(collected) >= max_windows:
+                return False
+
+            handle = cls._native_handle_value(hwnd_value)
+            if handle <= 0:
+                return True
+            hwnd = wintypes.HWND(handle)
+            if not is_visible(hwnd):
+                return True
+
+            native_rect = wintypes.RECT()
+            if not get_rect(hwnd, ctypes.byref(native_rect)):
+                return True
+            width = int(native_rect.right - native_rect.left)
+            height = int(native_rect.bottom - native_rect.top)
+            if width <= 0 or height <= 0:
+                return True
+
+            title_length = max(0, min(int(get_text_length(hwnd)), 1_024))
+            title = None
+            if title_length:
+                title_buffer = ctypes.create_unicode_buffer(title_length + 1)
+                copied = int(get_text(hwnd, title_buffer, len(title_buffer)))
+                title = title_buffer.value.strip() if copied > 0 else None
+                title = title or None
+
+            process_id = wintypes.DWORD(0)
+            get_thread_process_id(hwnd, ctypes.byref(process_id))
+            application = cls._process_name(kernel32, int(process_id.value))
+            if not title and not application:
+                return True
+
+            owner_value = get_ancestor(hwnd, 3)  # GA_ROOTOWNER
+            root_owner = cls._native_handle_value(owner_value)
+
+            collected.append(
+                DesktopWindowSnapshot(
+                    handle=handle,
+                    title=title,
+                    rect=WindowRect(
+                        left=int(native_rect.left),
+                        top=int(native_rect.top),
+                        width=width,
+                        height=height,
+                    ),
+                    application=application,
+                    root_owner_handle=root_owner if root_owner > 0 else None,
+                    is_foreground=(handle == foreground_handle),
+                    is_minimized=bool(is_iconic(hwnd)),
+                    is_visible=True,
+                )
+            )
+            return True
+
+        callback_type = ctypes.WINFUNCTYPE(
+            wintypes.BOOL,
+            wintypes.HWND,
+            wintypes.LPARAM,
+        )
+        callback = callback_type(visit)
+        enum_windows = user32.EnumWindows
+        enum_windows.argtypes = (callback_type, wintypes.LPARAM)
+        enum_windows.restype = wintypes.BOOL
+        enum_windows(callback, 0)
+
+        if not any(item.handle == snapshot.handle for item in collected):
+            collected.insert(
+                0,
+                DesktopWindowSnapshot(
+                    handle=snapshot.handle,
+                    title=snapshot.title,
+                    rect=snapshot.rect,
+                    application=snapshot.active_application,
+                    root_owner_handle=snapshot.root_owner_handle,
+                    is_foreground=True,
+                    is_minimized=False,
+                    is_visible=True,
+                ),
+            )
+
+        return tuple(collected[:max_windows])
 
     @classmethod
     def _capture_foreground_window(cls) -> ForegroundWindowSnapshot:
