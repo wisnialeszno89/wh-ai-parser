@@ -94,8 +94,17 @@ class OfferContextMerger:
             ),
             opening=(
                 update.opening
-                if update.opening is not None
+                if update.openings or update.opening is not None
                 else existing.opening
+            ),
+            openings=(
+                update.openings
+                if update.openings
+                else (
+                    (update.opening,)
+                    if update.opening is not None
+                    else existing.openings
+                )
             ),
             color_inside=(
                 update.color_inside
