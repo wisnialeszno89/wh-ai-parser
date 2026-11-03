@@ -417,3 +417,32 @@ def test_world_builder_exposes_root_window_role_without_native_owner_handle():
     assert "987654" not in str(snapshot.payload)
     assert "root_owner_handle" not in str(snapshot.payload)
     assert "window_handle" not in str(snapshot.payload)
+
+
+@pytest.mark.parametrize(
+    "button_label",
+    (
+        "Speichern",
+        "Angebot erstellen",
+        "Zapisz ofertę",
+        "Create offer",
+    ),
+)
+def test_world_builder_requires_confirmation_for_offer_commit_buttons(
+    button_label,
+):
+    element = ScreenElement(
+        kind="button",
+        label=button_label,
+        interaction_capability=InteractionCapability.CLICKABLE,
+    )
+    snapshot = AgentTaskV2WorldBuilder().build(
+        _scene_with_element(element),
+        task_id="offer-confirmation-task",
+        world_revision=1,
+    )
+
+    affordance = snapshot.payload["affordances"][0]
+    assert affordance["name"] == "click"
+    assert affordance["requires_confirmation"] is True
+
