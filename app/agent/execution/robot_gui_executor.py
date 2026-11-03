@@ -4,6 +4,7 @@ from app.agent.agent_action import AgentAction
 from app.agent.execution.action_executor import ActionExecutor
 from app.agent.execution.execution_result import ExecutionResult
 from app.agent.perception.target_resolver import TargetResolver
+from app.agent.perception.semantic_target_query import SemanticTargetQuery
 from app.agent.runtime.execution_context import ExecutionContext
 from app.runtime.execution.interactions.interaction_action import InteractionAction
 from app.runtime.execution.robot_action_executor import RobotActionExecutor
@@ -211,6 +212,11 @@ class RobotGUIExecutor(ActionExecutor):
             )
 
         resolution = self.target_resolver.resolve(scene, target)
+        target_label = (
+            target.description
+            if isinstance(target, SemanticTargetQuery)
+            else target
+        )
 
         if not resolution.resolved or resolution.element is None:
             return ExecutionResult(
@@ -223,7 +229,7 @@ class RobotGUIExecutor(ActionExecutor):
                 # manual-review conditions later in this executor.
                 requires_manual_review=False,
                 metadata={
-                    "target": target,
+                    "target": target_label,
                     "resolution_score": resolution.score,
                 },
             )
@@ -455,8 +461,10 @@ class RobotGUIExecutor(ActionExecutor):
     def _resolve_target(
         action: AgentAction,
         context: ExecutionContext,
-    ) -> str | None:
+    ) -> str | SemanticTargetQuery | None:
         action_target = getattr(action, "target", None)
+        if isinstance(action_target, SemanticTargetQuery):
+            return action_target
         if isinstance(action_target, str) and action_target.strip():
             return action_target.strip()
 
