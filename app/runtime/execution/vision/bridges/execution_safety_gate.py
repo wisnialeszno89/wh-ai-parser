@@ -184,16 +184,26 @@ class ExecutionSafetyGate:
         self,
         *,
         window_handle=None,
+        expected_foreground_handle=None,
         observed_window_handles=(),
     ) -> bool:
-        """Only activate a still-visible HWND included in the latest local inventory."""
-        if isinstance(window_handle, bool):
+        """Activate only a current inventory window while the observed foreground is unchanged."""
+        if (
+            isinstance(window_handle, bool)
+            or isinstance(expected_foreground_handle, bool)
+        ):
             return False
         try:
             handle = int(window_handle)
+            expected_foreground = int(expected_foreground_handle)
         except (TypeError, ValueError, OverflowError):
             return False
-        if handle <= 0 or __import__("os").name != "nt":
+        if (
+            handle <= 0
+            or expected_foreground <= 0
+            or handle == expected_foreground
+            or __import__("os").name != "nt"
+        ):
             return False
 
         if isinstance(observed_window_handles, (str, bytes)):
@@ -208,7 +218,7 @@ class ExecutionSafetyGate:
             }
         except (TypeError, ValueError, OverflowError):
             return False
-        if handle not in observed:
+        if handle not in observed or expected_foreground not in observed:
             return False
 
         import ctypes
@@ -216,14 +226,26 @@ class ExecutionSafetyGate:
 
         try:
             user32 = ctypes.WinDLL("user32", use_last_error=True)
-            hwnd = wintypes.HWND(handle)
+            target_hwnd = wintypes.HWND(handle)
             is_window = user32.IsWindow
             is_window.argtypes = (wintypes.HWND,)
             is_window.restype = wintypes.BOOL
             is_visible = user32.IsWindowVisible
             is_visible.argtypes = (wintypes.HWND,)
             is_visible.restype = wintypes.BOOL
-            return bool(is_window(hwnd) and is_visible(hwnd))
+            get_foreground = user32.GetForegroundWindow
+            get_foreground.argtypes = ()
+            get_foreground.restype = wintypes.HWND
+
+            foreground_value = get_foreground()
+            foreground = int(
+                getattr(foreground_value, "value", foreground_value) or 0
+            )
+            return (
+                foreground == expected_foreground
+                and bool(is_window(target_hwnd))
+                and bool(is_visible(target_hwnd))
+            )
         except Exception:
             return False
 
