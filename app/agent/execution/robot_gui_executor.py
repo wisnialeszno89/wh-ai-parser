@@ -202,6 +202,27 @@ class RobotGUIExecutor(ActionExecutor):
                 requires_manual_review=True,
             )
 
+        windowhub_scope = context.get_value("_windowhub_form_action_scope")
+        if (
+            windowhub_scope is not None
+            and not self._matches_windowhub_form_action_scope(
+                action,
+                scene,
+                windowhub_scope,
+            )
+        ):
+            return ExecutionResult(
+                action_name=action.name,
+                success=False,
+                message="Fresh observation no longer matches the authorized WindowHub form field.",
+                requires_manual_review=True,
+                metadata={
+                    "target": getattr(action, "target", None),
+                    "executed": False,
+                    "execution_path": "windowhub_form_scope_guard",
+                },
+            )
+
         target = self._resolve_target(action, context)
         if target is None:
             return ExecutionResult(
@@ -408,6 +429,93 @@ class RobotGUIExecutor(ActionExecutor):
                 ),
             },
         )
+
+    @staticmethod
+    def _matches_windowhub_form_action_scope(action, scene, scope) -> bool:
+        """Require the exact WindowHub position dialog and mapped control.
+
+        This optional local-only scope is attached by the WindowHub form
+        action adapter. Generic desktop actions remain unaffected.
+        """
+        if not isinstance(scope, Mapping):
+            return False
+
+        field_specs = {
+            "quantity_input": (
+                "write_text",
+                "edit",
+                "Ile sztuk",
+                "1001",
+            ),
+            "item_type_window": (
+                "click_screen_element",
+                "radiobutton",
+                "Okno",
+                "1329",
+            ),
+        }
+        field_name = scope.get("field_name")
+        expected = field_specs.get(field_name)
+        if expected is None:
+            return False
+
+        expected_action, expected_role, expected_label, expected_id = expected
+        if action.name != expected_action:
+            return False
+
+        state = getattr(getattr(scene, "observation", None), "state", None)
+        application = getattr(state, "active_application", None)
+        title = getattr(state, "active_window_title", None)
+        if not isinstance(application, str) or not isinstance(title, str):
+            return False
+        process_name = application.replace("\\\\", "/").rsplit("/", 1)[-1]
+        if (
+            process_name.casefold() != "okna.exe"
+            or title.strip().casefold() != "dodawanie nowej pozycji"
+            or scope.get("application") != "Okna.exe"
+            or scope.get("window_title") != "Dodawanie nowej pozycji"
+        ):
+            return False
+
+        if (
+            scope.get("label") != expected_label
+            or scope.get("control_type") != expected_role
+            or scope.get("automation_id") != expected_id
+        ):
+            return False
+
+        runtime_id = scope.get("uia_runtime_id")
+        target = getattr(action, "target", None)
+        if (
+            not isinstance(runtime_id, str)
+            or not runtime_id.strip()
+            or not isinstance(target, SemanticTargetQuery)
+            or target.label != expected_label
+            or target.role != expected_role
+            or target.automation_id != expected_id
+            or target.uia_runtime_id != runtime_id
+        ):
+            return False
+
+        candidates = []
+        for element in getattr(scene, "elements", ()):
+            metadata = getattr(element, "metadata", None) or {}
+            if (
+                metadata.get("source") in {
+                    "windows_ui_automation",
+                    "windowhub_ui_automation",
+                }
+                and metadata.get("uia_runtime_id") == runtime_id
+                and metadata.get("automation_id") == expected_id
+                and metadata.get("uia_control_type") == expected_role
+                and metadata.get("uia_enabled") is True
+                and metadata.get("uia_visible") is True
+                and getattr(element, "kind", None) == expected_role
+                and getattr(element, "label", None) == expected_label
+            ):
+                candidates.append(element)
+
+        return len(candidates) == 1
 
     @staticmethod
     def _screen_origin(context: ExecutionContext) -> tuple[int, int] | None:
