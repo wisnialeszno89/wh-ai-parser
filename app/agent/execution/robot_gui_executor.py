@@ -252,7 +252,7 @@ class RobotGUIExecutor(ActionExecutor):
                     ),
                     requires_manual_review=False,
                     metadata={
-                        "target": target,
+                        "target": target_label,
                         "resolution_score": resolution.score,
                     },
                 )
@@ -280,7 +280,7 @@ class RobotGUIExecutor(ActionExecutor):
                 message=result.reason,
                 requires_manual_review=not result.success,
                 metadata={
-                    "target": target,
+                    "target": target_label,
                     "target_id": result.target_id,
                     "resolution_score": resolution.score,
                     "point": result.point,
@@ -310,7 +310,7 @@ class RobotGUIExecutor(ActionExecutor):
                 message="Tracked object for resolved target was not found",
                 requires_manual_review=False,
                 metadata={
-                    "target": target,
+                    "target": target_label,
                     "target_id": target_id,
                     "resolution_score": resolution.score,
                 },
@@ -325,7 +325,7 @@ class RobotGUIExecutor(ActionExecutor):
                 message="GUI object root is unavailable",
                 requires_manual_review=True,
                 metadata={
-                    "target": target,
+                    "target": target_label,
                     "target_id": target_id,
                 },
             )
@@ -370,7 +370,7 @@ class RobotGUIExecutor(ActionExecutor):
             message=result.reason,
             requires_manual_review=not result.success,
             metadata={
-                "target": target,
+                "target": target_label,
                 "target_id": target_id,
                 "resolution_score": resolution.score,
                 "point": result.point,
