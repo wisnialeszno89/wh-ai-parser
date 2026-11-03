@@ -57,7 +57,7 @@ class WindowsDesktopWindowProvider(PerceptionProvider):
             title = (
                 item.title.strip()
                 if isinstance(item.title, str) and item.title.strip()
-                else "Untitled window"
+                else "<BRAK TYTUŁU>"
             )
             application = (
                 item.application.strip()
@@ -98,6 +98,12 @@ class WindowsDesktopWindowProvider(PerceptionProvider):
                         "is_foreground": is_foreground,
                         "is_minimized": bool(item.is_minimized),
                         "is_visible": bool(item.is_visible),
+                        "is_root_window": (
+                            item.root_owner_handle == item.handle
+                        ),
+                        "window_area": (
+                            int(item.rect.width) * int(item.rect.height)
+                        ),
                     },
                     interaction_capability=InteractionCapability.UNKNOWN,
                 )
