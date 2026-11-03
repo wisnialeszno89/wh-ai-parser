@@ -180,6 +180,48 @@ class ExecutionSafetyGate:
         return foreground == handle
 
 
+    def can_activate_window(
+        self,
+        *,
+        window_handle=None,
+        observed_window_handles=(),
+    ) -> bool:
+        """Only activate a still-visible HWND included in the latest local inventory."""
+        try:
+            handle = int(window_handle)
+        except (TypeError, ValueError, OverflowError):
+            return False
+        if handle <= 0 or __import__("os").name != "nt":
+            return False
+
+        if isinstance(observed_window_handles, (str, bytes)):
+            return False
+        try:
+            observed = {
+                int(candidate)
+                for candidate in observed_window_handles
+                if not isinstance(candidate, bool)
+            }
+        except (TypeError, ValueError, OverflowError):
+            return False
+        if handle not in observed:
+            return False
+
+        import ctypes
+
+        try:
+            user32 = ctypes.WinDLL("user32", use_last_error=True)
+            hwnd = ctypes.wintypes.HWND(handle)
+            is_window = user32.IsWindow
+            is_window.argtypes = (ctypes.wintypes.HWND,)
+            is_window.restype = ctypes.wintypes.BOOL
+            is_visible = user32.IsWindowVisible
+            is_visible.argtypes = (ctypes.wintypes.HWND,)
+            is_visible.restype = ctypes.wintypes.BOOL
+            return bool(is_window(hwnd) and is_visible(hwnd))
+        except Exception:
+            return False
+
     def can_execute_keyboard_input(
         self,
         *,
