@@ -258,8 +258,9 @@ class PreparedComputerUseV2Cycle:
             )
 
     def _is_unique_current_target(self, element: ScreenElement) -> bool:
-        if self._has_unique_uia_runtime_identity(self.scene, element):
-            return True
+        source = (element.metadata or {}).get("source")
+        if source in _UIA_SOURCES:
+            return self._has_unique_uia_runtime_identity(self.scene, element)
         label = element.label
         if not isinstance(label, str) or not label.strip():
             return False
@@ -613,11 +614,12 @@ class ComputerUseV2ActionSession:
         resolver: TargetResolver,
         element: ScreenElement,
     ) -> bool:
-        if PreparedComputerUseV2Cycle._has_unique_uia_runtime_identity(
-            scene,
-            element,
-        ):
-            return True
+        source = (element.metadata or {}).get("source")
+        if source in _UIA_SOURCES:
+            return PreparedComputerUseV2Cycle._has_unique_uia_runtime_identity(
+                scene,
+                element,
+            )
         if not isinstance(element.label, str) or not element.label.strip():
             return False
         resolution = resolver.resolve(scene, element.label)
