@@ -158,6 +158,14 @@ def test_robot_gui_executor_routes_only_locally_bound_window_handle():
         request=AgentRequest(message="Switch to Outlook.")
     )
     context.update_scene(ScreenScene(observation=observation))
+    context.set_value(
+        "_computer_use_v2_window_activation_binding",
+        {
+            "window_handle": 777,
+            "target_ref": "ent_0002",
+            "label": "Inbox - Outlook — OUTLOOK.EXE",
+        },
+    )
 
     result = RobotGUIExecutor(
         robot_action_executor=FakeRobotExecutor(),
@@ -203,6 +211,14 @@ def test_robot_gui_executor_rejects_active_window_activation():
         request=AgentRequest(message="Activate current window.")
     )
     context.update_scene(ScreenScene(observation=observation))
+    context.set_value(
+        "_computer_use_v2_window_activation_binding",
+        {
+            "window_handle": 501,
+            "target_ref": "ent_0001",
+            "label": "Workbook - Excel — EXCEL.EXE",
+        },
+    )
 
     result = RobotGUIExecutor(
         robot_action_executor=FakeRobotExecutor(),
@@ -212,6 +228,49 @@ def test_robot_gui_executor_rejects_active_window_activation():
             description="Activate Excel again.",
             target="Workbook - Excel — EXCEL.EXE",
             value="501",
+        ),
+        context,
+    )
+
+    assert result.success is False
+    assert calls == []
+
+
+def test_robot_gui_executor_rejects_activation_without_v2_local_binding():
+    calls = []
+
+    class FakeRobotExecutor:
+        def execute_window_activation(self, **kwargs):
+            calls.append(kwargs)
+            return SimpleNamespace(success=True, executed=True, reason="unexpected")
+
+    observation = EnvironmentObservation(
+        state=EnvironmentState(
+            active_application="EXCEL.EXE",
+            active_window_title="Workbook - Excel",
+        ),
+        metadata={
+            "window_handle": 501,
+            "foreground_window_handle": 501,
+            "desktop_windows": (
+                SimpleNamespace(handle=501),
+                SimpleNamespace(handle=777),
+            ),
+        },
+    )
+    context = ExecutionContext(
+        request=AgentRequest(message="Switch to Outlook.")
+    )
+    context.update_scene(ScreenScene(observation=observation))
+
+    result = RobotGUIExecutor(
+        robot_action_executor=FakeRobotExecutor(),
+    ).execute(
+        AgentAction(
+            name="activate_window",
+            description="Activate Outlook.",
+            target="Inbox - Outlook — OUTLOOK.EXE",
+            value="777",
         ),
         context,
     )
