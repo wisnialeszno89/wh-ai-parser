@@ -136,6 +136,7 @@ class RobotGUIExecutor(ActionExecutor):
                 not isinstance(local_binding, Mapping)
                 or local_binding.get("window_handle") != target_handle
                 or local_binding.get("label") != action.target
+                or local_binding.get("foreground_window_handle") != foreground_handle
                 or not isinstance(local_binding.get("target_ref"), str)
             ):
                 return ExecutionResult(
@@ -161,6 +162,7 @@ class RobotGUIExecutor(ActionExecutor):
 
             result = self.robot_action_executor.execute_window_activation(
                 window_handle=target_handle,
+                expected_foreground_handle=foreground_handle,
                 observed_window_handles=tuple(observed_handles),
             )
             return ExecutionResult(
