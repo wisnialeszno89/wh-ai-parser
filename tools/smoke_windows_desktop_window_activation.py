@@ -158,6 +158,11 @@ def _parse_args() -> argparse.Namespace:
         action="store_true",
         help="Select a truly empty-title root window (not a display placeholder)",
     )
+    parser.add_argument(
+        "--diagnose-only",
+        action="store_true",
+        help="Show the selected candidate and exit without activating any window",
+    )
     return parser.parse_args()
 
 
@@ -241,6 +246,10 @@ def main() -> int:
     print(f"Target window: {target.title or '<BRAK TYTUŁU>'}")
     print("The test will only bring this window to the foreground.")
     print("It will not click, type, save, or change application data.")
+
+    if args.diagnose_only:
+        print("DIAGNOSTICS ONLY: no window was activated.")
+        return 0
 
     try:
         confirmation = input('Type "ACTIVATE" to proceed: ').strip()
