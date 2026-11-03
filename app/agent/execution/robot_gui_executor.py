@@ -22,6 +22,7 @@ class RobotGUIExecutor(ActionExecutor):
     SUPPORTED_ACTIONS = {
         "click_screen_element",
         "write_text",
+        "press_key",
     }
 
     def __init__(
@@ -46,6 +47,42 @@ class RobotGUIExecutor(ActionExecutor):
                 success=False,
                 message="Unsupported robot GUI action",
                 requires_manual_review=True,
+            )
+
+        if action.name == "press_key":
+            if not isinstance(action.value, str) or not action.value:
+                return ExecutionResult(
+                    action_name=action.name,
+                    success=False,
+                    message="press_key requires an allowlisted key sequence",
+                    requires_manual_review=True,
+                )
+
+            if context.current_scene is None:
+                return ExecutionResult(
+                    action_name=action.name,
+                    success=False,
+                    message="No current screen scene available",
+                    requires_manual_review=True,
+                )
+
+            window_handle = self._window_handle(context)
+            result = self.robot_action_executor.execute_keyboard_input(
+                sequence=action.value,
+                window_handle=window_handle,
+            )
+            return ExecutionResult(
+                action_name=action.name,
+                success=result.success,
+                message=result.reason,
+                requires_manual_review=not result.success,
+                metadata={
+                    "target": None,
+                    "window_handle": window_handle,
+                    "executed": result.executed,
+                    "execution_path": "keyboard_input",
+                    "key_sequence": action.value,
+                },
             )
 
         if action.name == "write_text" and not isinstance(
