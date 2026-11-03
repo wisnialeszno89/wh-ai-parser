@@ -169,7 +169,7 @@ def test_activation_diagnostics_explain_foreground_and_title_mismatches(
         windows,
         process_name="Okna.exe",
         title_contains="Untitled window",
-        title_must_be_empty=false,
+        title_must_be_empty=False,
         foreground_application="Okna.exe",
         foreground_title="Untitled window",
     )
