@@ -10,6 +10,7 @@ import argparse
 import os
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Sequence
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
@@ -155,6 +156,10 @@ def main() -> int:
     executor = RobotActionExecutor(
         mode=RobotExecutionMode.LIVE,
         safety_gate=ExecutionSafetyGate(),
+        # This smoke test uses only the window activation path; avoid
+        # constructing unrelated mouse/keyboard hardware adapters.
+        mouse=SimpleNamespace(),
+        keyboard=SimpleNamespace(),
     )
     result = executor.execute_window_activation(
         window_handle=target.handle,
