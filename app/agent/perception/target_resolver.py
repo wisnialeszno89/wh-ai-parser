@@ -213,6 +213,7 @@ class TargetResolver:
                 ("role", query.role),
                 ("label", query.label),
                 ("automation_id", query.automation_id),
+                ("uia_runtime_id", query.uia_runtime_id),
                 ("ancestor", query.within),
             )
             if value is not None
