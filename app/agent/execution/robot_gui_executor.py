@@ -242,7 +242,10 @@ class RobotGUIExecutor(ActionExecutor):
             target_id = None
 
         if target_id is None:
-            if not self._is_uia_only_target(element):
+            if (
+                not self._is_uia_only_target(element)
+                or not self._has_unique_uia_target_identity(scene, element)
+            ):
                 return ExecutionResult(
                     action_name=action.name,
                     success=False,
@@ -456,6 +459,37 @@ class RobotGUIExecutor(ActionExecutor):
                 str,
             )
         )
+
+    @staticmethod
+    def _has_unique_uia_target_identity(scene, element) -> bool:
+        metadata = element.metadata or {}
+        runtime_id = metadata.get("uia_runtime_id")
+        source = metadata.get("source")
+        if (
+            source not in {
+                "windowhub_ui_automation",
+                "windows_ui_automation",
+            }
+            or not isinstance(runtime_id, str)
+            or not runtime_id.strip()
+            or not any(candidate is element for candidate in scene.elements)
+        ):
+            return False
+
+        matches = 0
+        for candidate in scene.elements:
+            candidate_metadata = candidate.metadata or {}
+            if (
+                candidate_metadata.get("source") in {
+                    "windowhub_ui_automation",
+                    "windows_ui_automation",
+                }
+                and candidate_metadata.get("uia_runtime_id") == runtime_id
+            ):
+                matches += 1
+                if matches > 1:
+                    return False
+        return matches == 1
 
     @staticmethod
     def _resolve_target(
