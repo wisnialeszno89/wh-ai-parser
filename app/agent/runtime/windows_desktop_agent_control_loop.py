@@ -60,9 +60,11 @@ def create_windows_desktop_agent_control_loop(
         environment=environment,
         execution_engine=execution_engine,
         perception_providers=(
+            # Desktop window inventory comes first so it remains represented
+            # even when a foreground application exposes a very large UIA tree.
+            WindowsDesktopWindowProvider(),
             WindowsUIAutomationProvider(),
             WindowsScreenTextProvider(),
-            WindowsDesktopWindowProvider(),
         ),
         plan_reasoner=plan_reasoner,
     )
