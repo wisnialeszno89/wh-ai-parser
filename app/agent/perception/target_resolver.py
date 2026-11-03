@@ -173,6 +173,19 @@ class TargetResolver:
                 ):
                     continue
 
+            if query.uia_runtime_id is not None:
+                source = metadata.get("source")
+                actual_runtime_id = metadata.get("uia_runtime_id")
+                if (
+                    source not in {
+                        "windows_ui_automation",
+                        "windowhub_ui_automation",
+                    }
+                    or not isinstance(actual_runtime_id, str)
+                    or actual_runtime_id.strip() != query.uia_runtime_id.strip()
+                ):
+                    continue
+
             if query.within is not None:
                 ancestry = metadata.get("uia_ancestor_structure")
                 if not isinstance(ancestry, (tuple, list)):
