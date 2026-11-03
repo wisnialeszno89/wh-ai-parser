@@ -159,6 +159,8 @@ def test_windows_desktop_window_provider_projects_open_windows_as_non_clickable_
     assert elements[1].label == "Inbox - Outlook — OUTLOOK.EXE"
     assert elements[0].metadata["is_foreground"] is True
     assert elements[1].metadata["is_minimized"] is True
+    assert elements[0].metadata["is_root_window"] is True
+    assert elements[0].metadata["window_area"] == 1200 * 800
     assert all(
         item.interaction_capability is InteractionCapability.UNKNOWN
         for item in elements
