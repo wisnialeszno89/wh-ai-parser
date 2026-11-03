@@ -162,7 +162,7 @@ class VerificationLoop:
                     success=True,
                 )
 
-            if action.name in {"click_screen_element", "press_key"}:
+            if action.name in {"click_screen_element", "press_key", "activate_window"}:
                 return ExecutionLoopResult(
                     attempts=tuple(attempts),
                     success=False,
