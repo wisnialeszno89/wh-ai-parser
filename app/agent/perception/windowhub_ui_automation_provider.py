@@ -901,6 +901,7 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
             "uia_visible": visible,
             "uia_runtime_id": runtime_id,
             "uia_selected": selected,
+            "uia_focused": self._keyboard_focus_state(item),
             "uia_tab_scope": tab_scope,
             "uia_document_tab_selected": (
                 selected
@@ -1178,6 +1179,43 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
             return "nested"
 
         return "other"
+
+    @staticmethod
+    def _keyboard_focus_state(item) -> bool | None:
+        """Read UIA keyboard focus when the provider exposes it."""
+        try:
+            element_info = item.element_info
+        except Exception:
+            element_info = None
+
+        for owner in (element_info, item):
+            if owner is None:
+                continue
+            try:
+                value = getattr(owner, "has_keyboard_focus", None)
+                if callable(value):
+                    value = value()
+                if isinstance(value, bool):
+                    return value
+            except Exception:
+                continue
+
+        properties_getter = getattr(item, "get_properties", None)
+        if callable(properties_getter):
+            try:
+                properties = properties_getter()
+            except Exception:
+                properties = {}
+            if isinstance(properties, dict):
+                for key in (
+                    "has_keyboard_focus",
+                    "keyboard_focus",
+                    "focused",
+                ):
+                    value = properties.get(key)
+                    if isinstance(value, bool):
+                        return value
+        return None
 
     @staticmethod
     def _selection_state(item) -> bool | None:
