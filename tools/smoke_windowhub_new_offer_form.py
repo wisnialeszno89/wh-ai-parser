@@ -21,8 +21,18 @@ from app.agent.environment.windows_desktop_environment_adapter import (
     WindowsDesktopEnvironmentAdapter,
 )
 from app.agent.perception.screen_element import ScreenElement
+from app.agent.perception.screen_scene import ScreenScene
 from app.agent.perception.windows_ui_automation_provider import (
     WindowsUIAutomationProvider,
+)
+from app.agent.offers.windowhub_offer_form_map import WindowHubOfferFormMap
+
+
+_UIA_SOURCES = frozenset(
+    {
+        "windows_ui_automation",
+        "windowhub_ui_automation",
+    }
 )
 
 
@@ -72,6 +82,35 @@ def _parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def _runtime_identity_counts(
+    elements: Sequence[ScreenElement],
+) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for element in elements:
+        metadata = element.metadata or {}
+        runtime_id = metadata.get("uia_runtime_id")
+        if (
+            metadata.get("source") in _UIA_SOURCES
+            and isinstance(runtime_id, str)
+            and runtime_id.strip()
+        ):
+            counts[runtime_id.strip()] = counts.get(runtime_id.strip(), 0) + 1
+    return counts
+
+
+def _runtime_identity_status(
+    element: ScreenElement,
+    counts: dict[str, int],
+) -> str:
+    metadata = element.metadata or {}
+    if metadata.get("source") not in _UIA_SOURCES:
+        return "untrusted_source"
+    runtime_id = metadata.get("uia_runtime_id")
+    if not isinstance(runtime_id, str) or not runtime_id.strip():
+        return "missing"
+    return "unique" if counts.get(runtime_id.strip()) == 1 else "ambiguous"
+
+
 def summarize_controls(
     elements: Sequence[ScreenElement],
     *,
@@ -86,7 +125,8 @@ def summarize_controls(
         raise ValueError("new_offer_form_control_limit_invalid")
 
     records: list[dict[str, object]] = []
-    seen: set[tuple[str, str, str]] = set()
+    seen: set[tuple[str, str, str, str]] = set()
+    runtime_id_counts = _runtime_identity_counts(elements)
 
     for element in elements:
         if not isinstance(element, ScreenElement):
@@ -143,6 +183,10 @@ def summarize_controls(
                     else ""
                 ),
                 "enabled": metadata.get("uia_enabled") is True,
+                "runtime_identity": _runtime_identity_status(
+                    element,
+                    runtime_id_counts,
+                ),
                 "focused": (
                     metadata.get("uia_focused")
                     if isinstance(metadata.get("uia_focused"), bool)
@@ -213,8 +257,8 @@ def main() -> int:
         return 1
 
     print(f"Semantic controls found: {len(records)}")
-    print("\nNO. | TYPE | LABEL | AUTOMATION_ID | ENABLED | FOCUSED | VALUE_PRESENT | LABEL_SOURCE")
-    print("-" * 150)
+    print("\nNO. | TYPE | LABEL | AUTOMATION_ID | ENABLED | RUNTIME_IDENTITY | FOCUSED | VALUE_PRESENT | LABEL_SOURCE")
+    print("-" * 170)
 
     for index, record in enumerate(records, start=1):
         print(
@@ -223,10 +267,47 @@ def main() -> int:
             f"{record['label']} | "
             f"{record['automation_id'] or '-'} | "
             f"{'yes' if record['enabled'] else 'no'} | "
+            f"{record['runtime_identity']} | "
             f"{record['focused'] if record['focused'] is not None else '-'} | "
             f"{'yes' if record['value_present'] else 'no'} | "
             f"{record['label_source'] or '-'}"
         )
+
+    scene = ScreenScene(
+        observation=observation,
+        elements=tuple(elements),
+    )
+    form_snapshot = WindowHubOfferFormMap().inspect(scene)
+    print("\n=== WINDOWHUB FORM-STEP BINDING (READ ONLY) ===")
+    if form_snapshot is None:
+        print("Wizard step: unsupported or not recognized.")
+    else:
+        print(f"Wizard step: {form_snapshot.step.value}")
+        print("FIELD | STATUS | CANDIDATES | ENABLED | RUNTIME_IDENTITY")
+        for field in form_snapshot.fields:
+            identity = (
+                next(
+                    (
+                        record["runtime_identity"]
+                        for record in records
+                        if field.element is not None
+                        and record["label"] == field.element.label
+                        and record["automation_id"] == (
+                            (field.element.metadata or {}).get("automation_id") or ""
+                        )
+                    ),
+                    "not_reported",
+                )
+                if field.element is not None
+                else "-"
+            )
+            print(
+                f"{field.field_name} | "
+                f"{field.status} | "
+                f"{field.candidate_count} | "
+                f"{field.enabled if field.enabled is not None else '-'} | "
+                f"{identity}"
+            )
 
     print("\nInspection complete. No form values were displayed or changed.")
     return 0
