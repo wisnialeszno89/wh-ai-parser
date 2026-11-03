@@ -8,6 +8,7 @@ from app.agent.environment.windows_desktop_environment_adapter import (
 from app.runtime.execution.window.window_rect import WindowRect
 from tools.smoke_windows_desktop_window_activation import (
     _configure_console_output as configure_activation_console,
+    _print_target_diagnostics,
     select_target_window,
 )
 from tools.smoke_windows_desktop_window_inventory import (
@@ -143,3 +144,38 @@ def test_smoke_scripts_escape_unicode_characters_unsupported_by_console(
     configure_console()
 
     assert calls == [{"errors": "backslashreplace"}]
+
+
+
+def test_activation_diagnostics_explain_foreground_and_title_mismatches(
+    capsys,
+):
+    windows = (
+        _window(
+            "Okna.exe",
+            "Untitled window",
+            handle=200,
+            foreground=True,
+        ),
+        _window(
+            "Okna.exe",
+            "Okna - OFR/4522-",
+            handle=300,
+        ),
+    )
+
+    _print_target_diagnostics(
+        windows,
+        process_name="Okna.exe",
+        title_contains="Untitled window",
+        foreground_application="Okna.exe",
+        foreground_title="Untitled window",
+    )
+
+    output = capsys.readouterr().out
+    assert "Windows found for process Okna.exe: 2" in output
+    assert "FOREGROUND" in output
+    assert "ALREADY_FOREGROUND_NOT_ACTIVATED" in output
+    assert "TITLE_MISMATCH" in output
+    assert "200" not in output
+    assert "300" not in output
