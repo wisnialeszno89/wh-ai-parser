@@ -436,6 +436,45 @@ def test_click_verification_failure_never_retries_physical_action():
     # The action executes before the first observe/perceive cycle, so the\n    # initial runtime value is still absent. The important invariant is\n    # that the physical click is not retried after failed verification.\n    assert executor.seen_generations == [None]
 
 
+
+def test_keyboard_verification_failure_never_repeats_navigation_key():
+
+    executor = RuntimeAwareExecutor()
+
+    registry = ExecutorRegistry(
+        executors=(executor,)
+    )
+
+    environment = FakeEnvironment(
+        state=create_observation().state
+    )
+
+    loop = VerificationLoop(
+        execution_engine=ExecutionEngine(
+            registry
+        ),
+        environment=environment,
+        perception_engine=SequencedPerceptionEngine(),
+        expectation_resolver=StaticExpectationResolver(),
+        outcome_verifier=SequencedOutcomeVerifier(),
+        max_attempts=2,
+    )
+
+    result = loop.run(
+        AgentAction(
+            name="press_key",
+            description="Move focus to the next field.",
+            value="tab",
+        ),
+        create_context(),
+    )
+
+    assert result.success is False
+    assert result.requires_manual_review is True
+    assert len(result.attempts) == 1
+    assert executor.seen_generations == [None]
+
+
 class DryRunAwareExecutor:
     def supports(self, action: AgentAction) -> bool:
         return True
