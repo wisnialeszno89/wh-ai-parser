@@ -1,4 +1,3 @@
-from app.agent.agent_intent import AgentIntent
 from app.agent.environment.environment_observation import EnvironmentObservation
 from app.agent.environment.environment_state import EnvironmentState
 from app.agent.offers.agent_construction_compiler import AgentConstructionCompiler
@@ -285,10 +284,10 @@ def test_plan_fields_for_other_wizard_steps_are_not_bound_in_current_step():
         item for item in binding.fields
         if item.field_name == "quantity_input"
     )
-    hardware = next(
+    profile_picker = next(
         item for item in binding.fields
-        if item.field_name == "hardware_profile"
+        if item.field_name == "profile_system_picker"
     )
 
     assert quantity.status == WindowHubBindingStatus.NOT_CURRENT_STEP
-    assert hardware.status == WindowHubBindingStatus.FIELD_MAPPING_MISSING
+    assert profile_picker.status == WindowHubBindingStatus.NOT_CURRENT_STEP
