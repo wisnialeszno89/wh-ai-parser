@@ -8,6 +8,7 @@ from uuid import uuid4
 
 from app.agent.experience.experience_models import (
     ExperienceEpisode,
+    ExperienceFact,
     ExperienceStep,
 )
 from app.agent.experience.experience_store import ExperienceStore
@@ -24,6 +25,7 @@ class GuidedLearningSession:
     tags: tuple[str, ...]
     session_id: str = field(default_factory=lambda: uuid4().hex)
     steps: list[ExperienceStep] = field(default_factory=list)
+    facts: list[ExperienceFact] = field(default_factory=list)
     closed: bool = False
 
     def record_step(self, step: ExperienceStep) -> None:
@@ -34,6 +36,18 @@ class GuidedLearningSession:
         if len(self.steps) >= 60:
             raise ValueError("guided_learning_step_limit_reached")
         self.steps.append(step)
+
+
+    def record_fact(self, fact: ExperienceFact) -> None:
+        if self.closed:
+            raise ValueError("guided_learning_session_closed")
+        if not isinstance(fact, ExperienceFact):
+            raise TypeError("guided_learning_fact_invalid")
+        if len(self.facts) >= 30:
+            raise ValueError("guided_learning_fact_limit_reached")
+        if any(existing.key == fact.key for existing in self.facts):
+            raise ValueError("guided_learning_fact_duplicate")
+        self.facts.append(fact)
 
 
 class GuidedLearningService:
@@ -94,6 +108,7 @@ class GuidedLearningService:
             tags=session.tags,
             steps=tuple(session.steps),
             outcome=outcome,
+            facts=tuple(session.facts),
             approved_by_operator=False,
         )
         session.closed = True
