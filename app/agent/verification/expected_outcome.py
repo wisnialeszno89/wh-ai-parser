@@ -38,3 +38,8 @@ class ExpectedOutcome:
     expected_element_state_name: str | None = None
 
     expected_element_state_value: object | None = None
+
+    # Local-only UIA identity used to verify the exact control when labels repeat.
+    expected_element_uia_runtime_id: str | None = None
+
+    expected_element_automation_id: str | None = None
