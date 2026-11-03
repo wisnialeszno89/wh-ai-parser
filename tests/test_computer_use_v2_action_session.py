@@ -9,6 +9,7 @@ from app.agent.environment.environment_state import EnvironmentState
 from app.agent.perception.interaction_capability import InteractionCapability
 from app.agent.perception.screen_element import ScreenElement
 from app.agent.perception.screen_scene import ScreenScene
+from app.agent.perception.semantic_target_query import SemanticTargetQuery
 from app.agent.runtime.computer_use_v2_action_session import (
     ComputerUseV2ActionSession,
 )
@@ -147,7 +148,9 @@ def test_v2_cycle_resolves_click_to_the_exact_local_semantic_element():
     )
 
     assert resolved.action.name == "click_screen_element"
-    assert resolved.action.target == "Save workbook"
+    assert isinstance(resolved.action.target, SemanticTargetQuery)
+    assert resolved.action.target.label == "Save workbook"
+    assert resolved.action.target.uia_runtime_id == "[save]"
     assert resolved.target_ref == "ent_0001"
     assert resolved.action.requires_confirmation is False
 
@@ -173,7 +176,9 @@ def test_v2_cycle_resolves_write_text_only_for_editable_uia_controls():
     )
 
     assert resolved.action.name == "write_text"
-    assert resolved.action.target == "Customer name"
+    assert isinstance(resolved.action.target, SemanticTargetQuery)
+    assert resolved.action.target.label == "Customer name"
+    assert resolved.action.target.uia_runtime_id == "[customer]"
     assert resolved.action.value == "Max Mustermann"
 
 
