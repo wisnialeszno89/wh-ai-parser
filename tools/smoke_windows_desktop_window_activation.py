@@ -36,21 +36,27 @@ def select_target_window(
     process_name: str,
     title_contains: str | None = None,
     title_must_be_empty: bool = False,
+    root_window_only: bool = False,
 ) -> DesktopWindowSnapshot:
-    """Return exactly one visible, inactive, independently owned target window."""
+    """Return exactly one visible, inactive target window using explicit identity criteria."""
     process_key = process_name.strip().casefold()
     title_key = title_contains.strip().casefold() if isinstance(title_contains, str) else ""
-    if (
-        not process_key
-        or (title_must_be_empty and title_key)
-        or (not title_must_be_empty and not title_key)
-    ):
+    selector_count = sum((bool(title_key), title_must_be_empty, root_window_only))
+    if not process_key or selector_count != 1:
         raise ValueError("activation_smoke_selectors_required")
 
-    def title_matches(window: DesktopWindowSnapshot) -> bool:
+    def identity_matches(window: DesktopWindowSnapshot) -> bool:
+        if root_window_only:
+            return window.root_owner_handle == window.handle
         if title_must_be_empty:
-            return not isinstance(window.title, str) or not window.title.strip()
-        return isinstance(window.title, str) and title_key in window.title.casefold()
+            return (
+                (not isinstance(window.title, str) or not window.title.strip())
+                and window.root_owner_handle == window.handle
+            )
+        return (
+            isinstance(window.title, str)
+            and title_key in window.title.casefold()
+        )
 
     matches = [
         window
@@ -60,11 +66,7 @@ def select_target_window(
         and window.is_foreground is False
         and isinstance(window.application, str)
         and window.application.strip().casefold() == process_key
-        and title_matches(window)
-        and (
-            not title_must_be_empty
-            or window.root_owner_handle == window.handle
-        )
+        and identity_matches(window)
     ]
     if len(matches) != 1:
         raise ValueError(
@@ -78,6 +80,7 @@ def _print_target_diagnostics(
     process_name: str,
     title_contains: str | None,
     title_must_be_empty: bool,
+    root_window_only: bool,
     foreground_application: str | None,
     foreground_title: str | None,
 ) -> None:
@@ -87,8 +90,13 @@ def _print_target_diagnostics(
     print("=== TARGET MATCH DIAGNOSTICS ===")
     print(f"Current foreground application: {foreground_application or 'unknown'}")
     print(f"Current foreground title: {foreground_title or '<BRAK TYTUŁU>'}")
-    selector = "<BRAK TYTUŁU>" if title_must_be_empty else repr(title_contains)
-    print(f"Requested title selector: {selector}")
+    if root_window_only:
+        selector = "<SAMODZIELNE OKNO GŁÓWNE>"
+    elif title_must_be_empty:
+        selector = "<BRAK TYTUŁU>"
+    else:
+        selector = repr(title_contains)
+    print(f"Requested target selector: {selector}")
     candidates = [
         window
         for window in windows
@@ -111,21 +119,24 @@ def _print_target_diagnostics(
             flags.append("MINIMIZED")
         if window.is_visible is not True:
             flags.append("NOT_VISIBLE")
-        if title_must_be_empty:
+        if window.root_owner_handle == window.handle:
+            flags.append("ROOT_OWNER_SELF")
+        elif window.root_owner_handle is None:
+            flags.append("ROOT_OWNER_UNKNOWN")
+        else:
+            flags.append("OWNED_BY_OTHER_WINDOW")
+        if root_window_only:
+            identity_ok = window.root_owner_handle == window.handle
+        elif title_must_be_empty:
+            identity_ok = not has_title and window.root_owner_handle == window.handle
             if has_title:
                 flags.append("TITLE_PRESENT")
-            if window.root_owner_handle != window.handle:
-                flags.append("OWNED_BY_OTHER_WINDOW")
-        elif not has_title or title_key not in title.casefold():
-            flags.append("TITLE_MISMATCH")
-        if window.is_foreground is False and window.is_visible is True:
-            title_ok = (
-                (not has_title and window.root_owner_handle == window.handle)
-                if title_must_be_empty
-                else (has_title and title_key in title.casefold())
-            )
-            if title_ok:
-                flags.append("MATCH_CANDIDATE")
+        else:
+            identity_ok = has_title and title_key in title.casefold()
+            if not identity_ok:
+                flags.append("TITLE_MISMATCH")
+        if identity_ok and window.is_visible is True and window.is_foreground is False:
+            flags.append("MATCH_CANDIDATE")
         dimensions = (
             f"{window.rect.width}x{window.rect.height}"
             if window.rect is not None
@@ -157,6 +168,11 @@ def _parse_args() -> argparse.Namespace:
         "--target-title-empty",
         action="store_true",
         help="Select a truly empty-title root window (not a display placeholder)",
+    )
+    title_group.add_argument(
+        "--target-root-window",
+        action="store_true",
+        help="Select the uniquely identified independent root window for this process",
     )
     parser.add_argument(
         "--diagnose-only",
@@ -200,6 +216,7 @@ def main() -> int:
             process_name=args.target_process,
             title_contains=args.target_title_contains,
             title_must_be_empty=args.target_title_empty,
+            root_window_only=args.target_root_window,
         )
     except ValueError as exc:
         print(str(exc))
@@ -208,6 +225,7 @@ def main() -> int:
             process_name=args.target_process,
             title_contains=args.target_title_contains,
             title_must_be_empty=args.target_title_empty,
+            root_window_only=args.target_root_window,
             foreground_application=observation.state.active_application,
             foreground_title=observation.state.active_window_title,
         )
