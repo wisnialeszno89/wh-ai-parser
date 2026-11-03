@@ -624,16 +624,6 @@ class ComputerUseV2ActionSession:
         return resolution.resolved and resolution.element is element
 
     @staticmethod
-    def _has_unique_uia_runtime_identity(
-        scene: ScreenScene,
-        element: ScreenElement,
-    ) -> bool:
-        return PreparedComputerUseV2Cycle._has_unique_uia_runtime_identity(
-            scene,
-            element,
-        )
-
-    @staticmethod
     def _is_clickable_target(element: ScreenElement) -> bool:
         if element.interaction_capability is not InteractionCapability.CLICKABLE:
             return False
