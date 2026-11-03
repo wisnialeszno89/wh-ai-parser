@@ -69,6 +69,28 @@ _CONFIRMATION_LABEL_TERMS = (
     "bestellen",
     "freigeben",
     "stornieren",
+    # Persisting or creating a business record requires operator confirmation.
+    "save",
+    "create",
+    "finish",
+    "complete",
+    "commit",
+    "speichern",
+    "erstellen",
+    "anlegen",
+    "fertigstellen",
+    "abschließen",
+    "abschliessen",
+    "übernehmen",
+    "zapisz",
+    "utwórz",
+    "utworz",
+    "stwórz",
+    "stworz",
+    "zatwierdź",
+    "zatwierdz",
+    "zakończ",
+    "zakoncz",
 )
 _UNSUPPORTED = object()
 
