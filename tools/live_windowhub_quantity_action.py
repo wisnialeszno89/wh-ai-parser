@@ -105,6 +105,31 @@ def main() -> int:
         return 3
 
     if not _active_app_is_windowhub(scene):
+        state = scene.observation.state
+        print("=== FOREGROUND DIAGNOSTICS ===")
+        print(f"Detected process: {state.active_application!r}")
+        print(f"Detected window title: {state.active_window_title!r}")
+        desktop_windows = scene.observation.metadata.get("desktop_windows", ())
+        windowhub_windows = [
+            item
+            for item in desktop_windows
+            if (
+                str(getattr(item, "application", "")).replace("\\\\", "/").rsplit("/", 1)[-1].casefold()
+                == "okna.exe"
+                or "dodawanie nowej pozycji" in str(getattr(item, "title", "")).casefold()
+            )
+        ]
+        if windowhub_windows:
+            print("WindowHub windows visible to Windows:")
+            for item in windowhub_windows:
+                print(
+                    f"  process={getattr(item, 'application', None)!r}; "
+                    f"title={getattr(item, 'title', None)!r}; "
+                    f"foreground={getattr(item, 'is_foreground', None)!r}; "
+                    f"minimized={getattr(item, 'is_minimized', None)!r}"
+                )
+        else:
+            print("WindowHub windows visible to Windows: none found.")
         print("ABORTED: WindowHub is not the foreground application.")
         print("No action was executed.")
         return 3
