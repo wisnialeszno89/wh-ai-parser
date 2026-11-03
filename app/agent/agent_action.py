@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from app.agent.environment.environment_requirement import (
     EnvironmentRequirement,
 )
+from app.agent.perception.semantic_target_query import SemanticTargetQuery
 
 
 @dataclass(frozen=True)
@@ -27,7 +28,7 @@ class AgentAction:
 
     # Optional semantic target carried by the plan. This is a label or
     # other semantic identifier, never a coordinate or low-level command.
-    target: str | None = None
+    target: str | SemanticTargetQuery | None = None
 
     # Optional semantic text value for safe field-entry actions.
     value: str | None = None
