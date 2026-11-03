@@ -24,6 +24,7 @@ class ActionPolicy:
             else frozenset({
                 InteractionAction.CLICK,
                 InteractionAction.WRITE,
+                InteractionAction.KEY_PRESS,
             })
         )
 
