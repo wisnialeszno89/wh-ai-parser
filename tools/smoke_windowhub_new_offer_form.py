@@ -278,6 +278,7 @@ def main() -> int:
         elements=tuple(elements),
     )
     form_snapshot = WindowHubOfferFormMap().inspect(scene)
+    runtime_id_counts = _runtime_identity_counts(elements)
     print("\n=== WINDOWHUB FORM-STEP BINDING (READ ONLY) ===")
     if form_snapshot is None:
         print("Wizard step: unsupported or not recognized.")
@@ -286,18 +287,7 @@ def main() -> int:
         print("FIELD | STATUS | CANDIDATES | ENABLED | RUNTIME_IDENTITY")
         for field in form_snapshot.fields:
             identity = (
-                next(
-                    (
-                        record["runtime_identity"]
-                        for record in records
-                        if field.element is not None
-                        and record["label"] == field.element.label
-                        and record["automation_id"] == (
-                            (field.element.metadata or {}).get("automation_id") or ""
-                        )
-                    ),
-                    "not_reported",
-                )
+                _runtime_identity_status(field.element, runtime_id_counts)
                 if field.element is not None
                 else "-"
             )
