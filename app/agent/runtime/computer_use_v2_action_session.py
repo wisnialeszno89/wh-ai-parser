@@ -26,6 +26,7 @@ from app.runtime.execution.keyboard.keyboard_input_policy import (
 
 
 MAX_V2_ACTION_CAPABILITIES = 64
+MAX_DESKTOP_WINDOW_ACTION_CAPABILITIES = 8
 _UIA_SOURCES = frozenset(
     {
         "windows_ui_automation",
@@ -107,6 +108,9 @@ class PreparedComputerUseV2Cycle:
         value = raw_action.get("value")
         label: str | None = None
 
+        window_handle: int | None = None
+        element: ScreenElement | None = None
+
         if binding.semantic_action == "press_key":
             if binding.target_ref is not None or value not in (None, ""):
                 raise ValueError("computer_use_v2_keyboard_action_payload_invalid")
@@ -131,6 +135,22 @@ class PreparedComputerUseV2Cycle:
             if binding.semantic_action == "write_text":
                 if not isinstance(value, str) or not value:
                     raise ValueError("computer_use_v2_write_text_value_missing")
+            elif binding.semantic_action == "activate_window":
+                if value not in (None, ""):
+                    raise ValueError("computer_use_v2_window_action_payload_invalid")
+                metadata = element.metadata or {}
+                candidate_handle = metadata.get("window_handle")
+                if (
+                    metadata.get("source") != "windows_desktop_window"
+                    or isinstance(candidate_handle, bool)
+                    or not isinstance(candidate_handle, int)
+                    or candidate_handle <= 0
+                    or metadata.get("is_foreground") is True
+                    or not isinstance(binding.value, str)
+                    or binding.value != str(candidate_handle)
+                ):
+                    raise ValueError("computer_use_v2_window_binding_invalid")
+                window_handle = candidate_handle
             elif value not in (None, ""):
                 raise ValueError("computer_use_v2_click_value_not_supported")
 
@@ -161,6 +181,12 @@ class PreparedComputerUseV2Cycle:
             description = f"Enter the requested text in '{label}'."
             action_target = label
             action_value = value
+        elif binding.semantic_action == "activate_window":
+            self._validate_window_postcondition(expected_postcondition)
+            canonical_name = "activate_window"
+            description = f"Activate the open desktop window '{label}'."
+            action_target = label
+            action_value = str(window_handle)
         else:
             canonical_name = "click_screen_element"
             description = f"Click the visible control '{label}'."
@@ -185,6 +211,15 @@ class PreparedComputerUseV2Cycle:
             expected_postcondition=dict(expected_postcondition),
         )
 
+
+    @staticmethod
+    def _validate_window_postcondition(
+        postcondition: Mapping[str, object],
+    ) -> None:
+        if postcondition.get("kind") != "scene_changed":
+            raise ValueError(
+                "computer_use_v2_window_requires_scene_change_postcondition"
+            )
 
     @staticmethod
     def _validate_keyboard_postcondition(
@@ -325,7 +360,11 @@ class ComputerUseV2ActionSession:
         resolver = self._target_resolver_factory()
 
         for affordance in snapshot.payload.get("affordances", []):
-            if len(capabilities) >= MAX_V2_ACTION_CAPABILITIES - len(SAFE_KEY_SEQUENCES):
+            if len(capabilities) >= (
+                MAX_V2_ACTION_CAPABILITIES
+                - len(SAFE_KEY_SEQUENCES)
+                - MAX_DESKTOP_WINDOW_ACTION_CAPABILITIES
+            ):
                 break
             if not isinstance(affordance, Mapping):
                 continue
@@ -378,6 +417,63 @@ class ComputerUseV2ActionSession:
                 semantic_action=verb,
                 requires_confirmation=requires_confirmation,
             )
+
+        window_actions_added = 0
+        for target_ref in snapshot.reference_map.refs:
+            if window_actions_added >= MAX_DESKTOP_WINDOW_ACTION_CAPABILITIES:
+                break
+            if len(capabilities) >= (
+                MAX_V2_ACTION_CAPABILITIES - len(SAFE_KEY_SEQUENCES)
+            ):
+                break
+            try:
+                element = snapshot.reference_map.resolve(
+                    target_ref,
+                    task_id=task_id,
+                    world_revision=world_revision,
+                )
+            except (KeyError, ValueError):
+                continue
+
+            metadata = element.metadata or {}
+            handle = metadata.get("window_handle")
+            if (
+                metadata.get("source") != "windows_desktop_window"
+                or isinstance(handle, bool)
+                or not isinstance(handle, int)
+                or handle <= 0
+                or metadata.get("is_visible") is not True
+                or metadata.get("is_foreground") is True
+                or not self._is_unique_target(scene, resolver, element)
+            ):
+                continue
+
+            capability_name = f"activate_window_{target_ref}"
+            if capability_name in bindings:
+                continue
+            label = element.label.strip() if isinstance(element.label, str) else ""
+            if not label:
+                continue
+
+            capabilities.append(
+                {
+                    "name": capability_name,
+                    "description": (
+                        f"Activate the visible desktop window '{label}'. "
+                        "Its native window identity is resolved locally."
+                    ),
+                    "target_ref": target_ref,
+                    "requires_confirmation": False,
+                }
+            )
+            bindings[capability_name] = _LocalActionBinding(
+                action_name=capability_name,
+                target_ref=target_ref,
+                semantic_action="activate_window",
+                requires_confirmation=False,
+                value=str(handle),
+            )
+            window_actions_added += 1
 
         for sequence in SAFE_KEY_SEQUENCES:
             if len(capabilities) >= MAX_V2_ACTION_CAPABILITIES:
