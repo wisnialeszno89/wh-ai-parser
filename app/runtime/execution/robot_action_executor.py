@@ -331,13 +331,15 @@ class RobotActionExecutor:
             )
         try:
             handle = int(window_handle)
-            observed_handles = {
-                candidate
-                for candidate in observed_window_handles
-                if isinstance(candidate, int)
-                and not isinstance(candidate, bool)
-                and candidate > 0
-            }
+            observed_handles = tuple(
+                dict.fromkeys(
+                    candidate
+                    for candidate in observed_window_handles
+                    if isinstance(candidate, int)
+                    and not isinstance(candidate, bool)
+                    and candidate > 0
+                )
+            )
         except (TypeError, ValueError, OverflowError):
             return RobotActionResult(
                 False,
@@ -369,7 +371,7 @@ class RobotActionExecutor:
         gate = getattr(self.safety_gate, "can_activate_window", None)
         if not callable(gate) or not gate(
             window_handle=handle,
-            observed_window_handles=tuple(observed_handles),
+            observed_window_handles=observed_handles,
         ):
             return RobotActionResult(
                 False,
