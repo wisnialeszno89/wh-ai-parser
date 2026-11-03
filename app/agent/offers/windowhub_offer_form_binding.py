@@ -23,6 +23,7 @@ from app.agent.perception.screen_scene import ScreenScene
 
 class WindowHubBindingStatus(str, Enum):
     PLAN_BLOCKED = "plan_blocked"
+    STEP_NOT_OBSERVED = "step_not_observed"
     FIELD_MAPPING_MISSING = "field_mapping_missing"
     NOT_CURRENT_STEP = "not_current_step"
     CONTROL_MISSING = "control_missing"
@@ -106,7 +107,7 @@ class WindowHubOfferFormBinder:
                     WindowHubBoundPlanField(
                         field_name=entry.field_name,
                         desired_value=entry.desired_value,
-                        status=WindowHubBindingStatus.FIELD_MAPPING_MISSING,
+                        status=WindowHubBindingStatus.STEP_NOT_OBSERVED,
                         note="No supported WindowHub wizard step is currently observed.",
                     )
                     for entry in plan.entries
@@ -130,7 +131,7 @@ class WindowHubOfferFormBinder:
             )
 
         bound_fields = tuple(
-            self._bind_entry(plan, snapshot, entry)
+            self._bind_entry(snapshot, entry)
             for entry in plan.entries
         )
         return WindowHubOfferFormBinding(
@@ -139,7 +140,7 @@ class WindowHubOfferFormBinder:
             reason="observed_only_no_actions_authorized",
         )
 
-    def _bind_entry(self, plan, snapshot, entry):
+    def _bind_entry(self, snapshot, entry):
         if entry.field_name is None:
             return WindowHubBoundPlanField(
                 field_name=None,
