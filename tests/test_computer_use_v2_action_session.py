@@ -12,6 +12,9 @@ from app.agent.perception.screen_scene import ScreenScene
 from app.agent.runtime.computer_use_v2_action_session import (
     ComputerUseV2ActionSession,
 )
+from app.runtime.execution.keyboard.keyboard_input_policy import (
+    SAFE_KEY_SEQUENCES,
+)
 
 
 def _element(kind, label, *, automation_id, source="windows_ui_automation"):
@@ -87,6 +90,13 @@ def _act_response(prepared, *, action_name, target_ref, value=None, confirmation
     }
 
 
+def _keyboard_action_names():
+    return [
+        f"press_key_{sequence.replace('+', '_')}"
+        for sequence in SAFE_KEY_SEQUENCES
+    ]
+
+
 def test_v2_cycle_exposes_only_locally_executable_semantic_actions():
     scene = _scene((
         _element("button", "Save workbook", automation_id="save"),
@@ -107,10 +117,18 @@ def test_v2_cycle_exposes_only_locally_executable_semantic_actions():
         "click_ent_0001",
         "click_ent_0002",
         "write_text_ent_0002",
+        *_keyboard_action_names(),
     ]
+    semantic_actions = actions[:3]
+    keyboard_actions = actions[3:]
     assert all(
         item["target_ref"] in {"ent_0001", "ent_0002"}
-        for item in actions
+        for item in semantic_actions
+    )
+    assert all(item["target_ref"] is None for item in keyboard_actions)
+    assert all(
+        item["requires_confirmation"] is False
+        for item in keyboard_actions
     )
 
 
@@ -187,7 +205,9 @@ def test_v2_cycle_rejects_ambiguous_duplicate_labels():
     ))
     prepared = _prepare(scene)
 
-    assert prepared.request_payload["capabilities"]["actions"] == []
+    actions = prepared.request_payload["capabilities"]["actions"]
+    assert [item["name"] for item in actions] == _keyboard_action_names()
+    assert all(item["target_ref"] is None for item in actions)
 
 
 def test_v2_cycle_action_decision_is_single_use():
@@ -209,6 +229,7 @@ def test_v2_cycle_action_decision_is_single_use():
 def test_v2_cycle_rejects_action_bound_to_a_different_target():
     scene = _scene((
         _element("button", "Save workbook", automation_id="save"),
+        _element("button", "Cancel", automation_id="cancel"),
     ))
     prepared = _prepare(scene)
 
@@ -217,7 +238,7 @@ def test_v2_cycle_rejects_action_bound_to_a_different_target():
             _act_response(
                 prepared,
                 action_name="click_ent_0001",
-                target_ref="ent_9999",
+                target_ref="ent_0002",
             )
         )
 
@@ -235,4 +256,6 @@ def test_ocr_only_text_never_becomes_an_executable_action_capability():
     )
     prepared = _prepare(_scene((ocr_text,)))
 
-    assert prepared.request_payload["capabilities"]["actions"] == []
+    actions = prepared.request_payload["capabilities"]["actions"]
+    assert [item["name"] for item in actions] == _keyboard_action_names()
+    assert all(item["target_ref"] is None for item in actions)
