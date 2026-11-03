@@ -19,6 +19,10 @@ from app.agent.perception.interaction_capability import InteractionCapability
 from app.agent.perception.screen_element import ScreenElement
 from app.agent.perception.screen_scene import ScreenScene
 from app.agent.perception.target_resolver import TargetResolver
+from app.runtime.execution.keyboard.keyboard_input_policy import (
+    SAFE_KEY_SEQUENCES,
+    normalize_keyboard_sequence,
+)
 
 
 MAX_V2_ACTION_CAPABILITIES = 64
@@ -35,9 +39,10 @@ class _LocalActionBinding:
     """Private action binding; never serialized to NaviMind."""
 
     action_name: str
-    target_ref: str
+    target_ref: str | None
     semantic_action: str
     requires_confirmation: bool
+    value: str | None = None
 
 
 @dataclass(frozen=True)
@@ -45,7 +50,7 @@ class ResolvedComputerUseV2Action:
     """A validated semantic action plus its required postcondition."""
 
     action: AgentAction
-    target_ref: str
+    target_ref: str | None
     expected_postcondition: Mapping[str, object]
 
 
@@ -99,24 +104,35 @@ class PreparedComputerUseV2Cycle:
         if target_ref != binding.target_ref:
             raise ValueError("computer_use_v2_action_target_mismatch")
 
-        element = self.snapshot.reference_map.resolve(
-            binding.target_ref,
-            task_id=self.task_id,
-            world_revision=self.world_revision,
-        )
-        if not self._is_unique_current_target(element):
-            raise ValueError("computer_use_v2_target_no_longer_unique")
-
-        label = element.label.strip() if isinstance(element.label, str) else ""
-        if not label:
-            raise ValueError("computer_use_v2_target_label_missing")
-
         value = raw_action.get("value")
-        if binding.semantic_action == "write_text":
-            if not isinstance(value, str) or not value:
-                raise ValueError("computer_use_v2_write_text_value_missing")
-        elif value not in (None, ""):
-            raise ValueError("computer_use_v2_click_value_not_supported")
+        label: str | None = None
+
+        if binding.semantic_action == "press_key":
+            if binding.target_ref is not None or value not in (None, ""):
+                raise ValueError("computer_use_v2_keyboard_action_payload_invalid")
+            if not isinstance(binding.value, str):
+                raise ValueError("computer_use_v2_keyboard_binding_invalid")
+            normalize_keyboard_sequence(binding.value)
+        else:
+            if not isinstance(binding.target_ref, str):
+                raise ValueError("computer_use_v2_target_binding_invalid")
+            element = self.snapshot.reference_map.resolve(
+                binding.target_ref,
+                task_id=self.task_id,
+                world_revision=self.world_revision,
+            )
+            if not self._is_unique_current_target(element):
+                raise ValueError("computer_use_v2_target_no_longer_unique")
+
+            label = element.label.strip() if isinstance(element.label, str) else ""
+            if not label:
+                raise ValueError("computer_use_v2_target_label_missing")
+
+            if binding.semantic_action == "write_text":
+                if not isinstance(value, str) or not value:
+                    raise ValueError("computer_use_v2_write_text_value_missing")
+            elif value not in (None, ""):
+                raise ValueError("computer_use_v2_click_value_not_supported")
 
         requires_confirmation = raw_action.get("requires_confirmation")
         if not isinstance(requires_confirmation, bool):
@@ -128,22 +144,35 @@ class PreparedComputerUseV2Cycle:
         if not isinstance(expected_postcondition, Mapping):
             raise ValueError("computer_use_v2_postcondition_invalid")
 
-        canonical_name = (
-            "write_text"
-            if binding.semantic_action == "write_text"
-            else "click_screen_element"
-        )
-        description = (
-            f"Enter the requested text in '{label}'."
-            if canonical_name == "write_text"
-            else f"Click the visible control '{label}'."
-        )
+        if binding.semantic_action == "press_key":
+            self._validate_keyboard_postcondition(
+                binding.value,
+                expected_postcondition,
+            )
+            canonical_name = "press_key"
+            description = (
+                f"Press the allowlisted '{binding.value}' keyboard sequence "
+                "on the active desktop window."
+            )
+            action_target = None
+            action_value = binding.value
+        elif binding.semantic_action == "write_text":
+            canonical_name = "write_text"
+            description = f"Enter the requested text in '{label}'."
+            action_target = label
+            action_value = value
+        else:
+            canonical_name = "click_screen_element"
+            description = f"Click the visible control '{label}'."
+            action_target = label
+            action_value = None
+
         action = AgentAction(
             name=canonical_name,
             description=description,
             requires_confirmation=requires_confirmation,
-            target=label,
-            value=value if isinstance(value, str) else None,
+            target=action_target,
+            value=action_value,
             requires_environment_observation=True,
         )
 
@@ -155,6 +184,34 @@ class PreparedComputerUseV2Cycle:
             target_ref=binding.target_ref,
             expected_postcondition=dict(expected_postcondition),
         )
+
+
+    @staticmethod
+    def _validate_keyboard_postcondition(
+        sequence: str | None,
+        postcondition: Mapping[str, object],
+    ) -> None:
+        if not isinstance(sequence, str):
+            raise ValueError("computer_use_v2_keyboard_sequence_missing")
+        normalize_keyboard_sequence(sequence)
+
+        kind = postcondition.get("kind")
+        if sequence in {"tab", "shift+tab"}:
+            if (
+                kind != "entity_state_equals"
+                or postcondition.get("state") != "uia_focused"
+                or postcondition.get("expected_value") is not True
+                or not isinstance(postcondition.get("target_ref"), str)
+            ):
+                raise ValueError(
+                    "computer_use_v2_tab_requires_verified_focus_postcondition"
+                )
+            return
+
+        if kind != "scene_changed":
+            raise ValueError(
+                "computer_use_v2_keyboard_requires_scene_change_postcondition"
+            )
 
     def _is_unique_current_target(self, element: ScreenElement) -> bool:
         label = element.label
@@ -320,6 +377,32 @@ class ComputerUseV2ActionSession:
                 target_ref=target_ref,
                 semantic_action=verb,
                 requires_confirmation=requires_confirmation,
+            )
+
+        for sequence in SAFE_KEY_SEQUENCES:
+            if len(capabilities) >= MAX_V2_ACTION_CAPABILITIES:
+                break
+            slug = sequence.replace("+", "_")
+            capability_name = f"press_key_{slug}"
+            if capability_name in bindings:
+                continue
+            capabilities.append(
+                {
+                    "name": capability_name,
+                    "description": (
+                        f"Press the allowlisted '{sequence}' navigation "
+                        "key sequence on the active desktop window."
+                    ),
+                    "target_ref": None,
+                    "requires_confirmation": False,
+                }
+            )
+            bindings[capability_name] = _LocalActionBinding(
+                action_name=capability_name,
+                target_ref=None,
+                semantic_action="press_key",
+                requires_confirmation=False,
+                value=sequence,
             )
 
         return capabilities, bindings
