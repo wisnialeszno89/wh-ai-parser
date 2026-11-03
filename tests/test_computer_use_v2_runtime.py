@@ -233,6 +233,7 @@ def test_v2_runtime_maps_element_state_postcondition_to_local_verification():
     assert isinstance(expected, ExpectedOutcome)
     assert expected.expected_element_state_name == "uia_selected"
     assert expected.expected_element_state_value is False
+    assert expected.expected_element_uia_runtime_id == "[1,2,3]"
     assert result.cycles[0].verified is True
 
 
