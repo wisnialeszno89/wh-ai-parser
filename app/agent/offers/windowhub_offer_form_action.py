@@ -345,6 +345,21 @@ class WindowHubOfferFormActionExecutor:
             )
         )
         context.update_scene(scene)
+        target = prepared.action.target
+        if not isinstance(target, SemanticTargetQuery):
+            raise ValueError("windowhub_form_action_target_invalid")
+        context.set_value(
+            "_windowhub_form_action_scope",
+            {
+                "field_name": prepared.field_name,
+                "application": "Okna.exe",
+                "window_title": "Dodawanie nowej pozycji",
+                "label": target.label,
+                "control_type": target.role,
+                "automation_id": target.automation_id,
+                "uia_runtime_id": target.uia_runtime_id,
+            },
+        )
         context.set_value(
             "expected_outcomes",
             {prepared.action.name: prepared.expected_outcome},
