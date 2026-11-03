@@ -187,6 +187,8 @@ class ExecutionSafetyGate:
         observed_window_handles=(),
     ) -> bool:
         """Only activate a still-visible HWND included in the latest local inventory."""
+        if isinstance(window_handle, bool):
+            return False
         try:
             handle = int(window_handle)
         except (TypeError, ValueError, OverflowError):
@@ -198,9 +200,11 @@ class ExecutionSafetyGate:
             return False
         try:
             observed = {
-                int(candidate)
+                candidate
                 for candidate in observed_window_handles
-                if not isinstance(candidate, bool)
+                if isinstance(candidate, int)
+                and not isinstance(candidate, bool)
+                and candidate > 0
             }
         except (TypeError, ValueError, OverflowError):
             return False
