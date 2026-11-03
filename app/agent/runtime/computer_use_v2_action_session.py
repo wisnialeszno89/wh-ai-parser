@@ -140,11 +140,19 @@ class PreparedComputerUseV2Cycle:
                     raise ValueError("computer_use_v2_window_action_payload_invalid")
                 metadata = element.metadata or {}
                 candidate_handle = metadata.get("window_handle")
+                foreground_handle = self.scene.observation.metadata.get(
+                    "foreground_window_handle",
+                    self.scene.observation.metadata.get("window_handle"),
+                )
                 if (
                     metadata.get("source") != "windows_desktop_window"
                     or isinstance(candidate_handle, bool)
                     or not isinstance(candidate_handle, int)
                     or candidate_handle <= 0
+                    or isinstance(foreground_handle, bool)
+                    or not isinstance(foreground_handle, int)
+                    or foreground_handle <= 0
+                    or candidate_handle == foreground_handle
                     or metadata.get("is_foreground") is not False
                     or not isinstance(binding.value, str)
                     or binding.value != str(candidate_handle)
@@ -418,6 +426,18 @@ class ComputerUseV2ActionSession:
                 requires_confirmation=requires_confirmation,
             )
 
+        foreground_handle = (
+            scene.observation.metadata.get("foreground_window_handle")
+            if scene is not None
+            else None
+        )
+        if (
+            isinstance(foreground_handle, bool)
+            or not isinstance(foreground_handle, int)
+            or foreground_handle <= 0
+        ):
+            return capabilities, bindings
+
         window_actions_added = 0
         for target_ref in snapshot.reference_map.refs:
             if window_actions_added >= MAX_DESKTOP_WINDOW_ACTION_CAPABILITIES:
@@ -443,6 +463,7 @@ class ComputerUseV2ActionSession:
                 or not isinstance(handle, int)
                 or handle <= 0
                 or metadata.get("is_visible") is not True
+                or handle == foreground_handle
                 or metadata.get("is_foreground") is not False
                 or not self._is_unique_target(scene, resolver, element)
             ):
