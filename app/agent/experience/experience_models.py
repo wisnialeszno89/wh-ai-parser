@@ -28,6 +28,21 @@ _ALLOWED_ACTIONS = frozenset(
     }
 )
 _TOKEN_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_.-]{0,79}$")
+_ALLOWED_OFFER_FACTS = frozenset(
+    {
+        "width",
+        "height",
+        "quantity",
+        "product_type",
+        "profile",
+        "configuration",
+        "opening",
+        "openings",
+        "color_inside",
+        "color_outside",
+        "glazing",
+    }
+)
 
 
 def _validate_token(value: str, field_name: str) -> str:
@@ -99,6 +114,55 @@ class ExperienceStep:
 
 
 @dataclass(frozen=True)
+class ExperienceFact:
+    """One normalized, non-customer-specific fact from a completed example."""
+
+    key: str
+    value: str | int | tuple[str, ...]
+
+    def __post_init__(self) -> None:
+        key = _validate_token(self.key, "fact_key")
+        if key not in _ALLOWED_OFFER_FACTS:
+            raise ValueError("experience_fact_key_not_allowed")
+        object.__setattr__(self, "key", key)
+
+        if key in {"width", "height", "quantity"}:
+            if isinstance(self.value, bool) or not isinstance(self.value, int) or self.value <= 0:
+                raise ValueError("experience_numeric_fact_invalid")
+        elif key == "openings":
+            if (
+                not isinstance(self.value, tuple)
+                or not self.value
+                or len(self.value) > 20
+                or any(not isinstance(item, str) or not item.strip() for item in self.value)
+            ):
+                raise ValueError("experience_openings_fact_invalid")
+            normalized = tuple(item.strip().casefold() for item in self.value)
+            object.__setattr__(self, "value", normalized)
+        elif not isinstance(self.value, str) or not self.value.strip() or len(self.value) > 120:
+            raise ValueError("experience_text_fact_invalid")
+        else:
+            object.__setattr__(self, "value", self.value.strip())
+
+    def to_dict(self) -> dict[str, object]:
+        value = list(self.value) if isinstance(self.value, tuple) else self.value
+        return {"key": self.key, "value": value}
+
+    @classmethod
+    def from_dict(cls, data: dict[str, object]) -> "ExperienceFact":
+        if not isinstance(data, dict):
+            raise TypeError("experience_fact_payload_invalid")
+        key = data.get("key")
+        value = data.get("value")
+        if key == "openings" and isinstance(value, list):
+            value = tuple(value)
+        return cls(
+            key=key,  # type: ignore[arg-type]
+            value=value,  # type: ignore[arg-type]
+        )
+
+
+@dataclass(frozen=True)
 class ExperienceEpisode:
     """A completed demonstration isolated to one company and operator."""
 
@@ -109,6 +173,7 @@ class ExperienceEpisode:
     tags: tuple[str, ...]
     steps: tuple[ExperienceStep, ...]
     outcome: str
+    facts: tuple[ExperienceFact, ...] = ()
     approved_by_operator: bool = False
     episode_id: str = field(default_factory=lambda: uuid4().hex)
     created_at_utc: str = field(
@@ -132,6 +197,13 @@ class ExperienceEpisode:
             raise TypeError("experience_steps_invalid")
         if self.outcome not in {"completed", "manual_review", "failed"}:
             raise ValueError("experience_outcome_invalid")
+        if not isinstance(self.facts, tuple) or len(self.facts) > 30:
+            raise ValueError("experience_facts_invalid")
+        if any(not isinstance(fact, ExperienceFact) for fact in self.facts):
+            raise TypeError("experience_facts_invalid")
+        fact_keys = [fact.key for fact in self.facts]
+        if len(fact_keys) != len(set(fact_keys)):
+            raise ValueError("experience_fact_keys_duplicate")
         if not isinstance(self.approved_by_operator, bool):
             raise TypeError("experience_approval_invalid")
         object.__setattr__(
@@ -156,6 +228,7 @@ class ExperienceEpisode:
             "tags": list(self.tags),
             "steps": [step.to_dict() for step in self.steps],
             "outcome": self.outcome,
+            "facts": [fact.to_dict() for fact in self.facts],
             "approved_by_operator": self.approved_by_operator,
             "created_at_utc": self.created_at_utc,
         }
@@ -170,6 +243,11 @@ class ExperienceEpisode:
             "tags": list(self.tags),
             "steps": [step.to_dict() for step in self.steps],
             "outcome": self.outcome,
+            "evidence_type": "approved_demonstration_example_not_a_universal_rule",
+            "example_facts": {
+                fact.key: list(fact.value) if isinstance(fact.value, tuple) else fact.value
+                for fact in self.facts
+            },
         }
 
     @classmethod
@@ -178,7 +256,12 @@ class ExperienceEpisode:
             raise ValueError("experience_record_schema_unsupported")
         raw_tags = data.get("tags")
         raw_steps = data.get("steps")
-        if not isinstance(raw_tags, list) or not isinstance(raw_steps, list):
+        raw_facts = data.get("facts", [])
+        if (
+            not isinstance(raw_tags, list)
+            or not isinstance(raw_steps, list)
+            or not isinstance(raw_facts, list)
+        ):
             raise ValueError("experience_record_payload_invalid")
         return cls(
             tenant_id=data.get("tenant_id"),  # type: ignore[arg-type]
@@ -188,6 +271,7 @@ class ExperienceEpisode:
             tags=tuple(raw_tags),  # type: ignore[arg-type]
             steps=tuple(ExperienceStep.from_dict(item) for item in raw_steps),
             outcome=data.get("outcome"),  # type: ignore[arg-type]
+            facts=tuple(ExperienceFact.from_dict(item) for item in raw_facts),
             approved_by_operator=data.get("approved_by_operator", False),  # type: ignore[arg-type]
             episode_id=data.get("episode_id", uuid4().hex),  # type: ignore[arg-type]
             created_at_utc=data.get("created_at_utc"),  # type: ignore[arg-type]
