@@ -542,3 +542,41 @@ def test_dry_run_success_skips_environment_verification():
     assert result.stopped is False
     assert result.last_attempt is not None
     assert result.last_attempt.verification_result is None
+
+
+def test_window_activation_verification_failure_never_retries_activation():
+    executor = RuntimeAwareExecutor()
+
+    registry = ExecutorRegistry(
+        executors=(executor,)
+    )
+
+    environment = FakeEnvironment(
+        state=create_observation().state
+    )
+
+    loop = VerificationLoop(
+        execution_engine=ExecutionEngine(
+            registry
+        ),
+        environment=environment,
+        perception_engine=SequencedPerceptionEngine(),
+        expectation_resolver=StaticExpectationResolver(),
+        outcome_verifier=SequencedOutcomeVerifier(),
+        max_attempts=2,
+    )
+
+    result = loop.run(
+        AgentAction(
+            name="activate_window",
+            description="Activate Outlook.",
+            target="Inbox - Outlook — OUTLOOK.EXE",
+            value="777",
+        ),
+        create_context(),
+    )
+
+    assert result.success is False
+    assert result.requires_manual_review is True
+    assert len(result.attempts) == 1
+    assert executor.seen_generations == [None]
