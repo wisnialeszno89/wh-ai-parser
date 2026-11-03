@@ -324,6 +324,16 @@ class AgentTaskV2WorldBuilder:
             is_minimized = (element.metadata or {}).get("is_minimized")
             if isinstance(is_minimized, bool):
                 state_payload["is_minimized"] = is_minimized
+            is_root_window = (element.metadata or {}).get("is_root_window")
+            if isinstance(is_root_window, bool):
+                state_payload["is_root_window"] = is_root_window
+            window_area = (element.metadata or {}).get("window_area")
+            if (
+                isinstance(window_area, int)
+                and not isinstance(window_area, bool)
+                and window_area >= 0
+            ):
+                state_payload["window_area"] = window_area
 
             evidence_refs: list[str] = []
             element_evidence = element.evidence[:MAX_EVIDENCE_PER_ELEMENT]
