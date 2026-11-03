@@ -52,9 +52,14 @@ def main() -> int:
         if window.is_minimized:
             flags.append("MINIMIZED")
         status = f" [{' | '.join(flags)}]" if flags else ""
-        title = window.title or "Untitled window"
+        title = window.title if window.title else "<BRAK TYTUŁU>"
         application = window.application or "unknown application"
-        print(f"{index:02d}. {application} — {title}{status}")
+        owner_status = (
+            " [OWNED BY OTHER WINDOW]"
+            if window.root_owner_handle not in (None, window.handle)
+            else ""
+        )
+        print(f"{index:02d}. {application} — {title}{status}{owner_status}")
 
     return 0 if windows else 1
 
