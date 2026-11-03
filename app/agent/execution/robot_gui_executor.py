@@ -236,6 +236,26 @@ class RobotGUIExecutor(ActionExecutor):
 
         element = resolution.element
 
+        element_source = (element.metadata or {}).get("source")
+        if (
+            element_source in {
+                "windows_ui_automation",
+                "windowhub_ui_automation",
+            }
+            and not self._has_unique_uia_target_identity(scene, element)
+        ):
+            return ExecutionResult(
+                action_name=action.name,
+                success=False,
+                message="UIA target identity is missing or ambiguous.",
+                requires_manual_review=True,
+                metadata={
+                    "target": target_label,
+                    "resolution_score": resolution.score,
+                    "executed": False,
+                },
+            )
+
         target_id = self._tracked_object_id(element)
 
         if action.name == "write_text":
