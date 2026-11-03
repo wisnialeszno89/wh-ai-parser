@@ -198,7 +198,7 @@ def test_v2_cycle_keeps_confirmation_required_for_destructive_targets():
     assert resolved.action.requires_confirmation is True
 
 
-def test_v2_cycle_rejects_ambiguous_duplicate_labels():
+def test_v2_cycle_exposes_duplicate_labels_with_unique_local_uia_identities():
     scene = _scene((
         _element("button", "Open", automation_id="open-a"),
         _element("button", "Open", automation_id="open-b"),
@@ -206,8 +206,46 @@ def test_v2_cycle_rejects_ambiguous_duplicate_labels():
     prepared = _prepare(scene)
 
     actions = prepared.request_payload["capabilities"]["actions"]
-    assert [item["name"] for item in actions] == _keyboard_action_names()
-    assert all(item["target_ref"] is None for item in actions)
+    assert [item["name"] for item in actions] == [
+        "click_ent_0001",
+        "click_ent_0002",
+        *_keyboard_action_names(),
+    ]
+
+    resolved = prepared.resolve_action_decision(
+        _act_response(
+            prepared,
+            action_name="click_ent_0002",
+            target_ref="ent_0002",
+        )
+    )
+    assert resolved.action.target.uia_runtime_id == "[open-b]"
+    assert resolved.action.target.automation_id == "open-b"
+    assert resolved.target_ref == "ent_0002"
+    # Native UIA identity is local only and never projected into the model request.
+    assert "[open-b]" not in str(prepared.request_payload)
+
+
+def test_v2_cycle_rejects_duplicate_uia_runtime_ids():
+    first = _element("edit", "Customer name", automation_id="customer-a")
+    second = _element("edit", "Customer name", automation_id="customer-b")
+    second = ScreenElement(
+        kind=second.kind,
+        label=second.label,
+        confidence=second.confidence,
+        interaction_capability=second.interaction_capability,
+        metadata={
+            **dict(second.metadata),
+            "uia_runtime_id": first.metadata["uia_runtime_id"],
+        },
+    )
+    prepared = _prepare(_scene((first, second)))
+
+    action_names = [
+        item["name"]
+        for item in prepared.request_payload["capabilities"]["actions"]
+    ]
+    assert action_names == _keyboard_action_names()
 
 
 def test_v2_cycle_action_decision_is_single_use():
