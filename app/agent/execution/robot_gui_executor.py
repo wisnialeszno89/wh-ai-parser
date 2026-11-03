@@ -23,6 +23,7 @@ class RobotGUIExecutor(ActionExecutor):
         "click_screen_element",
         "write_text",
         "press_key",
+        "activate_window",
     }
 
     def __init__(
@@ -82,6 +83,73 @@ class RobotGUIExecutor(ActionExecutor):
                     "executed": result.executed,
                     "execution_path": "keyboard_input",
                     "key_sequence": action.value,
+                },
+            )
+
+        if action.name == "activate_window":
+            if not isinstance(action.value, str) or not action.value.isdigit():
+                return ExecutionResult(
+                    action_name=action.name,
+                    success=False,
+                    message="activate_window requires a locally bound window handle",
+                    requires_manual_review=True,
+                )
+
+            scene = context.current_scene
+            if scene is None:
+                return ExecutionResult(
+                    action_name=action.name,
+                    success=False,
+                    message="No current desktop scene available",
+                    requires_manual_review=True,
+                )
+
+            observation = context.last_observation or scene.observation
+            metadata = observation.metadata
+            inventory = metadata.get("desktop_windows", ())
+            observed_handles = []
+            for window in inventory if isinstance(inventory, (tuple, list)) else ():
+                candidate = getattr(window, "handle", None)
+                if (
+                    isinstance(candidate, int)
+                    and not isinstance(candidate, bool)
+                    and candidate > 0
+                ):
+                    observed_handles.append(candidate)
+
+            target_handle = int(action.value)
+            foreground_handle = metadata.get(
+                "foreground_window_handle",
+                metadata.get("window_handle"),
+            )
+            try:
+                foreground_handle = int(foreground_handle)
+            except (TypeError, ValueError, OverflowError):
+                foreground_handle = 0
+
+            if target_handle == foreground_handle or target_handle not in observed_handles:
+                return ExecutionResult(
+                    action_name=action.name,
+                    success=False,
+                    message="Target window is not an inactive member of the latest desktop inventory",
+                    requires_manual_review=True,
+                    metadata={"target": action.target, "executed": False},
+                )
+
+            result = self.robot_action_executor.execute_window_activation(
+                window_handle=target_handle,
+                observed_window_handles=tuple(observed_handles),
+            )
+            return ExecutionResult(
+                action_name=action.name,
+                success=result.success,
+                message=result.reason,
+                requires_manual_review=not result.success,
+                metadata={
+                    "target": action.target,
+                    "window_handle": target_handle,
+                    "executed": result.executed,
+                    "execution_path": "desktop_window_activation",
                 },
             )
 
