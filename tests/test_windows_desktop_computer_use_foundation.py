@@ -3,6 +3,7 @@ from types import SimpleNamespace
 import pytest
 
 from app.agent.environment.windows_desktop_environment_adapter import (
+    DesktopWindowSnapshot,
     ForegroundWindowSnapshot,
     WindowsDesktopEnvironmentAdapter,
 )
@@ -66,6 +67,47 @@ def test_windows_desktop_adapter_observes_the_injected_foreground_window():
     assert observation.metadata["screenshot"] is screenshot
 
 
+def test_windows_desktop_adapter_includes_a_bounded_injected_window_inventory():
+    foreground = _snapshot()
+    other_window = DesktopWindowSnapshot(
+        handle=777,
+        title="Mail — Inbox",
+        rect=WindowRect(left=100, top=80, width=900, height=700),
+        application="OUTLOOK.EXE",
+        root_owner_handle=777,
+        is_foreground=False,
+        is_minimized=True,
+        is_visible=True,
+    )
+    foreground_entry = DesktopWindowSnapshot(
+        handle=foreground.handle,
+        title=foreground.title,
+        rect=foreground.rect,
+        application=foreground.active_application,
+        root_owner_handle=foreground.root_owner_handle,
+        is_foreground=False,
+    )
+    adapter = WindowsDesktopEnvironmentAdapter(
+        snapshot_provider=lambda: foreground,
+        window_inventory_provider=lambda active_handle: (
+            foreground_entry,
+            other_window,
+        ),
+        screenshot_engine=SimpleNamespace(
+            capture=lambda _rect: SimpleNamespace(width=1200, height=800)
+        ),
+    )
+
+    observation = adapter.observe()
+
+    windows = observation.metadata["desktop_windows"]
+    assert [item.handle for item in windows] == [501, 777]
+    assert windows[0].is_foreground is True
+    assert windows[1].is_foreground is False
+    assert windows[1].is_minimized is True
+    assert observation.metadata["desktop_window_count"] == 2
+
+
 def test_windows_desktop_adapter_fails_closed_without_a_valid_snapshot():
     adapter = WindowsDesktopEnvironmentAdapter(
         snapshot_provider=lambda: None,
@@ -76,6 +118,51 @@ def test_windows_desktop_adapter_fails_closed_without_a_valid_snapshot():
 
     with pytest.raises(TypeError, match="snapshot_invalid"):
         adapter.observe()
+
+
+def test_windows_desktop_window_provider_projects_open_windows_as_non_clickable_entities():
+    from app.agent.environment.environment_observation import EnvironmentObservation
+    from app.agent.environment.environment_state import EnvironmentState
+    from app.agent.perception.windows_desktop_window_provider import (
+        WindowsDesktopWindowProvider,
+    )
+
+    foreground = DesktopWindowSnapshot(
+        handle=501,
+        title="Workbook - Excel",
+        rect=WindowRect(left=20, top=30, width=1200, height=800),
+        application="EXCEL.EXE",
+        root_owner_handle=501,
+        is_foreground=True,
+    )
+    background = DesktopWindowSnapshot(
+        handle=777,
+        title="Inbox - Outlook",
+        rect=WindowRect(left=40, top=60, width=900, height=700),
+        application="OUTLOOK.EXE",
+        root_owner_handle=777,
+        is_foreground=False,
+        is_minimized=True,
+    )
+    observation = EnvironmentObservation(
+        state=EnvironmentState(active_application="EXCEL.EXE"),
+        metadata={
+            "foreground_window_handle": 501,
+            "desktop_windows": (foreground, background),
+        },
+    )
+
+    elements = WindowsDesktopWindowProvider().perceive(observation)
+
+    assert len(elements) == 2
+    assert elements[0].label == "Workbook - Excel — EXCEL.EXE"
+    assert elements[1].label == "Inbox - Outlook — OUTLOOK.EXE"
+    assert elements[0].metadata["is_foreground"] is True
+    assert elements[1].metadata["is_minimized"] is True
+    assert all(
+        item.interaction_capability is InteractionCapability.UNKNOWN
+        for item in elements
+    )
 
 
 def test_windows_ui_automation_provider_marks_elements_as_generic_windows_uia(
