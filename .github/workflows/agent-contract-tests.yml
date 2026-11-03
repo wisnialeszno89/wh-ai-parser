@@ -41,4 +41,5 @@ jobs:
             tests/test_active_document_context.py \
             tests/test_smoke_windowhub_new_offer_form.py \
             tests/test_windowhub_offer_form_action.py \
-            tests/test_robot_gui_executor_uia.py
+            tests/test_robot_gui_executor_uia.py \
+            tests/test_live_windowhub_quantity_action_cli.py
