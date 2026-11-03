@@ -427,7 +427,10 @@ class ComputerUseV2ActionSession:
             )
 
         foreground_handle = (
-            scene.observation.metadata.get("foreground_window_handle")
+            scene.observation.metadata.get(
+                "foreground_window_handle",
+                scene.observation.metadata.get("window_handle"),
+            )
             if scene is not None
             else None
         )
