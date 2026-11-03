@@ -145,7 +145,7 @@ class PreparedComputerUseV2Cycle:
                     or isinstance(candidate_handle, bool)
                     or not isinstance(candidate_handle, int)
                     or candidate_handle <= 0
-                    or metadata.get("is_foreground") is True
+                    or metadata.get("is_foreground") is not False
                     or not isinstance(binding.value, str)
                     or binding.value != str(candidate_handle)
                 ):
@@ -443,7 +443,7 @@ class ComputerUseV2ActionSession:
                 or not isinstance(handle, int)
                 or handle <= 0
                 or metadata.get("is_visible") is not True
-                or metadata.get("is_foreground") is True
+                or metadata.get("is_foreground") is not False
                 or not self._is_unique_target(scene, resolver, element)
             ):
                 continue
