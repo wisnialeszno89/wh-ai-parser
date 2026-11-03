@@ -233,7 +233,7 @@ def test_v2_cycle_exposes_duplicate_labels_with_unique_local_uia_identities():
 
 def test_v2_cycle_rejects_duplicate_uia_runtime_ids():
     first = _element("edit", "Customer name", automation_id="customer-a")
-    second = _element("edit", "Customer name", automation_id="customer-b")
+    second = _element("edit", "Delivery address", automation_id="customer-b")
     second = ScreenElement(
         kind=second.kind,
         label=second.label,
