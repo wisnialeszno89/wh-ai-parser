@@ -495,6 +495,9 @@ class RobotGUIExecutor(ActionExecutor):
             "open_customer_lookup": (
                 "click_screen_element", "button", "LookUpEdit", "IDC_ZAMAWIAJACY",
             ),
+            "defer_document_properties": (
+                "click_screen_element", "button", "Anuluj", None,
+            ),
         }
         field_name = scope.get("field_name")
         expected = field_specs.get(field_name)
@@ -529,6 +532,12 @@ class RobotGUIExecutor(ActionExecutor):
                 return False
             expected_label = provided_label
             expected_id = scope.get("automation_id")
+        if field_name == "defer_document_properties":
+            observed_label = scope.get("label")
+            if not isinstance(observed_label, str) or " ".join(observed_label.split()).casefold() != "anuluj":
+                return False
+            expected_label = observed_label
+            expected_id = scope.get("automation_id")
         if action.name != expected_action:
             return False
 
@@ -540,7 +549,7 @@ class RobotGUIExecutor(ActionExecutor):
         process_name = application.replace("\\", "/").rsplit("/", 1)[-1]
         expected_title = (
             "Właściwości dokumentu"
-            if field_name.startswith("exclude_") or field_name in {"confirm_document", "open_customer_lookup"}
+            if field_name.startswith("exclude_") or field_name in {"confirm_document", "open_customer_lookup", "defer_document_properties"}
             else "Okna - Start1"
             if field_name == "start_new_offer"
             else "Wielkość okna"
