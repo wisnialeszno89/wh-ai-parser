@@ -111,6 +111,31 @@ def run_mission(request, loop, *, max_actions=2):
         )
         actions += 1
         if not verified_action(result):
+            execution_loop = result.last_execution_result
+            attempt = execution_loop.last_attempt if execution_loop is not None else None
+            execution = attempt.execution_result if attempt is not None else None
+            verification = attempt.verification_result if attempt is not None else None
+            metadata = getattr(execution, "metadata", None) or {}
+            print(f"DIAGNOSTIC execution_message={getattr(execution, 'message', None)!r}")
+            print(f"DIAGNOSTIC executed={metadata.get('executed')!r}")
+            print(f"DIAGNOSTIC execution_path={metadata.get('execution_path')!r}")
+            print(f"DIAGNOSTIC click_point={metadata.get('point')!r}")
+            print(f"DIAGNOSTIC screen_origin={metadata.get('screen_origin')!r}")
+            print(f"DIAGNOSTIC verification_reason={getattr(verification, 'reason', None)!r}")
+            try:
+                after = loop.observe_scene()
+                state = after.observation.state
+                print(f"DIAGNOSTIC after_application={state.active_application!r}")
+                print(f"DIAGNOSTIC after_window_title={state.active_window_title!r}")
+                print(f"DIAGNOSTIC after_step={getattr(mission.decide(request, after).step, 'value', None)!r}")
+                print("DIAGNOSTIC visible_controls=" + repr([
+                    (element.kind, element.label, (element.metadata or {}).get("automation_id"))
+                    for element in after.elements
+                    if element.kind in ("button", "tabitem")
+                    and element.label in ("Dalej >", "< Wstecz", "Wielkość okna", "Dodawanie nowej pozycji")
+                ]))
+            except Exception as exc:
+                print(f"DIAGNOSTIC after_observation_error={type(exc).__name__}")
             print("STOP: action outcome not verified. No retry.")
             return 6
         print("PASS: action verified.")
