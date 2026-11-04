@@ -7,6 +7,7 @@ position wizard is active. Stops at unverified customer/catalog/finish actions.
 from __future__ import annotations
 
 import argparse
+from dataclasses import replace
 import os
 import sys
 from pathlib import Path
@@ -16,6 +17,9 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from app.agent.offers.windowhub_new_offer_action import prepare_new_offer_from_start
+from app.agent.offers.windowhub_customer_creation_action import (
+    prepare_add_customer, prepare_customer_name, prepare_confirm_new_customer,
+)
 from app.agent.runtime.windowhub_customer_grid_inspection import (
     inspect_live_customer_grid, resolve_blank_customer_candidate,
 )
@@ -46,9 +50,10 @@ def parse_args(argv=None):
     parser.add_argument("--width", type=int, default=1230)
     parser.add_argument("--height", type=int, default=1478)
     parser.add_argument(
-        "--customer-mode", choices=("select", "blank", "defer"), default="select",
-        help="select: named customer; blank: find genuinely unnamed customer; defer: skip client preferences when possible",
+        "--customer-mode", choices=("create", "select", "blank", "defer"), default="create",
+        help="create: make a customer with a supplied/demo name; select: existing customer; blank: inspect empty records; defer: postpone settings",
     )
+    parser.add_argument("--customer-name", default="XYZ TEST AGENT", help="Name to create when customer-mode=create")
     parser.add_argument("--execute-live", action="store_true")
     return parser.parse_args(argv)
 
@@ -120,6 +125,12 @@ def run_goal(goal, loop, *, max_actions=8):
             prepared = prepare_new_offer_from_start(scene)
         elif decision.decision is OfferDecision.OPEN_CUSTOMER_LOOKUP:
             prepared = prepare_open_customer_lookup(scene)
+        elif decision.decision is OfferDecision.OPEN_NEW_CUSTOMER:
+            prepared = prepare_add_customer(scene)
+        elif decision.decision is OfferDecision.SET_NEW_CUSTOMER_NAME:
+            prepared = prepare_customer_name(scene, goal.customer_name)
+        elif decision.decision is OfferDecision.CONFIRM_NEW_CUSTOMER:
+            prepared = prepare_confirm_new_customer(scene, goal.customer_name)
         elif decision.decision is OfferDecision.SET_PRICE_PREFERENCES:
             prepared = prepare_price_exclusion(scene, decision.field_name)
         elif decision.decision is OfferDecision.CONFIRM_DOCUMENT:
@@ -143,7 +154,13 @@ def run_goal(goal, loop, *, max_actions=8):
                             f"runtime_present={bool(meta.get('uia_runtime_id'))}"
                         )
             report_relevant_controls(scene)
-            print("No arbitrary customer, catalog color or Finish click was performed.")
+            if decision.observed_stage == "new_customer" or decision.decision is OfferDecision.OPEN_NEW_CUSTOMER:
+                print("NEW_CUSTOMER_CONTROLS:")
+                for e in scene.elements:
+                    m = e.metadata or {}
+                    if m.get("source") in ("windowhub_ui_automation", "windows_ui_automation") and e.kind in ("edit", "button"):
+                        print(f"  kind={e.kind!r} label={e.label!r} id={m.get('automation_id')!r} enabled={m.get('uia_enabled')!r}")
+            print("No unverified customer, catalog color or Finish click was performed.")
             return 4
 
         print(f"PREPARATION={prepared.status.value}")
@@ -179,6 +196,10 @@ def run_goal(goal, loop, *, max_actions=8):
                     and post.observed_stage == "document"
                     or decision.decision is OfferDecision.DEFER_CUSTOMER_PREFERENCES
                     and post.observed_stage == "position"
+                    or decision.decision is OfferDecision.OPEN_NEW_CUSTOMER
+                    and post.observed_stage == "new_customer"
+                    or decision.decision is OfferDecision.CONFIRM_NEW_CUSTOMER
+                    and post.observed_stage == "document_properties"
                 )
             )
             if decision.decision is OfferDecision.OPEN_CUSTOMER_LOOKUP:
@@ -191,8 +212,16 @@ def run_goal(goal, loop, *, max_actions=8):
                 print("STOP: action effect not verified; no retry.")
                 return 6
             print("PASS: workflow transition verified by fresh scene.")
+            if decision.decision is OfferDecision.CONFIRM_NEW_CUSTOMER:
+                print("CUSTOMER_CREATED_DIALOG_CLOSED: verify customer selection in document before proceeding.")
+                goal = replace(goal, customer_policy="test_existing_customer")
+                continue
         else:
             print("PASS: action verified.")
+        if decision.decision is OfferDecision.CONFIRM_NEW_CUSTOMER:
+            goal = replace(goal, customer_policy="test_existing_customer")
+            print("CUSTOMER_CREATION_CONFIRMED: checking document for selected customer.")
+            continue
         if decision.decision is OfferDecision.OPEN_CUSTOMER_LOOKUP:
             popup_scene = loop.observe_scene()
             popup_decision = planner.decide(goal, popup_scene)
@@ -225,9 +254,11 @@ def main(argv=None):
                 width_mm=args.width,
                 height_mm=args.height,
             ),
+            customer_name=(args.customer_name if args.customer_mode == "create" else None),
             customer_policy=(
                 "defer_to_salesperson" if args.customer_mode == "defer"
                 else "select_blank_customer" if args.customer_mode == "blank"
+                else "create_customer" if args.customer_mode == "create"
                 else "test_existing_customer"
             ),
         )
