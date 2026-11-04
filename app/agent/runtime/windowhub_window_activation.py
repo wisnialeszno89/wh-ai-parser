@@ -58,7 +58,7 @@ def activate_windowhub_wizard(*, wait_seconds: float = 2.0, include_workspace: b
             title = buffer.value.strip()
             is_wizard = title in _ALLOWED_TITLES
             is_workflow = (
-                title == "Właściwości dokumentu"
+                title in {"Właściwości dokumentu", "Zakładanie nowego klienta"}
                 or title.startswith("Okna - Start1")
                 or title.startswith("Okna - OFR/")
             )
@@ -80,7 +80,7 @@ def activate_windowhub_wizard(*, wait_seconds: float = 2.0, include_workspace: b
             # Prefer a unique active wizard/document dialog over the main window.
             dialogs = [
                 item for item in candidates
-                if item[1] in _ALLOWED_TITLES or item[1] == "Właściwości dokumentu"
+                if item[1] in _ALLOWED_TITLES or item[1] in {"Właściwości dokumentu", "Zakładanie nowego klienta"}
             ]
             if dialogs:
                 candidates = dialogs
