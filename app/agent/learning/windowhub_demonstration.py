@@ -30,6 +30,9 @@ MODEL_SAFE_LABELS = frozenset({
     "Dodaj nowego klienta", "Wybierz istniejącego klienta",
     "Bez ceny konstrukcji", "Bez ceny montażu", "Bez ceny demontażu",
     "Bez ceny wykończenia", "Zakończ",
+    "Liczba sztuk pozycji", "Szerokość całego okna",
+    "Wysokość całego okna", "Kolor profilu okiennego",
+    "Wybierz system profili", "Pakiet szybowy", "Ramka dystansowa",
 })
 
 
