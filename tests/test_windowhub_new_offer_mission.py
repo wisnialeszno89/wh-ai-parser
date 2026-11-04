@@ -152,3 +152,23 @@ def test_provider_toggle_state_does_not_guess_when_unknown():
     assert probe(SimpleNamespace(iface_toggle=SimpleNamespace(CurrentToggleState=0))) is False
     assert probe(SimpleNamespace(iface_toggle=SimpleNamespace(CurrentToggleState=2))) is None
     assert probe(SimpleNamespace(iface_toggle=None, get_properties=lambda: {})) is None
+
+
+def test_deferred_customer_mode_routes_to_cancel_only_when_explicit():
+    deferred = NewWindowOfferGoal(GOAL.position, customer_policy="defer_to_salesperson")
+    decision = NewWindowOfferMissionPlanner(StubMap()).decide(
+        deferred, _scene(title="Właściwości dokumentu")
+    )
+    assert decision.decision is OfferDecision.DEFER_CUSTOMER_PREFERENCES
+    assert decision.observed_stage == "document_properties"
+    assert decision.executable is False
+    default = NewWindowOfferMissionPlanner(StubMap()).decide(
+        GOAL, _scene(title="Właściwości dokumentu")
+    )
+    assert default.decision is OfferDecision.SELECT_TEST_CUSTOMER
+
+
+def test_deferred_customer_mode_does_not_require_price_exclusions():
+    deferred = NewWindowOfferGoal(GOAL.position, customer_policy="defer_to_salesperson")
+    assert deferred.excluded_prices == GOAL.excluded_prices
+    assert deferred.customer_policy != GOAL.customer_policy
