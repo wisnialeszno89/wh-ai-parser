@@ -42,6 +42,38 @@ def parse_args(argv=None):
     return parser.parse_args(argv)
 
 
+def report_relevant_controls(scene):
+    """Log selector evidence without printing client records or input values."""
+    tokens = (
+        "nowa oferta", "klient", "zamawiajacy", "zamawiający",
+        "bez ceny", "dalej", "zakoncz", "zakończ",
+    )
+    print("RELEVANT_UIA_CONTROLS:")
+    count = 0
+    for element in scene.elements:
+        metadata = element.metadata or {}
+        label = element.label or ""
+        automation_id = str(metadata.get("automation_id") or "")
+        if not any(token in (label + " " + automation_id).casefold() for token in tokens):
+            continue
+        if metadata.get("source") not in (
+            "windows_ui_automation", "windowhub_ui_automation"
+        ):
+            continue
+        print(
+            f"  kind={element.kind!r} label={label!r} "
+            f"id={automation_id!r} enabled={metadata.get('uia_enabled')!r} "
+            f"visible={metadata.get('uia_visible')!r} "
+            f"runtime_present={bool(metadata.get('uia_runtime_id'))} "
+            f"checked={metadata.get('uia_checked')!r}"
+        )
+        count += 1
+        if count >= 30:
+            break
+    if not count:
+        print("  none")
+
+
 def run_goal(goal, loop, *, max_actions=8):
     planner = NewWindowOfferMissionPlanner()
     for index in range(max_actions):
@@ -61,6 +93,7 @@ def run_goal(goal, loop, *, max_actions=8):
             prepared = prepare_price_exclusion(scene, decision.field_name)
         else:
             print("STOP: next business capability is not authorized for live execution yet.")
+            report_relevant_controls(scene)
             print("No arbitrary customer, catalog color or Finish click was performed.")
             return 4
 
@@ -71,6 +104,7 @@ def run_goal(goal, loop, *, max_actions=8):
             return 4
         if prepared.status is not WindowHubFormActionStatus.READY:
             print("STOP: target is not uniquely verified.")
+            report_relevant_controls(scene)
             return 4
 
         result = WindowHubOfferFormActionExecutor.execute_prepared(
