@@ -250,13 +250,19 @@ class NewWindowOfferMissionPlanner:
                     "customer",
                 )
             exclusions = (
-                ("exclude_construction_price", "Bez ceny konstrukcji"),
-                ("exclude_installation_price", "Bez ceny montażu"),
-                ("exclude_removal_price", "Bez ceny demontażu"),
-                ("exclude_finishing_price", "Bez ceny wykończenia"),
+                ("exclude_construction_price", "Bez ceny konstrukcji", "IDC_CENA_OKNA"),
+                ("exclude_installation_price", "Bez ceny montażu", "IDC_CENA_MONTAZU"),
+                ("exclude_removal_price", "Bez ceny demontażu", "IDC_CENA_DEMONTAZU"),
+                ("exclude_finishing_price", "Bez ceny wykończenia", "IDC_CENA_WYKONCZENIA"),
             )
-            for key, label in exclusions:
-                matches = self._controls(scene, label, "checkbox")
+            for key, label, automation_id in exclusions:
+                matches = [
+                    e for e in scene.elements
+                    if e.kind == "checkbox"
+                    and (e.metadata or {}).get("automation_id") == automation_id
+                    and (e.metadata or {}).get("uia_visible") is True
+                    and (e.metadata or {}).get("uia_enabled") is True
+                ]
                 if len(matches) != 1:
                     return OfferInstruction(
                         OfferDecision.STOP_UNSUPPORTED,
