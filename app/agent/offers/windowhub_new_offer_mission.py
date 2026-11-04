@@ -232,6 +232,12 @@ class NewWindowOfferMissionPlanner:
                 selected = (native_customers[0].metadata or {}).get("current_value")
                 if isinstance(selected, str) and selected.strip() == goal.customer_name.strip():
                     customers = [native_customers[0]]
+            if goal.customer_name is not None and len(customers) != 1:
+                return OfferInstruction(
+                    OfferDecision.SELECT_TEST_CUSTOMER,
+                    "New customer was created, but native lookup does not prove it is selected. Stop before another lookup.",
+                    "document_properties", "customer",
+                )
             if len(customers) != 1:
                 lookup_buttons = [
                     e for e in scene.elements
