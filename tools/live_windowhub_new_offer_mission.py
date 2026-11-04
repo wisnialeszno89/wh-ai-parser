@@ -16,7 +16,9 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from app.agent.offers.windowhub_new_offer_action import prepare_new_offer_from_start
-from app.agent.offers.windowhub_document_properties_action import prepare_price_exclusion
+from app.agent.offers.windowhub_document_properties_action import (
+    prepare_price_exclusion, prepare_document_confirmation,
+)
 from app.agent.offers.windowhub_new_offer_mission import (
     NewWindowOfferGoal, NewWindowOfferMissionPlanner, OfferDecision,
 )
@@ -91,6 +93,8 @@ def run_goal(goal, loop, *, max_actions=8):
             prepared = prepare_new_offer_from_start(scene)
         elif decision.decision is OfferDecision.SET_PRICE_PREFERENCES:
             prepared = prepare_price_exclusion(scene, decision.field_name)
+        elif decision.decision is OfferDecision.CONFIRM_DOCUMENT:
+            prepared = prepare_document_confirmation(scene, goal)
         else:
             print("STOP: next business capability is not authorized for live execution yet.")
             report_relevant_controls(scene)
@@ -121,14 +125,19 @@ def run_goal(goal, loop, *, max_actions=8):
             print(f"EXECUTION_MESSAGE={getattr(execution, 'message', None)!r}")
             print(f"EXECUTED={attempted.get('executed')!r}")
             print(f"POST_STAGE={post.observed_stage}")
-            if not (
-                decision.decision is OfferDecision.OPEN_NEW_OFFER
-                and attempted.get("executed") is True
-                and post.observed_stage == "document_properties"
-            ):
+            transition_ok = (
+                attempted.get("executed") is True
+                and (
+                    decision.decision is OfferDecision.OPEN_NEW_OFFER
+                    and post.observed_stage == "document_properties"
+                    or decision.decision is OfferDecision.CONFIRM_DOCUMENT
+                    and post.observed_stage == "document"
+                )
+            )
+            if not transition_ok:
                 print("STOP: action effect not verified; no retry.")
                 return 6
-            print("PASS: New Offer dialog verified by fresh scene.")
+            print("PASS: workflow transition verified by fresh scene.")
         else:
             print("PASS: action verified.")
 
