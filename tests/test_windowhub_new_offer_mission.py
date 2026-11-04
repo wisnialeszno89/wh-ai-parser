@@ -219,3 +219,42 @@ def test_new_customer_form_changes_name_then_confirms():
         title="Zakładanie nowego klienta", elements=(field("XYZ TEST AGENT"),),
     ))
     assert second.decision is OfferDecision.CONFIRM_NEW_CUSTOMER
+
+
+
+def test_created_customer_requires_exact_native_lookup_selection():
+    named = NewWindowOfferGoal(
+        GOAL.position,
+        customer_policy="test_existing_customer",
+        customer_name="XYZ TEST AGENT",
+    )
+
+    def lookup(value):
+        return SimpleNamespace(
+            kind="button", label="LookUpEdit",
+            metadata={
+                "automation_id": "IDC_ZAMAWIAJACY",
+                "uia_visible": True,
+                "current_value": value,
+            },
+        )
+
+    planner = NewWindowOfferMissionPlanner(StubMap())
+    unknown = planner.decide(
+        named,
+        _scene(title="Właściwości dokumentu", elements=(lookup(None),)),
+    )
+    assert unknown.decision is OfferDecision.SELECT_TEST_CUSTOMER
+
+    mistaken = planner.decide(
+        named,
+        _scene(title="Właściwości dokumentu", elements=(lookup("Inna firma"),)),
+    )
+    assert mistaken.decision is OfferDecision.SELECT_TEST_CUSTOMER
+
+    selected = planner.decide(
+        named,
+        _scene(title="Właściwości dokumentu", elements=(lookup("XYZ TEST AGENT"),)),
+    )
+    assert selected.decision is OfferDecision.STOP_UNSUPPORTED
+    assert selected.field_name == "exclude_construction_price"
