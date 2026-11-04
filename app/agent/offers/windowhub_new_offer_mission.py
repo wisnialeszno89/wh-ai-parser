@@ -20,6 +20,9 @@ from app.agent.offers.windowhub_position_mission import WindowPositionRequest
 class OfferDecision(str, Enum):
     OPEN_NEW_OFFER = "open_new_offer"
     SELECT_TEST_CUSTOMER = "select_test_customer"
+    OPEN_NEW_CUSTOMER = "open_new_customer"
+    SET_NEW_CUSTOMER_NAME = "set_new_customer_name"
+    CONFIRM_NEW_CUSTOMER = "confirm_new_customer"
     DEFER_CUSTOMER_PREFERENCES = "defer_customer_preferences"
     OPEN_CUSTOMER_LOOKUP = "open_customer_lookup"
     INSPECT_CUSTOMER_LOOKUP = "inspect_customer_lookup"
@@ -41,6 +44,7 @@ class OfferDecision(str, Enum):
 class NewWindowOfferGoal:
     position: WindowPositionRequest
     customer_policy: str = "test_existing_customer"
+    customer_name: str | None = None
     excluded_prices: tuple[str, ...] = (
         "construction", "installation", "removal", "finishing",
     )
@@ -51,8 +55,16 @@ class NewWindowOfferGoal:
     def __post_init__(self):
         if not isinstance(self.position, WindowPositionRequest):
             raise TypeError("offer_position_required")
-        if self.customer_policy not in {"test_existing_customer", "defer_to_salesperson", "select_blank_customer"}:
+        if self.customer_policy not in {"test_existing_customer", "defer_to_salesperson", "select_blank_customer", "create_customer"}:
             raise ValueError("unsupported_customer_policy")
+        if self.customer_policy == "create_customer":
+            if (
+                not isinstance(self.customer_name, str)
+                or not self.customer_name.strip()
+                or len(self.customer_name.strip()) > 100
+                or any(ord(ch) < 32 for ch in self.customer_name)
+            ):
+                raise ValueError("valid_new_customer_name_required")
         if set(self.excluded_prices) != {
             "construction", "installation", "removal", "finishing",
         }:
@@ -150,7 +162,34 @@ class NewWindowOfferMissionPlanner:
                 snapshot.step.value,
             )
 
+        if normalize_uia_text(title) == normalize_uia_text("Zakładanie nowego klienta"):
+            name_fields = self._controls(scene, "Firma", "edit")
+            if len(name_fields) != 1:
+                return OfferInstruction(
+                    OfferDecision.STOP_UNSUPPORTED,
+                    "New customer Firma field is not uniquely recognized.",
+                    "new_customer", "new_customer_name",
+                )
+            observed = (name_fields[0].metadata or {}).get("current_value")
+            if not isinstance(observed, str) or observed.strip() != (goal.customer_name or ""):
+                return OfferInstruction(
+                    OfferDecision.SET_NEW_CUSTOMER_NAME,
+                    "New customer name differs from the requested value.",
+                    "new_customer", "new_customer_name", goal.customer_name,
+                )
+            return OfferInstruction(
+                OfferDecision.CONFIRM_NEW_CUSTOMER,
+                "Requested customer name is observed; verify form before confirmation.",
+                "new_customer",
+            )
+
         if normalize_uia_text(title) == normalize_uia_text("Właściwości dokumentu"):
+            if goal.customer_policy == "create_customer":
+                return OfferInstruction(
+                    OfferDecision.OPEN_NEW_CUSTOMER,
+                    "Open native Add (+) to create requested customer.",
+                    "document_properties", "new_customer_add", goal.customer_name,
+                )
             # Blank customer is an explicit sales intent; it is never inferred
             # from the first visible row or an empty text cell.
             if goal.customer_policy == "defer_to_salesperson":
