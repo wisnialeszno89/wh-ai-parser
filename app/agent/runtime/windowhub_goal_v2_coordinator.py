@@ -93,6 +93,16 @@ def enforce_v2_live_policy(scene, resolved, *, approved_persistent=False) -> Non
         raise ValueError("v2_windowhub_not_foreground")
     if action.requires_confirmation and not approved_persistent:
         raise ValueError("v2_persistent_action_needs_operator_approval")
+    title = (state.active_window_title or "").strip().casefold()
+    label = getattr(action.target, "label", None)
+    if (
+        action.name == "click_screen_element"
+        and title in {"zakładanie nowego klienta", "właściwości dokumentu"}
+        and isinstance(label, str)
+        and label.strip().casefold() in {"ok", "zapisz", "zatwierdź", "zatwierdz"}
+        and not approved_persistent
+    ):
+        raise ValueError("v2_document_commit_requires_explicit_approval")
 
     if action.name == "activate_window":
         raise ValueError("v2_window_activation_requires_separate_window_policy")
