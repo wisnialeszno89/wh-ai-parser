@@ -64,6 +64,7 @@ def report_relevant_controls(scene):
     tokens = (
         "nowa oferta", "klient", "zamawiajacy", "zamawiający",
         "bez ceny", "dalej", "zakoncz", "zakończ",
+        "idc_cena_", "idc_new", "idc_zamawiajacy",
     )
     print("RELEVANT_UIA_CONTROLS:")
     count = 0
