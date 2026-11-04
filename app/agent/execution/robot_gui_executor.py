@@ -492,6 +492,9 @@ class RobotGUIExecutor(ActionExecutor):
             "confirm_document": (
                 "click_screen_element", "button", "OK", None,
             ),
+            "open_customer_lookup": (
+                "click_screen_element", "button", "LookUpEdit", "IDC_ZAMAWIAJACY",
+            ),
         }
         field_name = scope.get("field_name")
         expected = field_specs.get(field_name)
@@ -537,7 +540,7 @@ class RobotGUIExecutor(ActionExecutor):
         process_name = application.replace("\\", "/").rsplit("/", 1)[-1]
         expected_title = (
             "Właściwości dokumentu"
-            if field_name.startswith("exclude_") or field_name == "confirm_document"
+            if field_name.startswith("exclude_") or field_name in {"confirm_document", "open_customer_lookup"}
             else "Okna - Start1"
             if field_name == "start_new_offer"
             else "Wielkość okna"
