@@ -17,6 +17,12 @@ DOCUMENT_PRICE_EXCLUSIONS = {
     "exclude_removal_price": "Bez ceny demontażu",
     "exclude_finishing_price": "Bez ceny wykończenia",
 }
+DOCUMENT_PRICE_AUTOMATION_IDS = {
+    "exclude_construction_price": "IDC_CENA_OKNA",
+    "exclude_installation_price": "IDC_CENA_MONTAZU",
+    "exclude_removal_price": "IDC_CENA_DEMONTAZU",
+    "exclude_finishing_price": "IDC_CENA_WYKONCZENIA",
+}
 _UIA_SOURCES = frozenset({"windows_ui_automation", "windowhub_ui_automation"})
 
 
@@ -35,7 +41,8 @@ def prepare_price_exclusion(
     if not isinstance(scene, ScreenScene):
         raise TypeError("windowhub_price_scene_required")
     label = DOCUMENT_PRICE_EXCLUSIONS.get(field_name)
-    if label is None:
+    expected_id = DOCUMENT_PRICE_AUTOMATION_IDS.get(field_name)
+    if label is None or expected_id is None:
         return blocked("The requested price exclusion is not supported.")
 
     state = scene.observation.state
@@ -49,7 +56,7 @@ def prepare_price_exclusion(
         element for element in scene.elements
         if (
             element.kind == "checkbox"
-            and normalize_uia_text(element.label or "") == normalize_uia_text(label)
+            and (element.metadata or {}).get("automation_id") == expected_id
             and (element.metadata or {}).get("source") in _UIA_SOURCES
             and (element.metadata or {}).get("uia_enabled") is True
             and (element.metadata or {}).get("uia_visible") is True
