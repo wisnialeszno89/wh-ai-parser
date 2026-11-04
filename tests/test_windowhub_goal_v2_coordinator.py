@@ -99,3 +99,53 @@ def test_write_requires_same_expected_text_as_action():
     verified.expected_postcondition["expected_value"] = "WRONG"
     with pytest.raises(ValueError, match="value_mismatch"):
         verified_v2_outcome(verified)
+
+
+def test_v2_scene_change_verification_has_the_exact_baseline_signature():
+    from app.agent.verification.outcome_verifier import OutcomeVerifier
+
+    s = scene(ScreenElement(
+        kind="button", label="OknaWPF",
+        x=10, y=10, width=40, height=20,
+        metadata={"source": "windowhub_ui_automation", "automation_id": "IDC_NEW"},
+    ))
+    expectation = verified_v2_outcome(resolved(), baseline_scene=s)
+    assert expectation.baseline_scene_signature is not None
+    assert expectation.baseline_scene_signature == OutcomeVerifier._scene_signature(s)
+    unchanged = OutcomeVerifier().verify(expectation, s)
+    assert unchanged.verified is False
+    changed = ScreenScene(
+        observation=EnvironmentObservation(state=EnvironmentState(
+            active_application="Okna.exe",
+            active_window_title="Zakładanie nowego klienta",
+        )),
+        elements=s.elements,
+    )
+    assert OutcomeVerifier().verify(expectation, changed).verified is True
+
+
+def test_document_confirmation_requires_explicit_operator_permission():
+    control = ScreenElement(
+        kind="button", label="OK",
+        metadata={
+            "source": "windowhub_ui_automation",
+            "uia_control_type": "button",
+            "uia_runtime_id": "ok1",
+            "automation_id": "1",
+            "uia_enabled": True, "uia_visible": True,
+        },
+    )
+    document_scene = scene(control)
+    proposal = SimpleNamespace(
+        action=AgentAction(
+            name="click_screen_element", description="Confirm document",
+            target=SemanticTargetQuery(
+                role="button", label="OK", automation_id="1", uia_runtime_id="ok1",
+            ),
+        ),
+        target_ref="ent_0001",
+        expected_postcondition={"kind": "scene_changed"},
+    )
+    with pytest.raises(ValueError, match="document_commit_requires_explicit_approval"):
+        enforce_v2_live_policy(document_scene, proposal)
+    enforce_v2_live_policy(document_scene, proposal, approved_persistent=True)
