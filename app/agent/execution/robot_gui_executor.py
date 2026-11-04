@@ -498,6 +498,15 @@ class RobotGUIExecutor(ActionExecutor):
             "defer_document_properties": (
                 "click_screen_element", "button", "Anuluj", None,
             ),
+            "new_customer_add": (
+                "click_screen_element", "button", "Dodaj", None,
+            ),
+            "new_customer_name": (
+                "write_text", "edit", "Firma", None,
+            ),
+            "confirm_new_customer": (
+                "click_screen_element", "button", "OK", None,
+            ),
         }
         field_name = scope.get("field_name")
         expected = field_specs.get(field_name)
@@ -538,6 +547,23 @@ class RobotGUIExecutor(ActionExecutor):
                 return False
             expected_label = observed_label
             expected_id = scope.get("automation_id")
+        if field_name in {"new_customer_add", "new_customer_name", "confirm_new_customer"}:
+            observed_label = scope.get("label")
+            observed_id = scope.get("automation_id")
+            if not isinstance(observed_label, str):
+                return False
+            if field_name == "new_customer_add":
+                if (
+                    " ".join(observed_label.split()).casefold() != "dodaj"
+                    and observed_id not in {
+                        "IDC_ZAMAWIAJACY_NEW", "IDC_ZAMAWIAJACY_DODAJ",
+                    }
+                ):
+                    return False
+            elif " ".join(observed_label.split()).casefold() != expected_label.casefold():
+                return False
+            expected_label = observed_label
+            expected_id = observed_id
         if action.name != expected_action:
             return False
 
@@ -548,8 +574,10 @@ class RobotGUIExecutor(ActionExecutor):
             return False
         process_name = application.replace("\\", "/").rsplit("/", 1)[-1]
         expected_title = (
-            "Właściwości dokumentu"
-            if field_name.startswith("exclude_") or field_name in {"confirm_document", "open_customer_lookup", "defer_document_properties"}
+            "Zakładanie nowego klienta"
+            if field_name in {"new_customer_name", "confirm_new_customer"}
+            else "Właściwości dokumentu"
+            if field_name.startswith("exclude_") or field_name in {"confirm_document", "open_customer_lookup", "defer_document_properties", "new_customer_add"}
             else "Okna - Start1"
             if field_name == "start_new_offer"
             else "Wielkość okna"
@@ -665,6 +693,26 @@ class RobotGUIExecutor(ActionExecutor):
             # A second click could turn a checked exclusion off; only allow
             # the click when a fresh observation still proves it is unchecked.
             return (candidates[0].metadata or {}).get("uia_checked") is False
+
+        if field_name == "confirm_new_customer":
+            # Check the business name again immediately before persisting a
+            # newly created client. Do not trust a previous observation.
+            expected_name = scope.get("required_customer_name")
+            if not isinstance(expected_name, str) or not expected_name.strip():
+                return False
+            matches = [
+                e for e in scene.elements
+                if (
+                    e.kind == "edit" and e.label == "Firma"
+                    and (e.metadata or {}).get("source") in {
+                        "windowhub_ui_automation", "windows_ui_automation",
+                    }
+                    and (e.metadata or {}).get("uia_enabled") is True
+                    and (e.metadata or {}).get("uia_visible") is True
+                    and (e.metadata or {}).get("current_value") == expected_name
+                )
+            ]
+            return len(matches) == 1
 
         if field_name == "confirm_document":
             # Revalidate all business prerequisites immediately before OK.
