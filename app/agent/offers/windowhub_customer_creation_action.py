@@ -166,7 +166,7 @@ def prepare_confirm_new_customer(scene: ScreenScene, customer_name: str):
     ok = _unique_control(scene, kind="button", label="OK")
     if ok is None:
         return _blocked("confirm_new_customer", "Cannot uniquely identify customer OK button.")
-    return _ready_click(
+    prepared = _ready_click(
         "confirm_new_customer", ok,
         description="Confirm newly named WindowHub customer record.",
         expected=ExpectedOutcome(
@@ -174,4 +174,13 @@ def prepare_confirm_new_customer(scene: ScreenScene, customer_name: str):
             expected_active_application="Okna.exe",
             expected_window_title="Właściwości dokumentu",
         ),
+    )
+    return PreparedWindowHubFormAction(
+        field_name=prepared.field_name,
+        status=prepared.status,
+        reason=prepared.reason,
+        action=prepared.action,
+        expected_outcome=prepared.expected_outcome,
+        runtime_id=prepared.runtime_id,
+        required_customer_name=customer_name,
     )
