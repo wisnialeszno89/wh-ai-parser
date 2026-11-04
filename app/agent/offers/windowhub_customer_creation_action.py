@@ -37,9 +37,10 @@ def _unique_control(scene, *, kind, label=None, automation_ids=()):
             or meta.get("uia_visible") is not True
         ):
             continue
-        if label is not None and normalize_uia_text(element.label or "") != normalize_uia_text(label):
-            if meta.get("automation_id") not in automation_ids:
-                continue
+        if automation_ids and meta.get("automation_id") not in automation_ids:
+            continue
+        if label is not None and not automation_ids and normalize_uia_text(element.label or "") != normalize_uia_text(label):
+            continue
         candidates.append(element)
     if len(candidates) != 1:
         return None
