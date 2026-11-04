@@ -46,6 +46,21 @@ def _ui_text(element):
             readable = True
             if value.strip():
                 return value.strip()
+    if getattr(element, "element_info", None) is None:
+        # GridPattern.GetItem can return a raw COM IUIAutomationElement;
+        # wrap it just as the existing WindowHub grid reader does.
+        try:
+            from pywinauto.controls.uiawrapper import UIAWrapper
+            from pywinauto.windows.uia_element_info import UIAElementInfo
+            wrapped = UIAWrapper(UIAElementInfo(element))
+            if wrapped is not element:
+                nested = _ui_text(wrapped)
+                if nested is not None:
+                    readable = True
+                    if nested.strip():
+                        return nested.strip()
+        except Exception:
+            pass
     for attribute in ("window_text", "get_value"):
         try:
             method = getattr(element, attribute, None)
