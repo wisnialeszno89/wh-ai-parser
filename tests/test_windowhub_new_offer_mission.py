@@ -100,3 +100,55 @@ def test_color_requires_verified_catalog_action():
     assert decision.decision is OfferDecision.SELECT_PROFILE_COLOR
     assert decision.executable is False
     assert decision.desired_value == ("biały", "antracyt")
+
+
+def test_document_preferences_are_driven_by_observed_toggle_states():
+    def control(kind, label, *, value=None, checked=None):
+        return SimpleNamespace(
+            kind=kind, label=label, metadata={
+                "uia_visible": True, "current_value": value,
+                "uia_checked": checked,
+            },
+        )
+    labels = (
+        "Bez ceny konstrukcji",
+        "Bez ceny montażu",
+        "Bez ceny demontażu",
+        "Bez ceny wykończenia",
+    )
+    customer = control("combobox", "Klient", value="TEST CUSTOMER")
+    boxes = tuple(control("checkbox", name, checked=True) for name in labels)
+    ok = control("button", "OK")
+    planner = NewWindowOfferMissionPlanner(StubMap())
+    missing = planner.decide(
+        GOAL, _scene(title="Właściwości dokumentu", elements=(customer, *boxes[:-1], ok))
+    )
+    assert missing.decision is OfferDecision.STOP_UNSUPPORTED
+    assert missing.executable is False
+
+    unchecked = planner.decide(
+        GOAL, _scene(title="Właściwości dokumentu", elements=(
+            customer, *boxes[:-1], control("checkbox", labels[-1], checked=False), ok
+        ))
+    )
+    assert unchecked.decision is OfferDecision.SET_PRICE_PREFERENCES
+    assert unchecked.field_name == "exclude_finishing_price"
+    assert unchecked.executable is False
+
+    ready = planner.decide(
+        GOAL, _scene(title="Właściwości dokumentu", elements=(customer, *boxes, ok))
+    )
+    assert ready.decision is OfferDecision.CONFIRM_DOCUMENT
+    assert ready.executable is False
+
+
+def test_provider_toggle_state_does_not_guess_when_unknown():
+    from app.agent.perception.windowhub_ui_automation_provider import (
+        WindowHubUIAutomationProvider,
+    )
+
+    probe = WindowHubUIAutomationProvider._toggle_state
+    assert probe(SimpleNamespace(iface_toggle=SimpleNamespace(CurrentToggleState=1))) is True
+    assert probe(SimpleNamespace(iface_toggle=SimpleNamespace(CurrentToggleState=0))) is False
+    assert probe(SimpleNamespace(iface_toggle=SimpleNamespace(CurrentToggleState=2))) is None
+    assert probe(SimpleNamespace(iface_toggle=None, get_properties=lambda: {})) is None
