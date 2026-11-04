@@ -172,3 +172,43 @@ def test_deferred_customer_mode_does_not_require_price_exclusions():
     deferred = NewWindowOfferGoal(GOAL.position, customer_policy="defer_to_salesperson")
     assert deferred.excluded_prices == GOAL.excluded_prices
     assert deferred.customer_policy != GOAL.customer_policy
+
+
+
+def test_create_customer_goal_requires_explicit_business_name():
+    with pytest.raises(ValueError):
+        NewWindowOfferGoal(GOAL.position, customer_policy="create_customer")
+    named = NewWindowOfferGoal(
+        GOAL.position,
+        customer_policy="create_customer",
+        customer_name="XYZ TEST AGENT",
+    )
+    decision = NewWindowOfferMissionPlanner(StubMap()).decide(
+        named, _scene(title="Właściwości dokumentu")
+    )
+    assert decision.decision is OfferDecision.OPEN_NEW_CUSTOMER
+    assert decision.field_name == "new_customer_add"
+
+
+def test_new_customer_form_changes_name_then_confirms():
+    named = NewWindowOfferGoal(
+        GOAL.position,
+        customer_policy="create_customer",
+        customer_name="XYZ TEST AGENT",
+    )
+    def field(value):
+        return SimpleNamespace(
+            kind="edit", label="Firma", metadata={
+                "uia_visible": True, "current_value": value,
+            },
+        )
+    planner = NewWindowOfferMissionPlanner(StubMap())
+    first = planner.decide(named, _scene(
+        title="Zakładanie nowego klienta", elements=(field(""),),
+    ))
+    assert first.decision is OfferDecision.SET_NEW_CUSTOMER_NAME
+    assert first.desired_value == "XYZ TEST AGENT"
+    second = planner.decide(named, _scene(
+        title="Zakładanie nowego klienta", elements=(field("XYZ TEST AGENT"),),
+    ))
+    assert second.decision is OfferDecision.CONFIRM_NEW_CUSTOMER
