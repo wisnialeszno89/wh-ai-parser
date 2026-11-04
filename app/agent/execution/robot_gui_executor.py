@@ -477,6 +477,18 @@ class RobotGUIExecutor(ActionExecutor):
                 "NOWA OFERTA",
                 None,
             ),
+            "exclude_construction_price": (
+                "click_screen_element", "checkbox", "Bez ceny konstrukcji", None,
+            ),
+            "exclude_installation_price": (
+                "click_screen_element", "checkbox", "Bez ceny montażu", None,
+            ),
+            "exclude_removal_price": (
+                "click_screen_element", "checkbox", "Bez ceny demontażu", None,
+            ),
+            "exclude_finishing_price": (
+                "click_screen_element", "checkbox", "Bez ceny wykończenia", None,
+            ),
         }
         field_name = scope.get("field_name")
         expected = field_specs.get(field_name)
@@ -495,6 +507,16 @@ class RobotGUIExecutor(ActionExecutor):
                 return False
             expected_label = candidate_label
             expected_id = scope.get("automation_id")
+        if field_name.startswith("exclude_") and field_name in field_specs:
+            label = scope.get("label")
+            if (
+                not isinstance(label, str)
+                or " ".join(label.split()).casefold()
+                != " ".join(expected_label.split()).casefold()
+            ):
+                return False
+            expected_label = label
+            expected_id = scope.get("automation_id")
         if action.name != expected_action:
             return False
 
@@ -505,7 +527,9 @@ class RobotGUIExecutor(ActionExecutor):
             return False
         process_name = application.replace("\\", "/").rsplit("/", 1)[-1]
         expected_title = (
-            "Okna - Start1"
+            "Właściwości dokumentu"
+            if field_name.startswith("exclude_")
+            else "Okna - Start1"
             if field_name == "start_new_offer"
             else "Wielkość okna"
             if field_name in {"width_1", "height_1"}
@@ -615,6 +639,11 @@ class RobotGUIExecutor(ActionExecutor):
                     "radiobutton", "Okno", "1329", selected=True
                 )
             )
+
+        if field_name.startswith("exclude_"):
+            # A second click could turn a checked exclusion off; only allow
+            # the click when a fresh observation still proves it is unchecked.
+            return (candidates[0].metadata or {}).get("uia_checked") is False
 
         return True
 
