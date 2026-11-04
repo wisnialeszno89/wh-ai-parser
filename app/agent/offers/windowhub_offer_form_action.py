@@ -54,6 +54,7 @@ class PreparedWindowHubFormAction:
     action: AgentAction | None = None
     expected_outcome: ExpectedOutcome | None = None
     runtime_id: str | None = None
+    required_quantity: str | None = None
 
 
 class WindowHubOfferFormActionPlanner:
@@ -348,18 +349,24 @@ class WindowHubOfferFormActionExecutor:
         target = prepared.action.target
         if not isinstance(target, SemanticTargetQuery):
             raise ValueError("windowhub_form_action_target_invalid")
-        context.set_value(
-            "_windowhub_form_action_scope",
-            {
-                "field_name": prepared.field_name,
-                "application": "Okna.exe",
-                "window_title": "Dodawanie nowej pozycji",
-                "label": target.label,
-                "control_type": target.role,
-                "automation_id": target.automation_id,
-                "uia_runtime_id": target.uia_runtime_id,
-            },
-        )
+        scope = {
+            "field_name": prepared.field_name,
+            "application": "Okna.exe",
+            "window_title": "Dodawanie nowej pozycji",
+            "label": target.label,
+            "control_type": target.role,
+            "automation_id": target.automation_id,
+            "uia_runtime_id": target.uia_runtime_id,
+        }
+        if prepared.field_name == "wizard_next_dimensions":
+            if not (
+                isinstance(prepared.required_quantity, str)
+                and prepared.required_quantity.isdecimal()
+                and int(prepared.required_quantity) > 0
+            ):
+                raise ValueError("windowhub_navigation_required_quantity_invalid")
+            scope["required_quantity"] = prepared.required_quantity
+        context.set_value("_windowhub_form_action_scope", scope)
         context.set_value(
             "expected_outcomes",
             {prepared.action.name: prepared.expected_outcome},
