@@ -526,15 +526,17 @@ class RobotGUIExecutor(ActionExecutor):
             expected_label = candidate_label
             expected_id = scope.get("automation_id")
         if field_name.startswith("exclude_") and field_name in field_specs:
+            ids = {
+                "exclude_construction_price": "IDC_CENA_OKNA",
+                "exclude_installation_price": "IDC_CENA_MONTAZU",
+                "exclude_removal_price": "IDC_CENA_DEMONTAZU",
+                "exclude_finishing_price": "IDC_CENA_WYKONCZENIA",
+            }
             label = scope.get("label")
-            if (
-                not isinstance(label, str)
-                or " ".join(label.split()).casefold()
-                != " ".join(expected_label.split()).casefold()
-            ):
+            if not isinstance(label, str) or scope.get("automation_id") != ids[field_name]:
                 return False
             expected_label = label
-            expected_id = scope.get("automation_id")
+            expected_id = ids[field_name]
         if field_name == "confirm_document":
             provided_label = scope.get("label")
             if not isinstance(provided_label, str) or provided_label.strip().casefold() != "ok":
@@ -728,18 +730,18 @@ class RobotGUIExecutor(ActionExecutor):
             client = (client_controls[0].metadata or {}).get("current_value")
             if not isinstance(client, str) or not client.strip():
                 return False
-            required_labels = (
-                "Bez ceny konstrukcji",
-                "Bez ceny montażu",
-                "Bez ceny demontażu",
-                "Bez ceny wykończenia",
+            required_ids = (
+                "IDC_CENA_OKNA",
+                "IDC_CENA_MONTAZU",
+                "IDC_CENA_DEMONTAZU",
+                "IDC_CENA_WYKONCZENIA",
             )
-            for required_label in required_labels:
+            for required_id in required_ids:
                 checkbox_matches = [
                     e for e in scene.elements
                     if (
                         e.kind == "checkbox"
-                        and getattr(e, "label", None) == required_label
+                        and (e.metadata or {}).get("automation_id") == required_id
                         and (e.metadata or {}).get("source") in {
                             "windows_ui_automation", "windowhub_ui_automation"
                         }
