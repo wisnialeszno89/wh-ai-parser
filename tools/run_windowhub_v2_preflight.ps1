@@ -52,6 +52,7 @@ if ($null -ne $latest) {
 }
 
 Write-Host ""
-Write-Host "PREFLIGHT_STATUS=PASS"
+Write-Host "PREFLIGHT_STATUS=LOCAL_CHECKS_PASSED"
+Write-Host "REMOTE_REASONING_STATUS=NOT_TESTED"
 Write-Host "NEXT=V2 remote reasoning requires deployed NaviMind PR #26 and a configured authenticated /api/agent/task URL."
 Write-Host "SECURITY=Do not copy local .env secrets or tokens into chat."
