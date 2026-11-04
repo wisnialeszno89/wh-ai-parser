@@ -499,7 +499,7 @@ class RobotGUIExecutor(ActionExecutor):
                 "click_screen_element", "button", "Anuluj", None,
             ),
             "new_customer_add": (
-                "click_screen_element", "button", "Dodaj", None,
+                "click_screen_element", "button", "OknaWPF", "IDC_NEW",
             ),
             "new_customer_name": (
                 "write_text", "edit", "Firma", None,
@@ -553,12 +553,7 @@ class RobotGUIExecutor(ActionExecutor):
             if not isinstance(observed_label, str):
                 return False
             if field_name == "new_customer_add":
-                if (
-                    " ".join(observed_label.split()).casefold() != "dodaj"
-                    and observed_id not in {
-                        "IDC_ZAMAWIAJACY_NEW", "IDC_ZAMAWIAJACY_DODAJ",
-                    }
-                ):
+                if observed_id != "IDC_NEW" or observed_label != "OknaWPF":
                     return False
             elif " ".join(observed_label.split()).casefold() != expected_label.casefold():
                 return False
