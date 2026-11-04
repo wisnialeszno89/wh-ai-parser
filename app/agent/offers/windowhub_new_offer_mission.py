@@ -51,7 +51,7 @@ class NewWindowOfferGoal:
     def __post_init__(self):
         if not isinstance(self.position, WindowPositionRequest):
             raise TypeError("offer_position_required")
-        if self.customer_policy not in {"test_existing_customer", "defer_to_salesperson"}:
+        if self.customer_policy not in {"test_existing_customer", "defer_to_salesperson", "select_blank_customer"}:
             raise ValueError("unsupported_customer_policy")
         if set(self.excluded_prices) != {
             "construction", "installation", "removal", "finishing",
@@ -151,6 +151,8 @@ class NewWindowOfferMissionPlanner:
             )
 
         if normalize_uia_text(title) == normalize_uia_text("Właściwości dokumentu"):
+            # Blank customer is an explicit sales intent; it is never inferred
+            # from the first visible row or an empty text cell.
             if goal.customer_policy == "defer_to_salesperson":
                 return OfferInstruction(
                     OfferDecision.DEFER_CUSTOMER_PREFERENCES,
