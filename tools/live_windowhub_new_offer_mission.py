@@ -16,6 +16,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from app.agent.offers.windowhub_new_offer_action import prepare_new_offer_from_start
+from app.agent.offers.windowhub_client_lookup_action import prepare_open_customer_lookup
 from app.agent.offers.windowhub_document_properties_action import (
     prepare_price_exclusion, prepare_document_confirmation,
 )
@@ -91,12 +92,27 @@ def run_goal(goal, loop, *, max_actions=8):
 
         if decision.decision is OfferDecision.OPEN_NEW_OFFER:
             prepared = prepare_new_offer_from_start(scene)
+        elif decision.decision is OfferDecision.OPEN_CUSTOMER_LOOKUP:
+            prepared = prepare_open_customer_lookup(scene)
         elif decision.decision is OfferDecision.SET_PRICE_PREFERENCES:
             prepared = prepare_price_exclusion(scene, decision.field_name)
         elif decision.decision is OfferDecision.CONFIRM_DOCUMENT:
             prepared = prepare_document_confirmation(scene, goal)
         else:
             print("STOP: next business capability is not authorized for live execution yet.")
+            if decision.decision is OfferDecision.INSPECT_CUSTOMER_LOOKUP:
+                print("CUSTOMER_GRID_ELEMENTS:")
+                for element in scene.elements:
+                    meta = element.metadata or {}
+                    if meta.get("source") in ("windowhub_ui_automation", "windows_ui_automation") and (
+                        element.kind in ("table", "listitem", "edit", "button")
+                    ):
+                        print(
+                            f"  kind={element.kind!r} label={element.label!r} "
+                            f"id={meta.get('automation_id')!r} "
+                            f"visible={meta.get('uia_visible')!r} "
+                            f"runtime_present={bool(meta.get('uia_runtime_id'))}"
+                        )
             report_relevant_controls(scene)
             print("No arbitrary customer, catalog color or Finish click was performed.")
             return 4
@@ -134,12 +150,25 @@ def run_goal(goal, loop, *, max_actions=8):
                     and post.observed_stage == "document"
                 )
             )
+            if decision.decision is OfferDecision.OPEN_CUSTOMER_LOOKUP:
+                print("CUSTOMER_LOOKUP_OPEN_ATTEMPTED: inspect current popup without retry.")
+                print(f"POST_DECISION={post.decision.value}")
+                report_relevant_controls(post_scene)
+                return 4
             if not transition_ok:
                 print("STOP: action effect not verified; no retry.")
                 return 6
             print("PASS: workflow transition verified by fresh scene.")
         else:
             print("PASS: action verified.")
+        if decision.decision is OfferDecision.OPEN_CUSTOMER_LOOKUP:
+            popup_scene = loop.observe_scene()
+            popup_decision = planner.decide(goal, popup_scene)
+            print(f"CUSTOMER_LOOKUP_POST_DECISION={popup_decision.decision.value}")
+            print(f"CUSTOMER_LOOKUP_POST_STAGE={popup_decision.observed_stage}")
+            report_relevant_controls(popup_scene)
+            print("STOP: opened customer picker; record selection needs verified grid semantics.")
+            return 4
 
     print("STOP: mission action budget reached; no further changes.")
     return 4
