@@ -16,6 +16,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from app.agent.offers.windowhub_new_offer_action import prepare_new_offer_from_start
+from app.agent.offers.windowhub_document_properties_action import prepare_price_exclusion
 from app.agent.offers.windowhub_new_offer_mission import (
     NewWindowOfferGoal, NewWindowOfferMissionPlanner, OfferDecision,
 )
@@ -41,54 +42,63 @@ def parse_args(argv=None):
     return parser.parse_args(argv)
 
 
-def run_goal(goal, loop):
+def run_goal(goal, loop, *, max_actions=8):
     planner = NewWindowOfferMissionPlanner()
-    scene = loop.observe_scene()
-    decision = planner.decide(goal, scene)
-    print(f"OFFER_STAGE={decision.observed_stage}")
-    print(f"OFFER_DECISION={decision.decision.value}")
-    print(f"REASON={decision.reason}")
-
-    if decision.decision is OfferDecision.OPEN_NEW_OFFER:
-        prepared = prepare_new_offer_from_start(scene)
-        print(f"NEW_OFFER_PREPARED={prepared.status.value}")
-        print(f"NEW_OFFER_REASON={prepared.reason}")
-        if prepared.status is not WindowHubFormActionStatus.READY:
-            print("STOP: New Offer button is not uniquely verified.")
-            return 4
-        result = WindowHubOfferFormActionExecutor.execute_prepared(
-            prepared, scene, loop,
-            request_message="Open exactly one new unsaved WindowHub offer; do not select a client or save.",
-        )
-        if not verified_action(result):
-            after = loop.observe_scene()
-            post = planner.decide(goal, after)
-            attempted = getattr(
-                getattr(
-                    getattr(result.last_execution_result, "last_attempt", None),
-                    "execution_result", None,
-                ), "metadata", None
-            ) or {}
-            if (
-                attempted.get("executed") is not True
-                or post.observed_stage != "document_properties"
-            ):
-                print("STOP: New Offer transition not verified; no retry.")
-                print(f"POST_STAGE={post.observed_stage}")
-                return 6
-        print("PASS: New Offer document properties are now active.")
+    for index in range(max_actions):
         scene = loop.observe_scene()
         decision = planner.decide(goal, scene)
-        print(f"NEXT_DECISION={decision.decision.value}")
-        print("STOP: customer selection and pricing confirmation require verified UIA control actions.")
-        return 4
+        print(f"OFFER_STAGE={decision.observed_stage}")
+        print(f"OFFER_DECISION={decision.decision.value}")
+        print(f"REASON={decision.reason}")
 
-    if decision.decision is OfferDecision.DELEGATE_POSITION or decision.observed_stage == "dimensions":
-        print("DELEGATE: verified quantity / overall dimension mission.")
-        return run_mission(goal.position, loop)
+        if decision.decision is OfferDecision.DELEGATE_POSITION or decision.observed_stage == "dimensions":
+            print("DELEGATE: verified quantity / overall dimension mission.")
+            return run_mission(goal.position, loop)
 
-    print("STOP: next business capability is not authorized for live execution yet.")
-    print("No arbitrary customer, catalog color or Finish click was performed.")
+        if decision.decision is OfferDecision.OPEN_NEW_OFFER:
+            prepared = prepare_new_offer_from_start(scene)
+        elif decision.decision is OfferDecision.SET_PRICE_PREFERENCES:
+            prepared = prepare_price_exclusion(scene, decision.field_name)
+        else:
+            print("STOP: next business capability is not authorized for live execution yet.")
+            print("No arbitrary customer, catalog color or Finish click was performed.")
+            return 4
+
+        print(f"PREPARATION={prepared.status.value}")
+        print(f"PREPARATION_REASON={prepared.reason}")
+        if prepared.status is WindowHubFormActionStatus.ALREADY_SATISFIED:
+            print("STOP: state changed after planning; no duplicate click.")
+            return 4
+        if prepared.status is not WindowHubFormActionStatus.READY:
+            print("STOP: target is not uniquely verified.")
+            return 4
+
+        result = WindowHubOfferFormActionExecutor.execute_prepared(
+            prepared, scene, loop,
+            request_message="Make only the uniquely authorized WindowHub offer change. Do not save.",
+        )
+        if not verified_action(result):
+            post_scene = loop.observe_scene()
+            post = planner.decide(goal, post_scene)
+            last = result.last_execution_result
+            attempt = last.last_attempt if last is not None else None
+            execution = attempt.execution_result if attempt is not None else None
+            attempted = getattr(execution, "metadata", None) or {}
+            print(f"EXECUTION_MESSAGE={getattr(execution, 'message', None)!r}")
+            print(f"EXECUTED={attempted.get('executed')!r}")
+            print(f"POST_STAGE={post.observed_stage}")
+            if not (
+                decision.decision is OfferDecision.OPEN_NEW_OFFER
+                and attempted.get("executed") is True
+                and post.observed_stage == "document_properties"
+            ):
+                print("STOP: action effect not verified; no retry.")
+                return 6
+            print("PASS: New Offer dialog verified by fresh scene.")
+        else:
+            print("PASS: action verified.")
+
+    print("STOP: mission action budget reached; no further changes.")
     return 4
 
 
