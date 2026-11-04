@@ -178,3 +178,77 @@ def prepare_document_confirmation(
         ),
         runtime_id=runtime_id,
     )
+
+
+def prepare_defer_document_properties(
+    scene: ScreenScene, goal
+) -> PreparedWindowHubFormAction:
+    """Use Cancel only for an explicitly deferred workflow; never assume its effect."""
+    from app.agent.offers.windowhub_new_offer_mission import NewWindowOfferGoal
+
+    def blocked(reason):
+        return PreparedWindowHubFormAction(
+            field_name="defer_document_properties",
+            status=WindowHubFormActionStatus.BLOCKED,
+            reason=reason,
+        )
+
+    if not isinstance(scene, ScreenScene) or not isinstance(goal, NewWindowOfferGoal):
+        raise TypeError("windowhub_defer_goal_and_scene_required")
+    if goal.customer_policy != "defer_to_salesperson":
+        return blocked("Deferring client selection requires explicit user intent.")
+
+    state = scene.observation.state
+    application = state.active_application or ""
+    if application.replace("\\", "/").rsplit("/", 1)[-1].casefold() != "okna.exe":
+        return blocked("WindowHub is not the active application.")
+    if normalize_uia_text(state.active_window_title or "") != normalize_uia_text("Właściwości dokumentu"):
+        return blocked("Document properties are not the active dialog.")
+
+    candidates = [
+        element for element in scene.elements
+        if element.kind == "button"
+        and normalize_uia_text(element.label or "") == "anuluj"
+        and (element.metadata or {}).get("source") in _UIA_SOURCES
+        and (element.metadata or {}).get("uia_control_type") == "button"
+        and (element.metadata or {}).get("uia_enabled") is True
+        and (element.metadata or {}).get("uia_visible") is True
+    ]
+    if len(candidates) != 1:
+        return blocked(f"Expected one Cancel button in document properties; found {len(candidates)}.")
+    element = candidates[0]
+    meta = element.metadata or {}
+    runtime_id = meta.get("uia_runtime_id")
+    if not isinstance(runtime_id, str) or not runtime_id.strip():
+        return blocked("Cancel button has no UIA runtime identity.")
+    if sum(
+        1 for item in scene.elements
+        if (item.metadata or {}).get("source") in _UIA_SOURCES
+        and (item.metadata or {}).get("uia_runtime_id") == runtime_id
+    ) != 1:
+        return blocked("Cancel button RuntimeId is not unique.")
+
+    target = SemanticTargetQuery(
+        role="button",
+        label=element.label,
+        automation_id=meta.get("automation_id"),
+        uia_runtime_id=runtime_id,
+        description="Defer document preferences to salesperson",
+    )
+    return PreparedWindowHubFormAction(
+        field_name="defer_document_properties",
+        status=WindowHubFormActionStatus.READY,
+        reason="Explicit deferred mode; single observed Cancel button is ready.",
+        action=AgentAction(
+            name="click_screen_element",
+            description="Skip document preferences for now; verify the resulting WindowHub stage.",
+            target=target,
+            requires_environment_observation=True,
+        ),
+        expected_outcome=ExpectedOutcome(
+            description="After deferring document properties, the position wizard is active.",
+            expected_active_application="Okna.exe",
+            expected_window_title="Dodawanie nowej pozycji",
+        ),
+        runtime_id=runtime_id,
+    )
