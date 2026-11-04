@@ -28,13 +28,14 @@ def parse_args(argv=None):
     parser.add_argument("--mode", choices=("inspect", "think", "execute"), default="inspect")
     parser.add_argument("--demo", type=Path)
     parser.add_argument("--max-actions", type=int, default=6)
+    parser.add_argument("--show-window-title", action="store_true", help="Print current native title locally for unknown stages; may contain business details")
     parser.add_argument("--execute-live", action="store_true")
     parser.add_argument("--approve-persistent", action="store_true")
     return parser.parse_args(argv)
 
 
 def run_goal(loop, *, goal, reasoner, mode, max_actions, experience=(),
-             approved_persistent=False):
+             approved_persistent=False, show_window_title=False):
     session = ComputerUseV2ActionSession()
     task_id = "wh-" + uuid4().hex[:16]
     feedback = list(experience)
@@ -44,6 +45,9 @@ def run_goal(loop, *, goal, reasoner, mode, max_actions, experience=(),
         if stage is None:
             print("STOP: WindowHub must be the foreground application.")
             return 4
+        if show_window_title and stage == "windowhub_unmapped":
+            print("UNMAPPED_FOREGROUND_TITLE=" + repr(scene.observation.state.active_window_title))
+            print("TITLE_NOTE=local diagnostic only; review for business identifiers before sharing")
         prepared = session.prepare_cycle(
             scene, task_id=task_id, session_id=task_id, goal=goal,
             world_revision=revision + 1, cycle=revision,
@@ -147,6 +151,7 @@ def main(argv=None):
             goal=goal, reasoner=reasoner, mode=args.mode,
             max_actions=args.max_actions, experience=experience,
             approved_persistent=args.approve_persistent,
+            show_window_title=args.show_window_title,
         )
     except Exception as exc:
         print("STOP: " + type(exc).__name__ + ": " + str(exc)[:200])
