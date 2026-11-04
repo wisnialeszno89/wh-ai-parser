@@ -16,6 +16,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from app.agent.offers.windowhub_new_offer_action import prepare_new_offer_from_start
+from app.agent.runtime.windowhub_customer_grid_inspection import inspect_live_customer_grid
 from app.agent.offers.windowhub_client_lookup_action import prepare_open_customer_lookup
 from app.agent.offers.windowhub_document_properties_action import (
     prepare_price_exclusion, prepare_document_confirmation,
@@ -43,8 +44,8 @@ def parse_args(argv=None):
     parser.add_argument("--width", type=int, default=1230)
     parser.add_argument("--height", type=int, default=1478)
     parser.add_argument(
-        "--customer-mode", choices=("select", "defer"), default="select",
-        help="select: handle client/preferences now; defer: user will set them after window creation",
+        "--customer-mode", choices=("select", "blank", "defer"), default="select",
+        help="select: named customer; blank: find genuinely unnamed customer; defer: skip client preferences when possible",
     )
     parser.add_argument("--execute-live", action="store_true")
     return parser.parse_args(argv)
@@ -82,6 +83,19 @@ def report_relevant_controls(scene):
         print("  none")
 
 
+def report_customer_grid():
+    evidence = inspect_live_customer_grid(max_rows=12)
+    print(f"CUSTOMER_GRID_STATUS={evidence.status}")
+    print(f"CUSTOMER_GRID_COUNT={evidence.grid_count}")
+    print(f"CUSTOMER_GRID_ROWS={evidence.reported_rows}")
+    print(f"CUSTOMER_GRID_COLUMNS={evidence.reported_columns}")
+    print(f"CUSTOMER_GRID_HEADERS={evidence.header_labels!r}")
+    print(f"CUSTOMER_GRID_BLANK_NAME_CANDIDATES={evidence.blank_name_candidate_indices!r}")
+    print(f"CUSTOMER_GRID_REASON={evidence.reason}")
+    print("CUSTOMER_SELECTION=NOT_EXECUTED")
+    return evidence
+
+
 def run_goal(goal, loop, *, max_actions=8):
     planner = NewWindowOfferMissionPlanner()
     for index in range(max_actions):
@@ -108,6 +122,7 @@ def run_goal(goal, loop, *, max_actions=8):
         else:
             print("STOP: next business capability is not authorized for live execution yet.")
             if decision.decision is OfferDecision.INSPECT_CUSTOMER_LOOKUP:
+                report_customer_grid()
                 print("CUSTOMER_GRID_ELEMENTS:")
                 for element in scene.elements:
                     meta = element.metadata or {}
@@ -163,6 +178,7 @@ def run_goal(goal, loop, *, max_actions=8):
                 print("CUSTOMER_LOOKUP_OPEN_ATTEMPTED: inspect current popup without retry.")
                 print(f"POST_DECISION={post.decision.value}")
                 report_relevant_controls(post_scene)
+                report_customer_grid()
                 return 4
             if not transition_ok:
                 print("STOP: action effect not verified; no retry.")
@@ -176,6 +192,7 @@ def run_goal(goal, loop, *, max_actions=8):
             print(f"CUSTOMER_LOOKUP_POST_DECISION={popup_decision.decision.value}")
             print(f"CUSTOMER_LOOKUP_POST_STAGE={popup_decision.observed_stage}")
             report_relevant_controls(popup_scene)
+            report_customer_grid()
             print("STOP: opened customer picker; record selection needs verified grid semantics.")
             return 4
 
@@ -203,6 +220,7 @@ def main(argv=None):
             ),
             customer_policy=(
                 "defer_to_salesperson" if args.customer_mode == "defer"
+                else "select_blank_customer" if args.customer_mode == "blank"
                 else "test_existing_customer"
             ),
         )
