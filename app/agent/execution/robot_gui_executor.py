@@ -459,6 +459,18 @@ class RobotGUIExecutor(ActionExecutor):
                 "Dalej >",
                 "12324",
             ),
+            "width_1": (
+                "write_text",
+                "edit",
+                "Szerokość",
+                "1000",
+            ),
+            "height_1": (
+                "write_text",
+                "edit",
+                "Wysokość",
+                "1001",
+            ),
         }
         field_name = scope.get("field_name")
         expected = field_specs.get(field_name)
@@ -475,11 +487,16 @@ class RobotGUIExecutor(ActionExecutor):
         if not isinstance(application, str) or not isinstance(title, str):
             return False
         process_name = application.replace("\\", "/").rsplit("/", 1)[-1]
+        expected_title = (
+            "Wielkość okna"
+            if field_name in {"width_1", "height_1"}
+            else "Dodawanie nowej pozycji"
+        )
         if (
             process_name.casefold() != "okna.exe"
-            or title.strip().casefold() != "dodawanie nowej pozycji"
+            or title.strip().casefold() != expected_title.casefold()
             or scope.get("application") != "Okna.exe"
-            or scope.get("window_title") != "Dodawanie nowej pozycji"
+            or scope.get("window_title") != expected_title
         ):
             return False
 
