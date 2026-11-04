@@ -6,6 +6,14 @@ traffic and never controls the desktop.
 """
 from __future__ import annotations
 
+# Allow both "python -m tools.<script>" and "python tools/<script>.py".
+from pathlib import Path
+import sys
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
 from app.agent.environment.environment_observation import EnvironmentObservation
 from app.agent.environment.environment_state import EnvironmentState
 from app.agent.perception.interaction_capability import InteractionCapability
