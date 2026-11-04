@@ -90,6 +90,25 @@ def report_relevant_controls(scene):
         print("  none")
 
 
+def report_customer_creation_controls(scene):
+    print("CUSTOMER_CREATION_UIA_CONTROLS:")
+    for element in scene.elements:
+        meta = element.metadata or {}
+        if (
+            meta.get("source") not in ("windowhub_ui_automation", "windows_ui_automation")
+            or element.kind not in ("button", "edit", "checkbox")
+            or meta.get("uia_visible") is not True
+        ):
+            continue
+        # Report structural labels and AutomationId only; omit any customer values.
+        print(
+            f"  kind={element.kind!r} label={element.label!r} "
+            f"automation_id={meta.get('automation_id')!r} "
+            f"runtime_present={bool(meta.get('uia_runtime_id'))} "
+            f"enabled={meta.get('uia_enabled')!r}"
+        )
+
+
 def report_customer_grid():
     evidence = inspect_live_customer_grid(max_rows=12)
     print(f"CUSTOMER_GRID_STATUS={evidence.status}")
@@ -171,6 +190,8 @@ def run_goal(goal, loop, *, max_actions=8):
         if prepared.status is not WindowHubFormActionStatus.READY:
             print("STOP: target is not uniquely verified.")
             report_relevant_controls(scene)
+            if decision.decision in (OfferDecision.OPEN_NEW_CUSTOMER, OfferDecision.SET_NEW_CUSTOMER_NAME, OfferDecision.CONFIRM_NEW_CUSTOMER):
+                report_customer_creation_controls(scene)
             return 4
 
         result = WindowHubOfferFormActionExecutor.execute_prepared(
