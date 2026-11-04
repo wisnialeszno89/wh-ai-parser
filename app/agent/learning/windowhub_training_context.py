@@ -8,7 +8,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from app.agent.learning.windowhub_demonstration import demonstration_experience
+from app.agent.learning.windowhub_demonstration import demonstration_experience, demonstration_summary
 
 
 def windowhub_skill_knowledge() -> dict[str, object]:
@@ -44,7 +44,7 @@ def windowhub_skill_knowledge() -> dict[str, object]:
     }
 
 
-def read_demonstration_experience(path: Path, *, max_bytes: int = 1_000_000) -> tuple[dict[str, object], ...]:
+def read_demonstration_records(path: Path, *, max_bytes: int = 1_000_000) -> list[dict[str, object]]:
     """Read bounded local demo records, exposing only de-identified stage transitions."""
     if not isinstance(path, Path):
         raise TypeError("demonstration_path_required")
@@ -61,4 +61,12 @@ def read_demonstration_experience(path: Path, *, max_bytes: int = 1_000_000) -> 
                 continue
             if isinstance(item, dict):
                 records.append(item)
-    return demonstration_experience(records, limit=12)
+    return records
+
+
+def read_demonstration_experience(path: Path) -> tuple[dict[str, object], ...]:
+    return demonstration_experience(read_demonstration_records(path), limit=12)
+
+
+def read_demonstration_report(path: Path) -> dict[str, object]:
+    return demonstration_summary(read_demonstration_records(path))
