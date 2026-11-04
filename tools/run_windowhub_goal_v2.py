@@ -17,7 +17,7 @@ from app.agent.learning.windowhub_training_context import (read_demonstration_ex
 from app.agent.perception.windowhub_semantic_world import enrich_windowhub_scene
 from app.agent.reasoning.navimind_task_reasoner_v2 import (NaviMindTaskReasonerV2, NaviMindTaskReasonerV2Config)
 from app.agent.runtime.computer_use_v2_action_session import ComputerUseV2ActionSession
-from app.agent.runtime.windowhub_goal_v2_coordinator import execute_v2_step
+from app.agent.runtime.windowhub_goal_v2_coordinator import execute_v2_step, enforce_v2_live_policy
 from app.agent.runtime.windowhub_window_activation import activate_windowhub_workflow_window
 from app.agent.runtime.windows_desktop_agent_control_loop import create_windows_desktop_agent_control_loop
 
@@ -34,6 +34,48 @@ def parse_args(argv=None):
     parser.add_argument("--execute-live", action="store_true")
     parser.add_argument("--approve-persistent", action="store_true")
     return parser.parse_args(argv)
+
+
+def audit_start_action_read_only(prepared, scene):
+    """Prove that a model's Start1 action can be resolved locally; never click."""
+    entities = {
+        item["ref"]: item for item in prepared.request_payload["world"]["entities"]
+    }
+    choices = [
+        item for item in prepared.request_payload["capabilities"]["actions"]
+        if item["name"].startswith("click_ent_")
+        and entities.get(item["target_ref"], {}).get("label") == "NOWA OFERTA"
+    ]
+    if len(choices) != 1:
+        print("START_NEW_OFFER_GUARD=NOT_UNIQUELY_EXPOSED")
+        return
+    action = choices[0]
+    synthetic = {
+        "version": "2",
+        "task_id": prepared.request_payload["task_id"],
+        "decision": "act",
+        "rationale": "Local read-only validation of the observed New Offer capability.",
+        "confidence": 0.99,
+        "observation_request": None,
+        "action": {
+            "name": action["name"],
+            "target_ref": action["target_ref"],
+            "value": None,
+            "expected_postcondition": {"kind": "scene_changed"},
+            "requires_confirmation": action["requires_confirmation"],
+        },
+        "completion": None,
+        "requires_manual_review": False,
+    }
+    try:
+        resolved = prepared.resolve_action_decision(synthetic)
+        enforce_v2_live_policy(scene, resolved)
+    except (ValueError, KeyError) as exc:
+        print("START_NEW_OFFER_GUARD=BLOCKED")
+        print("START_NEW_OFFER_REASON=" + str(exc))
+        return
+    print("START_NEW_OFFER_GUARD=PASS")
+    print("START_NEW_OFFER_CHECK=V2 protocol and local UIA identity only; no click, no model request")
 
 
 def run_goal(loop, *, goal, reasoner, mode, max_actions, experience=(),
@@ -64,6 +106,8 @@ def run_goal(loop, *, goal, reasoner, mode, max_actions, experience=(),
             for item in actions[:24]:
                 target = entities.get(item["target_ref"]) if item["target_ref"] else None
                 print(f"CAPABILITY={item['name']} LABEL={(target or {}).get('label')}")
+            if stage == "start":
+                audit_start_action_read_only(prepared, scene)
             print("INSPECT_ONLY: local capability inventory; no reasoning model was called and no UI action was performed.")
             return 0
         response = reasoner.reason(prepared.request_payload)
