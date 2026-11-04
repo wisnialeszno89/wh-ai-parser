@@ -19,13 +19,13 @@ def scene(title, *elements):
     )
 
 
-def control(kind, label, *, value=None, rid=None):
+def control(kind, label, *, value=None, rid=None, automation_id=None):
     return ScreenElement(
         kind=kind, label=label, x=20, y=20, width=110, height=25,
         metadata={
             "source": "windows_ui_automation", "uia_control_type": kind,
             "uia_runtime_id": rid or kind + "-" + label,
-            "automation_id": None, "current_value": value,
+            "automation_id": automation_id, "current_value": value,
             "uia_visible": True, "uia_enabled": True,
         },
     )
@@ -33,9 +33,9 @@ def control(kind, label, *, value=None, rid=None):
 
 def test_add_requires_unique_button():
     title = "Właściwości dokumentu"
-    assert prepare_add_customer(scene(title, control("button", "Dodaj"))).status is WindowHubFormActionStatus.READY
+    assert prepare_add_customer(scene(title, control("button", "OknaWPF", automation_id="IDC_NEW"))).status is WindowHubFormActionStatus.READY
     assert prepare_add_customer(scene(title)).status is WindowHubFormActionStatus.BLOCKED
-    assert prepare_add_customer(scene(title, control("button", "Dodaj"), control("button", "Dodaj", rid="other"))).status is WindowHubFormActionStatus.BLOCKED
+    assert prepare_add_customer(scene(title, control("button", "Dodaj"), control("button", "OknaWPF", rid="other", automation_id="IDC_NEW"))).status is WindowHubFormActionStatus.BLOCKED
 
 
 def test_name_write_and_ok_guard():
