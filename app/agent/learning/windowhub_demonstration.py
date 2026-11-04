@@ -67,6 +67,7 @@ def semantic_snapshot(scene: ScreenScene) -> dict[str, Any] | None:
             or meta.get("uia_visible") is not True
             or not isinstance(identifier, str)
             or not identifier.strip()
+            or not (identifier.startswith("IDC_") or identifier.isdecimal())
             or identifier.casefold().startswith("part_")
         ):
             continue
@@ -142,7 +143,11 @@ def demonstration_experience(records: list[Mapping[str, object]], *, limit: int 
         if not isinstance(change, dict):
             continue
         old, new = change.get("from_stage"), change.get("to_stage")
-        if not isinstance(old, str) or not isinstance(new, str) or old == new:
+        safe_stages = set(KNOWN_STAGES.values()) | {"offer_document"}
+        if (
+            not isinstance(old, str) or not isinstance(new, str)
+            or old == new or old not in safe_stages or new not in safe_stages
+        ):
             continue
         if (old, new) in seen:
             continue
