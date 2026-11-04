@@ -117,3 +117,51 @@ może być płatne. Dopiero po `V2_REMOTE_CONTRACT=PASS` przechodzimy do
 Jeśli nie masz skonfigurowanego endpointu, uruchom najpierw
 `python tools/diagnose_navimind_setup.py`, który nie wyświetla URL ani
 sekretów. Nie wymyślaj adresów Vercel/serwera.
+
+
+## 2026-11-04: Offline validated, production V2 connection pending
+
+Windows operator confirmed:
+- `34 passed in 9.94s`;
+- `OFFLINE_V2_STATUS=PASS`;
+- `OFFLINE_V2_UNCHANGED_REJECTED=True`;
+- `OFFLINE_V2_CHANGED_ACCEPTED=True`;
+- `PREFLIGHT_STATUS=LOCAL_CHECKS_PASSED`;
+- `DOTENV_FILE=absent`, missing V1/V2 URL and secrets;
+- `REMOTE_REASONING_STATUS=NOT_TESTED`.
+
+NaviMind PR #26 CI now passes and GitHub reports it mergeable. The PR
+is still **draft/unmerged**; green CI is not proof of deployed Production
+secrets or server availability. The connected Vercel project must be checked
+before a production deployment; never guess a deployment URL or echo secrets.
+
+### Release checklist (no scripts touch production automatically)
+
+1. Verify the Vercel project is really connected to `wisnialeszno89/navimind`,
+   and determine which Git branch deploys to Production.
+2. Verify **presence** of server-side Production `OPENAI_API_KEY` and
+   `NAVIMIND_AGENT_SECRET` without exposing values. Set/rotate them in
+   Vercel if needed.
+3. After conscious approval, merge and deploy NaviMind PR #26. This introduces
+   V2 in the *same* endpoint `POST /api/agent/task`, selected by
+   payload `version: "2"`. V1 remains supported.
+4. On the **local Windows machine**, with no existing `.env`, run:
+   ```powershell
+   powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\setup_navimind_v2_local.ps1
+   python tools/diagnose_navimind_setup.py
+   ```
+   Enter the canonical **production Vercel URL** and the exact same secret as
+   configured on Vercel. The prompt masks the secret, and the local file
+   remains ignored by Git. The wizard refuses to overwrite existing `.env`.
+5. **Only after V2 deployment**, authorize the optional, possibly paid, single
+   synthetic request (without business/customer data):
+   ```powershell
+   python tools/probe_navimind_v2_server.py --allow-model-request
+   ```
+6. If `V2_REMOTE_CONTRACT=PASS`, open WindowHub on Start1 and run
+   `--mode think` with the earlier demonstration. That is the **first
+   genuine next-action decision test**. Test the live execution loop only
+   after inspecting the proposal and using isolated/test customer records.
+
+The local wizard does **not** deploy Vercel, does not verify the server, does
+not generate new server credentials, and never prints the secret.
