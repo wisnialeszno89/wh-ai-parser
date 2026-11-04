@@ -48,7 +48,7 @@ def verified_action(result):
     execution = attempt.execution_result if attempt is not None else None
     verification = attempt.verification_result if attempt is not None else None
     return (
-        getattr(execution, "metadata", {}).get("executed") is True
+        (getattr(execution, "metadata", None) or {}).get("executed") is True
         and getattr(verification, "verified", None) is True
     )
 
