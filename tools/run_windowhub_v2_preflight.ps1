@@ -22,7 +22,7 @@ Write-Host "WINDOWHUB_V2_PREFLIGHT=LOCAL_ONLY"
 Write-Host "NOTE=No NaviMind requests and no live WindowHub action will be performed."
 
 if (-not $SkipTests) {
-    Invoke-PythonStep "V2 protocol contract tests" @(
+    Invoke-PythonStep -Title "V2 protocol contract tests" -Arguments @(
         "-m", "pytest",
         "tests/test_navimind_v2_offline_smoke.py",
         "tests/test_navimind_setup_diagnostic.py",
@@ -33,15 +33,15 @@ if (-not $SkipTests) {
         "-q"
     )
 }
-Invoke-PythonStep "V2 synthetic semantic roundtrip" @("tools/smoke_navimind_v2_offline.py")
-Invoke-PythonStep "NaviMind configuration (values redacted)" @("tools/diagnose_navimind_setup.py")
+Invoke-PythonStep -Title "V2 synthetic semantic roundtrip" -Arguments @("tools/smoke_navimind_v2_offline.py")
+Invoke-PythonStep -Title "NaviMind configuration (values redacted)" -Arguments @("tools/diagnose_navimind_setup.py")
 
 $demoDir = Join-Path $project "outputs\agent_learning"
 $latest = Get-ChildItem -LiteralPath $demoDir -Filter "windowhub-demo-*.jsonl" -File -ErrorAction SilentlyContinue |
     Sort-Object LastWriteTime -Descending |
     Select-Object -First 1
 if ($null -ne $latest) {
-    Invoke-PythonStep "Human demonstration coverage" @(
+    Invoke-PythonStep -Title "Human demonstration coverage" -Arguments @(
         "tools/report_windowhub_demonstration.py",
         "--demo",
         $latest.FullName
