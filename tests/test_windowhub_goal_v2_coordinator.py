@@ -46,7 +46,7 @@ def button(semantic=True):
 def resolved(*, confirmation=False, post=None):
     return SimpleNamespace(
         action=AgentAction(
-            name="click_screen_element", target=target(),
+            name="click_screen_element", description="Click new customer", target=target(),
             requires_confirmation=confirmation,
         ),
         target_ref="ent_0001",
@@ -82,7 +82,7 @@ def test_persisting_customer_requires_operator_approval():
 
 def test_write_requires_same_expected_text_as_action():
     action = AgentAction(
-        name="write_text", target=SemanticTargetQuery(
+        name="write_text", description="Write customer", target=SemanticTargetQuery(
             role="edit", label="Firma", automation_id="FIRMA", uia_runtime_id="text1",
         ), value="XYZ",
     )
