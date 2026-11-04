@@ -430,8 +430,8 @@ class RobotGUIExecutor(ActionExecutor):
             },
         )
 
-    @staticmethod
-    def _matches_windowhub_form_action_scope(action, scene, scope) -> bool:
+    @classmethod
+    def _matches_windowhub_form_action_scope(cls, action, scene, scope) -> bool:
         """Require the exact WindowHub position dialog and mapped control.
 
         This optional local-only scope is attached by the WindowHub form
@@ -452,6 +452,12 @@ class RobotGUIExecutor(ActionExecutor):
                 "radiobutton",
                 "Okno",
                 "1329",
+            ),
+            "wizard_next_dimensions": (
+                "click_screen_element",
+                "button",
+                "Dalej >",
+                "12324",
             ),
         }
         field_name = scope.get("field_name")
@@ -515,7 +521,66 @@ class RobotGUIExecutor(ActionExecutor):
             ):
                 candidates.append(element)
 
-        return len(candidates) == 1
+        if len(candidates) != 1:
+            return False
+
+        if field_name == "wizard_next_dimensions":
+            # Freshly re-check both already-authorized business inputs.  A
+            # user could edit the quantity between planning and execution.
+            quantity = scope.get("required_quantity")
+            if (
+                not isinstance(quantity, str)
+                or not quantity.isdecimal()
+                or int(quantity) <= 0
+            ):
+                return False
+
+            def matching_precondition(role, label, automation_id, *, value=None, selected=None):
+                eligible = []
+                for element in scene.elements:
+                    meta = element.metadata or {}
+                    if (
+                        meta.get("source") in {
+                            "windows_ui_automation",
+                            "windowhub_ui_automation",
+                        }
+                        and element.kind == role
+                        and element.label == label
+                        and meta.get("uia_control_type") == role
+                        and meta.get("automation_id") == automation_id
+                        and meta.get("uia_enabled") is True
+                        and meta.get("uia_visible") is True
+                    ):
+                        eligible.append(element)
+                if len(eligible) != 1:
+                    return False
+                candidate = eligible[0]
+                meta = candidate.metadata or {}
+                candidate_id = meta.get("uia_runtime_id")
+                if (
+                    not isinstance(candidate_id, str)
+                    or not candidate_id.strip()
+                    or not cls._has_unique_uia_target_identity(scene, candidate)
+                ):
+                    return False
+                if value is not None:
+                    actual = meta.get("current_value")
+                    if not isinstance(actual, str) or actual.strip() != value:
+                        return False
+                if selected is not None and meta.get("uia_selected") is not selected:
+                    return False
+                return True
+
+            return (
+                matching_precondition(
+                    "edit", "Ile sztuk", "1001", value=quantity
+                )
+                and matching_precondition(
+                    "radiobutton", "Okno", "1329", selected=True
+                )
+            )
+
+        return True
 
     @staticmethod
     def _screen_origin(context: ExecutionContext) -> tuple[int, int] | None:
