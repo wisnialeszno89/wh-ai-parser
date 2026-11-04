@@ -20,6 +20,8 @@ from app.agent.offers.windowhub_position_mission import WindowPositionRequest
 class OfferDecision(str, Enum):
     OPEN_NEW_OFFER = "open_new_offer"
     SELECT_TEST_CUSTOMER = "select_test_customer"
+    OPEN_CUSTOMER_LOOKUP = "open_customer_lookup"
+    INSPECT_CUSTOMER_LOOKUP = "inspect_customer_lookup"
     SET_PRICE_PREFERENCES = "set_price_preferences"
     CONFIRM_DOCUMENT = "confirm_document"
     OPEN_NEW_POSITION = "open_new_position"
@@ -148,11 +150,45 @@ class NewWindowOfferMissionPlanner:
             )
 
         if normalize_uia_text(title) == normalize_uia_text("Właściwości dokumentu"):
+            # Native DevExpress lookup is a button (IDC_ZAMAWIAJACY), not a
+            # combobox. First detect its opened grid to prevent double-click.
+            lookup_grids = [
+                e for e in scene.elements
+                if e.kind == "table"
+                and (e.metadata or {}).get("automation_id") == "PART_GridControl"
+                and (e.metadata or {}).get("uia_visible") is True
+                and any(
+                    isinstance(ancestor, dict)
+                    and ancestor.get("automation_id") == "IDC_ZAMAWIAJACY"
+                    for ancestor in (e.metadata or {}).get("uia_ancestor_structure", ())
+                )
+            ]
+            if lookup_grids:
+                return OfferInstruction(
+                    OfferDecision.INSPECT_CUSTOMER_LOOKUP,
+                    "Customer lookup grid is visible; inspect records and selection semantics.",
+                    "customer_lookup",
+                    "customer",
+                )
             customers = self._controls(scene, "Klient", "combobox")
             if len(customers) != 1:
+                lookup_buttons = [
+                    e for e in scene.elements
+                    if e.kind == "button"
+                    and e.label == "LookUpEdit"
+                    and (e.metadata or {}).get("automation_id") == "IDC_ZAMAWIAJACY"
+                    and (e.metadata or {}).get("uia_visible") is True
+                ]
+                if len(lookup_buttons) == 1:
+                    return OfferInstruction(
+                        OfferDecision.OPEN_CUSTOMER_LOOKUP,
+                        "Open the native customer LookupEdit; do not choose a row yet.",
+                        "document_properties",
+                        "customer",
+                    )
                 return OfferInstruction(
                     OfferDecision.SELECT_TEST_CUSTOMER,
-                    "Find one customer selector in the document dialog before choosing a test customer.",
+                    "No unique customer lookup is observable.",
                     "document_properties",
                     "customer",
                 )
