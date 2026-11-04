@@ -459,6 +459,54 @@ class RobotGUIExecutor(ActionExecutor):
                 "Dalej >",
                 "12324",
             ),
+            "width_1": (
+                "write_text",
+                "edit",
+                "Szerokość",
+                "1000",
+            ),
+            "height_1": (
+                "write_text",
+                "edit",
+                "Wysokość",
+                "1001",
+            ),
+            "start_new_offer": (
+                "click_screen_element",
+                "button",
+                "NOWA OFERTA",
+                None,
+            ),
+            "exclude_construction_price": (
+                "click_screen_element", "checkbox", "Bez ceny konstrukcji", None,
+            ),
+            "exclude_installation_price": (
+                "click_screen_element", "checkbox", "Bez ceny montażu", None,
+            ),
+            "exclude_removal_price": (
+                "click_screen_element", "checkbox", "Bez ceny demontażu", None,
+            ),
+            "exclude_finishing_price": (
+                "click_screen_element", "checkbox", "Bez ceny wykończenia", None,
+            ),
+            "confirm_document": (
+                "click_screen_element", "button", "OK", None,
+            ),
+            "open_customer_lookup": (
+                "click_screen_element", "button", "LookUpEdit", "IDC_ZAMAWIAJACY",
+            ),
+            "defer_document_properties": (
+                "click_screen_element", "button", "Anuluj", None,
+            ),
+            "new_customer_add": (
+                "click_screen_element", "button", "OknaWPF", "IDC_NEW",
+            ),
+            "new_customer_name": (
+                "write_text", "edit", "Firma", None,
+            ),
+            "confirm_new_customer": (
+                "click_screen_element", "button", "OK", None,
+            ),
         }
         field_name = scope.get("field_name")
         expected = field_specs.get(field_name)
@@ -466,6 +514,53 @@ class RobotGUIExecutor(ActionExecutor):
             return False
 
         expected_action, expected_role, expected_label, expected_id = expected
+        if field_name == "start_new_offer":
+            # The native tile may have a provider-defined AutomationId; bind
+            # that identity from the observed scene instead of guessing it.
+            candidate_label = scope.get("label")
+            if (
+                not isinstance(candidate_label, str)
+                or " ".join(candidate_label.split()).casefold() != "nowa oferta"
+            ):
+                return False
+            expected_label = candidate_label
+            expected_id = scope.get("automation_id")
+        if field_name.startswith("exclude_") and field_name in field_specs:
+            ids = {
+                "exclude_construction_price": "IDC_CENA_OKNA",
+                "exclude_installation_price": "IDC_CENA_MONTAZU",
+                "exclude_removal_price": "IDC_CENA_DEMONTAZU",
+                "exclude_finishing_price": "IDC_CENA_WYKONCZENIA",
+            }
+            label = scope.get("label")
+            if not isinstance(label, str) or scope.get("automation_id") != ids[field_name]:
+                return False
+            expected_label = label
+            expected_id = ids[field_name]
+        if field_name == "confirm_document":
+            provided_label = scope.get("label")
+            if not isinstance(provided_label, str) or provided_label.strip().casefold() != "ok":
+                return False
+            expected_label = provided_label
+            expected_id = scope.get("automation_id")
+        if field_name == "defer_document_properties":
+            observed_label = scope.get("label")
+            if not isinstance(observed_label, str) or " ".join(observed_label.split()).casefold() != "anuluj":
+                return False
+            expected_label = observed_label
+            expected_id = scope.get("automation_id")
+        if field_name in {"new_customer_add", "new_customer_name", "confirm_new_customer"}:
+            observed_label = scope.get("label")
+            observed_id = scope.get("automation_id")
+            if not isinstance(observed_label, str):
+                return False
+            if field_name == "new_customer_add":
+                if observed_id != "IDC_NEW" or observed_label != "OknaWPF":
+                    return False
+            elif " ".join(observed_label.split()).casefold() != expected_label.casefold():
+                return False
+            expected_label = observed_label
+            expected_id = observed_id
         if action.name != expected_action:
             return False
 
@@ -475,11 +570,22 @@ class RobotGUIExecutor(ActionExecutor):
         if not isinstance(application, str) or not isinstance(title, str):
             return False
         process_name = application.replace("\\", "/").rsplit("/", 1)[-1]
+        expected_title = (
+            "Zakładanie nowego klienta"
+            if field_name in {"new_customer_name", "confirm_new_customer"}
+            else "Właściwości dokumentu"
+            if field_name.startswith("exclude_") or field_name in {"confirm_document", "open_customer_lookup", "defer_document_properties", "new_customer_add"}
+            else "Okna - Start1"
+            if field_name == "start_new_offer"
+            else "Wielkość okna"
+            if field_name in {"width_1", "height_1"}
+            else "Dodawanie nowej pozycji"
+        )
         if (
             process_name.casefold() != "okna.exe"
-            or title.strip().casefold() != "dodawanie nowej pozycji"
+            or title.strip().casefold() != expected_title.casefold()
             or scope.get("application") != "Okna.exe"
-            or scope.get("window_title") != "Dodawanie nowej pozycji"
+            or scope.get("window_title") != expected_title
         ):
             return False
 
@@ -579,6 +685,74 @@ class RobotGUIExecutor(ActionExecutor):
                     "radiobutton", "Okno", "1329", selected=True
                 )
             )
+
+        if field_name.startswith("exclude_"):
+            # A second click could turn a checked exclusion off; only allow
+            # the click when a fresh observation still proves it is unchecked.
+            return (candidates[0].metadata or {}).get("uia_checked") is False
+
+        if field_name == "confirm_new_customer":
+            # Check the business name again immediately before persisting a
+            # newly created client. Do not trust a previous observation.
+            expected_name = scope.get("required_customer_name")
+            if not isinstance(expected_name, str) or not expected_name.strip():
+                return False
+            matches = [
+                e for e in scene.elements
+                if (
+                    e.kind == "edit" and e.label == "Firma"
+                    and (e.metadata or {}).get("source") in {
+                        "windowhub_ui_automation", "windows_ui_automation",
+                    }
+                    and (e.metadata or {}).get("uia_enabled") is True
+                    and (e.metadata or {}).get("uia_visible") is True
+                    and (e.metadata or {}).get("current_value") == expected_name
+                )
+            ]
+            return len(matches) == 1
+
+        if field_name == "confirm_document":
+            # Revalidate all business prerequisites immediately before OK.
+            client_controls = [
+                e for e in scene.elements
+                if (
+                    e.kind == "combobox"
+                    and getattr(e, "label", None) == "Klient"
+                    and (e.metadata or {}).get("source") in {
+                        "windows_ui_automation", "windowhub_ui_automation"
+                    }
+                    and (e.metadata or {}).get("uia_enabled") is True
+                    and (e.metadata or {}).get("uia_visible") is True
+                )
+            ]
+            if len(client_controls) != 1:
+                return False
+            client = (client_controls[0].metadata or {}).get("current_value")
+            if not isinstance(client, str) or not client.strip():
+                return False
+            required_ids = (
+                "IDC_CENA_OKNA",
+                "IDC_CENA_MONTAZU",
+                "IDC_CENA_DEMONTAZU",
+                "IDC_CENA_WYKONCZENIA",
+            )
+            for required_id in required_ids:
+                checkbox_matches = [
+                    e for e in scene.elements
+                    if (
+                        e.kind == "checkbox"
+                        and (e.metadata or {}).get("automation_id") == required_id
+                        and (e.metadata or {}).get("source") in {
+                            "windows_ui_automation", "windowhub_ui_automation"
+                        }
+                        and (e.metadata or {}).get("uia_enabled") is True
+                        and (e.metadata or {}).get("uia_visible") is True
+                        and (e.metadata or {}).get("uia_checked") is True
+                    )
+                ]
+                if len(checkbox_matches) != 1:
+                    return False
+            return True
 
         return True
 

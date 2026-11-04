@@ -19,7 +19,7 @@ _ALLOWED_TITLES = frozenset({
 })
 
 
-def activate_windowhub_wizard(*, wait_seconds: float = 2.0) -> tuple[bool, str]:
+def activate_windowhub_wizard(*, wait_seconds: float = 2.0, include_workspace: bool = False) -> tuple[bool, str]:
     """Focus one existing visible Okna.exe wizard, or fail closed."""
     if os.name != "nt":
         return False, "Windows required"
@@ -55,7 +55,14 @@ def activate_windowhub_wizard(*, wait_seconds: float = 2.0) -> tuple[bool, str]:
                 return True
             buffer = ctypes.create_unicode_buffer(length + 1)
             user32.GetWindowTextW(hwnd, buffer, length + 1)
-            if buffer.value.strip() not in _ALLOWED_TITLES:
+            title = buffer.value.strip()
+            is_wizard = title in _ALLOWED_TITLES
+            is_workflow = (
+                title in {"Właściwości dokumentu", "Zakładanie nowego klienta"}
+                or title.startswith("Okna - Start1")
+                or title.startswith("Okna - OFR/")
+            )
+            if not is_wizard and not (include_workspace and is_workflow):
                 return True
             pid = wintypes.DWORD()
             user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
@@ -69,8 +76,20 @@ def activate_windowhub_wizard(*, wait_seconds: float = 2.0) -> tuple[bool, str]:
 
         callback = callback_type(inspect)
         user32.EnumWindows(callback, 0)
+        if include_workspace:
+            # Prefer a unique active wizard/document dialog over the main window.
+            dialogs = [
+                item for item in candidates
+                if item[1] in _ALLOWED_TITLES or item[1] in {"Właściwości dokumentu", "Zakładanie nowego klienta"}
+            ]
+            if dialogs:
+                candidates = dialogs
+            else:
+                start = [item for item in candidates if item[1].startswith("Okna - Start1")]
+                documents = [item for item in candidates if item[1].startswith("Okna - OFR/")]
+                candidates = start if start else documents
         if len(candidates) != 1:
-            return False, f"Expected one visible WindowHub wizard; found {len(candidates)}"
+            return False, f"Expected one unambiguous WindowHub workflow window; found {len(candidates)}"
 
         hwnd, title = candidates[0]
         if user32.GetForegroundWindow() != hwnd:
@@ -84,3 +103,11 @@ def activate_windowhub_wizard(*, wait_seconds: float = 2.0) -> tuple[bool, str]:
         return False, f"Windows did not grant foreground focus to: {title}"
     except Exception as exc:
         return False, f"Activation unavailable: {type(exc).__name__}: {exc}"
+
+
+def activate_windowhub_workflow_window(*, wait_seconds: float = 2.0) -> tuple[bool, str]:
+    """Activate one observed WindowHub dialog or start/document workspace."""
+    return activate_windowhub_wizard(
+        wait_seconds=wait_seconds,
+        include_workspace=True,
+    )

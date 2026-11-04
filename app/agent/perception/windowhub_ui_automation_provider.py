@@ -885,6 +885,12 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
             else None
         )
 
+        checked = (
+            self._toggle_state(item)
+            if control_type == "checkbox"
+            else None
+        )
+
         metadata = {
             "source": "windowhub_ui_automation",
             "provider_element_id": element_id,
@@ -904,6 +910,7 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
             "uia_visible": visible,
             "uia_runtime_id": runtime_id,
             "uia_selected": selected,
+            "uia_checked": checked,
             "uia_focused": self._keyboard_focus_state(item),
             "uia_tab_scope": tab_scope,
             "uia_document_tab_selected": (
@@ -1252,6 +1259,32 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
                 if isinstance(value, bool):
                     return value
 
+        return None
+
+    @staticmethod
+    def _toggle_state(item) -> bool | None:
+        """Read UIA TogglePattern state; unknown/indeterminate is never False."""
+        try:
+            iface = getattr(item, "iface_toggle", None)
+            state = getattr(iface, "CurrentToggleState", None) if iface is not None else None
+            if state is not None and not isinstance(state, bool):
+                value = int(state)
+                if value in (0, 1):
+                    return value == 1
+        except Exception:
+            pass
+
+        try:
+            properties = item.get_properties()
+        except Exception:
+            properties = {}
+        if isinstance(properties, dict):
+            for key in ("toggle_state", "checked", "is_checked"):
+                value = properties.get(key)
+                if isinstance(value, bool):
+                    return value
+                if isinstance(value, int) and value in (0, 1):
+                    return value == 1
         return None
 
     @staticmethod

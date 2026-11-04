@@ -55,6 +55,7 @@ class PreparedWindowHubFormAction:
     expected_outcome: ExpectedOutcome | None = None
     runtime_id: str | None = None
     required_quantity: str | None = None
+    required_customer_name: str | None = None
 
 
 class WindowHubOfferFormActionPlanner:
@@ -92,11 +93,16 @@ class WindowHubOfferFormActionPlanner:
                 WindowHubFormActionStatus.BLOCKED,
                 "The active application or WindowHub wizard step is not recognized.",
             )
-        if snapshot.step is not WindowHubFormStep.POSITION:
+        dimension_field = field_name in {"width_1", "height_1"}
+        required_step = (
+            WindowHubFormStep.DIMENSIONS if dimension_field
+            else WindowHubFormStep.POSITION
+        )
+        if snapshot.step is not required_step:
             return self._result(
                 field_name,
                 WindowHubFormActionStatus.BLOCKED,
-                "Only the first new-position step is enabled for this action runner.",
+                "The requested field is not on the currently verified wizard step.",
             )
 
         spec = self.form_map.spec_for_field(field_name)
@@ -106,11 +112,11 @@ class WindowHubOfferFormActionPlanner:
                 WindowHubFormActionStatus.UNSUPPORTED,
                 "No observed WindowHub field specification exists.",
             )
-        if spec.step is not WindowHubFormStep.POSITION:
+        if spec.step is not required_step:
             return self._result(
                 field_name,
                 WindowHubFormActionStatus.UNSUPPORTED,
-                "The field belongs to a later wizard step.",
+                "The field does not belong to the required wizard step.",
             )
 
         match = snapshot.field(field_name)
@@ -279,6 +285,52 @@ class WindowHubOfferFormActionPlanner:
                 runtime_id=runtime_id,
             )
 
+        if dimension_field and entry.handling is WindowHubPlanHandling.DIRECT_VALUE:
+            dimension = entry.desired_value
+            if (
+                isinstance(dimension, bool)
+                or not isinstance(dimension, int)
+                or not 100 <= dimension <= 5000
+            ):
+                return self._result(
+                    field_name,
+                    WindowHubFormActionStatus.BLOCKED,
+                    "The overall dimension must be an integer between 100 and 5000 mm.",
+                )
+            expected_value = str(dimension)
+            if (
+                isinstance(metadata.get("current_value"), str)
+                and metadata["current_value"].strip() == expected_value
+            ):
+                return self._result(
+                    field_name,
+                    WindowHubFormActionStatus.ALREADY_SATISFIED,
+                    "The overall dimension already matches the request.",
+                    runtime_id=runtime_id,
+                )
+            action = AgentAction(
+                name="write_text",
+                description=f"Enter overall window dimension in {field_name}.",
+                target=target,
+                value=expected_value,
+                requires_environment_observation=True,
+            )
+            expected = ExpectedOutcome(
+                description=f"{field_name} contains the requested overall dimension.",
+                expected_element_label=spec.label,
+                expected_element_current_value=expected_value,
+                expected_element_uia_runtime_id=runtime_id,
+                expected_element_automation_id=spec.automation_id,
+            )
+            return self._result(
+                field_name,
+                WindowHubFormActionStatus.READY,
+                "Uniquely observed overall dimension is ready for verified write.",
+                action=action,
+                expected_outcome=expected,
+                runtime_id=runtime_id,
+            )
+
         return self._result(
             field_name,
             WindowHubFormActionStatus.UNSUPPORTED,
@@ -352,7 +404,17 @@ class WindowHubOfferFormActionExecutor:
         scope = {
             "field_name": prepared.field_name,
             "application": "Okna.exe",
-            "window_title": "Dodawanie nowej pozycji",
+            "window_title": (
+                "Zakładanie nowego klienta"
+                if prepared.field_name in {"new_customer_name", "confirm_new_customer"}
+                else "Właściwości dokumentu"
+                if prepared.field_name.startswith("exclude_") or prepared.field_name in {"confirm_document", "open_customer_lookup", "defer_document_properties", "new_customer_add"}
+                else "Okna - Start1"
+                if prepared.field_name == "start_new_offer"
+                else "Wielkość okna"
+                if prepared.field_name in {"width_1", "height_1"}
+                else "Dodawanie nowej pozycji"
+            ),
             "label": target.label,
             "control_type": target.role,
             "automation_id": target.automation_id,
@@ -366,6 +428,10 @@ class WindowHubOfferFormActionExecutor:
             ):
                 raise ValueError("windowhub_navigation_required_quantity_invalid")
             scope["required_quantity"] = prepared.required_quantity
+        if prepared.field_name == "confirm_new_customer":
+            if not isinstance(prepared.required_customer_name, str) or not prepared.required_customer_name.strip():
+                raise ValueError("new_customer_confirmation_requires_name")
+            scope["required_customer_name"] = prepared.required_customer_name
         context.set_value("_windowhub_form_action_scope", scope)
         context.set_value(
             "expected_outcomes",

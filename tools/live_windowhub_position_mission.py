@@ -1,7 +1,8 @@
 """Run the first WindowHub position mission using existing verified actions.
 
-One invocation: observe -> set quantity if needed -> verify -> guarded Next
--> verify. Stops before dimension entry, calculations, or saving.
+One invocation: observe -> quantity -> guarded Next -> width -> height.
+Every write is freshly scoped and verified. Stops before catalog selections,
+calculation, confirmation, or saving.
 """
 from __future__ import annotations
 
@@ -24,6 +25,9 @@ from app.agent.offers.windowhub_offer_form_plan import WindowHubPlannedField, Wi
 from app.agent.offers.windowhub_position_mission import (
     MissionDecision, WindowPositionMissionPlanner, WindowPositionRequest,
 )
+from app.agent.offers.windowhub_new_offer_mission import (
+    NewWindowOfferGoal, NewWindowOfferMissionPlanner, OfferDecision,
+)
 from app.agent.offers.windowhub_wizard_navigation import WindowHubPositionToDimensionsPlanner
 from app.agent.runtime.windowhub_window_activation import activate_windowhub_wizard
 from app.agent.runtime.windows_desktop_agent_control_loop import (
@@ -34,8 +38,8 @@ from app.agent.runtime.windows_desktop_agent_control_loop import (
 def parse_args(argv=None):
     parser = argparse.ArgumentParser(description="Guarded WindowHub position mission; never saves.")
     parser.add_argument("--quantity", required=True, type=int)
-    parser.add_argument("--width", required=True, type=int, help="Requested width in mm (not written yet)")
-    parser.add_argument("--height", required=True, type=int, help="Requested height in mm (not written yet)")
+    parser.add_argument("--width", required=True, type=int, help="Requested overall width in mm")
+    parser.add_argument("--height", required=True, type=int, help="Requested overall height in mm")
     parser.add_argument("--execute-live", action="store_true")
     parser.add_argument("--focus-delay-seconds", type=int, default=15)
     return parser.parse_args(argv)
@@ -54,7 +58,7 @@ def verified_action(result):
     )
 
 
-def run_mission(request, loop, *, max_actions=2):
+def run_mission(request, loop, *, max_actions=4):
     mission = WindowPositionMissionPlanner()
     actions = 0
     while actions < max_actions:
@@ -75,28 +79,53 @@ def run_mission(request, loop, *, max_actions=2):
                 if "okna" in app.casefold() or "pozycji" in title.casefold() or "okna" in title.casefold():
                     print(f"DIAGNOSTIC candidate_window={title!r} application={app!r} foreground={getattr(item, 'is_foreground', None)!r}")
 
-        if not instruction.executable:
-            print("STOP: no authorized action for this stage.")
-            return 0 if instruction.decision is MissionDecision.COLLECT_DIMENSIONS_CAPABILITY else 4
-
-        if instruction.decision is MissionDecision.WRITE_QUANTITY:
+        if instruction.decision is MissionDecision.COLLECT_DIMENSIONS_CAPABILITY:
+            next_goal = NewWindowOfferMissionPlanner().decide(
+                NewWindowOfferGoal(position=request), scene
+            )
+            print(f"OFFER decision={next_goal.decision.value} field={next_goal.field_name}")
+            if next_goal.decision is OfferDecision.ADVANCE_TO_PARAMETERS:
+                print("PASS: quantity, width and height match the requested position.")
+                print("STOP: color/catalog and save actions are not yet authorized.")
+                return 0
+            if next_goal.decision not in (
+                OfferDecision.SET_WIDTH, OfferDecision.SET_HEIGHT
+            ):
+                print(f"STOP: next offer stage unsupported: {next_goal.reason}")
+                return 4
             prepared = WindowHubOfferFormActionPlanner().prepare_entry(
                 scene,
                 WindowHubPlannedField(
-                    field_name="quantity_input",
-                    desired_value=request.quantity,
-                    source="WindowPositionRequest.quantity",
+                    field_name=next_goal.field_name,
+                    desired_value=next_goal.desired_value,
+                    source="NewWindowOfferGoal.position",
                     handling=WindowHubPlanHandling.DIRECT_VALUE,
-                    note="Mission quantity write, verified before navigation.",
+                    note="Verified overall window dimension; skos fields untouched.",
                 ),
             )
-        elif instruction.decision is MissionDecision.NAVIGATE_TO_DIMENSIONS:
-            prepared = WindowHubPositionToDimensionsPlanner().prepare(
-                scene, expected_quantity=request.quantity
-            )
         else:
-            print("STOP: unsupported mission decision.")
-            return 4
+            if not instruction.executable:
+                print("STOP: no authorized action for this stage.")
+                return 4
+
+            if instruction.decision is MissionDecision.WRITE_QUANTITY:
+                prepared = WindowHubOfferFormActionPlanner().prepare_entry(
+                    scene,
+                    WindowHubPlannedField(
+                        field_name="quantity_input",
+                        desired_value=request.quantity,
+                        source="WindowPositionRequest.quantity",
+                        handling=WindowHubPlanHandling.DIRECT_VALUE,
+                        note="Mission quantity write, verified before navigation.",
+                    ),
+                )
+            elif instruction.decision is MissionDecision.NAVIGATE_TO_DIMENSIONS:
+                prepared = WindowHubPositionToDimensionsPlanner().prepare(
+                    scene, expected_quantity=request.quantity
+                )
+            else:
+                print("STOP: unsupported mission decision.")
+                return 4
 
         if prepared.status is WindowHubFormActionStatus.ALREADY_SATISFIED:
             print("No action required; observing again.")
@@ -154,8 +183,12 @@ def run_mission(request, loop, *, max_actions=2):
     instruction = mission.decide(request, scene)
     print(f"FINAL step={getattr(instruction.step, 'value', 'unknown')} decision={instruction.decision.value}")
     if instruction.decision is MissionDecision.COLLECT_DIMENSIONS_CAPABILITY:
-        print("PASS: dimensions step reached; no dimensions written; no offer saved.")
-        return 0
+        next_goal = NewWindowOfferMissionPlanner().decide(
+            NewWindowOfferGoal(position=request), scene
+        )
+        if next_goal.decision is OfferDecision.ADVANCE_TO_PARAMETERS:
+            print("PASS: requested quantity, width and height verified; no offer saved.")
+            return 0
     print("STOP: mission did not reach the dimensions step.")
     return 6
 
