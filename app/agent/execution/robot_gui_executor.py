@@ -489,6 +489,9 @@ class RobotGUIExecutor(ActionExecutor):
             "exclude_finishing_price": (
                 "click_screen_element", "checkbox", "Bez ceny wykończenia", None,
             ),
+            "confirm_document": (
+                "click_screen_element", "button", "OK", None,
+            ),
         }
         field_name = scope.get("field_name")
         expected = field_specs.get(field_name)
@@ -517,6 +520,12 @@ class RobotGUIExecutor(ActionExecutor):
                 return False
             expected_label = label
             expected_id = scope.get("automation_id")
+        if field_name == "confirm_document":
+            provided_label = scope.get("label")
+            if not isinstance(provided_label, str) or provided_label.strip().casefold() != "ok":
+                return False
+            expected_label = provided_label
+            expected_id = scope.get("automation_id")
         if action.name != expected_action:
             return False
 
@@ -528,7 +537,7 @@ class RobotGUIExecutor(ActionExecutor):
         process_name = application.replace("\\", "/").rsplit("/", 1)[-1]
         expected_title = (
             "Właściwości dokumentu"
-            if field_name.startswith("exclude_")
+            if field_name.startswith("exclude_") or field_name == "confirm_document"
             else "Okna - Start1"
             if field_name == "start_new_offer"
             else "Wielkość okna"
@@ -644,6 +653,49 @@ class RobotGUIExecutor(ActionExecutor):
             # A second click could turn a checked exclusion off; only allow
             # the click when a fresh observation still proves it is unchecked.
             return (candidates[0].metadata or {}).get("uia_checked") is False
+
+        if field_name == "confirm_document":
+            # Revalidate all business prerequisites immediately before OK.
+            client_controls = [
+                e for e in scene.elements
+                if (
+                    e.kind == "combobox"
+                    and getattr(e, "label", None) == "Klient"
+                    and (e.metadata or {}).get("source") in {
+                        "windows_ui_automation", "windowhub_ui_automation"
+                    }
+                    and (e.metadata or {}).get("uia_enabled") is True
+                    and (e.metadata or {}).get("uia_visible") is True
+                )
+            ]
+            if len(client_controls) != 1:
+                return False
+            client = (client_controls[0].metadata or {}).get("current_value")
+            if not isinstance(client, str) or not client.strip():
+                return False
+            required_labels = (
+                "Bez ceny konstrukcji",
+                "Bez ceny montażu",
+                "Bez ceny demontażu",
+                "Bez ceny wykończenia",
+            )
+            for required_label in required_labels:
+                checkbox_matches = [
+                    e for e in scene.elements
+                    if (
+                        e.kind == "checkbox"
+                        and getattr(e, "label", None) == required_label
+                        and (e.metadata or {}).get("source") in {
+                            "windows_ui_automation", "windowhub_ui_automation"
+                        }
+                        and (e.metadata or {}).get("uia_enabled") is True
+                        and (e.metadata or {}).get("uia_visible") is True
+                        and (e.metadata or {}).get("uia_checked") is True
+                    )
+                ]
+                if len(checkbox_matches) != 1:
+                    return False
+            return True
 
         return True
 
