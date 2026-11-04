@@ -55,6 +55,7 @@ class PreparedWindowHubFormAction:
     expected_outcome: ExpectedOutcome | None = None
     runtime_id: str | None = None
     required_quantity: str | None = None
+    required_customer_name: str | None = None
 
 
 class WindowHubOfferFormActionPlanner:
@@ -427,6 +428,10 @@ class WindowHubOfferFormActionExecutor:
             ):
                 raise ValueError("windowhub_navigation_required_quantity_invalid")
             scope["required_quantity"] = prepared.required_quantity
+        if prepared.field_name == "confirm_new_customer":
+            if not isinstance(prepared.required_customer_name, str) or not prepared.required_customer_name.strip():
+                raise ValueError("new_customer_confirmation_requires_name")
+            scope["required_customer_name"] = prepared.required_customer_name
         context.set_value("_windowhub_form_action_scope", scope)
         context.set_value(
             "expected_outcomes",
