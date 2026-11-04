@@ -22,6 +22,7 @@ class CustomerLookupGridObservation:
     inspected_rows: int = 0
     header_labels: tuple[str, ...] = ()
     blank_name_candidate_indices: tuple[int, ...] = ()
+    fully_blank_candidate_indices: tuple[int, ...] = ()
     reason: str = ""
 
 
