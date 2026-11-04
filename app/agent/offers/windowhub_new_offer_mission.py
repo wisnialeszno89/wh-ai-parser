@@ -148,9 +148,56 @@ class NewWindowOfferMissionPlanner:
             )
 
         if normalize_uia_text(title) == normalize_uia_text("Właściwości dokumentu"):
+            customers = self._controls(scene, "Klient", "combobox")
+            if len(customers) != 1:
+                return OfferInstruction(
+                    OfferDecision.SELECT_TEST_CUSTOMER,
+                    "Find one customer selector in the document dialog before choosing a test customer.",
+                    "document_properties",
+                    "customer",
+                )
+            customer_value = (customers[0].metadata or {}).get("current_value")
+            if not isinstance(customer_value, str) or not customer_value.strip():
+                return OfferInstruction(
+                    OfferDecision.SELECT_TEST_CUSTOMER,
+                    "No customer is selected. Choose a test customer from the actual database.",
+                    "document_properties",
+                    "customer",
+                )
+            exclusions = (
+                ("exclude_construction_price", "Bez ceny konstrukcji"),
+                ("exclude_installation_price", "Bez ceny montażu"),
+                ("exclude_removal_price", "Bez ceny demontażu"),
+                ("exclude_finishing_price", "Bez ceny wykończenia"),
+            )
+            for key, label in exclusions:
+                matches = self._controls(scene, label, "checkbox")
+                if len(matches) != 1:
+                    return OfferInstruction(
+                        OfferDecision.STOP_UNSUPPORTED,
+                        f"Cannot uniquely observe pricing preference: {label}.",
+                        "document_properties",
+                        key,
+                    )
+                checked = (matches[0].metadata or {}).get("uia_checked")
+                if checked is not True:
+                    return OfferInstruction(
+                        OfferDecision.SET_PRICE_PREFERENCES,
+                        f"Pricing exclusion {label} is not confirmed checked.",
+                        "document_properties",
+                        key,
+                        True,
+                    )
+            buttons = self._controls(scene, "OK", "button")
+            if len(buttons) != 1:
+                return OfferInstruction(
+                    OfferDecision.STOP_UNSUPPORTED,
+                    "Client and pricing are observed, but confirmation button is ambiguous.",
+                    "document_properties",
+                )
             return OfferInstruction(
-                OfferDecision.SELECT_TEST_CUSTOMER,
-                "Document dialog is active; verify customer and excluded prices before confirming.",
+                OfferDecision.CONFIRM_DOCUMENT,
+                "A client and all four excluded prices are confirmed; document can be confirmed.",
                 "document_properties",
             )
 
