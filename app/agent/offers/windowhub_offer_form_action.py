@@ -404,7 +404,9 @@ class WindowHubOfferFormActionExecutor:
             "field_name": prepared.field_name,
             "application": "Okna.exe",
             "window_title": (
-                "Wielkość okna"
+                "Okna - Start1"
+                if prepared.field_name == "start_new_offer"
+                else "Wielkość okna"
                 if prepared.field_name in {"width_1", "height_1"}
                 else "Dodawanie nowej pozycji"
             ),
