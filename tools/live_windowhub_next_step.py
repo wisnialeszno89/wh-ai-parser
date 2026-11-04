@@ -18,6 +18,7 @@ from app.agent.offers.windowhub_offer_form_action import (
     WindowHubFormActionStatus,
     WindowHubOfferFormActionExecutor,
 )
+from app.agent.offers.windowhub_offer_form_map import WindowHubOfferFormMap
 from app.agent.offers.windowhub_wizard_navigation import (
     WindowHubPositionToDimensionsPlanner,
 )
@@ -128,6 +129,21 @@ def main():
     print(f"executed={executed}")
     print(f"verified={verified}")
     print(f"verification_reason={getattr(verification, 'reason', 'unavailable')}")
+    # Read-only diagnosis after a failed verification.  The UI can change
+    # asynchronously or show a validation dialog instead of the next step.
+    # Never retry the click: an unverified action must stop.
+    if not (result.success and executed and verified is True):
+        try:
+            final_scene = control_loop.observe_scene()
+            final_state = final_scene.observation.state
+            print(f"diagnostic_foreground_application={final_state.active_application}")
+            print(f"diagnostic_foreground_title={final_state.active_window_title}")
+            print(
+                "diagnostic_wizard_step="
+                f"{WindowHubOfferFormMap().identify_step(final_state.active_window_title)}"
+            )
+        except Exception as exc:
+            print(f"diagnostic_observation_failed={type(exc).__name__}")
     print("dimensions_written=False")
     print("offer_saved=False")
     if result.success and executed and verified is True:
