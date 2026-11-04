@@ -6,6 +6,8 @@ Samples observed UIA structure and emits only meaningful scene transitions.
 from __future__ import annotations
 
 import argparse
+from contextlib import redirect_stdout
+import io
 from datetime import datetime, timezone
 import json
 import os
@@ -73,7 +75,9 @@ def main(argv=None):
         try:
             while time.monotonic() < deadline:
                 try:
-                    scene = enrich_windowhub_scene(loop.observe_scene())
+                    # The screenshot engine is noisy; its logs are not teaching data.
+                    with redirect_stdout(io.StringIO()):
+                        scene = enrich_windowhub_scene(loop.observe_scene())
                     snap = semantic_snapshot(scene)
                     if snap is not None:
                         if previous is None:
@@ -106,6 +110,13 @@ def main(argv=None):
                 time.sleep(args.interval)
         except KeyboardInterrupt:
             print("Recording ended by operator.", flush=True)
+    # Existing recordings remain useful even if interrupted before this summary.
+    from app.agent.learning.windowhub_training_context import read_demonstration_report
+    report = read_demonstration_report(destination)
+    print("STAGE_PATH=" + " -> ".join(report["stage_sequence"]))
+    print(f"UNMAPPED_STAGE_EVENTS={report['unmapped_transitions']}")
+    print(f"MODIFIER_OBSERVED={report['modifier_observed']}")
+    print(f"MODEL_EXPERIENCE_ITEMS={report['model_experience_items']}")
     print(f"RECORDED_TRANSITIONS={count}")
     print(f"OBSERVATION_ERRORS={errors}")
     print(f"LOG_FILE={destination}")
