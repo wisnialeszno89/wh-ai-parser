@@ -254,6 +254,15 @@ class NewWindowOfferMissionPlanner:
                     "customer",
                 )
             customer_value = (customers[0].metadata or {}).get("current_value")
+            if (
+                goal.customer_name is not None
+                and (not isinstance(customer_value, str) or customer_value.strip() != goal.customer_name.strip())
+            ):
+                return OfferInstruction(
+                    OfferDecision.SELECT_TEST_CUSTOMER,
+                    "New customer is not yet proven selected in document; do not confirm another customer.",
+                    "document_properties", "customer",
+                )
             if not isinstance(customer_value, str) or not customer_value.strip():
                 return OfferInstruction(
                     OfferDecision.SELECT_TEST_CUSTOMER,
