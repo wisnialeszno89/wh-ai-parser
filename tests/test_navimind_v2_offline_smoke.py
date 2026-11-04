@@ -85,3 +85,40 @@ def test_read_only_inspect_rejects_missing_new_offer(capsys):
     )
     audit_start_action_read_only(cycle, scene)
     assert "START_NEW_OFFER_GUARD=NOT_UNIQUELY_EXPOSED" in capsys.readouterr().out
+
+
+def test_offline_smoke_runs_as_direct_python_script_without_pythonpath():
+    """Regression for CLI ModuleNotFoundError when invoked by PowerShell."""
+    import os
+    from pathlib import Path
+    import subprocess
+    import sys
+
+    root = Path(__file__).resolve().parents[1]
+    env = os.environ.copy()
+    env.pop("PYTHONPATH", None)
+    result = subprocess.run(
+        [sys.executable, str(root / "tools" / "smoke_navimind_v2_offline.py")],
+        cwd=root, env=env,
+        capture_output=True, text=True, timeout=35,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "OFFLINE_V2_STATUS=PASS" in result.stdout
+
+
+def test_server_probe_runs_directly_without_calls_or_pythonpath():
+    import os
+    from pathlib import Path
+    import subprocess
+    import sys
+
+    root = Path(__file__).resolve().parents[1]
+    env = os.environ.copy()
+    env.pop("PYTHONPATH", None)
+    result = subprocess.run(
+        [sys.executable, str(root / "tools" / "probe_navimind_v2_server.py")],
+        cwd=root, env=env,
+        capture_output=True, text=True, timeout=35,
+    )
+    assert result.returncode == 2, result.stderr
+    assert "may incur a charge" in result.stdout
