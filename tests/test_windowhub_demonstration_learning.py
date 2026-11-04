@@ -66,3 +66,39 @@ def test_duplicated_native_field_is_omitted_in_demo_snapshot():
     s = scene("Właściwości dokumentu")
     duplicated = ScreenScene(observation=s.observation, elements=(s.elements[0], s.elements[0]))
     assert semantic_snapshot(duplicated)["controls"] == {}
+
+
+def test_reuse_real_form_effects_as_noncausal_nameless_training_experience():
+    before = semantic_snapshot(scene("Właściwości dokumentu", checked=False))
+    after = semantic_snapshot(scene("Właściwości dokumentu", checked=True))
+    event = {"type": "transition", "transition": semantic_transition(before, after)}
+    experience = demonstration_experience([event])
+    assert len(experience) == 1
+    assert experience[0]["control"] == "Bez ceny konstrukcji"
+    assert experience[0]["observed_state"] == "checked"
+    assert experience[0]["observed_value"] is True
+    assert experience[0]["certainty"] == "observed_effect_not_causal_action"
+    assert "PERSONAL CUSTOMER" not in str(experience)
+    assert "IDC_CENA_OKNA" not in str(experience)
+
+
+def test_demo_report_reuses_recording_and_exposes_missing_modifier():
+    from app.agent.learning.windowhub_demonstration import demonstration_summary
+
+    first = semantic_snapshot(scene("Okna - Start1"))
+    second = semantic_snapshot(scene("Właściwości dokumentu"))
+    third = semantic_snapshot(scene("Dodawanie nowej pozycji"))
+    unknown = semantic_snapshot(scene("Nieznany etap WindowHub"))
+    records = [
+        {"type": "transition", "transition": semantic_transition(first, second)},
+        {"type": "transition", "transition": semantic_transition(second, third)},
+        {"type": "transition", "transition": semantic_transition(third, unknown)},
+    ]
+    report = demonstration_summary(records)
+    assert report["record_count"] == 3
+    assert report["stage_sequence"] == (
+        "start", "document_properties", "position", "windowhub_unmapped",
+    )
+    assert report["unmapped_transitions"] == 1
+    assert report["modifier_observed"] is False
+    assert report["model_experience_items"] == 2
