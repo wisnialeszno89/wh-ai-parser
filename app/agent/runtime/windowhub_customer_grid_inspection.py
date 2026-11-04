@@ -113,6 +113,36 @@ def _rows_from_grid(grid, *, max_rows=12):
     )
 
 
+@dataclass(frozen=True)
+class BlankCustomerCandidate:
+    status: str
+    row_index: int | None = None
+    reason: str = ""
+
+
+def resolve_blank_customer_candidate(
+    evidence: CustomerLookupGridObservation,
+) -> BlankCustomerCandidate:
+    """Return a candidate only from a fully readable, uniquely blank record."""
+    if evidence.status != "grid_read" or evidence.grid_count != 1:
+        return BlankCustomerCandidate("not_ready", reason="One verified customer grid is required.")
+    if evidence.reported_rows is None or evidence.inspected_rows < evidence.reported_rows:
+        return BlankCustomerCandidate(
+            "partial_page",
+            reason="The entire customer grid was not inspected; a blank record is not uniquely established.",
+        )
+    if len(evidence.fully_blank_candidate_indices) != 1:
+        return BlankCustomerCandidate(
+            "not_unique",
+            reason="A single truly empty customer record was not identified.",
+        )
+    return BlankCustomerCandidate(
+        "candidate_only",
+        row_index=evidence.fully_blank_candidate_indices[0],
+        reason="Unique empty record observed; selection control still requires verification.",
+    )
+
+
 def inspect_live_customer_grid(*, max_rows=12) -> CustomerLookupGridObservation:
     """Search same-process visible native popup HWNDs for one UIA grid."""
     if os.name != "nt":
