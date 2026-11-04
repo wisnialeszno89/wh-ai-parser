@@ -79,41 +79,34 @@ def _rows_from_grid(grid, *, max_rows=12):
     # intentionally blank customer. We report candidates, never select them.
     name_indices = [
         i for i, label in enumerate(headers)
-        if any(token in label.casefold() for token in ("nazwa", "name", "klient", "firma"))
+        if any(token in label.casefold() for token in (
+            "nazwa", "name", "klient", "firma", "imię", "imie"
+        ))
     ]
     candidates = []
     fully_blank = []
     inspected = min(row_count, max_rows)
     for row in range(inspected):
-        if len(name_indices) != 1:
-            break
         try:
-            cell = pattern.GetItem(row, name_indices[0])
-            name = _ui_text(cell)
+            values = [_ui_text(pattern.GetItem(row, col)) for col in range(column_count)]
         except Exception:
             continue
-        if not name.strip():
+        if all(not value.strip() for value in values):
+            fully_blank.append(row)
+        if len(name_indices) == 1 and not values[name_indices[0]].strip():
             candidates.append(row)
-            try:
-                values = [_ui_text(pattern.GetItem(row, col)) for col in range(column_count)]
-                if all(not value.strip() for value in values):
-                    fully_blank.append(row)
-            except Exception:
-                pass
 
     return CustomerLookupGridObservation(
         "grid_read",
         grid_count=1,
         reported_rows=row_count,
         reported_columns=column_count,
-        inspected_rows=inspected if len(name_indices) == 1 else 0,
+        inspected_rows=inspected,
         header_labels=headers,
         blank_name_candidate_indices=tuple(candidates),
         fully_blank_candidate_indices=tuple(fully_blank),
         reason=(
-            "Candidate indices are observational only; no selection authorized."
-            if len(name_indices) == 1 else
-            "Unique customer-name column not proved; no row selection."
+            "All-empty rows and unnamed rows are observational candidates only; no selection authorized."
         ),
     )
 
