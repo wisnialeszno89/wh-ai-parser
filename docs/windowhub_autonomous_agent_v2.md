@@ -72,3 +72,48 @@ Pliki tekstowe oraz PDF zawierające tekst są obsługiwane lokalnie; skany i fo
 ```powershell
 python -m pytest tests/test_windowhub_semantic_world_bridge.py tests/test_windowhub_demonstration_learning.py tests/test_windowhub_goal_v2_coordinator.py tests/test_windowhub_task_document_intake.py -q
 ```
+
+
+## Pakiet preflight bez serwera — na pierwsze uruchomienie
+
+W PowerShell z katalogu projektu:
+```powershell
+git -c core.commitGraph=false -c fetch.writeCommitGraph=false pull --ff-only origin feat/windowhub-teach-and-reason-v1-20261104
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\run_windowhub_v2_preflight.ps1
+```
+
+Pakiet odpala testy kontraktu V2, lokalny syntetyczny cykl
+`Observe → V2 protocol → proposed action → local UIA guard → verified scene change`,
+bezpieczną diagnozę `.env` i raport z najnowszej demonstracji. Nie łączy się
+z serwerem i nie klika. `PREFLIGHT_STATUS=LOCAL_CHECKS_PASSED` **nie
+oznacza** jeszcze działającego NaviMind V2 w sieci.
+
+Następnie przy otwartym WindowHub na Start1:
+```powershell
+python tools/run_windowhub_goal_v2.py --mode inspect --goal "Utwórz nową ofertę"
+```
+
+Szukamy `START_NEW_OFFER_GUARD=PASS`, który potwierdza nie tylko obecność
+przycisku, ale też możliwość jednoznacznego lokalnego związania celu z UIA
+**bez wykonania działania**. Jeśli wynik to `BLOCKED`, kod poda precyzyjny
+warunek, który nie został spełniony.
+
+## Po wdrożeniu NaviMind PR #26 (osobny, jawnie płatny test)
+
+Serwer V2 używa wspólnego endpointu `POST /api/agent/task` z polem
+`version="2"`. Konieczne są prawidłowe `NAVIMIND_AGENT_URL` i
+`NAVIMIND_AGENT_SECRET` w lokalnym `.env` oraz poprawna konfiguracja
+serwera. Nie umieszczaj sekretów w GitHubie ani w logach wysyłanych do czatu.
+
+```powershell
+python tools/probe_navimind_v2_server.py --reuse-shared-navimind-endpoint --allow-model-request
+```
+
+Test wysyła **jedną sztuczną scenę**, bez danych klientów, i żąda decyzji
+modelu. Nie wykonuje żadnych kliknięć ani operacji na bazie; wywołanie serwera
+może być płatne. Dopiero po `V2_REMOTE_CONTRACT=PASS` przechodzimy do
+`--mode think` na prawdziwym WindowHub i ograniczonych testów `execute`.
+
+Jeśli nie masz skonfigurowanego endpointu, uruchom najpierw
+`python tools/diagnose_navimind_setup.py`, który nie wyświetla URL ani
+sekretów. Nie wymyślaj adresów Vercel/serwera.
