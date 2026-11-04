@@ -471,6 +471,12 @@ class RobotGUIExecutor(ActionExecutor):
                 "Wysokość",
                 "1001",
             ),
+            "start_new_offer": (
+                "click_screen_element",
+                "button",
+                "NOWA OFERTA",
+                None,
+            ),
         }
         field_name = scope.get("field_name")
         expected = field_specs.get(field_name)
@@ -478,6 +484,17 @@ class RobotGUIExecutor(ActionExecutor):
             return False
 
         expected_action, expected_role, expected_label, expected_id = expected
+        if field_name == "start_new_offer":
+            # The native tile may have a provider-defined AutomationId; bind
+            # that identity from the observed scene instead of guessing it.
+            candidate_label = scope.get("label")
+            if (
+                not isinstance(candidate_label, str)
+                or " ".join(candidate_label.split()).casefold() != "nowa oferta"
+            ):
+                return False
+            expected_label = candidate_label
+            expected_id = scope.get("automation_id")
         if action.name != expected_action:
             return False
 
@@ -488,7 +505,9 @@ class RobotGUIExecutor(ActionExecutor):
             return False
         process_name = application.replace("\\", "/").rsplit("/", 1)[-1]
         expected_title = (
-            "Wielkość okna"
+            "Okna - Start1"
+            if field_name == "start_new_offer"
+            else "Wielkość okna"
             if field_name in {"width_1", "height_1"}
             else "Dodawanie nowej pozycji"
         )
