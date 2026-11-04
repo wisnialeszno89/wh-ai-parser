@@ -111,6 +111,10 @@ def shared_endpoint_v2_config() -> NaviMindTaskReasonerV2Config:
     load_dotenv()
     url = os.getenv("NAVIMIND_AGENT_URL", "").strip()
     parts = urlsplit(url)
+    if not url:
+        raise ValueError(
+            "NAVIMIND_AGENT_URL is not configured. Run python tools/diagnose_navimind_setup.py."
+        )
     if (
         parts.path.rstrip("/") != "/api/agent/task"
         or not parts.hostname
@@ -167,6 +171,21 @@ def main(argv=None):
         ) if args.mode != "inspect" else None
     except (RuntimeError, ValueError, OSError) as exc:
         print("STOP: NaviMind V2 configuration or demo error: " + str(exc))
+        if args.mode != "inspect":
+            from tools.diagnose_navimind_setup import evaluate_navimind_setup
+            from dotenv import load_dotenv
+            load_dotenv()
+            report = evaluate_navimind_setup({
+                k: os.getenv(k, "") for k in (
+                    "NAVIMIND_AGENT_URL", "NAVIMIND_AGENT_SECRET",
+                    "NAVIMIND_AGENT_V2_URL", "NAVIMIND_AGENT_V2_SECRET",
+                )
+            })
+            print("SAFE_CONNECTION_DIAGNOSTIC=" + ",".join(
+                k + ":" + report[k] for k in (
+                    "V1_URL", "V1_SECRET", "V2_URL", "V2_SECRET", "NEXT_ACTION",
+                )
+            ))
         if "NAVIMIND_AGENT_V2_URL" in str(exc):
             from dotenv import load_dotenv
             load_dotenv()
