@@ -12,7 +12,7 @@ if str(ROOT) not in sys.path:
 
 from app.agent.intake.task_document import read_task_document
 from app.agent.learning.windowhub_demonstration import stage_of
-from app.agent.learning.windowhub_training_context import read_demonstration_experience, windowhub_skill_knowledge
+from app.agent.learning.windowhub_training_context import (read_demonstration_experience, read_demonstration_report, windowhub_skill_knowledge)
 from app.agent.perception.windowhub_semantic_world import enrich_windowhub_scene
 from app.agent.reasoning.navimind_task_reasoner_v2 import NaviMindTaskReasonerV2
 from app.agent.runtime.computer_use_v2_action_session import ComputerUseV2ActionSession
@@ -58,7 +58,7 @@ def run_goal(loop, *, goal, reasoner, mode, max_actions, experience=(),
             for item in actions[:24]:
                 target = entities.get(item["target_ref"]) if item["target_ref"] else None
                 print(f"CAPABILITY={item['name']} LABEL={(target or {}).get('label')}")
-            print("INSPECT_ONLY: no remote call or UI action.")
+            print("INSPECT_ONLY: local capability inventory; no reasoning model was called and no UI action was performed.")
             return 0
         response = reasoner.reason(prepared.request_payload)
         if response is None:
@@ -131,6 +131,14 @@ def main(argv=None):
     except (RuntimeError, ValueError, OSError) as exc:
         print("STOP: NaviMind V2 configuration or demo error: " + str(exc))
         return 5
+    if args.demo:
+        report = read_demonstration_report(args.demo)
+        print("DEMO_RECORDED_EVENTS=" + str(report["record_count"]))
+        print("DEMO_STAGE_SEQUENCE=" + " -> ".join(report["stage_sequence"]))
+        print("DEMO_FORM_STATE_EVENTS=" + str(report["within_stage_changes"]))
+        print("DEMO_UNMAPPED_TRANSITIONS=" + str(report["unmapped_transitions"]))
+        print("DEMO_EXPERIENCE_ITEMS=" + str(len(experience)))
+        print("DEMO_MODIFIER_VERIFIED=" + str(report["modifier_observed"]))
     if args.mode != "inspect":
         print("NOTICE: goal and semantic scene are transmitted to configured NaviMind.")
     try:
