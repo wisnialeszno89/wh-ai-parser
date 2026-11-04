@@ -105,3 +105,69 @@ def test_price_action_wrong_dialog_is_blocked():
         "exclude_construction_price",
     )
     assert result.status is WindowHubFormActionStatus.BLOCKED
+
+
+def test_document_confirmation_requires_all_business_conditions():
+    from app.agent.offers.windowhub_document_properties_action import (
+        prepare_document_confirmation,
+    )
+    from app.agent.offers.windowhub_new_offer_mission import NewWindowOfferGoal
+    from app.agent.offers.windowhub_position_mission import WindowPositionRequest
+
+    goal = NewWindowOfferGoal(
+        WindowPositionRequest(quantity=1, width_mm=1230, height_mm=1478)
+    )
+    def client(value="TEST CUSTOMER"):
+        return ScreenElement(
+            kind="combobox", label="Klient",
+            metadata={
+                "source": "windows_ui_automation",
+                "uia_enabled": True, "uia_visible": True,
+                "current_value": value, "uia_runtime_id": "client-unique",
+            },
+        )
+    button = ScreenElement(
+        kind="button", label="OK",
+        metadata={
+            "source": "windows_ui_automation",
+            "automation_id": "1",
+            "uia_control_type": "button",
+            "uia_runtime_id": "ok-unique",
+            "uia_enabled": True, "uia_visible": True,
+        },
+    )
+    checked_controls = tuple(
+        checkbox(label, checked=True, runtime_id="price-" + str(i))
+        for i, label in enumerate(DOCUMENT_PRICE_EXCLUSIONS.values())
+    )
+    valid = scene(client(), *checked_controls, button)
+    prepared = prepare_document_confirmation(valid, goal)
+    assert prepared.status is WindowHubFormActionStatus.READY
+    assert prepared.expected_outcome.expected_active_application == "Okna.exe"
+
+    class FakeLoop:
+        context = None
+        def run(self, *, plan, context):
+            self.context = context
+            return None
+
+    loop = FakeLoop()
+    WindowHubOfferFormActionExecutor.execute_prepared(
+        prepared, valid, loop, request_message="Confirm validated document"
+    )
+    scope = loop.context.get_value("_windowhub_form_action_scope")
+    assert RobotGUIExecutor._matches_windowhub_form_action_scope(
+        prepared.action, valid, scope
+    ) is True
+    wrong_client = scene(client(value=""), *checked_controls, button)
+    assert RobotGUIExecutor._matches_windowhub_form_action_scope(
+        prepared.action, wrong_client, scope
+    ) is False
+    unchecked_prices = scene(
+        client(), *checked_controls[:-1],
+        checkbox("Bez ceny wykończenia", checked=False, runtime_id="price-3"),
+        button,
+    )
+    assert RobotGUIExecutor._matches_windowhub_form_action_scope(
+        prepared.action, unchecked_prices, scope
+    ) is False
