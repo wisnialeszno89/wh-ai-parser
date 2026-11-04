@@ -5,7 +5,7 @@ from app.agent.environment.environment_observation import EnvironmentObservation
 from app.agent.environment.environment_state import EnvironmentState
 from app.agent.execution.robot_gui_executor import RobotGUIExecutor
 from app.agent.offers.windowhub_document_properties_action import (
-    DOCUMENT_PRICE_EXCLUSIONS, prepare_price_exclusion,
+    DOCUMENT_PRICE_EXCLUSIONS, DOCUMENT_PRICE_AUTOMATION_IDS, prepare_price_exclusion,
 )
 from app.agent.offers.windowhub_offer_form_action import (
     WindowHubFormActionStatus, WindowHubOfferFormActionExecutor,
@@ -26,11 +26,15 @@ def scene(*elements, title="Właściwości dokumentu"):
 
 
 def checkbox(label, *, checked=False, runtime_id="unique-1"):
+    automation_id = {
+        v: DOCUMENT_PRICE_AUTOMATION_IDS[k]
+        for k, v in DOCUMENT_PRICE_EXCLUSIONS.items()
+    }.get(label, "A123")
     return ScreenElement(
         kind="checkbox", label=label, x=20, y=30, width=100, height=20,
         metadata={
             "source": "windows_ui_automation",
-            "automation_id": "A123",
+            "automation_id": automation_id,
             "uia_runtime_id": runtime_id,
             "uia_control_type": "checkbox",
             "uia_visible": True,
