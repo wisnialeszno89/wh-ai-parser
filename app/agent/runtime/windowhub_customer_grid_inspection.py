@@ -27,32 +27,36 @@ class CustomerLookupGridObservation:
 
 
 def _ui_text(element):
-    """Read only one UIA cell or header via Value/Name, without OCR."""
-    for attr in ("CurrentName", "CurrentValue"):
+    """Return known text, empty string only if a UIA text property was readable."""
+    readable = False
+    sources = [
+        (element, "CurrentName"),
+        (element, "CurrentValue"),
+        (getattr(element, "element_info", None), "name"),
+        (getattr(element, "element_info", None), "value"),
+    ]
+    for owner, attribute in sources:
+        if owner is None:
+            continue
         try:
-            value = getattr(element, attr, None)
-            if isinstance(value, str):
-                return value.strip()
+            value = getattr(owner, attribute, None)
         except Exception:
-            pass
-    info = getattr(element, "element_info", None)
-    if info is not None:
-        for attr in ("name", "value"):
-            try:
-                value = getattr(info, attr, None)
-                if isinstance(value, str):
-                    return value.strip()
-            except Exception:
-                pass
-    for attr in ("window_text", "get_value"):
+            continue
+        if isinstance(value, str):
+            readable = True
+            if value.strip():
+                return value.strip()
+    for attribute in ("window_text", "get_value"):
         try:
-            method = getattr(element, attr, None)
+            method = getattr(element, attribute, None)
             value = method() if callable(method) else None
-            if isinstance(value, str) and value.strip():
-                return value.strip()
         except Exception:
-            pass
-    return None
+            continue
+        if isinstance(value, str):
+            readable = True
+            if value.strip():
+                return value.strip()
+    return "" if readable else None
 
 
 def _rows_from_grid(grid, *, max_rows=12):
