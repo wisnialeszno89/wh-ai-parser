@@ -16,13 +16,14 @@ from app.agent.planning.action_plan import ActionPlan
 from app.agent.planning.action_step import ActionStep
 from app.agent.runtime.execution_context import ExecutionContext
 from app.agent.verification.expected_outcome import ExpectedOutcome
+from app.agent.verification.outcome_verifier import OutcomeVerifier
 
 
 _ALLOWED_STATE_FIELDS = frozenset({"uia_checked", "uia_selected", "uia_focused"})
 _GENERIC_LABELS = frozenset({"oknawpf", "lookupedit", "part_item", "layoutcontrol"})
 
 
-def verified_v2_outcome(resolved) -> ExpectedOutcome:
+def verified_v2_outcome(resolved, *, baseline_scene=None) -> ExpectedOutcome:
     """Translate a provider-neutral postcondition into a checkable local one."""
     action = resolved.action
     target = action.target
@@ -31,6 +32,7 @@ def verified_v2_outcome(resolved) -> ExpectedOutcome:
         raise ValueError("v2_postcondition_required")
     kind = post.get("kind")
     common = {"expected_active_application": "Okna.exe"}
+    baseline = OutcomeVerifier._scene_signature(baseline_scene) if baseline_scene is not None else None
 
     if action.name == "write_text":
         if kind != "entity_value_equals" or post.get("target_ref") != resolved.target_ref:
@@ -55,6 +57,7 @@ def verified_v2_outcome(resolved) -> ExpectedOutcome:
             return ExpectedOutcome(
                 description="The semantic WindowHub scene changed after click.",
                 require_scene_change=True,
+                baseline_scene_signature=baseline,
                 **common,
             )
         if kind == "entity_state_equals":
@@ -81,6 +84,7 @@ def verified_v2_outcome(resolved) -> ExpectedOutcome:
         return ExpectedOutcome(
             description="Active window changed after activation.",
             require_scene_change=True,
+            baseline_scene_signature=baseline,
         )
 
     raise ValueError("v2_action_not_supported_in_autopilot")
@@ -136,7 +140,7 @@ def enforce_v2_live_policy(scene, resolved, *, approved_persistent=False) -> Non
 def execute_v2_step(loop, scene, resolved, *, approved_persistent=False):
     """Run exactly one model-proposed, locally checked action with verification."""
     enforce_v2_live_policy(scene, resolved, approved_persistent=approved_persistent)
-    expected = verified_v2_outcome(resolved)
+    expected = verified_v2_outcome(resolved, baseline_scene=scene)
     action: AgentAction = resolved.action
     # The standard DecisionEngine always sends confirmation-required actions
     # to manual review. A *separate explicit operator flag* is the approval
