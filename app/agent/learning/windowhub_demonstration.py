@@ -160,4 +160,45 @@ def demonstration_experience(records: list[Mapping[str, object]], *, limit: int 
         })
         if len(items) >= limit:
             break
-    return tuple(items)
+    if len(items) >= limit:
+        return tuple(items[:limit])
+    # Additional demonstrated *effects* (never infer a mouse click or store
+    # entered values); keep stage navigation as higher-priority experience.
+    seen_controls = set()
+    for record in records:
+        transition = record.get("transition") if record.get("type") == "transition" else None
+        if not isinstance(transition, Mapping):
+            continue
+        stage = transition.get("from_stage")
+        if stage != transition.get("to_stage") or stage not in safe_stages:
+            continue
+        for change in (transition.get("changed") or [])[:20]:
+            if not isinstance(change, Mapping):
+                continue
+            label = change.get("label")
+            if label not in MODEL_SAFE_LABELS or change.get("role") not in {
+                "checkbox", "radiobutton", "edit", "combobox",
+            }:
+                continue
+            before, after = change.get("before"), change.get("after")
+            if not isinstance(before, Mapping) or not isinstance(after, Mapping):
+                continue
+            for name in ("checked", "selected", "value_present"):
+                previous, current = before.get(name), after.get(name)
+                key = (stage, label, name, current)
+                if (
+                    isinstance(previous, bool) and isinstance(current, bool)
+                    and previous != current and key not in seen_controls
+                ):
+                    seen_controls.add(key)
+                    items.append({
+                        "source": "human_demonstration",
+                        "stage": stage,
+                        "control": label,
+                        "observed_state": name,
+                        "observed_value": current,
+                        "certainty": "observed_effect_not_causal_action",
+                    })
+                    if len(items) >= limit:
+                        return tuple(items[:limit])
+    return tuple(items[:limit])
