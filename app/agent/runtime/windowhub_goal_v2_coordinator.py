@@ -6,6 +6,7 @@ The local runtime owns the native target and checks every postcondition.
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import replace
 
 from app.agent.agent_action import AgentAction
 from app.agent.agent_intent import AgentIntent
@@ -137,6 +138,11 @@ def execute_v2_step(loop, scene, resolved, *, approved_persistent=False):
     enforce_v2_live_policy(scene, resolved, approved_persistent=approved_persistent)
     expected = verified_v2_outcome(resolved)
     action: AgentAction = resolved.action
+    # The standard DecisionEngine always sends confirmation-required actions
+    # to manual review. A *separate explicit operator flag* is the approval
+    # boundary for this bounded local task, not a provider/model assertion.
+    if action.requires_confirmation and approved_persistent:
+        action = replace(action, requires_confirmation=False)
     context = ExecutionContext(
         request=AgentRequest(message="Execute one verified semantic WindowHub action")
     )
