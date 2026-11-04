@@ -67,3 +67,55 @@ def test_click_target_remains_original_local_label():
     )
     assert target.label == "OknaWPF"
     assert target.metadata["automation_id"] == "IDC_NEW"
+
+
+
+def test_known_windowhub_wizard_fields_become_meaningful_without_replacing_native_names():
+    controls = (
+        ScreenElement(
+            kind="edit", label="Szerokość",
+            interaction_capability=InteractionCapability.CLICKABLE,
+            metadata={
+                "source": "windowhub_ui_automation",
+                "uia_control_type": "edit",
+                "automation_id": "1000",
+                "uia_runtime_id": "dimension-1000",
+                "uia_visible": True, "uia_enabled": True,
+            },
+        ),
+        ScreenElement(
+            kind="edit", label="Wysokość",
+            interaction_capability=InteractionCapability.CLICKABLE,
+            metadata={
+                "source": "windowhub_ui_automation",
+                "uia_control_type": "edit",
+                "automation_id": "1001",
+                "uia_runtime_id": "dimension-1001",
+                "uia_visible": True, "uia_enabled": True,
+            },
+        ),
+    )
+    enriched = enrich_windowhub_scene(scene("Wielkość okna", *controls))
+    assert enriched.elements[0].metadata["semantic_label"] == "Szerokość całego okna"
+    assert enriched.elements[1].metadata["semantic_label"] == "Wysokość całego okna"
+    assert enriched.elements[0].label == "Szerokość"
+    cycle = ComputerUseV2ActionSession().prepare_cycle(
+        enriched, task_id="wh-dimensions-model", goal="Ustaw okno 1230x1478",
+        world_revision=1, observed_at="2026-11-04T10:00:00Z",
+    )
+    labels = [entity["label"] for entity in cycle.request_payload["world"]["entities"]]
+    assert "Szerokość całego okna" in labels
+    assert "Wysokość całego okna" in labels
+    assert "dimension-1000" not in str(cycle.request_payload)
+
+
+def test_unverified_wizard_control_is_not_given_a_business_label():
+    unverified = ScreenElement(
+        kind="edit", label="Szerokość",
+        metadata={
+            "source": "windowhub_ui_automation", "uia_control_type": "edit",
+            "automation_id": "1000", "uia_visible": True, "uia_enabled": False,
+        },
+    )
+    result = enrich_windowhub_scene(scene("Wielkość okna", unverified))
+    assert result.elements[0].metadata.get("semantic_label") is None
