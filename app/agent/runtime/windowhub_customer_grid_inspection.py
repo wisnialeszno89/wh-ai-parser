@@ -82,6 +82,7 @@ def _rows_from_grid(grid, *, max_rows=12):
         if any(token in label.casefold() for token in ("nazwa", "name", "klient", "firma"))
     ]
     candidates = []
+    fully_blank = []
     inspected = min(row_count, max_rows)
     for row in range(inspected):
         if len(name_indices) != 1:
@@ -93,6 +94,12 @@ def _rows_from_grid(grid, *, max_rows=12):
             continue
         if not name.strip():
             candidates.append(row)
+            try:
+                values = [_ui_text(pattern.GetItem(row, col)) for col in range(column_count)]
+                if all(not value.strip() for value in values):
+                    fully_blank.append(row)
+            except Exception:
+                pass
 
     return CustomerLookupGridObservation(
         "grid_read",
@@ -102,6 +109,7 @@ def _rows_from_grid(grid, *, max_rows=12):
         inspected_rows=inspected if len(name_indices) == 1 else 0,
         header_labels=headers,
         blank_name_candidate_indices=tuple(candidates),
+        fully_blank_candidate_indices=tuple(fully_blank),
         reason=(
             "Candidate indices are observational only; no selection authorized."
             if len(name_indices) == 1 else
