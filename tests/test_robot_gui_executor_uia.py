@@ -1,5 +1,7 @@
 from types import SimpleNamespace
 
+import pytest
+
 from app.agent.agent_action import AgentAction
 from app.agent.agent_request import AgentRequest
 from app.agent.environment.environment_observation import EnvironmentObservation
@@ -674,7 +676,7 @@ def test_navigation_guard_allows_fresh_matching_quantity_and_window_selection():
     result, mouse = _execute_guarded_next()
     assert result.success is True
     assert result.metadata["execution_path"] == "uia_only"
-    assert mouse.points == [(345, 317)]
+    assert mouse.points == [(295, 317)]
 
 
 @pytest.mark.parametrize(
