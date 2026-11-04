@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import replace
+from datetime import datetime
 import os
 import sys
 from pathlib import Path
@@ -53,7 +54,7 @@ def parse_args(argv=None):
         "--customer-mode", choices=("create", "select", "blank", "defer"), default="create",
         help="create: make a customer with a supplied/demo name; select: existing customer; blank: inspect empty records; defer: postpone settings",
     )
-    parser.add_argument("--customer-name", default="XYZ TEST AGENT", help="Name to create when customer-mode=create")
+    parser.add_argument("--customer-name", default=None, help="Name for newly created customer; omitted generates unique XYZ TEST AGENT demo name")
     parser.add_argument("--execute-live", action="store_true")
     return parser.parse_args(argv)
 
@@ -269,13 +270,17 @@ def main(argv=None):
         print("STOP: --execute-live and both explicit live flags required.")
         return 2
     try:
+        customer_name = args.customer_name
+        if args.customer_mode == "create" and not customer_name:
+            customer_name = "XYZ TEST AGENT " + datetime.now().strftime("%Y%m%d-%H%M%S")
+            print(f"AUTO_DEMO_CUSTOMER_NAME={customer_name}")
         goal = NewWindowOfferGoal(
             position=WindowPositionRequest(
                 quantity=args.quantity,
                 width_mm=args.width,
                 height_mm=args.height,
             ),
-            customer_name=(args.customer_name if args.customer_mode == "create" else None),
+            customer_name=(customer_name if args.customer_mode == "create" else None),
             customer_policy=(
                 "defer_to_salesperson" if args.customer_mode == "defer"
                 else "select_blank_customer" if args.customer_mode == "blank"
