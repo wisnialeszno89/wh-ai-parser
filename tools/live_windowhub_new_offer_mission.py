@@ -91,6 +91,7 @@ def report_customer_grid():
     print(f"CUSTOMER_GRID_COLUMNS={evidence.reported_columns}")
     print(f"CUSTOMER_GRID_HEADERS={evidence.header_labels!r}")
     print(f"CUSTOMER_GRID_BLANK_NAME_CANDIDATES={evidence.blank_name_candidate_indices!r}")
+    print(f"CUSTOMER_GRID_FULLY_BLANK_CANDIDATES={evidence.fully_blank_candidate_indices!r}")
     print(f"CUSTOMER_GRID_REASON={evidence.reason}")
     print("CUSTOMER_SELECTION=NOT_EXECUTED")
     return evidence
