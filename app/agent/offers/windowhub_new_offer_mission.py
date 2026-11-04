@@ -20,6 +20,7 @@ from app.agent.offers.windowhub_position_mission import WindowPositionRequest
 class OfferDecision(str, Enum):
     OPEN_NEW_OFFER = "open_new_offer"
     SELECT_TEST_CUSTOMER = "select_test_customer"
+    DEFER_CUSTOMER_PREFERENCES = "defer_customer_preferences"
     OPEN_CUSTOMER_LOOKUP = "open_customer_lookup"
     INSPECT_CUSTOMER_LOOKUP = "inspect_customer_lookup"
     SET_PRICE_PREFERENCES = "set_price_preferences"
@@ -50,8 +51,8 @@ class NewWindowOfferGoal:
     def __post_init__(self):
         if not isinstance(self.position, WindowPositionRequest):
             raise TypeError("offer_position_required")
-        if self.customer_policy != "test_existing_customer":
-            raise ValueError("only_explicit_test_customer_policy_is_supported")
+        if self.customer_policy not in {"test_existing_customer", "defer_to_salesperson"}:
+            raise ValueError("unsupported_customer_policy")
         if set(self.excluded_prices) != {
             "construction", "installation", "removal", "finishing",
         }:
@@ -150,6 +151,13 @@ class NewWindowOfferMissionPlanner:
             )
 
         if normalize_uia_text(title) == normalize_uia_text("Właściwości dokumentu"):
+            if goal.customer_policy == "defer_to_salesperson":
+                return OfferInstruction(
+                    OfferDecision.DEFER_CUSTOMER_PREFERENCES,
+                    "User explicitly requested to postpone client and document preferences; verify transition after Cancel.",
+                    "document_properties",
+                    "defer_document_properties",
+                )
             # Native DevExpress lookup is a button (IDC_ZAMAWIAJACY), not a
             # combobox. First detect its opened grid to prevent double-click.
             lookup_grids = [
