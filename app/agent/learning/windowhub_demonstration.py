@@ -202,3 +202,36 @@ def demonstration_experience(records: list[Mapping[str, object]], *, limit: int 
                     if len(items) >= limit:
                         return tuple(items[:limit])
     return tuple(items[:limit])
+
+
+def demonstration_summary(records: list[Mapping[str, object]]) -> dict[str, object]:
+    """Show meaningful stage coverage without exposing native IDs or customer data."""
+    stages: list[str] = []
+    within_stage = 0
+    unmapped = 0
+    total = 0
+    for record in records:
+        change = record.get("transition") if record.get("type") == "transition" else None
+        if not isinstance(change, Mapping):
+            continue
+        old, new = change.get("from_stage"), change.get("to_stage")
+        if not isinstance(old, str) or not isinstance(new, str):
+            continue
+        total += 1
+        if "windowhub_unmapped" in (old, new):
+            unmapped += 1
+        if old == new:
+            within_stage += 1
+        else:
+            if not stages or stages[-1] != old:
+                stages.append(old)
+            if stages[-1] != new:
+                stages.append(new)
+    return {
+        "record_count": total,
+        "stage_sequence": tuple(stages),
+        "within_stage_changes": within_stage,
+        "unmapped_transitions": unmapped,
+        "modifier_observed": "modifier" in stages,
+        "model_experience_items": len(demonstration_experience(records)),
+    }
