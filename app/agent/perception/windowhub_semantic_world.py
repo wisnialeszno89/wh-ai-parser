@@ -15,21 +15,52 @@ LABELS = {
 }
 
 
+WIZARD_MEANINGS = {
+    "quantity_input": "Liczba sztuk pozycji",
+    "width_1": "Szerokość całego okna",
+    "height_1": "Wysokość całego okna",
+    "profile_color": "Kolor profilu okiennego",
+    "profile_system_picker": "Wybierz system profili",
+    "glazing_package": "Pakiet szybowy",
+    "spacer_frame": "Ramka dystansowa",
+}
+
+
 def enrich_windowhub_scene(scene: ScreenScene) -> ScreenScene:
-    """Add model-facing aliases, keep original UIA label for click resolution."""
+    """Explain uniquely matched native controls without changing executable UIA labels."""
     if not isinstance(scene, ScreenScene):
         raise TypeError("scene_required")
     state = scene.observation.state
     app = (state.active_application or "").replace("\\", "/").rsplit("/", 1)[-1].casefold()
-    title = (state.active_window_title or "").strip().casefold()
-    if app != "okna.exe" or title != "właściwości dokumentu":
+    if app != "okna.exe":
         return scene
-    elements = []
-    for e in scene.elements:
-        meta = e.metadata or {}
-        label = LABELS.get(meta.get("automation_id"))
-        if label and meta.get("source") in {"windows_ui_automation", "windowhub_ui_automation"} and meta.get("uia_visible") is True:
-            elements.append(replace(e, metadata={**meta, "semantic_label": label}))
-        else:
-            elements.append(e)
-    return replace(scene, elements=tuple(elements))
+    title = (state.active_window_title or "").strip().casefold()
+    aliases: dict[int, str] = {}
+    if title == "właściwości dokumentu":
+        for element in scene.elements:
+            metadata = element.metadata or {}
+            label = LABELS.get(metadata.get("automation_id"))
+            if (
+                label
+                and metadata.get("source") in {"windows_ui_automation", "windowhub_ui_automation"}
+                and metadata.get("uia_visible") is True
+            ):
+                aliases[id(element)] = label
+    else:
+        # Reuse the existing verified wizard field map. The model sees what a
+        # field means; its original Name, RuntimeId and AutomationId remain local.
+        from app.agent.offers.windowhub_offer_form_map import WindowHubOfferFormMap
+        snapshot = WindowHubOfferFormMap().inspect(scene)
+        if snapshot is not None:
+            for field in snapshot.fields:
+                label = WIZARD_MEANINGS.get(field.field_name)
+                if label and field.is_unique and field.enabled is True:
+                    aliases[id(field.element)] = label
+    if not aliases:
+        return scene
+    elements = tuple(
+        replace(e, metadata={**(e.metadata or {}), "semantic_label": aliases[id(e)]})
+        if id(e) in aliases else e
+        for e in scene.elements
+    )
+    return replace(scene, elements=elements)
