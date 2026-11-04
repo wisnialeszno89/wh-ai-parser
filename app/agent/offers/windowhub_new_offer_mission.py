@@ -201,13 +201,21 @@ class NewWindowOfferMissionPlanner:
                 "document_properties",
             )
 
-        if title.casefold().startswith("okna -"):
-            if self._controls(scene, "NOWA OFERTA"):
+        if normalize_uia_text(title).startswith(normalize_uia_text("Okna - Start1")):
+            new_offer = self._controls(scene, "NOWA OFERTA")
+            if len(new_offer) == 1:
                 return OfferInstruction(
                     OfferDecision.OPEN_NEW_OFFER,
-                    "New-offer control is visible on the start screen.",
+                    "A single New Offer control is observed on the WindowHub start screen.",
                     "start",
                 )
+            return OfferInstruction(
+                OfferDecision.STOP_UNSUPPORTED,
+                "The start screen is visible, but New Offer is not a unique observed semantic target.",
+                "start",
+            )
+
+        if title.casefold().startswith("okna -"):
             return OfferInstruction(
                 OfferDecision.OPEN_NEW_POSITION,
                 "WindowHub document is open; locate a verified add-position action.",
