@@ -61,6 +61,19 @@ def run_mission(request, loop, *, max_actions=2):
         instruction = mission.decide(request, scene)
         print(f"MISSION step={getattr(instruction.step, 'value', 'unknown')} decision={instruction.decision.value}")
         print(f"Reason: {instruction.reason}")
+        if instruction.decision is MissionDecision.STOP_WRONG_ENVIRONMENT:
+            state = scene.observation.state
+            print(f"DIAGNOSTIC active_application={state.active_application!r}")
+            print(f"DIAGNOSTIC active_window_title={state.active_window_title!r}")
+            print(f"DIAGNOSTIC expected_application='Okna.exe'")
+            print("DIAGNOSTIC known_wizard_titles='Dodawanie nowej pozycji', 'Wielkość okna', 'Podstawowe parametry okna', 'Parametry szklenia'")
+            windows = scene.observation.metadata.get("desktop_windows", ())
+            for item in windows if isinstance(windows, (tuple, list)) else ():
+                app = str(getattr(item, "application", ""))
+                title = str(getattr(item, "title", ""))
+                if "okna" in app.casefold() or "pozycji" in title.casefold() or "okna" in title.casefold():
+                    print(f"DIAGNOSTIC candidate_window={title!r} application={app!r} foreground={getattr(item, 'is_foreground', None)!r}")
+
         if not instruction.executable:
             print("STOP: no authorized action for this stage.")
             return 0 if instruction.decision is MissionDecision.COLLECT_DIMENSIONS_CAPABILITY else 4
