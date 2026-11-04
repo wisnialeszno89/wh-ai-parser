@@ -108,7 +108,7 @@ def main(argv=None):
     except (ValueError, RuntimeError, OSError) as exc:
         print("STOP: document intake: " + str(exc))
         return 2
-    goal = "\\n".join(
+    goal = "\n".join(
         part for part in (args.goal or "", "Client request: " + file_text if file_text else "")
         if part.strip()
     )
