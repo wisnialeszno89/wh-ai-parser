@@ -60,3 +60,28 @@ def test_synthetic_v2_does_not_allow_wrong_application():
     )
     with pytest.raises(ValueError, match="not_foreground"):
         enforce_v2_live_policy(wrong, resolved)
+
+
+
+def test_read_only_inspect_proves_start_action_can_be_locally_bound(capsys):
+    from tools.run_windowhub_goal_v2 import audit_start_action_read_only
+    scene = synthetic_scene("Okna - Start1")
+    cycle = ComputerUseV2ActionSession().prepare_cycle(
+        scene, task_id="inspect-start", goal="Create offer", world_revision=1,
+        observed_at="2026-11-04T12:00:00Z",
+    )
+    audit_start_action_read_only(cycle, scene)
+    output = capsys.readouterr().out
+    assert "START_NEW_OFFER_GUARD=PASS" in output
+    assert "no click, no model request" in output
+
+
+def test_read_only_inspect_rejects_missing_new_offer(capsys):
+    from tools.run_windowhub_goal_v2 import audit_start_action_read_only
+    scene = synthetic_scene("Okna - Start1", label="OTHER ACTION")
+    cycle = ComputerUseV2ActionSession().prepare_cycle(
+        scene, task_id="inspect-missing", goal="Create offer", world_revision=1,
+        observed_at="2026-11-04T12:00:00Z",
+    )
+    audit_start_action_read_only(cycle, scene)
+    assert "START_NEW_OFFER_GUARD=NOT_UNIQUELY_EXPOSED" in capsys.readouterr().out
