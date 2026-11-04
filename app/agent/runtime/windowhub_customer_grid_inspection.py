@@ -31,7 +31,7 @@ def _ui_text(element):
     for attr in ("CurrentName", "CurrentValue"):
         try:
             value = getattr(element, attr, None)
-            if isinstance(value, str) and value.strip():
+            if isinstance(value, str):
                 return value.strip()
         except Exception:
             pass
@@ -40,7 +40,7 @@ def _ui_text(element):
         for attr in ("name", "value"):
             try:
                 value = getattr(info, attr, None)
-                if isinstance(value, str) and value.strip():
+                if isinstance(value, str):
                     return value.strip()
             except Exception:
                 pass
@@ -52,7 +52,7 @@ def _ui_text(element):
                 return value.strip()
         except Exception:
             pass
-    return ""
+    return None
 
 
 def _rows_from_grid(grid, *, max_rows=12):
@@ -72,7 +72,7 @@ def _rows_from_grid(grid, *, max_rows=12):
         table = getattr(grid, "iface_table", None)
         if table is not None:
             raw = table.GetCurrentColumnHeaders()
-            headers = tuple(_ui_text(h)[:80] for h in list(raw)[:column_count])
+            headers = tuple((_ui_text(h) or "")[:80] for h in list(raw)[:column_count])
     except Exception:
         headers = ()
 
@@ -92,9 +92,10 @@ def _rows_from_grid(grid, *, max_rows=12):
             values = [_ui_text(pattern.GetItem(row, col)) for col in range(column_count)]
         except Exception:
             continue
-        if all(not value.strip() for value in values):
+        if all(isinstance(value, str) and not value.strip() for value in values):
             fully_blank.append(row)
-        if len(name_indices) == 1 and not values[name_indices[0]].strip():
+        if (len(name_indices) == 1 and isinstance(values[name_indices[0]], str)
+                and not values[name_indices[0]].strip()):
             candidates.append(row)
 
     return CustomerLookupGridObservation(
