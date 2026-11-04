@@ -1,0 +1,64 @@
+"""Curated domain knowledge + observed human demonstrations for NaviMind V2.
+
+General computer interaction skills and WindowHub-specific labels are distinct.
+The model can propose a next action, but only the local runtime may execute it.
+"""
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+from app.agent.learning.windowhub_demonstration import demonstration_experience
+
+
+def windowhub_skill_knowledge() -> dict[str, object]:
+    return {
+        "application": "WindowHub",
+        "general_computer_skills": [
+            "Observe the current window before acting; an earlier screenshot may be stale.",
+            "Find controls by role, human meaning, enabled state and stable UIA identity.",
+            "Click opens dialogs, editable controls accept text, tabs change form steps.",
+            "After every action compare observed state with the expected outcome.",
+            "Do not interpret an action dispatch as a completed business task.",
+            "If a screen differs, reconsider the plan; never repeat an unverified click.",
+        ],
+        "business_goal": "Create a WindowHub window offer from customer requirements.",
+        "known_stages": [
+            "start", "document_properties", "new_customer", "offer_document",
+            "position", "dimensions", "basic_parameters", "glazing",
+            "hardware", "modifier",
+        ],
+        "windowhub_semantics": [
+            "From Start, NOWA OFERTA begins a new document.",
+            "Document properties contain customer lookup, customer Add and price exclusions.",
+            "Customer Add is different from choosing an existing customer.",
+            "Overall window width/height are not the separate skos dimension fields.",
+            "Profile color must match side-specific requirements, not only a substring.",
+            "Zakończ may persist a business position; verify the modifier is reached.",
+        ],
+        "uncertainties": [
+            "The selected customer value may not be exposed by the native lookup.",
+            "Multiple offers may be open; Cancel may leave the intended workflow.",
+            "The color catalog and modifier require separate real-environment verification.",
+        ],
+    }
+
+
+def read_demonstration_experience(path: Path, *, max_bytes: int = 1_000_000) -> tuple[dict[str, object], ...]:
+    """Read bounded local demo records, exposing only de-identified stage transitions."""
+    if not isinstance(path, Path):
+        raise TypeError("demonstration_path_required")
+    if not path.is_file() or path.stat().st_size > max_bytes:
+        raise ValueError("demonstration_missing_or_too_large")
+    records = []
+    with path.open(encoding="utf-8") as stream:
+        for index, line in enumerate(stream):
+            if index >= 5_000:
+                break
+            try:
+                item = json.loads(line)
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                continue
+            if isinstance(item, dict):
+                records.append(item)
+    return demonstration_experience(records, limit=12)
