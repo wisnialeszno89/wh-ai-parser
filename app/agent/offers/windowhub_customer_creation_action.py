@@ -16,7 +16,7 @@ from app.agent.verification.expected_outcome import ExpectedOutcome
 
 
 _SOURCES = frozenset(("windowhub_ui_automation", "windows_ui_automation"))
-_ADD_IDS = frozenset(("IDC_ZAMAWIAJACY_NEW", "IDC_ZAMAWIAJACY_DODAJ"))
+_ADD_IDS = frozenset(("IDC_NEW",))
 
 
 def _blocked(field, reason):
@@ -88,12 +88,12 @@ def prepare_add_customer(scene: ScreenScene):
     ):
         return _blocked("new_customer_add", "Document properties not active.")
     button = _unique_control(
-        scene, kind="button", label="Dodaj", automation_ids=_ADD_IDS,
+        scene, kind="button", label="OknaWPF", automation_ids=_ADD_IDS,
     )
-    if button is None:
+    if button is None or (button.metadata or {}).get("automation_id") != "IDC_NEW":
         return _blocked(
             "new_customer_add",
-            "Cannot uniquely identify Add (+) UIA control; inspect live button IDs.",
+            "Expected exactly one enabled customer Add button (IDC_NEW).",
         )
     return _ready_click(
         "new_customer_add", button,
