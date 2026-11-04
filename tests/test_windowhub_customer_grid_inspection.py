@@ -66,3 +66,27 @@ def test_unreadable_cell_is_not_mistaken_for_empty_client():
     result = _rows_from_grid(UnreadableGrid([[""]], ["Nazwa"]))
     assert result.fully_blank_candidate_indices == ()
     assert result.blank_name_candidate_indices == ()
+
+
+def test_blank_candidate_requires_complete_grid_and_one_fully_empty_record():
+    from app.agent.runtime.windowhub_customer_grid_inspection import (
+        resolve_blank_customer_candidate,
+    )
+    complete = _rows_from_grid(
+        Grid([["", ""], ["Firma", "Adres"]], ["Nazwa", "Ulica"]),
+        max_rows=10,
+    )
+    decision = resolve_blank_customer_candidate(complete)
+    assert decision.status == "candidate_only"
+    assert decision.row_index == 0
+
+    partial = _rows_from_grid(
+        Grid([["", ""] for _ in range(20)], ["Nazwa", "Ulica"]),
+        max_rows=2,
+    )
+    assert resolve_blank_customer_candidate(partial).status == "partial_page"
+
+    ambiguous = _rows_from_grid(
+        Grid([["", ""], ["", ""]], ["Nazwa", "Ulica"])
+    )
+    assert resolve_blank_customer_candidate(ambiguous).status == "not_unique"
