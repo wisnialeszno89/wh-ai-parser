@@ -57,3 +57,12 @@ def test_row_scan_respects_limit():
     result = _rows_from_grid(Grid([[""] for _ in range(20)], ["Nazwa"]), max_rows=5)
     assert result.inspected_rows == 5
     assert len(result.fully_blank_candidate_indices) == 5
+
+
+def test_unreadable_cell_is_not_mistaken_for_empty_client():
+    class UnreadableGrid(Grid):
+        def get_item(self, row, column):
+            return object()
+    result = _rows_from_grid(UnreadableGrid([[""]], ["Nazwa"]))
+    assert result.fully_blank_candidate_indices == ()
+    assert result.blank_name_candidate_indices == ()
