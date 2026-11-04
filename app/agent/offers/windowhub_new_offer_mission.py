@@ -220,6 +220,18 @@ class NewWindowOfferMissionPlanner:
                     "customer",
                 )
             customers = self._controls(scene, "Klient", "combobox")
+            # DevExpress LookUpEdit may expose the selected company via the
+            # native customer control rather than a separate combobox.
+            native_customers = [
+                e for e in scene.elements
+                if e.kind == "button"
+                and (e.metadata or {}).get("automation_id") == "IDC_ZAMAWIAJACY"
+                and (e.metadata or {}).get("uia_visible") is True
+            ]
+            if goal.customer_name is not None and len(native_customers) == 1:
+                selected = (native_customers[0].metadata or {}).get("current_value")
+                if isinstance(selected, str) and selected.strip() == goal.customer_name.strip():
+                    customers = [native_customers[0]]
             if len(customers) != 1:
                 lookup_buttons = [
                     e for e in scene.elements
