@@ -25,6 +25,7 @@ if (-not $SkipTests) {
     Invoke-PythonStep -Title "V2 protocol contract tests" -Arguments @(
         "-m", "pytest",
         "tests/test_navimind_v2_offline_smoke.py",
+        "tests/test_navimind_v2_server_probe.py",
         "tests/test_navimind_setup_diagnostic.py",
         "tests/test_windowhub_navimind_config.py",
         "tests/test_windowhub_goal_v2_coordinator.py",
