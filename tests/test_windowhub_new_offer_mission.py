@@ -104,10 +104,17 @@ def test_color_requires_verified_catalog_action():
 
 def test_document_preferences_are_driven_by_observed_toggle_states():
     def control(kind, label, *, value=None, checked=None):
+        identifiers = {
+            "Bez ceny konstrukcji": "IDC_CENA_OKNA",
+            "Bez ceny montażu": "IDC_CENA_MONTAZU",
+            "Bez ceny demontażu": "IDC_CENA_DEMONTAZU",
+            "Bez ceny wykończenia": "IDC_CENA_WYKONCZENIA",
+        }
         return SimpleNamespace(
             kind=kind, label=label, metadata={
-                "uia_visible": True, "current_value": value,
-                "uia_checked": checked,
+                "uia_visible": True, "uia_enabled": True,
+                "current_value": value, "uia_checked": checked,
+                "automation_id": identifiers.get(label),
             },
         )
     labels = (
