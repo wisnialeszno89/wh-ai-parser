@@ -19,6 +19,7 @@ from app.agent.offers.windowhub_new_offer_action import prepare_new_offer_from_s
 from app.agent.offers.windowhub_client_lookup_action import prepare_open_customer_lookup
 from app.agent.offers.windowhub_document_properties_action import (
     prepare_price_exclusion, prepare_document_confirmation,
+    prepare_defer_document_properties,
 )
 from app.agent.offers.windowhub_new_offer_mission import (
     NewWindowOfferGoal, NewWindowOfferMissionPlanner, OfferDecision,
@@ -41,6 +42,10 @@ def parse_args(argv=None):
     parser.add_argument("--quantity", type=int, default=1)
     parser.add_argument("--width", type=int, default=1230)
     parser.add_argument("--height", type=int, default=1478)
+    parser.add_argument(
+        "--customer-mode", choices=("select", "defer"), default="select",
+        help="select: handle client/preferences now; defer: user will set them after window creation",
+    )
     parser.add_argument("--execute-live", action="store_true")
     return parser.parse_args(argv)
 
@@ -98,6 +103,8 @@ def run_goal(goal, loop, *, max_actions=8):
             prepared = prepare_price_exclusion(scene, decision.field_name)
         elif decision.decision is OfferDecision.CONFIRM_DOCUMENT:
             prepared = prepare_document_confirmation(scene, goal)
+        elif decision.decision is OfferDecision.DEFER_CUSTOMER_PREFERENCES:
+            prepared = prepare_defer_document_properties(scene, goal)
         else:
             print("STOP: next business capability is not authorized for live execution yet.")
             if decision.decision is OfferDecision.INSPECT_CUSTOMER_LOOKUP:
@@ -148,6 +155,8 @@ def run_goal(goal, loop, *, max_actions=8):
                     and post.observed_stage == "document_properties"
                     or decision.decision is OfferDecision.CONFIRM_DOCUMENT
                     and post.observed_stage == "document"
+                    or decision.decision is OfferDecision.DEFER_CUSTOMER_PREFERENCES
+                    and post.observed_stage == "position"
                 )
             )
             if decision.decision is OfferDecision.OPEN_CUSTOMER_LOOKUP:
@@ -191,6 +200,10 @@ def main(argv=None):
                 quantity=args.quantity,
                 width_mm=args.width,
                 height_mm=args.height,
+            ),
+            customer_policy=(
+                "defer_to_salesperson" if args.customer_mode == "defer"
+                else "test_existing_customer"
             ),
         )
         activated, reason = activate_windowhub_workflow_window()
