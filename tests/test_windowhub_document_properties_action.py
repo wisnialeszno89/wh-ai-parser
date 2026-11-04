@@ -171,3 +171,54 @@ def test_document_confirmation_requires_all_business_conditions():
     assert RobotGUIExecutor._matches_windowhub_form_action_scope(
         prepared.action, unchecked_prices, scope
     ) is False
+
+
+def test_defer_route_clicks_cancel_only_with_explicit_policy():
+    from app.agent.offers.windowhub_document_properties_action import (
+        prepare_defer_document_properties,
+    )
+    from app.agent.offers.windowhub_new_offer_mission import NewWindowOfferGoal
+    from app.agent.offers.windowhub_position_mission import WindowPositionRequest
+
+    position = WindowPositionRequest(quantity=1, width_mm=1230, height_mm=1478)
+    normal = NewWindowOfferGoal(position)
+    deferred = NewWindowOfferGoal(position, customer_policy="defer_to_salesperson")
+    cancel = ScreenElement(
+        kind="button", label="Anuluj",
+        metadata={
+            "source": "windows_ui_automation",
+            "uia_control_type": "button",
+            "automation_id": "2",
+            "uia_runtime_id": "cancel-unique",
+            "uia_enabled": True, "uia_visible": True,
+        },
+    )
+    observed = scene(cancel)
+    denied = prepare_defer_document_properties(observed, normal)
+    assert denied.status is WindowHubFormActionStatus.BLOCKED
+    prepared = prepare_defer_document_properties(observed, deferred)
+    assert prepared.status is WindowHubFormActionStatus.READY
+    assert prepared.expected_outcome.expected_window_title == "Dodawanie nowej pozycji"
+
+    class FakeLoop:
+        context = None
+        def run(self, *, plan, context):
+            self.context = context
+            return None
+
+    loop = FakeLoop()
+    WindowHubOfferFormActionExecutor.execute_prepared(
+        prepared, observed, loop,
+        request_message="Defer document preferences explicitly",
+    )
+    scope = loop.context.get_value("_windowhub_form_action_scope")
+    assert scope["window_title"] == "Właściwości dokumentu"
+    assert RobotGUIExecutor._matches_windowhub_form_action_scope(
+        prepared.action, observed, scope
+    ) is True
+    assert RobotGUIExecutor._matches_windowhub_form_action_scope(
+        prepared.action, scene(cancel, title="Wielkość okna"), scope
+    ) is False
+    assert prepare_defer_document_properties(
+        scene(cancel, cancel), deferred
+    ).status is WindowHubFormActionStatus.BLOCKED
