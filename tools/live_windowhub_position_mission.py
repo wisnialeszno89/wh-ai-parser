@@ -25,6 +25,7 @@ from app.agent.offers.windowhub_position_mission import (
     MissionDecision, WindowPositionMissionPlanner, WindowPositionRequest,
 )
 from app.agent.offers.windowhub_wizard_navigation import WindowHubPositionToDimensionsPlanner
+from app.agent.runtime.windowhub_window_activation import activate_windowhub_wizard
 from app.agent.runtime.windows_desktop_agent_control_loop import (
     create_windows_desktop_agent_control_loop,
 )
@@ -136,6 +137,15 @@ def run_mission(request, loop, *, max_actions=2):
                 ]))
             except Exception as exc:
                 print(f"DIAGNOSTIC after_observation_error={type(exc).__name__}")
+            if (
+                instruction.decision is MissionDecision.NAVIGATE_TO_DIMENSIONS
+                and metadata.get("executed") is True
+                and "after" in locals()
+                and mission.decide(request, after).decision
+                is MissionDecision.COLLECT_DIMENSIONS_CAPABILITY
+            ):
+                print("PASS: navigation verified by fresh semantic observation.")
+                continue
             print("STOP: action outcome not verified. No retry.")
             return 6
         print("PASS: action verified.")
@@ -171,9 +181,12 @@ def main(argv=None):
     ):
         print("ABORTED: --execute-live and both LIVE environment flags required.")
         return 2
-    if args.focus_delay_seconds:
-        print(f"FOCUS WINDOWHUB: first position step; observing in {args.focus_delay_seconds}s.", flush=True)
-        time.sleep(args.focus_delay_seconds)
+    print("Locating the WindowHub wizard...", flush=True)
+    activated, reason = activate_windowhub_wizard()
+    print(f"WINDOWHUB_ACTIVATION: {reason}", flush=True)
+    if not activated:
+        print("STOP: no uniquely verified WindowHub wizard was activated.")
+        return 3
     print(f"REQUEST: {request.quantity} x {request.width_mm}x{request.height_mm} mm")
     try:
         return run_mission(request, create_windows_desktop_agent_control_loop())
