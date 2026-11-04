@@ -128,6 +128,12 @@ def main():
     print(f"control_loop_success={result.success}")
     print(f"executed={executed}")
     print(f"verified={verified}")
+    if execution is not None:
+        meta = getattr(execution, "metadata", None) or {}
+        print(f"execution_message={getattr(execution, 'message', 'unavailable')}")
+        print(f"execution_path={meta.get('execution_path', 'unknown')}")
+        print(f"click_point={meta.get('point', 'unknown')}")
+        print(f"screen_origin={meta.get('screen_origin', 'unknown')}")
     print(f"verification_reason={getattr(verification, 'reason', 'unavailable')}")
     # Read-only diagnosis after a failed verification.  The UI can change
     # asynchronously or show a validation dialog instead of the next step.
