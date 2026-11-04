@@ -567,3 +567,130 @@ def test_robot_gui_executor_checks_uia_identity_even_with_visual_tracking():
     assert result.requires_manual_review is True
     assert result.metadata["executed"] is False
     assert mouse.points == []
+
+
+def _navigation_scope():
+    return {
+        "field_name": "wizard_next_dimensions",
+        "application": "Okna.exe",
+        "window_title": "Dodawanie nowej pozycji",
+        "label": "Dalej >",
+        "control_type": "button",
+        "automation_id": "12324",
+        "uia_runtime_id": "next-runtime",
+        "required_quantity": "2",
+    }
+
+
+def _navigation_elements(*, quantity="2", selected=True, button_label="Dalej >"):
+    qty = make_quantity_element()
+    qty = ScreenElement(
+        kind=qty.kind,
+        label=qty.label,
+        x=qty.x,
+        y=qty.y,
+        width=qty.width,
+        height=qty.height,
+        confidence=qty.confidence,
+        interaction_capability=qty.interaction_capability,
+        metadata={**dict(qty.metadata), "current_value": quantity},
+    )
+    window = ScreenElement(
+        kind="radiobutton",
+        label="Okno",
+        x=50,
+        y=100,
+        width=70,
+        height=30,
+        confidence=0.99,
+        interaction_capability=InteractionCapability.CLICKABLE,
+        metadata={
+            "source": "windows_ui_automation",
+            "uia_runtime_id": "window-runtime",
+            "automation_id": "1329",
+            "uia_control_type": "radiobutton",
+            "uia_enabled": True,
+            "uia_visible": True,
+            "uia_selected": selected,
+        },
+    )
+    button = ScreenElement(
+        kind="button",
+        label=button_label,
+        x=150,
+        y=100,
+        width=90,
+        height=35,
+        confidence=0.99,
+        interaction_capability=InteractionCapability.CLICKABLE,
+        metadata={
+            "source": "windows_ui_automation",
+            "provider_element_id": "uia:next-runtime",
+            "uia_runtime_id": "next-runtime",
+            "automation_id": "12324",
+            "uia_control_type": "button",
+            "uia_enabled": True,
+            "uia_visible": True,
+            "interaction_capability_confidence": 0.99,
+        },
+    )
+    return (qty, window, button)
+
+
+def _next_action():
+    return AgentAction(
+        name="click_screen_element",
+        description="Move to dimensions",
+        target=SemanticTargetQuery(
+            role="button",
+            label="Dalej >",
+            automation_id="12324",
+            uia_runtime_id="next-runtime",
+            description="WindowHub Next button",
+        ),
+    )
+
+
+def _execute_guarded_next(*, quantity="2", selected=True, button_label="Dalej >", application="Okna.exe"):
+    context = make_windowhub_form_context(
+        _navigation_elements(
+            quantity=quantity, selected=selected, button_label=button_label
+        ),
+        application=application,
+        title="Dodawanie nowej pozycji",
+    )
+    context.set_value("_windowhub_form_action_scope", _navigation_scope())
+    mouse = RecordingMouse()
+    executor = RobotGUIExecutor(
+        robot_action_executor=RobotActionExecutor(
+            mode=RobotExecutionMode.DRY_RUN,
+            mouse=mouse,
+        ),
+    )
+    return executor.execute(_next_action(), context), mouse
+
+
+def test_navigation_guard_allows_fresh_matching_quantity_and_window_selection():
+    result, mouse = _execute_guarded_next()
+    assert result.success is True
+    assert result.metadata["execution_path"] == "uia_only"
+    assert mouse.points == [(345, 317)]
+
+
+@pytest.mark.parametrize(
+    "override",
+    [
+        {"quantity": "3"},
+        {"quantity": None},
+        {"selected": False},
+        {"selected": None},
+        {"button_label": "Anuluj"},
+        {"application": "Code.exe"},
+    ],
+)
+def test_navigation_guard_rejects_changed_state_before_any_mouse_action(override):
+    result, mouse = _execute_guarded_next(**override)
+    assert result.success is False
+    assert result.requires_manual_review is True
+    assert result.metadata["executed"] is False
+    assert mouse.points == []
