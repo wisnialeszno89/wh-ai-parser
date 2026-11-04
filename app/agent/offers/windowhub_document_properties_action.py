@@ -108,3 +108,73 @@ def prepare_price_exclusion(
         expected_outcome=expected,
         runtime_id=runtime_id,
     )
+
+
+def prepare_document_confirmation(
+    scene: ScreenScene, goal
+) -> PreparedWindowHubFormAction:
+    """Confirm only when the observed client and four exclusions are proven."""
+    from app.agent.offers.windowhub_new_offer_mission import (
+        NewWindowOfferGoal, NewWindowOfferMissionPlanner, OfferDecision,
+    )
+
+    def blocked(reason):
+        return PreparedWindowHubFormAction(
+            field_name="confirm_document",
+            status=WindowHubFormActionStatus.BLOCKED,
+            reason=reason,
+        )
+
+    if not isinstance(scene, ScreenScene):
+        raise TypeError("windowhub_document_scene_required")
+    if not isinstance(goal, NewWindowOfferGoal):
+        raise TypeError("windowhub_document_goal_required")
+    decision = NewWindowOfferMissionPlanner().decide(goal, scene)
+    if decision.decision is not OfferDecision.CONFIRM_DOCUMENT:
+        return blocked(f"Document is not ready for confirmation: {decision.decision.value}.")
+
+    matches = [
+        e for e in scene.elements
+        if (
+            e.kind == "button"
+            and normalize_uia_text(e.label or "") == "ok"
+            and (e.metadata or {}).get("source") in _UIA_SOURCES
+            and (e.metadata or {}).get("uia_enabled") is True
+            and (e.metadata or {}).get("uia_visible") is True
+        )
+    ]
+    if len(matches) != 1:
+        return blocked("Document OK button is missing or ambiguous.")
+    element = matches[0]
+    meta = element.metadata or {}
+    runtime_id = meta.get("uia_runtime_id")
+    if not isinstance(runtime_id, str) or not runtime_id.strip() or sum(
+        1 for e in scene.elements
+        if (e.metadata or {}).get("source") in _UIA_SOURCES
+        and (e.metadata or {}).get("uia_runtime_id") == runtime_id
+    ) != 1:
+        return blocked("Document OK button has no unique RuntimeId.")
+
+    target = SemanticTargetQuery(
+        role="button", label=element.label,
+        automation_id=meta.get("automation_id"),
+        uia_runtime_id=runtime_id,
+        description="Confirm WindowHub offer document properties",
+    )
+    return PreparedWindowHubFormAction(
+        field_name="confirm_document",
+        status=WindowHubFormActionStatus.READY,
+        reason="Client and four exclusions verified; unique OK is ready.",
+        action=AgentAction(
+            name="click_screen_element",
+            description="Confirm the validated new offer document properties.",
+            target=target,
+            requires_environment_observation=True,
+        ),
+        expected_outcome=ExpectedOutcome(
+            description="WindowHub closes validated document properties.",
+            expected_active_application="Okna.exe",
+            require_scene_change=True,
+        ),
+        runtime_id=runtime_id,
+    )
