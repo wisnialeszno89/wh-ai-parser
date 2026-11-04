@@ -16,7 +16,9 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from app.agent.offers.windowhub_new_offer_action import prepare_new_offer_from_start
-from app.agent.runtime.windowhub_customer_grid_inspection import inspect_live_customer_grid
+from app.agent.runtime.windowhub_customer_grid_inspection import (
+    inspect_live_customer_grid, resolve_blank_customer_candidate,
+)
 from app.agent.offers.windowhub_client_lookup_action import prepare_open_customer_lookup
 from app.agent.offers.windowhub_document_properties_action import (
     prepare_price_exclusion, prepare_document_confirmation,
@@ -93,6 +95,10 @@ def report_customer_grid():
     print(f"CUSTOMER_GRID_BLANK_NAME_CANDIDATES={evidence.blank_name_candidate_indices!r}")
     print(f"CUSTOMER_GRID_FULLY_BLANK_CANDIDATES={evidence.fully_blank_candidate_indices!r}")
     print(f"CUSTOMER_GRID_REASON={evidence.reason}")
+    candidate = resolve_blank_customer_candidate(evidence)
+    print(f"CUSTOMER_BLANK_CANDIDATE_STATUS={candidate.status}")
+    print(f"CUSTOMER_BLANK_CANDIDATE_ROW={candidate.row_index}")
+    print(f"CUSTOMER_BLANK_CANDIDATE_REASON={candidate.reason}")
     print("CUSTOMER_SELECTION=NOT_EXECUTED")
     return evidence
 
