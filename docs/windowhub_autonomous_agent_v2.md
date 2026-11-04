@@ -165,3 +165,43 @@ before a production deployment; never guess a deployment URL or echo secrets.
 
 The local wizard does **not** deploy Vercel, does not verify the server, does
 not generate new server credentials, and never prints the secret.
+
+## Vercel — odczytany stan 2026-11-04 (bez pobierania sekretów)
+
+Źródło: odczyt metadanych połączonego projektu Vercel.
+
+- Projekt: `navimind`, repozytorium `wisnialeszno89/navimind`.
+- Production: domena `https://www.navimind.app`, aktualny gotowy deployment
+  `dpl_6zHRB4L6jr1EzZUPvFxMEr48kaJm`, commit main
+  `0e4a5f74bfade425fae9a327969d9961788011bb` (**bez** PR #26).
+- Preview V2: `dpl_DexY91UdCXgUoXAFqyoen7JqSFB2`,
+  commit `ce83ef1e53784c8255857b7084b921510adf375c` gałęzi
+  `architecture/agent-observe-act-protocol-v2`, status `READY`.
+- Metadane projektu pokazują obecność `OPENAI_API_KEY` w Production i
+  `NAVIMIND_AGENT_SECRET` w Production i Preview. **Nie** weryfikowano
+  wartości ani poprawności tych sekretów.
+- Ochrona SSO: włączona dla deploymentów z wyjątkiem domen niestandardowych.
+  Podgląd `*.vercel.app` może wymagać uwierzytelnienia Vercel przed
+  dotarciem do aplikacyjnego `/api/agent/task`.
+
+### Ścieżka do pierwszej prawdziwej decyzji modelu
+
+1. Dla *Preview* nie wyłączaj SSO ani nie publikuj `NAVIMIND_AGENT_SECRET`.
+   Test wykonaj za pomocą uwierzytelnionego narzędzia Vercel (np. `vercel curl`)
+   i sztucznego payloadu V2, a nie zwykłym lokalnym `requests.post`.
+   Operacja modelu może generować koszty. Przygotowany Python
+   `tools/probe_navimind_v2_server.py` nie obsługuje ochrony SSO; uruchom go
+   przeciw Preview tylko po prawidłowym skonfigurowaniu dostępu.
+2. Po weryfikacji Preview, przed produkcją uzyskaj zgodę na scalenie PR #26.
+   Wdrożenie będzie wykonywało zapytania modelu na koszt właściciela.
+3. Po wdrożeniu na Production użyj lokalnego kreatora
+   `tools/setup_navimind_v2_local.ps1` (tylko gdy brak `.env`) z publiczną
+   domeną produkcyjną i tym samym sekretem, który jest na serwerze. Kreator nie
+   pobiera sekretu z Vercel automatycznie, nie weryfikuje go i nie tworzy nowego.
+4. `--mode think` może zostać zweryfikowany na prawdziwym WindowHub.
+   Do włączenia `execute` wymagany jest osobny test lokalnych akcji i
+   zabezpieczenie trwałego zapisu danych.
+
+Bezpośredni adres chronionego deploymentu nie jest publicznym API bez SSO.
+Nie należy uruchamiać testu przeciw `www.navimind.app`, dopóki nie potwierdzono,
+że produkcja rzeczywiście zawiera V2.
