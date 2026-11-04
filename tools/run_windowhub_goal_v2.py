@@ -10,6 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from app.agent.intake.task_document import read_task_document
 from app.agent.learning.windowhub_demonstration import stage_of
 from app.agent.learning.windowhub_training_context import read_demonstration_experience, windowhub_skill_knowledge
 from app.agent.perception.windowhub_semantic_world import enrich_windowhub_scene
@@ -22,7 +23,8 @@ from app.agent.runtime.windows_desktop_agent_control_loop import create_windows_
 
 def parse_args(argv=None):
     parser = argparse.ArgumentParser(description="Goal-driven WindowHub with NaviMind V2")
-    parser.add_argument("--goal", required=True)
+    parser.add_argument("--goal", help="Free-form Polish or German instruction")
+    parser.add_argument("--task-file", type=Path, help="Client request (.txt/.md/.pdf)")
     parser.add_argument("--mode", choices=("inspect", "think", "execute"), default="inspect")
     parser.add_argument("--demo", type=Path)
     parser.add_argument("--max-actions", type=int, default=6)
@@ -99,7 +101,19 @@ def run_goal(loop, *, goal, reasoner, mode, max_actions, experience=(),
 
 def main(argv=None):
     args = parse_args(argv)
-    if os.name != "nt" or not args.goal.strip() or not 1 <= args.max_actions <= 20:
+    if os.name != "nt" or not 1 <= args.max_actions <= 20:
+        return 2
+    try:
+        file_text = read_task_document(args.task_file) if args.task_file else ""
+    except (ValueError, RuntimeError, OSError) as exc:
+        print("STOP: document intake: " + str(exc))
+        return 2
+    goal = "\\n".join(
+        part for part in (args.goal or "", "Client request: " + file_text if file_text else "")
+        if part.strip()
+    )
+    if not goal.strip() or len(goal) > 16000:
+        print("STOP: --goal or --task-file required; empty or oversized request.")
         return 2
     if args.mode == "execute":
         if not args.execute_live or any(
@@ -122,7 +136,7 @@ def main(argv=None):
     try:
         return run_goal(
             create_windows_desktop_agent_control_loop(),
-            goal=args.goal, reasoner=reasoner, mode=args.mode,
+            goal=goal, reasoner=reasoner, mode=args.mode,
             max_actions=args.max_actions, experience=experience,
             approved_persistent=args.approve_persistent,
         )
