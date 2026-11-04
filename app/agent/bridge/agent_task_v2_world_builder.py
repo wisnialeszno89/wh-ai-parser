@@ -91,6 +91,7 @@ _CONFIRMATION_LABEL_TERMS = (
     "zatwierdz",
     "zakończ",
     "zakoncz",
+    "dodaj nowego klienta",
 )
 _UNSUPPORTED = object()
 
@@ -151,6 +152,19 @@ def _requires_confirmation(label: str) -> bool:
     )
 
 
+def _model_label(element: ScreenElement) -> str | None:
+    """Model-facing label only; local ScreenElement/UIA target is unchanged."""
+    meta = element.metadata or {}
+    label = meta.get("semantic_label")
+    if (
+        isinstance(label, str)
+        and 0 < len(label.strip()) <= 160
+        and meta.get("source") in {"windows_ui_automation", "windowhub_ui_automation"}
+    ):
+        return label.strip()
+    return element.label
+
+
 def _build_affordances(
     elements: tuple[ScreenElement, ...],
 ) -> list[dict[str, object]]:
@@ -158,7 +172,8 @@ def _build_affordances(
     affordances: list[dict[str, object]] = []
 
     for index, element in enumerate(elements, start=1):
-        label = element.label.strip() if isinstance(element.label, str) else ""
+        model_label = _model_label(element)
+        label = model_label.strip() if isinstance(model_label, str) else ""
         metadata = element.metadata or {}
         capability = _enum_text(element.interaction_capability)
 
@@ -421,7 +436,7 @@ class AgentTaskV2WorldBuilder:
                 {
                     "ref": entity_ref,
                     "type": str(element.kind)[:128] or "unknown",
-                    "label": element.label,
+                    "label": _model_label(element),
                     "state": state_payload,
                     "attributes": attributes_payload,
                     "confidence": max(0.0, min(1.0, float(confidence))),
