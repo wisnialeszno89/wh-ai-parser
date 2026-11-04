@@ -6,6 +6,14 @@ The server may call a billed model, so --allow-model-request is mandatory.
 """
 from __future__ import annotations
 
+# Allow both "python -m tools.<script>" and "python tools/<script>.py".
+from pathlib import Path
+import sys
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
 import argparse
 from datetime import datetime, timezone
 from uuid import uuid4
