@@ -405,7 +405,7 @@ class WindowHubOfferFormActionExecutor:
             "application": "Okna.exe",
             "window_title": (
                 "Właściwości dokumentu"
-                if prepared.field_name.startswith("exclude_")
+                if prepared.field_name.startswith("exclude_") or prepared.field_name == "confirm_document"
                 else "Okna - Start1"
                 if prepared.field_name == "start_new_offer"
                 else "Wielkość okna"
