@@ -134,6 +134,15 @@ def main(argv=None):
         reasoner = NaviMindTaskReasonerV2() if args.mode != "inspect" else None
     except (RuntimeError, ValueError, OSError) as exc:
         print("STOP: NaviMind V2 configuration or demo error: " + str(exc))
+        if "NAVIMIND_AGENT_V2_URL" in str(exc):
+            from dotenv import load_dotenv
+            load_dotenv()
+            print("V1_NAVIMIND_URL_CONFIGURED=" + str(bool(os.getenv("NAVIMIND_AGENT_URL", "").strip())))
+            print("V2_NAVIMIND_URL_CONFIGURED=False")
+            print("NAVI_V2_DEPLOYMENT_REQUIRED=Yes: NaviMind PR #26 must be merged and deployed before V2 reasoning.")
+            print("NAVI_V2_ROUTE=/api/agent/task (shared URL, protocol version is in JSON body)")
+            print("ACTION=After V2 deployment, set NAVIMIND_AGENT_V2_URL and NAVIMIND_AGENT_V2_SECRET in local .env.")
+            print("SECURITY=Do not paste secrets or production customer payloads into logs.")
         return 5
     if args.demo:
         report = read_demonstration_report(args.demo)
