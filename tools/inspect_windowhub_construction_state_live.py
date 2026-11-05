@@ -65,7 +65,17 @@ def main():
     context = ExecutionContext(
         mouse_enabled=False, execution_mode=ExecutionMode.DRY_RUN
     )
-    vision = RuntimeVision().capture()
+    observed_rect = scene.observation.metadata.get("window_rect")
+    if observed_rect is None or int(observed_rect.width) <= 0 or int(observed_rect.height) <= 0:
+        print("STOP = trusted foreground window rectangle unavailable")
+        print("ACTIONS_EXECUTED = 0")
+        return 4
+    # The legacy RuntimeVision.capture() calls WindowLocator -> pygetwindow,
+    # which fails under this Python 3.14 ctypes environment. The current
+    # desktop observation already identified and focused the exact Win32
+    # offer window, so pass those bounds directly to the SAME vision pipeline.
+    # This preserves the analyzers and avoids any second window selection.
+    vision = RuntimeVision().pipeline.observe(window=observed_rect)
     if vision is None:
         print("STOP = drawing vision unavailable")
         return 4
