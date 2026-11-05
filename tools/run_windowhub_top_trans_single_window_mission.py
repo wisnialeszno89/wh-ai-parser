@@ -119,6 +119,8 @@ def handle_customer_lookup(scene):
         user32 = ctypes.WinDLL("user32", use_last_error=True)
         user32.GetWindowThreadProcessId.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.DWORD)]
         user32.GetWindowThreadProcessId.restype = wintypes.DWORD
+        user32.GetWindow.argtypes = [wintypes.HWND, wintypes.UINT]
+        user32.GetWindow.restype = wintypes.HWND
         pid = wintypes.DWORD()
         user32.GetWindowThreadProcessId(window_hwnd, ctypes.byref(pid))
         desktop = Desktop(backend="uia")
@@ -132,6 +134,11 @@ def handle_customer_lookup(scene):
                 other = wintypes.DWORD()
                 user32.GetWindowThreadProcessId(hwnd, ctypes.byref(other))
                 if other.value != pid.value or not w.is_visible():
+                    continue
+                # Only the active document or its directly owned native popup.
+                # Never click a matching Top Trans row in another open offer.
+                owner = int(user32.GetWindow(hwnd, 4) or 0)  # GW_OWNER
+                if hwnd != window_hwnd and owner != window_hwnd:
                     continue
                 wrappers.extend(w.descendants())
             except Exception:
@@ -606,6 +613,9 @@ def main(argv=None):
     args = parser.parse_args(argv)
     print("=== WINDOWHUB TOP TRANS SINGLE WINDOW MISSION ===")
     print("MISSION =", CUSTOMER, TARGET)
+    print("DECISION_SOURCE = deterministic_verified_policy")
+    print("MODEL_REQUESTS = 0")
+    print("FINAL_SAVE = disabled")
     if not 1 <= args.max_actions <= 24:
         return 2
     if os.name != "nt":
