@@ -96,3 +96,40 @@ def test_local_navigation_refuses_confirmation_required_capability():
 ])
 def test_navigation_requires_expected_destination(before, after, expected):
     assert stage_transition_verified(before, after) is expected
+
+
+def test_native_navigation_uses_proven_invoke_without_mouse_or_model(monkeypatch):
+    from tools import run_windowhub_offer_draft_autopilot_v2 as workflow
+    from types import SimpleNamespace
+    calls = []
+    class Invoke:
+        def Invoke(self):
+            calls.append("invoke")
+    def fake_resolve(scene, **kwargs):
+        calls.append(kwargs)
+        return Invoke()
+    monkeypatch.setattr(workflow, "resolve_native_control", fake_resolve)
+    label = workflow.invoke_known_navigation(SimpleNamespace(), "offer_document")
+    assert label == "NOWA OFERTA"
+    assert calls[0]["allowed_stages"] == ("offer_document",)
+    assert calls[0]["label"] == "NOWA OFERTA"
+    assert calls[1] == "invoke"
+
+
+def test_customer_picker_is_bound_to_specific_native_automation_id(monkeypatch):
+    from tools import run_windowhub_offer_draft_autopilot_v2 as workflow
+    from types import SimpleNamespace
+    calls = []
+    def fake_resolve(scene, **kwargs):
+        calls.append(kwargs)
+        return SimpleNamespace(Invoke=lambda: None)
+    monkeypatch.setattr(workflow, "resolve_native_control", fake_resolve)
+    workflow.invoke_known_navigation(SimpleNamespace(), "document_properties")
+    assert calls[0]["automation_id"] == "IDC_ZAMAWIAJACY"
+    assert calls[0]["allowed_stages"] == ("document_properties",)
+
+
+def test_unknown_stage_never_uses_native_navigation():
+    from tools.run_windowhub_offer_draft_autopilot_v2 import invoke_known_navigation
+    with pytest.raises(KeyError):
+        invoke_known_navigation(None, "windowhub_unmapped")
