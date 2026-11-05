@@ -251,6 +251,15 @@ def main(argv=None):
                 print("LAST_OBSERVED_STAGE =", observed_stage)
                 print("NO_AUTOMATIC_RETRY = True")
                 return 6
+            if stage == "document_properties":
+                # First live verification of customer picker. Do not assume
+                # the unrecognized new window represents a correct row.
+                latest = enrich_windowhub_scene(loop.observe_scene())
+                print("CUSTOMER_PICKER_CONTROL_TYPES =", safe_customer_dialog_structure(latest))
+                print("RESULT = CUSTOMER_PICKER_WINDOW_OPENED")
+                print("CUSTOMER_SELECTED = False")
+                print("DOCUMENT_SAVED = False")
+                return 0
             continue
 
         # Construct fresh capabilities once per scene revision.
