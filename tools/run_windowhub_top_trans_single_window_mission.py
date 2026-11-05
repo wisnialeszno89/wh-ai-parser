@@ -182,9 +182,13 @@ def toggle_price_once(scene, key):
     if len(target) != 1:
         return False
     rid = (target[0].metadata or {}).get("uia_runtime_id")
+    if not isinstance(rid, str) or not rid:
+        return False
+    from app.agent.perception.windowhub_ui_automation_provider import WindowHubUIAutomationProvider
     for item in Desktop(backend="uia").window(handle=hwnd).wrapper_object().descendants():
         try:
             if (str(item.element_info.automation_id) == DOCUMENT_PRICE_AUTOMATION_IDS[key]
+                    and WindowHubUIAutomationProvider._runtime_id(item) == rid
                     and bool(item.element_info.enabled)
                     and bool(item.element_info.visible)):
                 found.append(item)
@@ -220,6 +224,7 @@ def select_catalog_option_once(scene, *, field_name, approved_options):
     if not isinstance(meta.get("uia_runtime_id"), str):
         print("STOP = catalog combo has no stable runtime identity")
         return False
+    from app.agent.perception.windowhub_ui_automation_provider import WindowHubUIAutomationProvider
     hwnd = scene.observation.metadata.get("window_handle")
     if not isinstance(hwnd, int) or hwnd <= 0:
         return False
@@ -228,6 +233,7 @@ def select_catalog_option_once(scene, *, field_name, approved_options):
         try:
             if (str(item.element_info.control_type).casefold() == "combobox"
                     and str(item.element_info.automation_id) == meta["automation_id"]
+                    and WindowHubUIAutomationProvider._runtime_id(item) == meta["uia_runtime_id"]
                     and bool(item.element_info.enabled)
                     and bool(item.element_info.visible)):
                 candidates.append(item)
