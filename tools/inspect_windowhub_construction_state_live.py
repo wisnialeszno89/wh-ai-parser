@@ -15,6 +15,7 @@ if str(ROOT) not in sys.path:
 
 from app.agent.learning.windowhub_demonstration import stage_of
 from app.agent.learning.windowhub_drawing_candidate_evidence import inspect_win32_candidate_owner
+from app.agent.learning.windowhub_visual_structure_evidence import visual_structure_hints
 from app.agent.learning.windowhub_construction_reconciliation import (
     reconcile_aggregate_observation,
     two_sash_example,
@@ -104,6 +105,23 @@ def main():
     else:
         print("DRAWING_CANDIDATE_OWNER_STATUS = missing_observed_hwnd")
     print("DRAWING_COMPONENT_IDENTITIES_VERIFIED = 0")
+    # Reuse the original project visual geometry engine. Its lines and cells
+    # are only hypotheses; they never satisfy per-component build verification.
+    if evidence is not None and evidence.status == "owned_pixel_not_component_verified":
+        try:
+            from app.runtime.vision.structure_observer import VisualStructureObserver
+            structure = VisualStructureObserver().observe(vision)
+            hints = visual_structure_hints(structure, evidence.status)
+            print("VISUAL_STRUCTURE_STATUS =", hints["status"])
+            print("VERTICAL_INTERNAL_LINE_CANDIDATES =", hints["vertical_internal_candidates"])
+            print("HORIZONTAL_INTERNAL_LINE_CANDIDATES =", hints["horizontal_internal_candidates"])
+            print("VISUAL_CELL_CANDIDATES =", hints["cell_candidates"])
+            print("STRUCTURE_COMPONENTS_VERIFIED =", hints["components_verified"])
+        except (ValueError, RuntimeError, TypeError, AttributeError, ImportError) as exc:
+            print("VISUAL_STRUCTURE_STATUS = unavailable")
+            print("VISUAL_STRUCTURE_ERROR =", type(exc).__name__)
+    else:
+        print("VISUAL_STRUCTURE_STATUS = blocked_unverified_window_owner")
     print("RUNTIME_FRAME_HISTORY =", state.frame_present)
     print("RUNTIME_SASH_HISTORY =", state.sash_present)
     print("RUNTIME_GLASS_HISTORY =", state.glass_present)
