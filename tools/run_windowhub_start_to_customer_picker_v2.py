@@ -1,4 +1,4 @@
-"""Bounded Start1 -> Document Properties -> customer picker workflow.
+"""Bounded Start1/offer document -> Document Properties -> customer picker workflow.
 
 Only two strictly target-checked clicks are possible: NOWA OFERTA and the
 existing-customer picker. Never selects customers, edits fields or saves.
@@ -36,7 +36,7 @@ def main():
     stage = stage_of(scene)
     print("INITIAL_STAGE =", stage)
 
-    if stage == "start":
+    if stage in {"start", "offer_document"}:
         task_id = "start-" + uuid4().hex[:12]
         prepared = ComputerUseV2ActionSession().prepare_cycle(
             scene, task_id=task_id, session_id=task_id,
@@ -53,7 +53,7 @@ def main():
         if len(matches) != 1:
             print("STOP: NOWA OFERTA not uniquely available")
             return 4
-        print("NOTICE: one NaviMind model request for Start1")
+        print("NOTICE: one NaviMind model request for opening new offer")
         reasoner = NaviMindTaskReasonerV2()
         response = reasoner.reason(prepared.request_payload)
         if response is None:
