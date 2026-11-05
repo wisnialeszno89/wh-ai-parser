@@ -21,6 +21,7 @@ from app.agent.learning.windowhub_demonstration import stage_of
 from app.agent.perception.windowhub_semantic_world import enrich_windowhub_scene
 from app.agent.runtime.windowhub_window_activation import activate_windowhub_workflow_window
 from app.agent.runtime.windows_desktop_agent_control_loop import create_windows_desktop_agent_control_loop
+from app.agent.offers.windowhub_customer_search_action import type_customer_search
 from app.agent.offers.windowhub_document_properties_action import (
     DOCUMENT_PRICE_AUTOMATION_IDS, prepare_price_exclusion,
 )
@@ -381,7 +382,21 @@ def mission(loop, max_actions):
                 print("CUSTOMER_SELECTED_VERIFIED =", selected)
                 if selected:
                     continue
-                ok, reason = handle_customer_lookup(after)
+                # The native picker can be a DevExpress lookup button with
+                # no exposed row until the user types a query. Search first.
+                search = type_customer_search(after, CUSTOMER)
+                print("CUSTOMER_SEARCH_STATUS =", search.status)
+                print("CUSTOMER_SEARCH_REASON =", search.reason)
+                if search.status != "search_submitted_unverified":
+                    print("STOP = CUSTOMER_SEARCH_NOT_VERIFIED")
+                    print("NO_BLIND_RETRY = True")
+                    return 6
+                actions += 1
+                queried = inspect(loop)
+                print("CUSTOMER_AFTER_SEARCH_SELECTED =", customer_selected(queried))
+                if customer_selected(queried):
+                    continue
+                ok, reason = handle_customer_lookup(queried)
                 print("CUSTOMER_LOOKUP_RESULT =", reason)
                 if ok:
                     actions += 1
