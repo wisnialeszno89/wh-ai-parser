@@ -8,6 +8,7 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+import time
 from pathlib import Path
 from uuid import uuid4
 
@@ -32,6 +33,32 @@ NAVIGATION = {
 }
 TARGET_STAGES = {"position", "dimensions", "basic_parameters", "glazing", "hardware"}
 MAX_ACTIONS = 12
+NAVIGATION_DESTINATIONS = {
+    "start": frozenset({"document_properties"}),
+    "offer_document": frozenset({"document_properties"}),
+    "document_properties": frozenset({"windowhub_unmapped", "customer_lookup"}),
+}
+
+
+def stage_transition_verified(before_stage, after_stage):
+    """Do not treat mere focus/geometry changes as navigation success."""
+    return after_stage in NAVIGATION_DESTINATIONS.get(before_stage, ())
+
+
+def observe_transition(loop, before_stage, *, attempts=3):
+    """Briefly poll a newly opened WindowHub dialog without another click."""
+    latest = None
+    for index in range(attempts):
+        latest = enrich_windowhub_scene(loop.observe_scene())
+        observed = stage_of(latest)
+        print("POST_ACTION_STAGE =", observed, flush=True)
+        if stage_transition_verified(before_stage, observed):
+            return True, observed
+        if observed is None:
+            return False, None
+        if index + 1 < attempts:
+            time.sleep(0.3)
+    return False, stage_of(latest)
 
 
 def permitted_label(stage, label, *, customer):
@@ -218,6 +245,14 @@ def main(argv=None):
             print("NO_AUTOMATIC_RETRY = True")
             return 6
         print(f"STEP_{step + 1}_VERIFIED = True")
+        if stage in NAVIGATION:
+            destination_verified, observed_stage = observe_transition(loop, stage)
+            print(f"STEP_{step + 1}_DESTINATION_VERIFIED =", destination_verified)
+            if not destination_verified:
+                print("STOP = NAVIGATION_DID_NOT_REACH_EXPECTED_STAGE")
+                print("LAST_OBSERVED_STAGE =", observed_stage)
+                print("NO_AUTOMATIC_RETRY = True")
+                return 6
 
     scene = enrich_windowhub_scene(loop.observe_scene())
     stage = stage_of(scene)
