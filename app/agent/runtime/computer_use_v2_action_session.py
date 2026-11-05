@@ -490,7 +490,10 @@ class ComputerUseV2ActionSession:
             source = (element.metadata or {}).get("source")
             if (
                 source in _UIA_SOURCES
-                and label in {"lookupedit", "oknawpf", "part_item", "layoutcontrol"}
+                and (
+                    label in {"lookupedit", "oknawpf", "part_item", "layoutcontrol"}
+                    or label.startswith("devexpress.")
+                )
             ):
                 continue
 
