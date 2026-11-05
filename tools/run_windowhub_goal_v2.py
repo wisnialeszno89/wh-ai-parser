@@ -1,0 +1,270 @@
+"""NaviMind V2 goal runner: inspect / think / verified live actions."""
+import argparse
+from datetime import datetime, timezone
+import os
+from pathlib import Path
+import sys
+from uuid import uuid4
+from urllib.parse import urlsplit
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from app.agent.intake.task_document import read_task_document
+from app.agent.learning.windowhub_demonstration import stage_of
+from app.agent.learning.windowhub_training_context import (read_demonstration_experience, read_demonstration_report, windowhub_skill_knowledge)
+from app.agent.perception.windowhub_semantic_world import enrich_windowhub_scene
+from app.agent.reasoning.navimind_task_reasoner_v2 import (NaviMindTaskReasonerV2, NaviMindTaskReasonerV2Config)
+from app.agent.runtime.computer_use_v2_action_session import ComputerUseV2ActionSession
+from app.agent.runtime.windowhub_goal_v2_coordinator import execute_v2_step, enforce_v2_live_policy
+from app.agent.runtime.windowhub_window_activation import activate_windowhub_workflow_window
+from app.agent.runtime.windows_desktop_agent_control_loop import create_windows_desktop_agent_control_loop
+
+
+def parse_args(argv=None):
+    parser = argparse.ArgumentParser(description="Goal-driven WindowHub with NaviMind V2")
+    parser.add_argument("--goal", help="Free-form Polish or German instruction")
+    parser.add_argument("--task-file", type=Path, help="Client request (.txt/.md/.pdf)")
+    parser.add_argument("--mode", choices=("inspect", "think", "execute"), default="inspect")
+    parser.add_argument("--reuse-shared-navimind-endpoint", action="store_true", help="Use existing V1 connection for V2 only AFTER NaviMind PR #26 is deployed")
+    parser.add_argument("--demo", type=Path)
+    parser.add_argument("--max-actions", type=int, default=6)
+    parser.add_argument("--show-window-title", action="store_true", help="Print current native title locally for unknown stages; may contain business details")
+    parser.add_argument("--execute-live", action="store_true")
+    parser.add_argument("--approve-persistent", action="store_true")
+    return parser.parse_args(argv)
+
+
+def audit_start_action_read_only(prepared, scene):
+    """Prove that a model's Start1 action can be resolved locally; never click."""
+    entities = {
+        item["ref"]: item for item in prepared.request_payload["world"]["entities"]
+    }
+    choices = [
+        item for item in prepared.request_payload["capabilities"]["actions"]
+        if item["name"].startswith("click_ent_")
+        and entities.get(item["target_ref"], {}).get("label") == "NOWA OFERTA"
+    ]
+    if len(choices) != 1:
+        print("START_NEW_OFFER_GUARD=NOT_UNIQUELY_EXPOSED")
+        return
+    action = choices[0]
+    synthetic = {
+        "version": "2",
+        "task_id": prepared.request_payload["task_id"],
+        "decision": "act",
+        "rationale": "Local read-only validation of the observed New Offer capability.",
+        "confidence": 0.99,
+        "observation_request": None,
+        "action": {
+            "name": action["name"],
+            "target_ref": action["target_ref"],
+            "value": None,
+            "expected_postcondition": {"kind": "scene_changed"},
+            "requires_confirmation": action["requires_confirmation"],
+        },
+        "completion": None,
+        "requires_manual_review": False,
+    }
+    try:
+        resolved = prepared.resolve_action_decision(synthetic)
+        enforce_v2_live_policy(scene, resolved)
+    except (ValueError, KeyError) as exc:
+        print("START_NEW_OFFER_GUARD=BLOCKED")
+        print("START_NEW_OFFER_REASON=" + str(exc))
+        return
+    print("START_NEW_OFFER_GUARD=PASS")
+    print("START_NEW_OFFER_CHECK=V2 protocol and local UIA identity only; no click, no model request")
+
+
+def run_goal(loop, *, goal, reasoner, mode, max_actions, experience=(),
+             approved_persistent=False, show_window_title=False):
+    session = ComputerUseV2ActionSession()
+    task_id = "wh-" + uuid4().hex[:16]
+    feedback = list(experience)
+    for revision in range(max_actions if mode == "execute" else 1):
+        scene = enrich_windowhub_scene(loop.observe_scene())
+        stage = stage_of(scene)
+        if stage is None:
+            print("STOP: WindowHub must be the foreground application.")
+            return 4
+        if show_window_title and stage == "windowhub_unmapped":
+            print("UNMAPPED_FOREGROUND_TITLE=" + repr(scene.observation.state.active_window_title))
+            print("TITLE_NOTE=local diagnostic only; review for business identifiers before sharing")
+        prepared = session.prepare_cycle(
+            scene, task_id=task_id, session_id=task_id, goal=goal,
+            world_revision=revision + 1, cycle=revision,
+            max_cycles=max_actions, knowledge=windowhub_skill_knowledge(),
+            experience=feedback[-12:],
+            observed_at=datetime.now(timezone.utc).isoformat(),
+        )
+        actions = prepared.request_payload["capabilities"]["actions"]
+        print(f"CYCLE={revision+1} STAGE={stage} ACTION_CAPABILITIES={len(actions)}")
+        if mode == "inspect":
+            entities = {e["ref"]: e for e in prepared.request_payload["world"]["entities"]}
+            for item in actions[:24]:
+                target = entities.get(item["target_ref"]) if item["target_ref"] else None
+                print(f"CAPABILITY={item['name']} LABEL={(target or {}).get('label')}")
+            if stage == "start":
+                audit_start_action_read_only(prepared, scene)
+            print("INSPECT_ONLY: local capability inventory; no reasoning model was called and no UI action was performed.")
+            return 0
+        response = reasoner.reason(prepared.request_payload)
+        if response is None:
+            print("STOP: NAVIMIND_ERROR=" + str(reasoner.last_error))
+            return 5
+        print(f"REASONER_DECISION={response['decision']} CONFIDENCE={response['confidence']}")
+        print(f"REASONER_REASON={str(response['rationale'])[:300]}")
+        if response["decision"] == "done":
+            print("DONE_VERIFIED=" + str(stage == "modifier"))
+            return 0 if stage == "modifier" else 6
+        if response["decision"] != "act" or response["confidence"] < .80:
+            print("STOP: reasoner cannot yet choose a confident executable action.")
+            return 4
+        try:
+            action = prepared.resolve_action_decision(response)
+        except (ValueError, KeyError) as exc:
+            print("STOP: invalid proposed action: " + str(exc))
+            return 5
+        print("PROPOSED_ACTION=" + action.action.name + " TARGET=" + str(getattr(action.action.target, "label", None)))
+        if mode == "think":
+            print("THINK_ONLY: nothing executed.")
+            return 0
+        try:
+            execute_v2_step(loop, scene, action, approved_persistent=approved_persistent)
+        except (ValueError, RuntimeError) as exc:
+            print("STOP: local guard or verification: " + str(exc))
+            return 6
+        print("ACTION_VERIFIED=" + action.action.name)
+        after = loop.observe_scene()
+        feedback.append({
+            "source": "local_verified_action",
+            "from_stage": stage,
+            "to_stage": stage_of(after) or "unknown",
+            "action_type": action.action.name,
+            "verified": True,
+        })
+    print("STOP: action budget exhausted; goal completion not assumed.")
+    return 4
+
+
+def shared_endpoint_v2_config() -> NaviMindTaskReasonerV2Config:
+    """Use existing V1 URL explicitly after the shared V2 route is deployed."""
+    from dotenv import load_dotenv
+    load_dotenv()
+    url = os.getenv("NAVIMIND_AGENT_URL", "").strip()
+    parts = urlsplit(url)
+    if not url:
+        raise ValueError(
+            "NAVIMIND_AGENT_URL is not configured. Run python tools/diagnose_navimind_setup.py."
+        )
+    if (
+        parts.path.rstrip("/") != "/api/agent/task"
+        or not parts.hostname
+        or parts.username is not None
+        or parts.password is not None
+        or parts.query or parts.fragment
+        or not (
+            parts.scheme == "https"
+            or parts.scheme == "http" and parts.hostname in {"localhost", "127.0.0.1"}
+        )
+    ):
+        raise ValueError("NAVIMIND_AGENT_URL must be a secure shared /api/agent/task endpoint.")
+    secret = os.getenv("NAVIMIND_AGENT_SECRET", "").strip()
+    if not secret:
+        raise ValueError("NAVIMIND_AGENT_SECRET is required for the shared V2 connection.")
+    return NaviMindTaskReasonerV2Config(
+        url=url, secret=secret, timeout_seconds=20,
+    )
+
+
+def main(argv=None):
+    args = parse_args(argv)
+    if os.name != "nt" or not 1 <= args.max_actions <= 20:
+        return 2
+    try:
+        file_text = read_task_document(args.task_file) if args.task_file else ""
+    except (ValueError, RuntimeError, OSError) as exc:
+        print("STOP: document intake: " + str(exc))
+        return 2
+    goal = "\n".join(
+        part for part in (args.goal or "", "Client request: " + file_text if file_text else "")
+        if part.strip()
+    )
+    if not goal.strip() or len(goal) > 16000:
+        print("STOP: --goal or --task-file required; empty or oversized request.")
+        return 2
+    if args.mode == "execute":
+        if not args.execute_live or any(
+            os.getenv(k) != "1" for k in ("WH_REAL_WINDOWHUB", "COMPUTER_USE_LIVE")
+        ):
+            print("STOP: --execute-live and both explicit desktop flags required.")
+            return 2
+        ok, info = activate_windowhub_workflow_window()
+        print("WINDOWHUB_ACTIVATION=" + info)
+        if not ok:
+            return 3
+    try:
+        experience = read_demonstration_experience(args.demo) if args.demo else ()
+        reasoner = (
+            NaviMindTaskReasonerV2(
+                config=shared_endpoint_v2_config(),
+            ) if args.reuse_shared_navimind_endpoint
+            else NaviMindTaskReasonerV2()
+        ) if args.mode != "inspect" else None
+    except (RuntimeError, ValueError, OSError) as exc:
+        print("STOP: NaviMind V2 configuration or demo error: " + str(exc))
+        if args.mode != "inspect":
+            from tools.diagnose_navimind_setup import evaluate_navimind_setup
+            from dotenv import load_dotenv
+            load_dotenv()
+            report = evaluate_navimind_setup({
+                k: os.getenv(k, "") for k in (
+                    "NAVIMIND_AGENT_URL", "NAVIMIND_AGENT_SECRET",
+                    "NAVIMIND_AGENT_V2_URL", "NAVIMIND_AGENT_V2_SECRET",
+                )
+            })
+            print("SAFE_CONNECTION_DIAGNOSTIC=" + ",".join(
+                k + ":" + report[k] for k in (
+                    "V1_URL", "V1_SECRET", "V2_URL", "V2_SECRET", "NEXT_ACTION",
+                )
+            ))
+        if "NAVIMIND_AGENT_V2_URL" in str(exc):
+            from dotenv import load_dotenv
+            load_dotenv()
+            print("V1_NAVIMIND_URL_CONFIGURED=" + str(bool(os.getenv("NAVIMIND_AGENT_URL", "").strip())))
+            print("V2_NAVIMIND_URL_CONFIGURED=False")
+            print("NAVI_V2_DEPLOYMENT_REQUIRED=Yes: NaviMind PR #26 must be merged and deployed before V2 reasoning.")
+            print("NAVI_V2_ROUTE=/api/agent/task (shared URL, protocol version is in JSON body)")
+            print("ACTION=After V2 deployment, set NAVIMIND_AGENT_V2_URL and NAVIMIND_AGENT_V2_SECRET in local .env.")
+            print("SECURITY=Do not paste secrets or production customer payloads into logs.")
+        return 5
+    if args.reuse_shared_navimind_endpoint and args.mode != "inspect":
+        print("NAVIMIND_ENDPOINT=shared /api/agent/task (V2 payload)")
+        print("REQUIREMENT=NaviMind PR #26 must be deployed. V1-only server will reject V2.")
+    if args.demo:
+        report = read_demonstration_report(args.demo)
+        print("DEMO_RECORDED_EVENTS=" + str(report["record_count"]))
+        print("DEMO_STAGE_SEQUENCE=" + " -> ".join(report["stage_sequence"]))
+        print("DEMO_FORM_STATE_EVENTS=" + str(report["within_stage_changes"]))
+        print("DEMO_UNMAPPED_TRANSITIONS=" + str(report["unmapped_transitions"]))
+        print("DEMO_EXPERIENCE_ITEMS=" + str(len(experience)))
+        print("DEMO_MODIFIER_VERIFIED=" + str(report["modifier_observed"]))
+    if args.mode != "inspect":
+        print("NOTICE: goal and semantic scene are transmitted to configured NaviMind.")
+    try:
+        return run_goal(
+            create_windows_desktop_agent_control_loop(),
+            goal=goal, reasoner=reasoner, mode=args.mode,
+            max_actions=args.max_actions, experience=experience,
+            approved_persistent=args.approve_persistent,
+            show_window_title=args.show_window_title,
+        )
+    except Exception as exc:
+        print("STOP: " + type(exc).__name__ + ": " + str(exc)[:200])
+        return 7
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
