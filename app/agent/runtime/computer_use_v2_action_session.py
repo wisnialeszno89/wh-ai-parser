@@ -482,6 +482,18 @@ class ComputerUseV2ActionSession:
             if not self._is_unique_target(scene, resolver, element):
                 continue
 
+            # A unique native runtime ID proves which control is present, not
+            # what an unlabeled control means. Do not offer generic WindowHub
+            # widgets to a model as candidate actions. They can only become
+            # executable after perception provides a meaningful visible label.
+            label = element.label.strip().casefold() if isinstance(element.label, str) else ""
+            source = (element.metadata or {}).get("source")
+            if (
+                source in _UIA_SOURCES
+                and label in {"lookupedit", "oknawpf", "part_item", "layoutcontrol"}
+            ):
+                continue
+
             if verb == "click":
                 if not self._is_clickable_target(element):
                     continue
