@@ -16,6 +16,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from app.agent.learning.windowhub_demonstration import stage_of
+from app.agent.learning.windowhub_drawing_candidate_evidence import inspect_win32_candidate_owner
 from app.agent.runtime.windowhub_window_activation import activate_unique_windowhub_offer_document
 from app.agent.runtime.windows_desktop_agent_control_loop import create_windows_desktop_agent_control_loop
 from app.runtime.execution.context.execution_context import ExecutionContext
@@ -90,6 +91,17 @@ def run(args, *, activate=activate_unique_windowhub_offer_document,
     center = (int(canvas.x + canvas.width // 2),
               int(canvas.y + canvas.height // 2))
     print("FRAME_PLACEMENT_LOCAL =", center)
+    # Existing canvas detection may fall back when the native toolbar resolver
+    # fails. The target point must still belong to this exact foreground offer.
+    from types import SimpleNamespace
+    placement_pixel = SimpleNamespace(x=center[0], y=center[1], width=1, height=1)
+    ownership = inspect_win32_candidate_owner(
+        window, placement_pixel, int(scene.observation.metadata["window_handle"])
+    )
+    print("FRAME_PLACEMENT_OWNERSHIP =", ownership.status)
+    if ownership.status != "owned_pixel_not_component_verified":
+        print("STOP = frame placement not owned by current offer")
+        return 4
     if not args.execute_live:
         print("RESULT = READY_FOR_SINGLE_LIVE_FRAME_CLICK")
         print("ACTIONS_EXECUTED = 0")
