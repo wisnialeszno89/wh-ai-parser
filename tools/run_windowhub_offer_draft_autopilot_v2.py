@@ -78,6 +78,35 @@ def pick_action(prepared, response, stage, *, customer):
     return resolved, label
 
 
+
+def resolve_verified_navigation(prepared, capability):
+    """Locally select one approved capability; still validate full V2 contract.
+
+    This is a deterministic WindowHub navigation policy, not an AI decision.
+    It uses the same scoped reference map and executor as model actions.
+    """
+    if capability.get("requires_confirmation") is not False:
+        raise ValueError("navigation_requires_confirmation")
+    request = prepared.request_payload
+    response = {
+        "version": "2",
+        "task_id": request["task_id"],
+        "decision": "act",
+        "rationale": "Locally validated unique WindowHub navigation control.",
+        "confidence": 1.0,
+        "observation_request": None,
+        "action": {
+            "name": capability["name"],
+            "target_ref": capability["target_ref"],
+            "value": None,
+            "expected_postcondition": {"kind": "scene_changed"},
+            "requires_confirmation": False,
+        },
+        "completion": None,
+        "requires_manual_review": False,
+    }
+    return prepared.resolve_action_decision(response)
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description="WindowHub offer draft navigation")
     parser.add_argument("--customer", default="", help="Exact existing test customer label; optional")
@@ -100,7 +129,7 @@ def main(argv=None):
         return 3
 
     loop = create_windows_desktop_agent_control_loop()
-    reasoner = NaviMindTaskReasonerV2()
+    reasoner = None  # construct only if an unfamiliar customer-selection screen appears
     session = ComputerUseV2ActionSession()
     task_id = "offer-" + uuid4().hex[:12]
     for step in range(args.max_actions):
@@ -150,21 +179,35 @@ def main(argv=None):
             print("STOP = expected one unique safe navigation action")
             return 4
 
-        # NaviMind receives a constrained goal but must still choose and
-        # validate the exact allowed capability; no local fabricated decision.
-        response = reasoner.reason(prepared.request_payload)
-        if response is None:
-            print("STOP = NAVIMIND_ERROR", reasoner.last_error)
-            return 5
-        try:
-            resolved, label = pick_action(
-                prepared, response, stage, customer=args.customer
-            )
-            if response["action"]["name"] != allowed[0]["name"]:
-                raise ValueError("not_the_unique_allowed_action")
-        except (KeyError, TypeError, ValueError) as exc:
-            print("STOP = MODEL_OR_POLICY", str(exc))
-            return 5
+        if stage in NAVIGATION:
+            # Deterministic, already-known navigation is a local operation.
+            # No model call for NOWA OFERTA or opening the customer picker.
+            try:
+                resolved = resolve_verified_navigation(prepared, allowed[0])
+                label = entities[allowed[0]["target_ref"]]["label"]
+            except (KeyError, TypeError, ValueError) as exc:
+                print("STOP = LOCAL_NAVIGATION_POLICY", str(exc))
+                return 5
+            print(f"STEP_{step + 1}_PLANNER = LOCAL_VERIFIED")
+        else:
+            # Unknown screens require AI and an exact customer label. Do not
+            # infer a customer from similar text or arbitrary database rows.
+            if reasoner is None:
+                reasoner = NaviMindTaskReasonerV2()
+            response = reasoner.reason(prepared.request_payload)
+            if response is None:
+                print("STOP = NAVIMIND_ERROR", reasoner.last_error)
+                return 5
+            print(f"STEP_{step + 1}_MODEL_DECISION =", response.get("decision"))
+            try:
+                resolved, label = pick_action(
+                    prepared, response, stage, customer=args.customer
+                )
+                if response["action"]["name"] != allowed[0]["name"]:
+                    raise ValueError("not_the_unique_allowed_action")
+            except (KeyError, TypeError, ValueError) as exc:
+                print("STOP = MODEL_OR_POLICY", str(exc))
+                return 5
         print(f"STEP_{step + 1}_ACTION =", label if label != args.customer else "EXACT_CUSTOMER_MATCH")
         try:
             execute_v2_step(loop, scene, resolved, approved_persistent=False)
