@@ -80,6 +80,21 @@ def invoke_known_navigation(scene, stage):
     return label
 
 
+def safe_customer_dialog_structure(scene):
+    """Summarize a customer picker without printing customer names or values."""
+    summary = {}
+    for element in scene.elements:
+        metadata = element.metadata or {}
+        if metadata.get("source") not in {
+            "windows_ui_automation", "windowhub_ui_automation"
+        }:
+            continue
+        kind = element.kind
+        if kind in {"button", "edit", "combobox", "listitem", "table", "treeitem"}:
+            summary[kind] = summary.get(kind, 0) + 1
+    return dict(sorted(summary.items()))
+
+
 def permitted_label(stage, label, *, customer):
     if stage in NAVIGATION:
         return label in NAVIGATION[stage]
@@ -247,6 +262,7 @@ def main(argv=None):
             print("STOP = CUSTOMER_SELECTION_NOT_UNIQUELY_GROUNDED")
             print("KNOWN_CUSTOMER_SPECIFIED =", bool(args.customer))
             print("SCREEN_CONTROL_COUNT =", len(scene.elements))
+            print("CUSTOMER_DIALOG_CONTROL_TYPES =", safe_customer_dialog_structure(scene))
             print("NO_AUTOMATIC_RETRY = True")
             return 4
 
