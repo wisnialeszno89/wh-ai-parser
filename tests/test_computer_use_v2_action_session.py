@@ -333,3 +333,14 @@ def test_named_controls_remain_available_in_other_applications():
     names = [item["name"] for item in _prepare(scene).request_payload["capabilities"]["actions"]]
     assert "click_ent_0001" in names
     assert "write_text_ent_0002" in names
+
+
+def test_devexpress_class_names_are_not_action_labels():
+    scene = _scene((
+        _element("button", "DevExpress.Xpf.Editors.DateEditButtonInfo", automation_id="date"),
+        _element("button", "Wybierz istniejącego klienta", automation_id="customer"),
+    ))
+    actions = _prepare(scene).request_payload["capabilities"]["actions"]
+    names = {item["name"] for item in actions}
+    assert "click_ent_0001" not in names
+    assert "click_ent_0002" in names
