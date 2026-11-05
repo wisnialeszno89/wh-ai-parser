@@ -1,4 +1,11 @@
 """Offline report for existing WindowHub construction model and verification."""
+from pathlib import Path
+import sys
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
 from app.agent.learning.windowhub_construction_reconciliation import two_sash_example, reconcile_construction
 from app.window_model.dependency_planner import DependencyPlanner
 from app.window_model.topology import infer_topology
