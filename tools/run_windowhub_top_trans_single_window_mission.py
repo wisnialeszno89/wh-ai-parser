@@ -206,6 +206,83 @@ def toggle_price_once(scene, key):
     return True
 
 
+def select_catalog_option_once(scene, *, field_name, approved_options):
+    """Choose one exact native ComboBox option; no substring or first-row guessing."""
+    from pywinauto import Desktop
+    snapshot = WindowHubOfferFormMap().inspect(scene)
+    match = snapshot.field(field_name) if snapshot else None
+    if (match is None or not match.is_unique or match.enabled is not True
+            or match.element.kind != "combobox"):
+        print("STOP = catalog combo unavailable", field_name)
+        return False
+    target = match.element
+    meta = target.metadata or {}
+    if not isinstance(meta.get("uia_runtime_id"), str):
+        print("STOP = catalog combo has no stable runtime identity")
+        return False
+    hwnd = scene.observation.metadata.get("window_handle")
+    if not isinstance(hwnd, int) or hwnd <= 0:
+        return False
+    candidates = []
+    for item in Desktop(backend="uia").window(handle=hwnd).wrapper_object().descendants():
+        try:
+            if (str(item.element_info.control_type).casefold() == "combobox"
+                    and str(item.element_info.automation_id) == meta["automation_id"]
+                    and bool(item.element_info.enabled)
+                    and bool(item.element_info.visible)):
+                candidates.append(item)
+        except Exception:
+            continue
+    if len(candidates) != 1:
+        print("STOP = catalog native combo ambiguous", field_name, len(candidates))
+        return False
+    wrapper = candidates[0]
+    try:
+        options = [str(v).strip() for v in wrapper.item_texts()]
+    except Exception as exc:
+        print("STOP = catalog options unreadable", type(exc).__name__)
+        return False
+    allowed = {v.casefold() for v in approved_options}
+    available = [option for option in options if option.casefold() in allowed]
+    print("CATALOG_FIELD =", field_name)
+    print("CATALOG_OPTION_COUNT =", len(options))
+    print("APPROVED_EXACT_MATCHES =", len(available))
+    if len(available) != 1:
+        return False
+    desired = available[0]
+    try:
+        wrapper.select(desired)
+    except Exception as exc:
+        print("STOP = catalog selection unavailable", type(exc).__name__)
+        return False
+    return True
+
+
+def advance_known_wizard(scene, *, expected_stage):
+    """Click one unique Next control and rely on caller's stage re-observation."""
+    buttons = matches(scene, kind="button", label="Dalej >", automation_id="12324")
+    if len(buttons) != 1:
+        print("STOP = no unique next button")
+        return False
+    try:
+        native = resolve_native_wrapper(
+            scene, label="Dalej >", automation_id="12324",
+            allowed_stages=(stage_of(scene),),
+        )
+        try:
+            invoke = native.iface_invoke
+        except Exception:
+            invoke = None
+        if invoke is not None:
+            invoke.Invoke()
+        else:
+            native.click_input()
+        return True
+    except Exception as exc:
+        print("STOP = next stage", expected_stage, type(exc).__name__)
+        return False
+
+
 def mission(loop, max_actions):
     actions = 0
     visited = []
@@ -432,14 +509,81 @@ def mission(loop, max_actions):
             continue
 
         if stage == "basic_parameters":
-            print("REASON = anthracite needs exact catalog selection, not a guessed color")
-            print("UNVERIFIED_CATALOG = profile/system and anthracite option")
-            print("STOP = exact profile color catalog selection not yet proven")
-            return 4
+            print("REASON = choose anthracite profile using an exact observed catalog option")
+            profile = WindowHubOfferFormMap().inspect(scene)
+            selected = profile.field("profile_color") if profile else None
+            actual = (selected.element.metadata or {}).get("current_value") if selected and selected.is_unique else None
+            exact_colors = ("Antracyt", "Antracyt / Antracyt", "Antracyt obustronny",
+                            "RAL 7016 obustronnie", "Antracyt / antracyt (RAL 7016)")
+            if not isinstance(actual, str) or actual.strip().casefold() not in {
+                value.casefold() for value in exact_colors
+            }:
+                if not select_catalog_option_once(
+                    scene, field_name="profile_color", approved_options=exact_colors
+                ):
+                    print("STOP = anthracite catalog option not safely selectable")
+                    return 6
+                actions += 1
+                after = inspect(loop)
+                field = WindowHubOfferFormMap().inspect(after)
+                selected = field.field("profile_color") if field else None
+                actual = (selected.element.metadata or {}).get("current_value") if selected and selected.is_unique else None
+                if not isinstance(actual, str) or actual.strip().casefold() not in {
+                    value.casefold() for value in exact_colors
+                }:
+                    print("STOP = anthracite UIA value not confirmed")
+                    return 6
+                print("PROFILE_COLOR_VERIFIED =", actual)
+                continue
+            if not advance_known_wizard(scene, expected_stage="glazing"):
+                print("STOP = basic parameters next step unavailable")
+                return 6
+            actions += 1
+            result = inspect(loop)
+            if stage_of(result) not in ("glazing", "hardware"):
+                print("STOP = glazing/hardware step not verified", stage_of(result))
+                return 6
+            continue
 
-        if stage in ("glazing", "hardware", "modifier"):
+        if stage == "glazing":
+            print("REASON = choose three-pane glazing only from an exact catalog label")
+            snapshot = WindowHubOfferFormMap().inspect(scene)
+            glass = snapshot.field("glazing_package") if snapshot else None
+            actual = (glass.element.metadata or {}).get("current_value") if glass and glass.is_unique else None
+            glass_names = ("3glass", "3 szyby", "Pakiet trzyszybowy",
+                           "Trzyszybowy", "3-szybowy")
+            if not isinstance(actual, str) or actual.strip().casefold() not in {
+                x.casefold() for x in glass_names
+            }:
+                if not select_catalog_option_once(
+                    scene, field_name="glazing_package", approved_options=glass_names
+                ):
+                    print("STOP = triple glazing catalog mapping not verified")
+                    return 6
+                actions += 1
+                fresh = inspect(loop)
+                snapshot = WindowHubOfferFormMap().inspect(fresh)
+                glass = snapshot.field("glazing_package") if snapshot else None
+                actual = (glass.element.metadata or {}).get("current_value") if glass and glass.is_unique else None
+                if not isinstance(actual, str) or actual.strip().casefold() not in {
+                    x.casefold() for x in glass_names
+                }:
+                    print("STOP = glazing selection postcondition not verified")
+                    return 6
+                continue
+            if not advance_known_wizard(scene, expected_stage="hardware"):
+                print("STOP = glazing next step unavailable")
+                return 6
+            actions += 1
+            observed = inspect(loop)
+            if stage_of(observed) not in ("hardware", "modifier"):
+                print("STOP = hardware/modifier not reached", stage_of(observed))
+                return 6
+            continue
+
+        if stage in ("hardware", "modifier"):
             print("OBSERVED_CONSTRUCTION_STAGE =", stage)
-            print("STOP = catalog-specific glazing/hardware path not yet validated")
+            print("STOP = detailed hardware dialog and frame/sash creation require observed native choices")
             return 4
 
         print("STOP = unknown stage")
