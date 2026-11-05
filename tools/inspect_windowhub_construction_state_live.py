@@ -19,6 +19,7 @@ from app.agent.learning.windowhub_construction_reconciliation import (
     two_sash_example,
 )
 from app.agent.perception.windowhub_semantic_world import enrich_windowhub_scene
+from app.agent.runtime.windowhub_window_activation import activate_unique_windowhub_offer_document
 from app.agent.runtime.windows_desktop_agent_control_loop import (
     create_windows_desktop_agent_control_loop,
 )
@@ -29,8 +30,17 @@ def main():
     if os.name != "nt":
         print("STOP = Windows required")
         return 2
-    # Explicitly require the user to display the document workspace.
-    # No automatic switching to a different document or wizard.
+    # Foreground may still be PowerShell after running the command. Focus
+    # only one uniquely identified Okna.exe offer, never a guessed document.
+    if os.environ.get("WH_REAL_WINDOWHUB") != "1" or os.environ.get("COMPUTER_USE_LIVE") != "1":
+        print("STOP = explicit foreground activation authorization required")
+        return 2
+    activated, reason = activate_unique_windowhub_offer_document()
+    print("OFFER_ACTIVATED =", activated)
+    if not activated:
+        print("STOP =", reason)
+        print("ACTIONS_EXECUTED = 0")
+        return 4
     scene = enrich_windowhub_scene(
         create_windows_desktop_agent_control_loop().observe_scene()
     )
