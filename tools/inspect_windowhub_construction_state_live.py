@@ -43,20 +43,19 @@ def main():
 
     # Reuse the existing vision pipeline as an observer. No ActionExecutor
     # commands or mouse-enabled ExecutionContext are constructed.
-    from app.runtime.execution.vision.vision_engine import VisionEngine
     from app.runtime.execution.construction_state_observer import (
         ConstructionStateObserver,
     )
     from app.runtime.execution.context.execution_context import ExecutionContext
     from app.runtime.execution.execution_mode import ExecutionMode
 
-    # Only the visual observation is used; execution remains disabled.
+    # Use the existing RuntimeVision observation directly, not ActionExecutor.
+    # The latter initializes input handlers even when its execute() isn't called.
+    from app.runtime.execution.vision.runtime_vision import RuntimeVision
     context = ExecutionContext(
         mouse_enabled=False, execution_mode=ExecutionMode.DRY_RUN
     )
-    from app.runtime.execution.action_executor import ActionExecutor
-    executor = ActionExecutor(context)
-    vision = executor.locator.vision.capture()
+    vision = RuntimeVision().capture()
     if vision is None:
         print("STOP = drawing vision unavailable")
         return 4
