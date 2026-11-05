@@ -4,7 +4,9 @@ No foreground activation, GUI actions, HTTP requests or customer values.
 """
 from __future__ import annotations
 
+import argparse
 import ctypes
+import time
 import os
 import sys
 from ctypes import wintypes
@@ -75,8 +77,42 @@ def window_inventory():
     return any(active for _, active in visible)
 
 
-def main():
-    print("=== NEW OFFER READ ONLY TRACE ===")
+def wait_for_windowhub(seconds: float) -> bool:
+    """Wait for user focus; never change foreground."""
+    import psutil
+    user32 = ctypes.windll.user32
+    user32.GetForegroundWindow.restype = wintypes.HWND
+    user32.GetWindowThreadProcessId.argtypes = (
+        wintypes.HWND, ctypes.POINTER(wintypes.DWORD),
+    )
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        hwnd = user32.GetForegroundWindow()
+        if hwnd:
+            pid = wintypes.DWORD()
+            user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+            try:
+                if psutil.Process(pid.value).name().casefold() == "okna.exe":
+                    return True
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                pass
+        time.sleep(0.15)
+    return False
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--wait-for-foreground", action="store_true")
+    args = parser.parse_args(argv)
+    print("=== NEW OFFER READ ONLY TRACE ===", flush=True)
+    if args.wait_for_foreground:
+        print("ACTION_REQUIRED = Przelacz sie do WindowHub (Alt+Tab lub pasek tytulu).", flush=True)
+        print("WAITING_FOR_WINDOWHUB_FOREGROUND = True", flush=True)
+        if not wait_for_windowhub(20.0):
+            print("WAIT_RESULT = foreground_not_observed")
+            print("ACTION_TAKEN = NONE")
+            return 0
+        print("WAIT_RESULT = windowhub_foreground_detected", flush=True)
     is_foreground = window_inventory()
     print("WINDOWHUB_FOREGROUND =", is_foreground)
     if not is_foreground:
