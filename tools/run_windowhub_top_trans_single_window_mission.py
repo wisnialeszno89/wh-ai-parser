@@ -30,7 +30,7 @@ from app.agent.offers.windowhub_offer_form_action import (
 )
 from app.agent.offers.windowhub_offer_form_map import WindowHubOfferFormMap
 from app.agent.offers.windowhub_offer_form_plan import WindowHubPlannedField, WindowHubPlanHandling
-from app.agent.offers.windowhub_wizard_navigation import WindowHubWizardNavigationPlanner
+from app.agent.offers.windowhub_wizard_navigation import WindowHubPositionToDimensionsPlanner
 from tools.run_windowhub_new_offer_native_invoke_once import resolve_native_control, resolve_native_wrapper
 
 CUSTOMER = "Top Trans"
@@ -326,9 +326,102 @@ def mission(loop, max_actions):
             print("STOP = CUSTOMER_SELECTION_UNVERIFIED")
             return 6
 
-        if stage in ("position", "dimensions", "basic_parameters", "glazing", "hardware", "modifier"):
-            print("POSITION_STAGE_REACHED =", stage)
-            print("NEXT = continue via existing wizard actions only after document customer confirmation")
+        if stage == "position":
+            print("REASON = configure one window position, not a sill or shutter")
+            snapshot = WindowHubOfferFormMap().inspect(scene)
+            if snapshot is None:
+                print("STOP = position wizard not uniquely mapped")
+                return 6
+            required = (
+                ("item_type_window", True, WindowHubPlanHandling.RADIO_SELECTION),
+                ("quantity_input", TARGET["quantity"], WindowHubPlanHandling.DIRECT_VALUE),
+            )
+            did = False
+            for key, desired, handling in required:
+                fresh = inspect(loop)
+                entry = WindowHubPlannedField(
+                    field_name=key, desired_value=desired,
+                    source="requested_test_window", handling=handling,
+                )
+                prepared = WindowHubOfferFormActionPlanner().prepare_entry(fresh, entry)
+                if prepared.status is WindowHubFormActionStatus.READY:
+                    if not execute_prepared(prepared, fresh, loop, "Set " + key):
+                        print("STOP = position action blocked", key)
+                        return 6
+                    actions += 1
+                    did = True
+                    break
+                if prepared.status is not WindowHubFormActionStatus.ALREADY_SATISFIED:
+                    print("STOP = position field blocked", key, prepared.reason)
+                    return 6
+            if did:
+                continue
+            prepared = WindowHubPositionToDimensionsPlanner().prepare(
+                scene, expected_quantity=TARGET["quantity"]
+            )
+            if not execute_prepared(
+                prepared, scene, loop, "Advance from position to dimensions"
+            ):
+                print("STOP = position navigation blocked")
+                return 6
+            actions += 1
+            if observe_step(loop, "dimensions") is None:
+                print("STOP = dimensions stage not verified")
+                return 6
+            continue
+
+        if stage == "dimensions":
+            print("REASON = set actual full-window width and height")
+            changed = False
+            for key, desired in (("width_1", TARGET["width_mm"]),
+                                 ("height_1", TARGET["height_mm"])):
+                fresh = inspect(loop)
+                entry = WindowHubPlannedField(
+                    field_name=key, desired_value=desired,
+                    source="requested_test_window",
+                    handling=WindowHubPlanHandling.DIRECT_VALUE,
+                )
+                prepared = WindowHubOfferFormActionPlanner().prepare_entry(fresh, entry)
+                if prepared.status is WindowHubFormActionStatus.READY:
+                    if not execute_prepared(prepared, fresh, loop, "Set " + key):
+                        return 6
+                    actions += 1
+                    changed = True
+                    break
+                if prepared.status is not WindowHubFormActionStatus.ALREADY_SATISFIED:
+                    print("STOP = dimension unmapped or unsafe", key, prepared.reason)
+                    return 6
+            if changed:
+                continue
+            button = matches(scene, kind="button", label="Dalej >", automation_id="12324")
+            if len(button) != 1:
+                print("STOP = dimensions next control not unique")
+                return 6
+            try:
+                native = resolve_native_wrapper(
+                    scene, label="Dalej >", automation_id="12324",
+                    allowed_stages=("dimensions",)
+                )
+                native.click_input()
+            except Exception as exc:
+                print("STOP = dimensions next", type(exc).__name__)
+                return 6
+            actions += 1
+            fresh = inspect(loop)
+            if stage_of(fresh) != "basic_parameters":
+                print("STOP = basic parameters not verified", stage_of(fresh))
+                return 6
+            continue
+
+        if stage == "basic_parameters":
+            print("REASON = anthracite needs exact catalog selection, not a guessed color")
+            print("UNVERIFIED_CATALOG = profile/system and anthracite option")
+            print("STOP = exact profile color catalog selection not yet proven")
+            return 4
+
+        if stage in ("glazing", "hardware", "modifier"):
+            print("OBSERVED_CONSTRUCTION_STAGE =", stage)
+            print("STOP = catalog-specific glazing/hardware path not yet validated")
             return 4
 
         print("STOP = unknown stage")
