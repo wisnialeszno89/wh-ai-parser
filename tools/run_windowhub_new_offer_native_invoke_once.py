@@ -53,7 +53,7 @@ def resolve_native_control(
              (e.metadata or {}).get("automation_id") == automation_id)
     ]
     if len(elements) != 1:
-        raise ValueError("new_offer_target_not_unique")
+        raise ValueError("native_target_not_unique_or_not_button")
     target = elements[0]
     expected = target.metadata or {}
     origin = meta.get("window_rect")
