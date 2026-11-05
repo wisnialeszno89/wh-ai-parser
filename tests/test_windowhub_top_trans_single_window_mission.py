@@ -44,7 +44,7 @@ def test_does_not_accept_any_other_customer_or_selection_focus():
                  value="Top Trans")
     assert mission.customer_selected(scene(wrong)) is False
     assert mission.customer_selected(scene(exact)) is True
-    assert mission.customer_selected(scene(wrong, exact)) is True
+    assert mission.customer_selected(scene(wrong, exact)) is False
 
 
 def test_price_state_must_be_confirmed_checked():
