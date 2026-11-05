@@ -95,17 +95,21 @@ def activate_windowhub_wizard(*, wait_seconds: float = 2.0, include_workspace: b
         if user32.GetForegroundWindow() != hwnd:
             user32.ShowWindow(hwnd, 9)  # SW_RESTORE
             user32.SetForegroundWindow(hwnd)
-        deadline = time.monotonic() + max(0.0, min(wait_seconds, 5.0))
+        deadline = time.monotonic() + max(0.0, min(wait_seconds, 15.0))
+        warned = False
         while time.monotonic() <= deadline:
             if user32.GetForegroundWindow() == hwnd:
                 return True, f"Activated WindowHub wizard: {title}"
+            if not warned and wait_seconds > 5.0:
+                print("FOCUS_REQUIRED: Kliknij okno WindowHub, aby je aktywowac. Nie klikaj kontrolek formularza.")
+                warned = True
             time.sleep(0.1)
         return False, f"Windows did not grant foreground focus to: {title}"
     except Exception as exc:
         return False, f"Activation unavailable: {type(exc).__name__}: {exc}"
 
 
-def activate_windowhub_workflow_window(*, wait_seconds: float = 2.0) -> tuple[bool, str]:
+def activate_windowhub_workflow_window(*, wait_seconds: float = 12.0) -> tuple[bool, str]:
     """Activate one observed WindowHub dialog or start/document workspace."""
     return activate_windowhub_wizard(
         wait_seconds=wait_seconds,
