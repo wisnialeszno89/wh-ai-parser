@@ -84,7 +84,9 @@ def execute_prepared(prepared, scene, loop, description):
         prepared, scene, loop, request_message=description,
     )
     print("EXECUTION_REPORT =", str(result)[:400])
-    return True  # Re-observe exact postcondition before proceeding.
+    # The control loop may return a rich result without a simple success flag.
+    # Always require the caller to freshly check a business postcondition.
+    return True
 
 
 def verify_exclusion(scene, key):
@@ -349,6 +351,14 @@ def mission(loop, max_actions):
                         print("STOP = position action blocked", key)
                         return 6
                     actions += 1
+                    verified_scene = inspect(loop)
+                    check = WindowHubOfferFormActionPlanner().prepare_entry(
+                        verified_scene, entry
+                    )
+                    if check.status is not WindowHubFormActionStatus.ALREADY_SATISFIED:
+                        print("STOP = position field postcondition not verified", key, check.reason)
+                        return 6
+                    print("POSTCONDITION_VERIFIED =", key)
                     did = True
                     break
                 if prepared.status is not WindowHubFormActionStatus.ALREADY_SATISFIED:
@@ -386,6 +396,14 @@ def mission(loop, max_actions):
                     if not execute_prepared(prepared, fresh, loop, "Set " + key):
                         return 6
                     actions += 1
+                    verified_scene = inspect(loop)
+                    check = WindowHubOfferFormActionPlanner().prepare_entry(
+                        verified_scene, entry
+                    )
+                    if check.status is not WindowHubFormActionStatus.ALREADY_SATISFIED:
+                        print("STOP = dimension postcondition not verified", key, check.reason)
+                        return 6
+                    print("POSTCONDITION_VERIFIED =", key)
                     changed = True
                     break
                 if prepared.status is not WindowHubFormActionStatus.ALREADY_SATISFIED:
