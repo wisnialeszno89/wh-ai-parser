@@ -116,17 +116,19 @@ def test_native_navigation_uses_proven_invoke_without_mouse_or_model(monkeypatch
     assert calls[1] == "invoke"
 
 
-def test_customer_picker_is_bound_to_specific_native_automation_id(monkeypatch):
+def test_customer_picker_uses_unique_native_wrapper_click_without_invoke(monkeypatch):
     from tools import run_windowhub_offer_draft_autopilot_v2 as workflow
     from types import SimpleNamespace
     calls = []
     def fake_resolve(scene, **kwargs):
         calls.append(kwargs)
-        return SimpleNamespace(Invoke=lambda: None)
-    monkeypatch.setattr(workflow, "resolve_native_control", fake_resolve)
+        return SimpleNamespace(click_input=lambda: calls.append("click_input"))
+    monkeypatch.setattr(workflow, "resolve_native_wrapper", fake_resolve)
+    monkeypatch.setattr(workflow, "resolve_native_control", lambda *args, **kwargs: pytest.fail("no invoke for customer picker"))
     workflow.invoke_known_navigation(SimpleNamespace(), "document_properties")
     assert calls[0]["automation_id"] == "IDC_ZAMAWIAJACY"
     assert calls[0]["allowed_stages"] == ("document_properties",)
+    assert calls == [calls[0], "click_input"]
 
 
 def test_unknown_stage_never_uses_native_navigation():
