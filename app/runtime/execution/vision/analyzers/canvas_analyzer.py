@@ -4,6 +4,7 @@ import numpy as np
 import cv2
 
 from app.runtime.execution.native_toolbar_resolver import NativeToolbarResolver
+from app.runtime.execution.vision.analyzers.hough_line_segments import hough_line_segments
 from app.runtime.execution.vision.models.canvas import Canvas
 from app.runtime.execution.vision.models.rect import Rect
 
@@ -269,8 +270,7 @@ class CanvasAnalyzer:
 
         horizontals = []
         verticals = []
-        for raw in lines[:, 0]:
-            x1, y1, x2, y2 = map(int, raw)
+        for x1, y1, x2, y2 in hough_line_segments(lines):
             dx = abs(x2 - x1)
             dy = abs(y2 - y1)
             length = math.hypot(dx, dy)
