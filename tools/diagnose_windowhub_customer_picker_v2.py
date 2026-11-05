@@ -75,6 +75,8 @@ def main():
         print(f"TARGET_{found}_ID =", auto_id if auto_id in TARGET_IDS else "OTHER")
         print(f"TARGET_{found}_POSITION =", index)
         print(f"TARGET_{found}_IN_WORLD =", ref in entities)
+        world_label = entities.get(ref, {}).get("label")
+        print(f"TARGET_{found}_MODEL_LABEL =", world_label if world_label in TARGET_LABELS else "OTHER")
         print(f"TARGET_{found}_SEMANTIC =", semantic if semantic in TARGET_LABELS else "NONE")
         print(f"TARGET_{found}_CONTROL_KIND =", element.kind)
         print(f"TARGET_{found}_UIA_TYPE =", meta.get("uia_control_type"))
