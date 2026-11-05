@@ -482,18 +482,29 @@ class ComputerUseV2ActionSession:
             if not self._is_unique_target(scene, resolver, element):
                 continue
 
-            # A unique native runtime ID proves which control is present, not
-            # what an unlabeled control means. Do not offer generic WindowHub
-            # widgets to a model as candidate actions. They can only become
-            # executable after perception provides a meaningful visible label.
-            label = element.label.strip().casefold() if isinstance(element.label, str) else ""
-            source = (element.metadata or {}).get("source")
+            # A native UIA identity says which widget is present, not what it
+            # means. WindowHub enriches some generic widgets with a verified
+            # semantic_label from its known AutomationId. Preserve those
+            # meaningful controls, but never offer unlabeled generic widgets.
+            metadata = element.metadata or {}
+            raw_label = element.label.strip().casefold() if isinstance(element.label, str) else ""
+            semantic_label = metadata.get("semantic_label")
+            has_semantic_label = (
+                isinstance(semantic_label, str)
+                and bool(semantic_label.strip())
+                and semantic_label.strip().casefold() not in {
+                    "lookupedit", "oknawpf", "part_item", "layoutcontrol"
+                }
+                and not semantic_label.strip().casefold().startswith("devexpress.")
+            )
+            source = metadata.get("source")
             if (
                 source in _UIA_SOURCES
                 and (
-                    label in {"lookupedit", "oknawpf", "part_item", "layoutcontrol"}
-                    or label.startswith("devexpress.")
+                    raw_label in {"lookupedit", "oknawpf", "part_item", "layoutcontrol"}
+                    or raw_label.startswith("devexpress.")
                 )
+                and not has_semantic_label
             ):
                 continue
 
