@@ -344,3 +344,22 @@ def test_devexpress_class_names_are_not_action_labels():
     names = {item["name"] for item in actions}
     assert "click_ent_0001" not in names
     assert "click_ent_0002" in names
+
+
+def test_verified_semantic_label_restores_customer_picker_without_generic_widgets():
+    from dataclasses import replace
+
+    raw_customer = _element("button", "LookUpEdit", automation_id="IDC_ZAMAWIAJACY")
+    customer = replace(raw_customer, metadata={
+        **raw_customer.metadata,
+        "semantic_label": "Wybierz istniejącego klienta",
+    })
+    generic = _element("button", "LookUpEdit", automation_id="other")
+    prepared = _prepare(_scene((customer, generic)))
+    actions = prepared.request_payload["capabilities"]["actions"]
+    names = {action["name"] for action in actions}
+    assert "click_ent_0001" in names
+    assert "click_ent_0002" not in names
+    entities = prepared.request_payload["world"]["entities"]
+    assert entities[0]["label"] == "Wybierz istniejącego klienta"
+    assert actions[0]["description"] == "Click the visible control labeled 'Wybierz istniejącego klienta'."
