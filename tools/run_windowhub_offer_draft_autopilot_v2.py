@@ -23,7 +23,7 @@ from app.agent.runtime.computer_use_v2_action_session import ComputerUseV2Action
 from app.agent.runtime.windowhub_goal_v2_coordinator import execute_v2_step
 from app.agent.runtime.windowhub_window_activation import activate_windowhub_workflow_window
 from app.agent.runtime.windows_desktop_agent_control_loop import create_windows_desktop_agent_control_loop
-from tools.run_windowhub_new_offer_native_invoke_once import resolve_native_control
+from tools.run_windowhub_new_offer_native_invoke_once import resolve_native_control, resolve_native_wrapper
 
 # The labels below are the only customer-neutral navigation controls approved
 # for this workflow. Selecting a customer requires a separate exact identifier.
@@ -70,13 +70,24 @@ NATIVE_NAVIGATION = {
 
 
 def invoke_known_navigation(scene, stage):
-    """Use native InvokePattern exactly once against the verified unique control."""
+    """Use one stage-specific verified native action; never retry blindly."""
     label, automation_id = NATIVE_NAVIGATION[stage]
-    invoke = resolve_native_control(
-        scene, label=label, automation_id=automation_id,
-        allowed_stages=(stage,),
-    )
-    invoke.Invoke()
+    if stage == "document_properties":
+        # IDC_ZAMAWIAJACY has no InvokePattern on the actual WindowHub build.
+        # It *does* have one uniquely matching, visible and enabled UIA button.
+        # click_input is allowed only for this exact native control and never
+        # cascades into a retry or a guessed alternative target.
+        wrapper = resolve_native_wrapper(
+            scene, label=label, automation_id="IDC_ZAMAWIAJACY",
+            allowed_stages=("document_properties",),
+        )
+        wrapper.click_input()
+    else:
+        invoke = resolve_native_control(
+            scene, label=label, automation_id=automation_id,
+            allowed_stages=(stage,),
+        )
+        invoke.Invoke()
     return label
 
 
@@ -219,7 +230,7 @@ def main(argv=None):
                 print("NATIVE_REASON =", str(exc) if isinstance(exc, ValueError) else "native_invoke_exception")
                 print("NO_AUTOMATIC_RETRY = True")
                 return 6
-            print(f"STEP_{step + 1}_PLANNER = NATIVE_UIA")
+            print(f"STEP_{step + 1}_PLANNER =", "UIA_GUARDED_CLICK" if stage == "document_properties" else "NATIVE_UIA")
             print(f"STEP_{step + 1}_ACTION =", label)
             destination_verified, observed_stage = observe_transition(
                 loop, stage, attempts=5
