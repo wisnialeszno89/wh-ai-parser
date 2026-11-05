@@ -4,6 +4,12 @@ Only prints whitelisted control metadata; never prints values, customer names or
 native runtime identifiers. No model requests and no desktop actions.
 """
 from uuid import uuid4
+from pathlib import Path
+import sys
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 from app.agent.learning.windowhub_demonstration import stage_of
 from app.agent.perception.windowhub_semantic_world import enrich_windowhub_scene
