@@ -104,18 +104,60 @@ def customer_selected(scene):
 
 
 def handle_customer_lookup(scene):
-    """Attempt exact customer selection only if the UIA element is unambiguous.
-
-    Generic dropdowns do not expose reliable row identity on all WindowHub
-    versions. Avoid selecting top/first rows by position or guessed text.
-    """
-    exact = [e for e in matches(scene) if e.kind in
-             {"listitem", "dataitem", "treeitem", "button", "text"}
-             and (e.label or "").strip().casefold() == CUSTOMER.casefold()]
-    print("EXACT_CUSTOMER_VISIBLE_MATCHES =", len(exact))
+    """Select only a unique exact company item, with fresh native UIA identity."""
+    from pywinauto import Desktop
+    import psutil
+    window_hwnd = scene.observation.metadata.get("window_handle")
+    if not isinstance(window_hwnd, int) or window_hwnd <= 0:
+        return False, "CUSTOMER_PICKER_NO_WINDOW"
+    wrappers = []
+    try:
+        from ctypes import wintypes
+        import ctypes
+        user32 = ctypes.WinDLL("user32", use_last_error=True)
+        user32.GetWindowThreadProcessId.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.DWORD)]
+        user32.GetWindowThreadProcessId.restype = wintypes.DWORD
+        pid = wintypes.DWORD()
+        user32.GetWindowThreadProcessId(window_hwnd, ctypes.byref(pid))
+        desktop = Desktop(backend="uia")
+        seen = set()
+        for w in desktop.windows():
+            try:
+                hwnd = int(w.handle)
+                if hwnd in seen:
+                    continue
+                seen.add(hwnd)
+                other = wintypes.DWORD()
+                user32.GetWindowThreadProcessId(hwnd, ctypes.byref(other))
+                if other.value != pid.value or not w.is_visible():
+                    continue
+                wrappers.extend(w.descendants())
+            except Exception:
+                continue
+    except Exception as exc:
+        return False, "CUSTOMER_UIA_ACCESS_" + type(exc).__name__
+    exact = []
+    for item in wrappers:
+        try:
+            info = item.element_info
+            role = str(info.control_type or "").casefold()
+            name = str(info.name or "").strip()
+            if (name.casefold() == CUSTOMER.casefold()
+                    and role in ("dataitem", "listitem", "treeitem")
+                    and bool(info.enabled) and bool(info.visible)):
+                exact.append(item)
+        except Exception:
+            continue
+    print("TOP_TRANS_EXACT_SELECTABLE_ROWS =", len(exact))
     if len(exact) != 1:
-        return False, "TOP_TRANS_ROW_NOT_UNIQUELY_VISIBLE"
-    return False, "CUSTOMER_ROW_HAS_NO_VERIFIED_SELECTION_POSTCONDITION"
+        return False, "TOP_TRANS_ROW_NOT_UNIQUELY_SELECTABLE"
+    try:
+        exact[0].click_input()
+    except Exception as exc:
+        return False, "TOP_TRANS_ROW_CLICK_" + type(exc).__name__
+    # Click may select a row only, leaving the popup open. Do not send
+    # Enter or double-click blindly. Reobserve selected customer in caller.
+    return True, "TOP_TRANS_EXACT_ROW_CLICKED_PENDING_VERIFICATION"
 
 
 def toggle_price_once(scene, key):
@@ -212,6 +254,12 @@ def mission(loop, max_actions):
                     continue
                 ok, reason = handle_customer_lookup(after)
                 print("CUSTOMER_LOOKUP_RESULT =", reason)
+                if ok:
+                    actions += 1
+                    fresh = inspect(loop)
+                    if customer_selected(fresh):
+                        print("CUSTOMER_SELECTED_VERIFIED = True")
+                        continue
                 print("STOP = CUSTOMER_SELECTION_UNVERIFIED")
                 print("NO_BLIND_RETRY = True")
                 return 6
