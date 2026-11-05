@@ -22,10 +22,12 @@ from app.agent.runtime.windows_desktop_agent_control_loop import create_windows_
 from app.agent.perception.windowhub_ui_automation_provider import WindowHubUIAutomationProvider
 
 
-def resolve_native_button(scene, *, desktop=None):
-    """Re-identify a freshly observed control before native invocation."""
+def resolve_native_control(
+    scene, *, label, automation_id=None, allowed_stages=(), desktop=None
+):
+    """Re-identify a unique native control for an explicitly allowed stage."""
     from pywinauto import Desktop
-    if stage_of(scene) not in {"start", "offer_document"}:
+    if stage_of(scene) not in allowed_stages:
         raise ValueError("unexpected_windowhub_stage")
     meta = scene.observation.metadata
     hwnd = meta.get("window_handle")
@@ -39,7 +41,7 @@ def resolve_native_button(scene, *, desktop=None):
         raise ValueError("windowhub_not_foreground")
     elements = [
         e for e in scene.elements
-        if e.label == "NOWA OFERTA"
+        if (e.metadata or {}).get("semantic_label", e.label) == label
         and e.kind == "button"
         and (e.metadata or {}).get("source") in
             {"windows_ui_automation", "windowhub_ui_automation"}
@@ -47,6 +49,8 @@ def resolve_native_button(scene, *, desktop=None):
         and (e.metadata or {}).get("uia_enabled") is True
         and isinstance((e.metadata or {}).get("uia_runtime_id"), str)
         and bool((e.metadata or {}).get("automation_id"))
+        and (automation_id is None or
+             (e.metadata or {}).get("automation_id") == automation_id)
     ]
     if len(elements) != 1:
         raise ValueError("new_offer_target_not_unique")
@@ -91,6 +95,14 @@ def resolve_native_button(scene, *, desktop=None):
     except Exception as exc:
         raise ValueError("uia_invoke_pattern_not_supported") from exc
     return invoke
+
+
+def resolve_native_button(scene, *, desktop=None):
+    """Compatibility wrapper for the proven NOWA OFERTA InvokePattern."""
+    return resolve_native_control(
+        scene, label="NOWA OFERTA",
+        allowed_stages=("start", "offer_document"), desktop=desktop,
+    )
 
 
 def main(argv=None):
