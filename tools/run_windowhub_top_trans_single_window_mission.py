@@ -282,12 +282,43 @@ def mission(loop, max_actions):
                     print("STOP = PREFERENCE_POSTCONDITION_MISSING", key)
                     return 6
                 print("PREFERENCE =", key, "VERIFIED")
-            # A final OK is intentionally gated: in old missions user requested
-            # 'without construction price' too, which we do NOT apply here.
-            # Exact three-price policy must be checked against live scene.
-            print("DOCUMENT_PREFERENCES_VERIFIED = True")
-            print("STOP = DOCUMENT_CONFIRMATION_NOT_YET_MAPPED_FOR_THREE_EXCLUSIONS")
-            return 4
+            # Three price exclusions requested, not the older fourth
+            # 'without construction price'. Confirm ONLY exact customer and
+            # exactly these three settings as independently reobserved.
+            final = inspect(loop)
+            if not customer_selected(final) or not all(
+                verify_exclusion(final, key) for key in EXCLUSIONS
+            ):
+                print("STOP = DOCUMENT_POSTCONDITIONS_MISSING")
+                return 6
+            buttons = matches(final, kind="button", label="OK")
+            if len(buttons) != 1:
+                print("STOP = DOCUMENT_OK_NOT_UNIQUE", len(buttons))
+                return 6
+            print("REASON = Top Trans and three requested price exclusions verified")
+            try:
+                button = resolve_native_wrapper(
+                    final, label="OK",
+                    allowed_stages=("document_properties",),
+                )
+                try:
+                    pattern = button.iface_invoke
+                except Exception:
+                    pattern = None
+                if pattern is not None:
+                    pattern.Invoke()
+                else:
+                    button.click_input()
+            except Exception as exc:
+                print("STOP = DOCUMENT_CONFIRMATION_FAILED", type(exc).__name__)
+                return 6
+            actions += 1
+            changed = inspect(loop)
+            print("POST_DOCUMENT_STAGE =", stage_of(changed))
+            if stage_of(changed) == "document_properties":
+                print("STOP = document confirmation not verified")
+                return 6
+            continue
 
         if stage in ("windowhub_unmapped", "customer_lookup"):
             ok, reason = handle_customer_lookup(scene)
