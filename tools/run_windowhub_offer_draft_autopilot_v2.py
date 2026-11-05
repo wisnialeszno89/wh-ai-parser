@@ -46,7 +46,7 @@ def stage_transition_verified(before_stage, after_stage):
     return after_stage in NAVIGATION_DESTINATIONS.get(before_stage, ())
 
 
-def observe_transition(loop, before_stage, *, attempts=3):
+def observe_transition(loop, before_stage, *, attempts=3, previous_window_handle=None):
     """Briefly poll a newly opened WindowHub dialog without another click."""
     latest = None
     for index in range(attempts):
@@ -54,7 +54,16 @@ def observe_transition(loop, before_stage, *, attempts=3):
         observed = stage_of(latest)
         print("POST_ACTION_STAGE =", observed, flush=True)
         if stage_transition_verified(before_stage, observed):
-            return True, observed
+            if before_stage == "document_properties":
+                latest_hwnd = latest.observation.metadata.get("window_handle")
+                if (not isinstance(previous_window_handle, int)
+                        or latest_hwnd == previous_window_handle):
+                    print("PICKER_WINDOW_CHANGED = False")
+                else:
+                    print("PICKER_WINDOW_CHANGED = True")
+                    return True, observed
+            else:
+                return True, observed
         if observed is None:
             return False, None
         if index + 1 < attempts:
@@ -233,7 +242,8 @@ def main(argv=None):
             print(f"STEP_{step + 1}_PLANNER =", "UIA_GUARDED_CLICK" if stage == "document_properties" else "NATIVE_UIA")
             print(f"STEP_{step + 1}_ACTION =", label)
             destination_verified, observed_stage = observe_transition(
-                loop, stage, attempts=5
+                loop, stage, attempts=5,
+                previous_window_handle=scene.observation.metadata.get("window_handle"),
             )
             print(f"STEP_{step + 1}_DESTINATION_VERIFIED =", destination_verified)
             if not destination_verified:
