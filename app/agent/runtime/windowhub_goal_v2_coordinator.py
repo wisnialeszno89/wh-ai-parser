@@ -167,5 +167,26 @@ def execute_v2_step(loop, scene, resolved, *, approved_persistent=False):
         or (getattr(execution, "metadata", None) or {}).get("executed") is not True
         or getattr(verification, "verified", None) is not True
     ):
+        # Never emit raw executor messages, screen values or native IDs.
+        # Surface stable outcome categories so a failed real action can be
+        # diagnosed without another speculative click or model request.
+        executed_flag = (getattr(execution, "metadata", None) or {}).get("executed")
+        execution_ok = getattr(execution, "success", None) is True
+        verification_ok = getattr(verification, "verified", None) is True
+        if not execution_ok:
+            category = "execution_blocked"
+        elif executed_flag is not True:
+            category = "execution_not_confirmed"
+        elif verification is None:
+            category = "verification_missing"
+        elif not verification_ok:
+            category = "postcondition_failed"
+        else:
+            category = "control_loop_failed"
+        print("V2_EXECUTION_STATUS=" + category)
+        print("V2_EXECUTOR_SUCCESS=" + str(execution_ok))
+        print("V2_INPUT_EXECUTED=" + str(executed_flag is True))
+        print("V2_VERIFICATION_PRESENT=" + str(verification is not None))
+        print("V2_POSTCONDITION_VERIFIED=" + str(verification_ok))
         raise RuntimeError("v2_action_executed_but_not_verified_or_was_blocked")
     return result
