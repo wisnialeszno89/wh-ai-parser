@@ -1,6 +1,6 @@
 """Stage policy tests for the bounded offer-draft autopilot."""
 import pytest
-from tools.run_windowhub_offer_draft_autopilot_v2 import permitted_label, pick_action, resolve_verified_navigation
+from tools.run_windowhub_offer_draft_autopilot_v2 import permitted_label, pick_action, resolve_verified_navigation, stage_transition_verified
 
 
 @pytest.mark.parametrize("stage,label,allowed", [
@@ -81,3 +81,18 @@ def test_local_navigation_refuses_confirmation_required_capability():
     }
     with pytest.raises(ValueError, match="navigation_requires_confirmation"):
         resolve_verified_navigation(None, cap)
+
+
+@pytest.mark.parametrize("before,after,expected", [
+    ("offer_document", "document_properties", True),
+    ("start", "document_properties", True),
+    ("offer_document", "offer_document", False),
+    ("offer_document", "start", False),
+    ("offer_document", "windowhub_unmapped", False),
+    ("document_properties", "offer_document", False),
+    ("document_properties", "windowhub_unmapped", True),
+    ("document_properties", "customer_lookup", True),
+    ("document_properties", "document_properties", False),
+])
+def test_navigation_requires_expected_destination(before, after, expected):
+    assert stage_transition_verified(before, after) is expected
