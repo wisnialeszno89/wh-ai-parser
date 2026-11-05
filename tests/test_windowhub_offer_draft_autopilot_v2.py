@@ -135,3 +135,30 @@ def test_unknown_stage_never_uses_native_navigation():
     from tools.run_windowhub_offer_draft_autopilot_v2 import invoke_known_navigation
     with pytest.raises(KeyError):
         invoke_known_navigation(None, "windowhub_unmapped")
+
+
+def test_picker_transition_requires_new_foreground_window(monkeypatch):
+    from tools import run_windowhub_offer_draft_autopilot_v2 as workflow
+    from types import SimpleNamespace
+
+    def scene_for(hwnd):
+        return SimpleNamespace(
+            observation=SimpleNamespace(metadata={"window_handle": hwnd})
+        )
+
+    class Loop:
+        def __init__(self, hwnd):
+            self.hwnd = hwnd
+        def observe_scene(self):
+            return scene_for(self.hwnd)
+
+    monkeypatch.setattr(workflow, "enrich_windowhub_scene", lambda scene: scene)
+    monkeypatch.setattr(workflow, "stage_of", lambda scene: "windowhub_unmapped")
+    same, _ = workflow.observe_transition(
+        Loop(100), "document_properties", attempts=1, previous_window_handle=100
+    )
+    new, _ = workflow.observe_transition(
+        Loop(101), "document_properties", attempts=1, previous_window_handle=100
+    )
+    assert same is False
+    assert new is True
