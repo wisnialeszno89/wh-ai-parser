@@ -14,6 +14,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from app.agent.learning.windowhub_demonstration import stage_of
+from app.agent.learning.windowhub_drawing_candidate_evidence import inspect_win32_candidate_owner
 from app.agent.learning.windowhub_construction_reconciliation import (
     reconcile_aggregate_observation,
     two_sash_example,
@@ -85,6 +86,24 @@ def main():
         vision, context.gui_state, hardware_ready=False
     )
     print("VISUAL_CONSTRUCTION_CANDIDATE =", state.construction_present)
+    offer_hwnd = scene.observation.metadata.get("window_handle")
+    evidence = None
+    if isinstance(offer_hwnd, int) and offer_hwnd > 0:
+        try:
+            evidence = inspect_win32_candidate_owner(
+                observed_rect, getattr(vision, "construction", None), offer_hwnd
+            )
+            print("DRAWING_CANDIDATE_OWNER_STATUS =", evidence.status)
+            print("DRAWING_CANDIDATE_WITHIN_WINDOW =", evidence.within_window)
+            print("DRAWING_CANDIDATE_FOREGROUND_MATCH =", evidence.foreground_matches)
+            print("DRAWING_CANDIDATE_ROOT_MATCH =", evidence.root_matches)
+            print("DRAWING_CANDIDATE_OWNERSHIP_REASON =", evidence.reason)
+        except (OSError, ValueError, RuntimeError) as exc:
+            print("DRAWING_CANDIDATE_OWNER_STATUS = unavailable")
+            print("DRAWING_CANDIDATE_OWNERSHIP_ERROR =", type(exc).__name__)
+    else:
+        print("DRAWING_CANDIDATE_OWNER_STATUS = missing_observed_hwnd")
+    print("DRAWING_COMPONENT_IDENTITIES_VERIFIED = 0")
     print("RUNTIME_FRAME_HISTORY =", state.frame_present)
     print("RUNTIME_SASH_HISTORY =", state.sash_present)
     print("RUNTIME_GLASS_HISTORY =", state.glass_present)
