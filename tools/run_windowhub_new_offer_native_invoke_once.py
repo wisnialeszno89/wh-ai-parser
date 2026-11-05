@@ -22,7 +22,7 @@ from app.agent.runtime.windows_desktop_agent_control_loop import create_windows_
 from app.agent.perception.windowhub_ui_automation_provider import WindowHubUIAutomationProvider
 
 
-def resolve_native_control(
+def resolve_native_wrapper(
     scene, *, label, automation_id=None, allowed_stages=(), desktop=None
 ):
     """Re-identify a unique native control for an explicitly allowed stage."""
@@ -87,7 +87,17 @@ def resolve_native_control(
             continue
     if len(candidates) != 1:
         raise ValueError("fresh_native_button_identity_mismatch")
-    button = candidates[0]
+    return candidates[0]
+
+
+def resolve_native_control(
+    scene, *, label, automation_id=None, allowed_stages=(), desktop=None
+):
+    """Return InvokePattern only for a uniquely verified native button."""
+    button = resolve_native_wrapper(
+        scene, label=label, automation_id=automation_id,
+        allowed_stages=allowed_stages, desktop=desktop,
+    )
     try:
         invoke = button.iface_invoke
         if invoke is None:
