@@ -81,9 +81,16 @@ def construction_demonstration_report(records):
         # Labels are safe only if they match an explicit curated map spec.
         if before != after or before not in _STAGE_TO_GROUPS:
             continue
+        # Labels shared by several native fields (e.g. width or color)
+        # are ambiguous in a redacted demonstration, so do not attribute
+        # their effects to any particular frame, glazing or hardware field.
+        names_by_label = {}
+        for spec in WINDOWHUB_OFFER_CONTROL_SPECS:
+            if spec.step.value == before:
+                names_by_label.setdefault(spec.label, set()).add(spec.field_name)
         safe_labels = {
-            spec.label: spec.field_name
-            for spec in WINDOWHUB_OFFER_CONTROL_SPECS if spec.step.value == before
+            label: next(iter(fields))
+            for label, fields in names_by_label.items() if len(fields) == 1
         }
         for change in (transition.get("changed") or [])[:20]:
             if not isinstance(change, Mapping):
