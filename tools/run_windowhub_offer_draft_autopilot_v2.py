@@ -216,6 +216,7 @@ def main(argv=None):
                 label = invoke_known_navigation(scene, stage)
             except Exception as exc:
                 print("STOP = NATIVE_NAVIGATION_FAILED", type(exc).__name__)
+                print("NATIVE_REASON =", str(exc) if isinstance(exc, ValueError) else "native_invoke_exception")
                 print("NO_AUTOMATIC_RETRY = True")
                 return 6
             print(f"STEP_{step + 1}_PLANNER = NATIVE_UIA")
