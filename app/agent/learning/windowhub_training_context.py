@@ -9,6 +9,10 @@ import json
 from pathlib import Path
 
 from app.agent.learning.windowhub_demonstration import demonstration_experience, demonstration_summary
+from app.agent.learning.windowhub_construction_learning import (
+    construction_map_coverage, construction_demonstration_report,
+    construction_learning_experience,
+)
 
 
 def windowhub_skill_knowledge() -> dict[str, object]:
@@ -36,6 +40,14 @@ def windowhub_skill_knowledge() -> dict[str, object]:
             "Profile color must match side-specific requirements, not only a substring.",
             "Zakończ may persist a business position; verify the modifier is reached.",
         ],
+        "window_construction_learning": {
+            "frame": "System profile and frame geometry must be verified from the actual catalog.",
+            "sash": "Sash count, opening direction and sash profile are distinct from the frame.",
+            "glazing": "Glass package, spacer and applicable thickness constraints are separate choices.",
+            "hardware": "Hardware type, opening mode and compatibility must be verified against the chosen sash.",
+            "ui_mapping": construction_map_coverage(),
+            "policy": "A demonstrated screen state is not proof of a valid buildable configuration.",
+        },
         "uncertainties": [
             "The selected customer value may not be exposed by the native lookup.",
             "Multiple offers may be open; Cancel may leave the intended workflow.",
@@ -65,8 +77,17 @@ def read_demonstration_records(path: Path, *, max_bytes: int = 1_000_000) -> lis
 
 
 def read_demonstration_experience(path: Path) -> tuple[dict[str, object], ...]:
-    return demonstration_experience(read_demonstration_records(path), limit=12)
+    records = read_demonstration_records(path)
+    # Keep within V2's 20-item experience limit, and retain stage learning.
+    return (
+        demonstration_experience(records, limit=12)
+        + construction_learning_experience(records, limit=8)
+    )
 
 
 def read_demonstration_report(path: Path) -> dict[str, object]:
-    return demonstration_summary(read_demonstration_records(path))
+    records = read_demonstration_records(path)
+    return {
+        **demonstration_summary(records),
+        "construction_learning": construction_demonstration_report(records),
+    }
