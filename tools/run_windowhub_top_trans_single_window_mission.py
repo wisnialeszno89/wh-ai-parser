@@ -98,11 +98,11 @@ def verify_exclusion(scene, key):
 def customer_selected(scene):
     # The existing customer lookup does not reliably expose the selected value.
     # Never interpret a focused button or opened grid as a selected client.
-    for e in matches(scene, automation_id="IDC_ZAMAWIAJACY"):
-        value = (e.metadata or {}).get("current_value")
-        if isinstance(value, str) and value.strip().casefold() == CUSTOMER.casefold():
-            return True
-    return False
+    candidates = matches(scene, automation_id="IDC_ZAMAWIAJACY")
+    if len(candidates) != 1:
+        return False
+    value = (candidates[0].metadata or {}).get("current_value")
+    return isinstance(value, str) and value.strip().casefold() == CUSTOMER.casefold()
 
 
 def handle_customer_lookup(scene):
