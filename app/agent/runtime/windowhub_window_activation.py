@@ -19,6 +19,54 @@ _ALLOWED_TITLES = frozenset({
 })
 
 
+
+def _focus_existing_window(user32, hwnd) -> bool:
+    """Best-effort automatic Win32 foreground transfer for one verified HWND.
+
+    Attach input queues only temporarily; never synthesize keys or mouse
+    events. Windows may still deny focus, in which case return False.
+    """
+    if user32.GetForegroundWindow() == hwnd:
+        return True
+    user32.ShowWindow(hwnd, 9)  # SW_RESTORE
+    user32.SetForegroundWindow(hwnd)
+    if user32.GetForegroundWindow() == hwnd:
+        return True
+
+    kernel32 = ctypes.windll.kernel32
+    kernel32.GetCurrentThreadId.restype = wintypes.DWORD
+    user32.GetWindowThreadProcessId.argtypes = [
+        wintypes.HWND, ctypes.POINTER(wintypes.DWORD),
+    ]
+    user32.GetWindowThreadProcessId.restype = wintypes.DWORD
+    user32.AttachThreadInput.argtypes = [
+        wintypes.DWORD, wintypes.DWORD, wintypes.BOOL,
+    ]
+    user32.AttachThreadInput.restype = wintypes.BOOL
+    current_thread = kernel32.GetCurrentThreadId()
+    foreground = user32.GetForegroundWindow()
+    foreground_thread = (
+        user32.GetWindowThreadProcessId(foreground, None)
+        if foreground else 0
+    )
+    target_thread = user32.GetWindowThreadProcessId(hwnd, None)
+    attached = []
+    try:
+        for thread_id in (foreground_thread, target_thread):
+            if thread_id and thread_id != current_thread and thread_id not in attached:
+                if not user32.AttachThreadInput(current_thread, thread_id, True):
+                    return False
+                attached.append(thread_id)
+        user32.BringWindowToTop.argtypes = [wintypes.HWND]
+        user32.BringWindowToTop.restype = wintypes.BOOL
+        user32.BringWindowToTop(hwnd)
+        user32.SetForegroundWindow(hwnd)
+        return user32.GetForegroundWindow() == hwnd
+    finally:
+        for thread_id in reversed(attached):
+            user32.AttachThreadInput(current_thread, thread_id, False)
+
+
 def activate_windowhub_wizard(*, wait_seconds: float = 2.0, include_workspace: bool = False) -> tuple[bool, str]:
     """Focus one existing visible Okna.exe wizard, or fail closed."""
     if os.name != "nt":
@@ -92,24 +140,20 @@ def activate_windowhub_wizard(*, wait_seconds: float = 2.0, include_workspace: b
             return False, f"Expected one unambiguous WindowHub workflow window; found {len(candidates)}"
 
         hwnd, title = candidates[0]
-        if user32.GetForegroundWindow() != hwnd:
-            user32.ShowWindow(hwnd, 9)  # SW_RESTORE
-            user32.SetForegroundWindow(hwnd)
-        deadline = time.monotonic() + max(0.0, min(wait_seconds, 15.0))
-        warned = False
+        # The agent must activate WindowHub automatically. Do not request
+        # manual title-bar clicks; never proceed without verified foreground.
+        _focus_existing_window(user32, hwnd)
+        deadline = time.monotonic() + max(0.0, min(wait_seconds, 5.0))
         while time.monotonic() <= deadline:
             if user32.GetForegroundWindow() == hwnd:
                 return True, f"Activated WindowHub wizard: {title}"
-            if not warned and wait_seconds > 5.0:
-                print("FOCUS_REQUIRED: Kliknij okno WindowHub, aby je aktywowac. Nie klikaj kontrolek formularza.")
-                warned = True
             time.sleep(0.1)
         return False, f"Windows did not grant foreground focus to: {title}"
     except Exception as exc:
         return False, f"Activation unavailable: {type(exc).__name__}: {exc}"
 
 
-def activate_windowhub_workflow_window(*, wait_seconds: float = 12.0) -> tuple[bool, str]:
+def activate_windowhub_workflow_window(*, wait_seconds: float = 3.0) -> tuple[bool, str]:
     """Activate one observed WindowHub dialog or start/document workspace."""
     return activate_windowhub_wizard(
         wait_seconds=wait_seconds,
