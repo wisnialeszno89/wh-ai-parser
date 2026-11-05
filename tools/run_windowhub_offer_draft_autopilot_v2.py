@@ -23,6 +23,7 @@ from app.agent.runtime.computer_use_v2_action_session import ComputerUseV2Action
 from app.agent.runtime.windowhub_goal_v2_coordinator import execute_v2_step
 from app.agent.runtime.windowhub_window_activation import activate_windowhub_workflow_window
 from app.agent.runtime.windows_desktop_agent_control_loop import create_windows_desktop_agent_control_loop
+from tools.run_windowhub_new_offer_native_invoke_once import resolve_native_control
 
 # The labels below are the only customer-neutral navigation controls approved
 # for this workflow. Selecting a customer requires a separate exact identifier.
@@ -59,6 +60,24 @@ def observe_transition(loop, before_stage, *, attempts=3):
         if index + 1 < attempts:
             time.sleep(0.3)
     return False, stage_of(latest)
+
+
+NATIVE_NAVIGATION = {
+    "start": ("NOWA OFERTA", None),
+    "offer_document": ("NOWA OFERTA", None),
+    "document_properties": ("Wybierz istniejącego klienta", "IDC_ZAMAWIAJACY"),
+}
+
+
+def invoke_known_navigation(scene, stage):
+    """Use native InvokePattern exactly once against the verified unique control."""
+    label, automation_id = NATIVE_NAVIGATION[stage]
+    invoke = resolve_native_control(
+        scene, label=label, automation_id=automation_id,
+        allowed_stages=(stage,),
+    )
+    invoke.Invoke()
+    return label
 
 
 def permitted_label(stage, label, *, customer):
@@ -175,6 +194,28 @@ def main(argv=None):
             print("RESULT = DOCUMENT_PROPERTIES_REACHED")
             return 4
 
+        if stage in NATIVE_NAVIGATION:
+            # Native InvokePattern already proved to open Document Properties.
+            # Do not substitute generic mouse clicking or ask the model.
+            try:
+                label = invoke_known_navigation(scene, stage)
+            except Exception as exc:
+                print("STOP = NATIVE_NAVIGATION_FAILED", type(exc).__name__)
+                print("NO_AUTOMATIC_RETRY = True")
+                return 6
+            print(f"STEP_{step + 1}_PLANNER = NATIVE_UIA")
+            print(f"STEP_{step + 1}_ACTION =", label)
+            destination_verified, observed_stage = observe_transition(
+                loop, stage, attempts=5
+            )
+            print(f"STEP_{step + 1}_DESTINATION_VERIFIED =", destination_verified)
+            if not destination_verified:
+                print("STOP = NAVIGATION_DID_NOT_REACH_EXPECTED_STAGE")
+                print("LAST_OBSERVED_STAGE =", observed_stage)
+                print("NO_AUTOMATIC_RETRY = True")
+                return 6
+            continue
+
         # Construct fresh capabilities once per scene revision.
         prepared = session.prepare_cycle(
             scene,
@@ -203,7 +244,10 @@ def main(argv=None):
         ]
         print(f"STEP_{step + 1}_ALLOWED_ACTIONS =", len(allowed))
         if len(allowed) != 1:
-            print("STOP = expected one unique safe navigation action")
+            print("STOP = CUSTOMER_SELECTION_NOT_UNIQUELY_GROUNDED")
+            print("KNOWN_CUSTOMER_SPECIFIED =", bool(args.customer))
+            print("SCREEN_CONTROL_COUNT =", len(scene.elements))
+            print("NO_AUTOMATIC_RETRY = True")
             return 4
 
         if stage in NAVIGATION:
