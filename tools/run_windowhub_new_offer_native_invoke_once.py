@@ -88,7 +88,7 @@ def resolve_native_button(scene, *, desktop=None):
         invoke = button.iface_invoke
         if invoke is None:
             raise ValueError("uia_invoke_pattern_not_supported")
-    except (AttributeError, RuntimeError, OSError) as exc:
+    except Exception as exc:
         raise ValueError("uia_invoke_pattern_not_supported") from exc
     return invoke
 
