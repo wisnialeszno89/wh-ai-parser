@@ -205,3 +205,48 @@ not generate new server credentials, and never prints the secret.
 Bezpośredni adres chronionego deploymentu nie jest publicznym API bez SSO.
 Nie należy uruchamiać testu przeciw `www.navimind.app`, dopóki nie potwierdzono,
 że produkcja rzeczywiście zawiera V2.
+
+
+## 2026-11-05: Rozmowa NaviMind → jawne zlecenie TXT → lokalny agent
+
+NaviMind PR #28 dostarcza dwa sposoby rozpoczęcia zadania w czacie:
+wybranie `Zadanie dla agenta` lub czytelne polecenie przygotowania
+oferty okiennej. Odpowiedź zawiera kartę statusu
+`prepared_not_executed` i przycisk `Pobierz zlecenie TXT`.
+Jest to **przekazanie pliku**, nie połączenie sieciowe z pulpitem.
+
+1. Otwórz NaviMind, podaj polecenie np. `Przygotuj ofertę na okno
+   1230×1478, białe wewnątrz, antracyt zewnątrz`.
+2. Pobierz `navimind-agent-task.txt` z karty odpowiedzi.
+3. Uruchom WindowHub na ekranie Start1, następnie w PowerShell z katalogu
+   tego repozytorium:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\import_navimind_chat_task.ps1
+```
+
+Skrypt wybiera najnowszy plik `navimind-agent-task*.txt` z
+`$env:USERPROFILE\Downloads` i uruchamia **wyłącznie `--mode inspect`**.
+Nie uruchamia modelu, nie wysyła danych ani nie klika. Pole `--task-file`
+jest obsługiwane przez istniejący parser TXT/PDF.
+
+Dopiero **po konfiguracji bezpiecznego endpointu NaviMind V2**, przy
+świadomej zgodzie na pojedyncze, potencjalnie płatne zapytanie:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\import_navimind_chat_task.ps1 -Mode think -AllowModelRequest
+```
+
+Zwrócona decyzja jest tylko propozycją. Nie przekazuje automatycznie
+pracy do wykonania. Lokalne kliknięcia, zapis oferty i dalszy krok
+wymagają osobnych, kontrolowanych testów agenta WindowHub.
+
+Plik zadania może zawierać dane klienta, jeśli sam je wpiszesz do
+rozmowy. Nie udostępniaj go osobom trzecim. Nie używaj realnych danych
+klientów w pierwszych testach.
+
+Kolejny kamień milowy: bezpieczne, świadome parowanie konkretnego
+komputera z kontem użytkownika NaviMind i odbiór zadania przez lokalnego
+agenta, z podpisanym potwierdzeniem wykonania. To **nie jest jeszcze
+zaimplementowane**, dlatego czat nie może twierdzić, że zadanie
+zostało wysłane lub wykonane na komputerze.
