@@ -302,3 +302,34 @@ def test_ocr_only_text_never_becomes_an_executable_action_capability():
     actions = prepared.request_payload["capabilities"]["actions"]
     assert [item["name"] for item in actions] == _keyboard_action_names()
     assert all(item["target_ref"] is None for item in actions)
+
+
+def test_windowhub_generic_widget_labels_are_not_offered_as_actions():
+    # Native uniqueness is not the same as a semantic label. The model must
+    # never guess whether a generic LookUpEdit or OknaWPF is a client picker.
+    scene = _scene((
+        _element("button", "Wybierz istniejącego klienta", automation_id="choose"),
+        _element("button", "LookUpEdit", automation_id="lookup"),
+        _element("edit", "OknaWPF", automation_id="field"),
+        _element("button", "OknaWPF", automation_id="renamed", source="windowhub_ui_automation"),
+    ))
+    prepared = _prepare(scene)
+    validate_agent_task_v2_payload(prepared.request_payload)
+    actions = prepared.request_payload["capabilities"]["actions"]
+    names = [item["name"] for item in actions]
+    assert "click_ent_0001" in names
+    assert "click_ent_0002" not in names
+    assert "click_ent_0003" not in names
+    assert "write_text_ent_0003" not in names
+    assert "click_ent_0004" not in names
+    assert names[-len(_keyboard_action_names()):] == _keyboard_action_names()
+
+
+def test_named_controls_remain_available_in_other_applications():
+    scene = _scene((
+        _element("button", "Save report", automation_id="save"),
+        _element("edit", "Customer reference", automation_id="reference"),
+    ))
+    names = [item["name"] for item in _prepare(scene).request_payload["capabilities"]["actions"]]
+    assert "click_ent_0001" in names
+    assert "write_text_ent_0002" in names
