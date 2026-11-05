@@ -244,7 +244,7 @@ def main(argv=None):
             print("STOP = EXECUTION_NOT_VERIFIED", str(exc))
             print("NO_AUTOMATIC_RETRY = True")
             return 6
-        print(f"STEP_{step + 1}_VERIFIED = True")
+        print(f"STEP_{step + 1}_INPUT_AND_GENERIC_POSTCONDITION_VERIFIED = True")
         if stage in NAVIGATION:
             destination_verified, observed_stage = observe_transition(loop, stage)
             print(f"STEP_{step + 1}_DESTINATION_VERIFIED =", destination_verified)
