@@ -325,6 +325,43 @@ def mission(loop, max_actions):
                 return 6
             continue
 
+        if stage == "offer_document" and actions > 0:
+            print("REASON = Document properties confirmed; add a new window position")
+            approved = ("Nowa pozycja", "Dodaj nową pozycję", "Dodawanie nowej pozycji")
+            candidates = [e for e in scene.elements
+                          if e.kind == "button"
+                          and (e.label or "").strip().casefold() in {
+                              label.casefold() for label in approved
+                          }
+                          and (e.metadata or {}).get("uia_visible") is True
+                          and (e.metadata or {}).get("uia_enabled") is True]
+            print("NEW_POSITION_NATIVE_CANDIDATES =", len(candidates))
+            if len(candidates) != 1:
+                print("STOP = new position control not uniquely exposed")
+                return 6
+            try:
+                wrapper = resolve_native_wrapper(
+                    scene, label=candidates[0].label,
+                    automation_id=(candidates[0].metadata or {}).get("automation_id"),
+                    allowed_stages=("offer_document",),
+                )
+                try:
+                    invocation = wrapper.iface_invoke
+                except Exception:
+                    invocation = None
+                if invocation is None:
+                    wrapper.click_input()
+                else:
+                    invocation.Invoke()
+            except Exception as exc:
+                print("STOP = new position activation", type(exc).__name__)
+                return 6
+            actions += 1
+            if observe_step(loop, "position") is None:
+                print("STOP = position wizard did not open")
+                return 6
+            continue
+
         if stage == "document_properties":
             if not customer_selected(scene):
                 print("REASON = Top Trans must be selected before confirming offer")
