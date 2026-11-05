@@ -90,19 +90,19 @@ def main():
         print("STOP: unexpected current stage; no action")
         return 4
 
-    ok, info = activate_windowhub_workflow_window()
-    print("PROPERTIES_ACTIVATION =", ok, info)
-    if not ok:
-        return 3
+    # Never steal focus after clicking NOWA OFERTA: WindowHub may have just
+    # opened a modal dialog. Re-activating the workspace can hide that dialog.
+    # Observe the actual foreground scene first and fail closed if not ready.
     current = enrich_windowhub_scene(loop.observe_scene())
     current_stage = stage_of(current)
     print("AFTER_START_STAGE =", current_stage)
     if current_stage != "document_properties":
         print("STOP: properties stage not confirmed; picker not attempted")
+        print("POST_CLICK_NOTE = No refocus, no second click, no customer selected")
         return 4
 
-    # Existing runner enforces the exact IDC_ZAMAWIAJACY local UIA identity
-    # and the same one-action verified executor.
+    # Existing runner rechecks the uniquely identified IDC_ZAMAWIAJACY;
+    # it may activate the already-foreground properties dialog.
     result = picker_main()
     print("PICKER_EXIT_CODE =", result)
     return result
