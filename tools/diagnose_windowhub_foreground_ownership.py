@@ -43,11 +43,15 @@ def main():
             category = "OTHER"
         cls = ctypes.create_unicode_buffer(128)
         user32.GetClassNameW(hwnd, cls, len(cls))
-        return category, name == "okna.exe", cls.value[:80] if category == "WINDOWHUB" else "REDACTED"
+        # Process executable names, unlike document titles, are useful to
+        # identify browser/remote-desktop/terminal focus without personal data.
+        return category + ":" + name[:64], name == "okna.exe", cls.value[:80] if category == "WINDOWHUB" else "REDACTED"
 
     print("=== FOREGROUND OWNERSHIP TRACE ===", flush=True)
     print("INSTRUCTION = Uzyj Alt+Tab, aby przejsc do WindowHub, potem wroc do PowerShell.", flush=True)
     print("TRACE_DURATION_SECONDS = 20", flush=True)
+    print("PYTHON_PID =", os.getpid(), flush=True)
+    print("IMPORTANT = Kliknij pasek tytulu WindowHub raz, zostaw na 3 sekundy, wroc do konsoli.", flush=True)
     print("TITLES_AND_DATA = HIDDEN", flush=True)
     deadline = time.monotonic() + 20.0
     previous = None
