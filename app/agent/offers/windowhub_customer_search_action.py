@@ -193,3 +193,80 @@ def _native_matches(wrapper, automation_id, runtime_id, provider):
         )
     except Exception:
         return False
+
+
+def direct_lookup_typing_point(rect) -> tuple[int, int]:
+    """Relative click in the TEXT area, never the dropdown arrow."""
+    if rect is None or int(rect.width()) < 80 or int(rect.height()) < 16:
+        raise ValueError("lookup_geometry_invalid")
+    width = int(rect.width())
+    height = int(rect.height())
+    return (max(10, min(34, width // 5)), height // 2)
+
+
+def type_directly_into_customer_lookup(scene: Any, customer_name: str) -> CustomerSearchDecision:
+    """One verified text-area click and one typeahead attempt on IDC_ZAMAWIAJACY.
+
+    Do not guess an internal Edit; the native LookUpEdit itself owns this text
+    area. Only type when Windows reports focus inside its observed rectangle
+    and the same document stays foreground after the click.
+    """
+    if not isinstance(customer_name, str) or not customer_name.strip() or len(customer_name) > 100:
+        return CustomerSearchDecision("blocked", "invalid_customer_name")
+    hwnd = scene.observation.metadata.get("window_handle")
+    if not isinstance(hwnd, int) or hwnd <= 0:
+        return CustomerSearchDecision("blocked", "document_hwnd_invalid")
+    from app.agent.learning.windowhub_demonstration import stage_of
+    if stage_of(scene) != "document_properties":
+        return CustomerSearchDecision("blocked", "document_properties_required")
+    from tools.run_windowhub_new_offer_native_invoke_once import resolve_native_wrapper
+    try:
+        wrapper = resolve_native_wrapper(
+            scene, label="Wybierz istniejącego klienta",
+            automation_id="IDC_ZAMAWIAJACY",
+            allowed_stages=("document_properties",),
+        )
+    except Exception as exc:
+        return CustomerSearchDecision("blocked", "lookup_identity_" + type(exc).__name__)
+    try:
+        rect = wrapper.rectangle()
+        if str(wrapper.element_info.class_name).casefold() != "lookupedit":
+            return CustomerSearchDecision("blocked", "not_native_lookupedit")
+        click_offset = direct_lookup_typing_point(rect)
+        from pywinauto import mouse
+        # UIA identity and rectangle have just been reverified. Click the
+        # left TEXT area instead of the right-side dropdown arrow.
+        mouse.click(coords=(int(rect.left) + click_offset[0],
+                            int(rect.top) + click_offset[1]))
+        import ctypes
+        from ctypes import wintypes
+        user32 = ctypes.WinDLL("user32", use_last_error=True)
+        user32.GetForegroundWindow.argtypes = []
+        user32.GetForegroundWindow.restype = wintypes.HWND
+        if int(user32.GetForegroundWindow() or 0) != hwnd:
+            return CustomerSearchDecision("blocked", "document_lost_foreground_after_click")
+
+        # Query focus via UI Automation. No text if focus is on any other
+        # offer property, and no assumption that a click focused the lookup.
+        from pywinauto import Desktop
+        focused = Desktop(backend="uia").get_focus()
+        focus_rect = focused.rectangle()
+        picker_rect = wrapper.rectangle()
+        focus_inside = (
+            int(focus_rect.left) >= int(picker_rect.left)
+            and int(focus_rect.right) <= int(picker_rect.right)
+            and int(focus_rect.top) >= int(picker_rect.top)
+            and int(focus_rect.bottom) <= int(picker_rect.bottom)
+        )
+        same_lookup = (
+            getattr(focused.element_info, "automation_id", None) == "IDC_ZAMAWIAJACY"
+        )
+        if not focus_inside and not same_lookup:
+            return CustomerSearchDecision("blocked", "text_area_not_focused")
+        print("DIRECT_LOOKUP_TEXT_FOCUS_VERIFIED = True")
+        from pywinauto.keyboard import send_keys
+        send_keys(customer_name, with_spaces=True, pause=0.05)
+        return CustomerSearchDecision("search_submitted_unverified",
+                                      "direct_verified_lookup_text_area")
+    except Exception as exc:
+        return CustomerSearchDecision("blocked", "direct_lookup_" + type(exc).__name__)
