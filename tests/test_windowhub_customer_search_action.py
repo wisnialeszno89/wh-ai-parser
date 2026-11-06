@@ -106,3 +106,31 @@ def test_two_true_children_still_block_without_unique_focus():
     )
     assert result.status == "blocked"
     assert result.reason == "multiple_possible_search_edits"
+
+
+def test_direct_lookup_click_hits_left_text_not_dropdown_arrow():
+    from app.agent.offers.windowhub_customer_search_action import direct_lookup_typing_point
+
+    class Rect:
+        def width(self):
+            return 213
+        def height(self):
+            return 22
+
+    x, y = direct_lookup_typing_point(Rect())
+    assert (x, y) == (34, 11)
+    assert x < 213 - 30
+
+
+def test_direct_lookup_rejects_tiny_or_collapsed_controls():
+    import pytest
+    from app.agent.offers.windowhub_customer_search_action import direct_lookup_typing_point
+
+    class Rect:
+        def width(self):
+            return 0
+        def height(self):
+            return 22
+
+    with pytest.raises(ValueError, match="lookup_geometry_invalid"):
+        direct_lookup_typing_point(Rect())
