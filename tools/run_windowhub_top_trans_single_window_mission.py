@@ -21,7 +21,7 @@ from app.agent.learning.windowhub_demonstration import stage_of
 from app.agent.perception.windowhub_semantic_world import enrich_windowhub_scene
 from app.agent.runtime.windowhub_window_activation import activate_windowhub_workflow_window
 from app.agent.runtime.windows_desktop_agent_control_loop import create_windows_desktop_agent_control_loop
-from app.agent.offers.windowhub_customer_search_action import type_customer_search
+from app.agent.offers.windowhub_customer_search_action import type_directly_into_customer_lookup
 from app.agent.offers.windowhub_document_properties_action import (
     DOCUMENT_PRICE_AUTOMATION_IDS, prepare_price_exclusion,
 )
@@ -366,29 +366,13 @@ def mission(loop, max_actions):
         if stage == "document_properties":
             if not customer_selected(scene):
                 print("REASON = Top Trans must be selected before confirming offer")
-                try:
-                    wrapper = resolve_native_wrapper(
-                        scene, label="Wybierz istniejącego klienta",
-                        automation_id="IDC_ZAMAWIAJACY",
-                        allowed_stages=("document_properties",),
-                    )
-                    wrapper.click_input()
-                except Exception as exc:
-                    print("STOP = CUSTOMER_LOOKUP_OPEN", type(exc).__name__, str(exc)[:140])
-                    return 6
-                actions += 1
-                after = inspect(loop)
-                selected = customer_selected(after)
-                print("CUSTOMER_SELECTED_VERIFIED =", selected)
-                if selected:
-                    continue
-                # The native picker can be a DevExpress lookup button with
-                # no exposed row until the user types a query. Search first.
-                search = type_customer_search(after, CUSTOMER)
+                # DevExpress LookUpEdit: write directly at the verified
+                # text area, not a guessed dropdown child or first grid row.
+                search = type_directly_into_customer_lookup(scene, CUSTOMER)
                 print("CUSTOMER_SEARCH_STATUS =", search.status)
                 print("CUSTOMER_SEARCH_REASON =", search.reason)
                 if search.status != "search_submitted_unverified":
-                    print("STOP = CUSTOMER_SEARCH_NOT_VERIFIED")
+                    print("STOP = CUSTOMER_DIRECT_LOOKUP_INPUT_NOT_VERIFIED")
                     print("NO_BLIND_RETRY = True")
                     return 6
                 actions += 1
