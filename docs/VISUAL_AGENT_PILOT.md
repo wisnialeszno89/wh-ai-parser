@@ -1,5 +1,15 @@
 # Pilot: screenshot → decyzja → działanie → nowy screenshot
 
+## Aktualizacja po pierwszej próbie na Windows
+
+Użytkownik potwierdził `VISUAL_CONNECTION=ready`, a po poprawce schematu serwera wykonawca przyjął 16 akcji `click`. Zadania nie ukończono: `step_budget_exhausted`, bez potwierdzenia poprawienia klienta. To dowód przejścia transportu i walidacji, nie poprawnego wyboru punktów ani osiągnięcia celu.
+
+Poprawka pętli zachowuje w historii współrzędne i parametry akcji, mierzy przybliżoną zmianę obrazu, blokuje ponowne pobliskie kliknięcie bez efektu oraz powrót do podobnego stanu obrazu. Małe zmiany kursora nie są traktowane jako postęp; sama zmiana obrazu też nie potwierdza celu. Ta heurystyka może zatrzymać uzasadnione ponowne kliknięcie i wymaga oceny na żywym środowisku. Weryfikator celu pozostaje niezależny.
+
+Domyślny limit próby wynosi 8 decyzji. Opcjonalne `-TraceDirectory` zapisuje lokalnie obrazy i JSON proponowanych akcji z punktem żądanym na pulpicie; nie zapisuje adresów API, nagłówków ani sekretów. Ślad dotyczy wyłącznie fikcyjnego laboratorium. W nim `proposed_action` jest propozycją, a nie dowodem wysłania wejścia; wykonanie i blokady potwierdza log.
+
+Walidacja tej poprawki: 31 testów jednostkowych oraz 1 test lokalnego HTTP, także przy ustawionym obcym linku Preview w środowisku. Nie potwierdzono jeszcze sukcesu poprawionej pętli na Windows.
+
 ## Stan dostarczenia
 
 Kod klienta przygotowano na bazie `wh-ai-parser` HEAD `2850827b02a9dd5d66f5bf0e222170980c9efe87`, obok wcześniej nałożonych poprawek V1–V5. Nowy pakiet dodaje pliki; nie zastępuje poprzednich pętli. Serwer przygotowano na `navimind` HEAD `e9f9501a85d3aa5a0ac237a808927fb8d6561fcd`.

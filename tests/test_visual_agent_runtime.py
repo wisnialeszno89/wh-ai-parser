@@ -114,7 +114,7 @@ def test_client_sends_png_and_auth_without_exposing_native_handles():
             return json.dumps(dict(version='visual-1',task_id=req['task_id'],turn=req['turn'],action=action('inspect'))).encode()
     def opener(request,timeout):captured.append(request);return Response()
     request=dict(version='visual-1',task_id='transport',turn=0,goal='Goal',screen=VisualFrame(Image.new('RGB',(20,20)),object()).screen(),feedback=[])
-    response=VisualReasoner('https://example.com/api/agent/visual-task','test-secret',opener).reason(request)
+    response=VisualReasoner('https://example.com/api/agent/visual-task','test-secret',opener,access_url='').reason(request)
     assert response['action']['kind']=='inspect'
     body=json.loads(captured[0].data)
     assert body['screen']['image_data_url'].startswith('data:image/png;base64,')
@@ -167,3 +167,21 @@ def test_application_secret_cannot_follow_redirect_to_foreign_origin():
     req=Request('https://example.com/api/agent/visual-task',data=b'{}',headers={'x-navimind-agent-secret':'synthetic-secret'},method='POST')
     with pytest.raises(HTTPError,match='cross_origin'):
         SameOriginRedirects(req.full_url).redirect_request(req,None,302,'Found',{},'https://login.other.example/')
+
+
+@pytest.mark.parametrize('status,body,expected',[
+    (400,b'{"error":"INVALID_VISUAL_TASK"}','ready'),
+    (401,b'{"error":"UNAUTHORIZED"}','application_secret_rejected'),
+    (401,b'<html>Authentication required</html>','preview_access_rejected'),
+    (503,b'{"error":"VISUAL_NOT_ENABLED"}','visual_not_enabled'),
+])
+def test_connection_probe_distinguishes_auth_without_image_or_model(status,body,expected):
+    from urllib.error import HTTPError
+    calls=[]
+    def opener(req,timeout):
+        calls.append(req)
+        raise HTTPError(req.full_url,status,'Synthetic',{},io.BytesIO(body))
+    result=VisualReasoner('https://example.com/api/agent/visual-task','test-secret',opener,access_url='').probe()
+    assert result==expected
+    assert len(calls)==1 and calls[0].data==b'{}'
+    assert b'image' not in calls[0].data

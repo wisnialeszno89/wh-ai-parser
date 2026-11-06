@@ -25,10 +25,10 @@ def test_python_image_reaches_server_image_content_over_http():
         port=int(line.split('=',1)[1])
         request=dict(version='visual-1',task_id='http-image-test',turn=0,goal='Inspect synthetic test image',screen=VisualFrame(Image.new('RGB',(200,100),'white'),None).screen(),feedback=[])
         url=f'http://127.0.0.1:{port}/api/agent/visual-task'
-        response=VisualReasoner(url,'synthetic-loopback-secret').reason(request)
+        response=VisualReasoner(url,'synthetic-loopback-secret',access_url='').reason(request)
         assert response['action']['kind']=='inspect'
         with pytest.raises(RuntimeError,match='visual_http_401'):
-            VisualReasoner(url,'wrong-synthetic-secret').reason(request)
+            VisualReasoner(url,'wrong-synthetic-secret',access_url='').reason(request)
     finally:
         process.terminate()
         try:process.communicate(timeout=5)

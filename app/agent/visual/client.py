@@ -41,10 +41,7 @@ class VisualReasoner:
         self.opener=opener or build_opener(SameOriginRedirects(self.url),HTTPCookieProcessor(CookieJar())).open
         self.access_ready=False
 
-    def reason(self,request):
-        validate_request(request)
-        body=json.dumps(request,ensure_ascii=False).encode()
-        if len(body)>3*1024*1024:raise ValueError('visual_payload_too_large')
+    def _ensure_access(self):
         if self.access_url and not self.access_ready:
             # Establish the short-lived Vercel cookie without sending the
             # application secret to the share-link GET or another origin.
@@ -53,6 +50,30 @@ class VisualReasoner:
             except HTTPError as exc:raise RuntimeError('visual_access_http_'+str(exc.code)) from None
             except Exception:raise RuntimeError('visual_access_bootstrap_failed') from None
             self.access_ready=True
+
+    def probe(self):
+        """Invalid empty task checks auth/route only; never invokes a model."""
+        self._ensure_access()
+        req=Request(self.url,data=b'{}',headers={'Content-Type':'application/json','x-navimind-agent-secret':self.secret},method='POST')
+        try:
+            with self.opener(req,timeout=30) as response:
+                status=response.status;raw=response.read(4097)
+        except HTTPError as exc:
+            status=exc.code;raw=exc.read(4097)
+        except Exception:raise RuntimeError('visual_probe_transport_failed') from None
+        try:code=json.loads(raw.decode()).get('error')
+        except (ValueError,AttributeError):code=None
+        if status==400 and code=='INVALID_VISUAL_TASK':return 'ready'
+        if status==401 and code=='UNAUTHORIZED':return 'application_secret_rejected'
+        if status==401:return 'preview_access_rejected'
+        if code in {'VISUAL_NOT_ENABLED','AGENT_AUTH_NOT_CONFIGURED','AGENT_PROVIDER_NOT_CONFIGURED'}:return code.lower()
+        return 'unexpected_http_'+str(status)
+
+    def reason(self,request):
+        validate_request(request)
+        body=json.dumps(request,ensure_ascii=False).encode()
+        if len(body)>3*1024*1024:raise ValueError('visual_payload_too_large')
+        self._ensure_access()
         req=Request(self.url,data=body,headers={'Content-Type':'application/json','x-navimind-agent-secret':self.secret},method='POST')
         try:
             with self.opener(req,timeout=45) as response:raw=response.read(32769)
