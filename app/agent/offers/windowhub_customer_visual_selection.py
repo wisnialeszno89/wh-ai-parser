@@ -57,11 +57,21 @@ def _ocr_text_results(image, origin):
             return None
     try:
         output = engine(data)
-        lines = output[0] if isinstance(output, tuple) else output
+        if isinstance(output, tuple):
+            lines = output[0]
+        elif hasattr(output, "boxes") and hasattr(output, "txts"):
+            lines = list(zip(
+                output.boxes or [], output.txts or [], output.scores or [],
+            ))
+        else:
+            lines = output
+        if lines is None:
+            return []
+        lines = list(lines)
     except Exception:
         return None
     collected = []
-    for entry in (lines or []):
+    for entry in lines:
         try:
             quad, text, confidence = entry[0], entry[1], float(entry[2])
             x = [float(p[0]) for p in quad]
@@ -81,7 +91,6 @@ def select_exact_visual_customer(scene, customer_name: str) -> tuple[bool, str]:
     from PIL import ImageGrab
     import ctypes
     from ctypes import wintypes
-    import time
 
     hwnd = scene.observation.metadata.get("window_handle")
     if not isinstance(hwnd, int) or hwnd <= 0:
