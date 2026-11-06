@@ -134,3 +134,36 @@ def test_partial_typing_failure_is_reobserved_before_model_correction():
     model=FixtureReasoner([action('type_text',text='Top Trans'),action('key',key='CTRL+A'),action('type_text',text='Top Trans'),action('done')])
     assert run_visual_task(driver,model,'Correct text',execute=True,verify=lambda:driver.value=='Top Trans')=='verified'
     assert 'MAY have partially executed' in model.requests[1]['feedback'][0]['status']
+
+
+def test_protected_preview_bootstraps_without_application_secret():
+    calls=[]
+    request=dict(version='visual-1',task_id='protected-test',turn=0,goal='Goal',screen=VisualFrame(Image.new('RGB',(20,20)),None).screen(),feedback=[])
+    class Response:
+        def __init__(self,data):self.data=data
+        def __enter__(self):return self
+        def __exit__(self,*a):pass
+        def read(self,limit):return self.data
+    def opener(req,timeout):
+        calls.append(req)
+        if req.get_method()=='GET':return Response(b'ok')
+        return Response(json.dumps(dict(version='visual-1',task_id='protected-test',turn=0,action=action('inspect'))).encode())
+    client=VisualReasoner('https://example.com/api/agent/visual-task','test-secret',opener,access_url='https://example.com/?_vercel_share=synthetic-share')
+    client.reason(request);client.reason(request)
+    assert [r.get_method() for r in calls]==['GET','POST','POST']
+    assert not any(k.lower()=='x-navimind-agent-secret' for k in calls[0].headers)
+    assert calls[1].get_header('X-navimind-agent-secret')=='test-secret'
+
+
+def test_protected_preview_rejects_foreign_access_link():
+    with pytest.raises(ValueError,match='same_origin'):
+        VisualReasoner('https://example.com/api/agent/visual-task','test-secret',access_url='https://other.example/?_vercel_share=synthetic-share')
+
+
+def test_application_secret_cannot_follow_redirect_to_foreign_origin():
+    from app.agent.visual.client import SameOriginRedirects
+    from urllib.request import Request
+    from urllib.error import HTTPError
+    req=Request('https://example.com/api/agent/visual-task',data=b'{}',headers={'x-navimind-agent-secret':'synthetic-secret'},method='POST')
+    with pytest.raises(HTTPError,match='cross_origin'):
+        SameOriginRedirects(req.full_url).redirect_request(req,None,302,'Found',{},'https://login.other.example/')

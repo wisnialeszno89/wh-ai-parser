@@ -4,7 +4,7 @@
 
 Kod klienta przygotowano na bazie `wh-ai-parser` HEAD `2850827b02a9dd5d66f5bf0e222170980c9efe87`, obok wcześniej nałożonych poprawek V1–V5. Nowy pakiet dodaje pliki; nie zastępuje poprzednich pętli. Serwer przygotowano na `navimind` HEAD `e9f9501a85d3aa5a0ac237a808927fb8d6561fcd`.
 
-Kod przygotowano do przeglądu w osobnych draft PR-ach. Nie wykonano merge, ręcznego deploy, odczytu sekretów ani zapytań do rzeczywistego modelu. Nowy endpoint wymaga osobnego wdrożenia i włączenia przed testem. Nowe pliki pilota nie wymagają wcześniejszych lokalnych poprawek V1–V5.
+Kod przygotowano do przeglądu w osobnych draft PR-ach. Nie wykonano merge, zmian konfiguracji produkcji, odczytu sekretów ani zapytań do rzeczywistego modelu. Podgląd gałęzi na Vercel jest gotowy; endpoint włączono wyłącznie dla gałęzi testowej. Dostęp z klienta musi przejść przez ochronę podglądu. Nowe pliki pilota nie wymagają wcześniejszych lokalnych poprawek V1–V5.
 
 ## Co jest nowe
 
@@ -28,7 +28,7 @@ Nowy program uruchamiający dopuszcza obecnie wykonywanie tylko w tym formularzu
 
 ## Walidacja wykonana
 
-- 99 testów Python: nowa pętla, transport, walidacja, ograniczenia i wybrana regresja dotychczasowego agenta.
+- Przy przygotowaniu pilota przeszło 99 testów Python obejmujących także wybraną regresję wcześniejszej pracy. Po dodaniu obsługi chronionego podglądu przeszło 20 testów nowego modułu oraz 1 test rzeczywistego lokalnego HTTP.
 - 39 testów Node: nowe endpointy obrazowe i regresja dotychczasowego V1/V2.
 - TypeScript `tsc --noEmit --incremental false`: PASS.
 - Rzeczywiste lokalne HTTP: Python wysyła PNG → TypeScript waliduje → obraz trafia do części `image_url` testowego dostawcy → odpowiedź wraca do klienta.
@@ -36,7 +36,7 @@ Nowy program uruchamiający dopuszcza obecnie wykonywanie tylko w tym formularzu
 
 ## Warunki przed pierwszym wywołaniem modelu
 
-W osobnej zmianie serwera trzeba zastosować `navimind-visual-server.patch`, przejrzeć ją, wdrożyć oraz jawnie skonfigurować:
+Serwer jest przygotowany w draft PR #30. Istnieje podgląd gałęzi `feat/visual-goal-pilot-20261106`; włączono go jedynie dla tego Preview. Przed testem należy potwierdzić dostęp oraz następujące ustawienia:
 
 | Ustawienie serwera | Znaczenie |
 |---|---|
@@ -47,9 +47,15 @@ W osobnej zmianie serwera trzeba zastosować `navimind-visual-server.patch`, prz
 
 Konfiguracja klienta: `NAVIMIND_VISUAL_URL` musi wskazywać dokładny, zweryfikowany endpoint `/api/agent/visual-task`. Nie jest zgadywany na podstawie domeny. Klient korzysta z istniejącego `NAVIMIND_AGENT_V2_SECRET` lub `NAVIMIND_AGENT_SECRET` z lokalnego `.env`. Nie wklejaj ich do czatu.
 
-Zmiana i wdrożenie serwera wymagają osobnej zgody zgodnie z wcześniejszym ograniczeniem push/merge/deploy.
+Produkcji nie zmieniono. Chroniony podgląd można otworzyć zalogowanym dostępem Vercel. Opcjonalny tymczasowy link współdzielony wymaga osobnej, wyraźnej zgody na dostęp osób posiadających link. Automatyczna kontrola odrzuciła jego utworzenie bez takiej zgody; nie utworzono linku i nie wyłączono ochrony.
 
-## Komendy po wdrożeniu serwera
+## Ochrona Preview
+
+Klient opcjonalnie przyjmuje `NAVIMIND_VISUAL_ACCESS_URL`: zaakceptowany tymczasowy link Vercel tego samego podglądu z parametrem `_vercel_share`. Nie wpisuj linku do repozytorium ani do logów. Klient pobiera cookie GET-em bez aplikacyjnego sekretu, a sekret API wysyła wyłącznie do endpointu na tej samej domenie. Przekierowania do innej domeny są blokowane. Kod nie tworzy linków i nie wyłącza ochrony.
+
+Bez prawidłowo skonfigurowanego dostępu nie uruchamiaj kolejnych prób modelu. Przykładowe linki z dokumentacji nie są danymi dostępowymi.
+
+## Komendy po potwierdzeniu dostępu do serwera
 
 1. Zastosuj `windowhub-visual-client.patch` w lokalnym repozytorium; najpierw `git apply --check`, potem `git apply`.
 2. Uruchom formularz w jednym oknie PowerShell:
