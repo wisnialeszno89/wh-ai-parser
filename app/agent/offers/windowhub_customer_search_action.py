@@ -208,8 +208,9 @@ def type_directly_into_customer_lookup(scene: Any, customer_name: str) -> Custom
     """One verified text-area click and one typeahead attempt on IDC_ZAMAWIAJACY.
 
     Do not guess an internal Edit; the native LookUpEdit itself owns this text
-    area. Only type when Windows reports focus inside its observed rectangle
-    and the same document stays foreground after the click.
+    area. Type only after a precise text-area hit test belongs to the same
+    process and the expected document remains foreground. UIA keyboard focus
+    is not reliable for this proprietary control.
     """
     if not isinstance(customer_name, str) or not customer_name.strip() or len(customer_name) > 100:
         return CustomerSearchDecision("blocked", "invalid_customer_name")
@@ -248,33 +249,35 @@ def type_directly_into_customer_lookup(scene: Any, customer_name: str) -> Custom
         if int(user32.GetForegroundWindow() or 0) != hwnd:
             return CustomerSearchDecision("blocked", "document_lost_foreground_after_click")
 
-        # Query focus via UI Automation. No text if focus is on any other
-        # offer property, and no assumption that a click focused the lookup.
-        phase = "resolve_uia_focus"
-        # Use UIAutomation's focused element, not the "active window"
-        # convenience API (which may differ between pywinauto releases).
-        # The package itself uses IUIA.get_focused_element in UIAWrapper.
-        from pywinauto import uia_defines
-        from pywinauto.uia_element_info import UIAElementInfo
-        from pywinauto.controls.uiawrapper import UIAWrapper
-        raw_focused = uia_defines.IUIA().get_focused_element()
-        if raw_focused is None:
-            return CustomerSearchDecision("blocked", "no_focused_uia_element")
-        focused = UIAWrapper(UIAElementInfo(raw_focused))
-        focus_rect = focused.rectangle()
-        picker_rect = wrapper.rectangle()
-        focus_inside = (
-            int(focus_rect.left) >= int(picker_rect.left)
-            and int(focus_rect.right) <= int(picker_rect.right)
-            and int(focus_rect.top) >= int(picker_rect.top)
-            and int(focus_rect.bottom) <= int(picker_rect.bottom)
-        )
-        same_lookup = (
-            getattr(focused.element_info, "automation_id", None) == "IDC_ZAMAWIAJACY"
-        )
-        if not focus_inside and not same_lookup:
-            return CustomerSearchDecision("blocked", "text_area_not_focused")
-        print("DIRECT_LOOKUP_TEXT_FOCUS_VERIFIED = True")
+        # The legacy DevExpress LookUpEdit may expose keyboard focus at the
+        # document's UIA ancestor instead of the editor itself. Focus-based
+        # rejection prevented ALL typing even though the text area click
+        # was executed. Use native Win32 hit-test + process ownership instead:
+        # only send once to the exact freshly verified client text region.
+        phase = "verify_native_click_target"
+        target_x = int(rect.left) + click_offset[0]
+        target_y = int(rect.top) + click_offset[1]
+        user32.WindowFromPoint.argtypes = [wintypes.POINT]
+        user32.WindowFromPoint.restype = wintypes.HWND
+        user32.GetWindowThreadProcessId.argtypes = [
+            wintypes.HWND, ctypes.POINTER(wintypes.DWORD)
+        ]
+        user32.GetWindowThreadProcessId.restype = wintypes.DWORD
+        hit = user32.WindowFromPoint(wintypes.POINT(target_x, target_y))
+        if not hit:
+            return CustomerSearchDecision("blocked", "lookup_text_hit_test_missing")
+        document_pid = wintypes.DWORD()
+        hit_pid = wintypes.DWORD()
+        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(document_pid))
+        user32.GetWindowThreadProcessId(hit, ctypes.byref(hit_pid))
+        if not document_pid.value or hit_pid.value != document_pid.value:
+            return CustomerSearchDecision("blocked", "lookup_text_hit_wrong_process")
+        if int(user32.GetForegroundWindow() or 0) != hwnd:
+            return CustomerSearchDecision("blocked", "document_no_longer_foreground")
+        if str(wrapper.element_info.class_name).casefold() != "lookupedit":
+            return CustomerSearchDecision("blocked", "lookup_identity_changed")
+        print("DIRECT_LOOKUP_NATIVE_HIT_VERIFIED = True")
+        print("DIRECT_LOOKUP_UIA_FOCUS = NOT_REQUIRED_FOR_LEGACY_LOOKUP")
         phase = "send_customer_name"
         from pywinauto.keyboard import send_keys
         send_keys(customer_name, with_spaces=True, pause=0.05)
