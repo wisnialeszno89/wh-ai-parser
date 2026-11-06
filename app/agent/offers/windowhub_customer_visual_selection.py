@@ -61,7 +61,9 @@ def _ocr_text_results(image, origin):
             lines = output[0]
         elif hasattr(output, "boxes") and hasattr(output, "txts"):
             lines = list(zip(
-                output.boxes or [], output.txts or [], output.scores or [],
+                output.boxes if output.boxes is not None else [],
+                output.txts if output.txts is not None else [],
+                output.scores if output.scores is not None else [],
             ))
         else:
             lines = output
