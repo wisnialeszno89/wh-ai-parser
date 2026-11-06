@@ -12,6 +12,22 @@ from typing import Any
 
 from app.agent.perception.screen_scene import ScreenScene
 
+def _logical_field_name(stage: str, control_key: str) -> str | None:
+    """Name a uniquely mapped UIA field without storing customer values."""
+    from app.agent.offers.windowhub_offer_form_map import WINDOWHUB_OFFER_CONTROL_SPECS
+    try:
+        role, automation_id = control_key.split(":", 1)
+    except ValueError:
+        return None
+    matches = {
+        spec.field_name for spec in WINDOWHUB_OFFER_CONTROL_SPECS
+        if spec.step.value == stage
+        and spec.control_type == role
+        and spec.automation_id == automation_id
+    }
+    return next(iter(matches)) if len(matches) == 1 else None
+
+
 
 KNOWN_STAGES = {
     "okna - start1": "start",
@@ -115,12 +131,19 @@ def semantic_transition(before: Mapping[str, object], after: Mapping[str, object
         a = old[key]
         b = new[key]
         if a.get("state") != b.get("state"):
-            changed.append({
+            effect = {
                 "role": b.get("role"),
                 "label": b.get("label"),
                 "before": a.get("state"),
                 "after": b.get("state"),
-            })
+            }
+            # A non-sensitive logical field name lets later learning tell
+            # width_1 from width_2. Never save the raw value or native ID.
+            if before.get("stage") == after.get("stage"):
+                logical = _logical_field_name(str(after.get("stage")), key)
+                if logical is not None:
+                    effect["field_name"] = logical
+            changed.append(effect)
     result = {
         "from_stage": before.get("stage"),
         "to_stage": after.get("stage"),
