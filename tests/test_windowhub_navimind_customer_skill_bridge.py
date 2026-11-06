@@ -75,7 +75,8 @@ def test_customer_skill_requires_explicit_mode_and_name():
 
 def test_inspect_activate_window_fails_closed_without_desktop_authorization(monkeypatch, capsys):
     import tools.run_windowhub_goal_v2 as runner
-    monkeypatch.setattr(runner.os, "name", "nt")
+    import os
+    monkeypatch.setattr(runner, "os", SimpleNamespace(name="nt", getenv=os.getenv))
     monkeypatch.delenv("WH_REAL_WINDOWHUB", raising=False)
     monkeypatch.delenv("COMPUTER_USE_LIVE", raising=False)
     code = runner.main([
@@ -89,7 +90,8 @@ def test_inspect_activate_window_fails_closed_without_desktop_authorization(monk
 def test_inspect_activate_window_uses_existing_bounded_focus_only(monkeypatch):
     import tools.run_windowhub_goal_v2 as runner
     called = []
-    monkeypatch.setattr(runner.os, "name", "nt")
+    import os
+    monkeypatch.setattr(runner, "os", SimpleNamespace(name="nt", getenv=os.getenv))
     monkeypatch.setenv("WH_REAL_WINDOWHUB", "1")
     monkeypatch.setenv("COMPUTER_USE_LIVE", "1")
 
