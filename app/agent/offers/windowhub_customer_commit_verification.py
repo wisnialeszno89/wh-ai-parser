@@ -73,6 +73,22 @@ def verify_clicked_customer_commit(scene, customer_name: str):
             values.append(name)
     except Exception:
         pass
+    try:
+        legacy = getattr(wrapper, "iface_legacy_iaccessible", None)
+        if legacy is not None:
+            native_value = getattr(legacy, "CurrentValue", None)
+            if isinstance(native_value, str):
+                values.append(native_value)
+    except Exception:
+        pass
+    try:
+        properties = wrapper.get_properties()
+        for key in ("value", "legacy_value", "current_value"):
+            val = properties.get(key) if isinstance(properties, dict) else None
+            if isinstance(val, str):
+                values.append(val)
+    except Exception:
+        pass
     # Never print a customer's native value to logs.
     r = wrapper.rectangle()
     win = ctypes.WinDLL("user32", use_last_error=True)
