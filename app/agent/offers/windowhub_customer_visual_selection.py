@@ -8,6 +8,7 @@ same-process hit-test. All matching stays in memory.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import lru_cache
 
 
 @dataclass(frozen=True)
@@ -42,21 +43,27 @@ def match_visual_customer(results: list[VisualCustomerResult],
     ]
 
 
-def _ocr_text_results(image, origin):
-    import numpy as np
-    data = np.asarray(image)
-    engine = None
+@lru_cache(maxsize=1)
+def _ocr_engine():
+    """Initialize heavyweight OCR exactly once per process, not every prefix."""
     try:
         from rapidocr_onnxruntime import RapidOCR
-        engine = RapidOCR()
+        return RapidOCR()
     except ImportError:
         try:
             from rapidocr import RapidOCR
-            engine = RapidOCR()
+            return RapidOCR()
         except ImportError:
             return None
+
+
+def _ocr_text_results(image, origin):
+    import numpy as np
+    engine = _ocr_engine()
+    if engine is None:
+        return None
     try:
-        output = engine(data)
+        output = engine(np.asarray(image))
         if isinstance(output, tuple):
             lines = output[0]
         elif hasattr(output, "boxes") and hasattr(output, "txts"):
@@ -69,7 +76,6 @@ def _ocr_text_results(image, origin):
             lines = output
         if lines is None:
             return []
-        lines = list(lines)
     except Exception:
         return None
     collected = []
