@@ -164,7 +164,17 @@ def progressive_customer_selection(loop, initial_scene, name):
             after = inspect(loop)
             if customer_selected(after):
                 return True, "CUSTOMER_VERIFIED_AFTER_EXACT_RESULT_CLICK"
-            return False, "CUSTOMER_CLICKED_BUT_SELECTION_UNVERIFIED"
+            # Some legacy LookUpEdit widgets do not propagate their native
+            # selection to the generic semantic scene. Gather distinct
+            # native value + popup disappearance evidence after click.
+            from app.agent.offers.windowhub_customer_commit_verification import (
+                verify_clicked_customer_commit,
+            )
+            evidence = verify_clicked_customer_commit(after, name)
+            if evidence.status == "verified":
+                print("CUSTOMER_COMMIT_VERIFIED_NATIVE = True")
+                return True, "CUSTOMER_VERIFIED_NATIVE_READBACK"
+            return False, "CUSTOMER_CLICKED_BUT_SELECTION_UNVERIFIED_" + evidence.reason
     return False, "CUSTOMER_NO_EXACT_SUGGESTION_DURING_TYPING"
 
 
