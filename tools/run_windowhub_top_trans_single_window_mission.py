@@ -326,12 +326,28 @@ def mission(loop, max_actions):
                     continue
                 ok, reason = handle_customer_lookup(queried)
                 print("CUSTOMER_LOOKUP_RESULT =", reason)
+                if not ok and reason == "EXACT_CUSTOMER_RESULT_NOT_UNIQUE_OR_NOT_VISIBLE":
+                    # Text input and opening the dropdown are different
+                    # operations in the native LookUpEdit widget.
+                    from app.agent.offers.windowhub_customer_result_selection import (
+                        reveal_customer_results,
+                    )
+                    opened, open_reason = reveal_customer_results(queried)
+                    print("CUSTOMER_DROPDOWN_RESULT =", open_reason)
+                    if opened:
+                        actions += 1
+                        time.sleep(0.25)
+                        after_dropdown = inspect(loop)
+                        if stage_of(after_dropdown) == "document_properties":
+                            ok, reason = handle_customer_lookup(after_dropdown)
+                            print("CUSTOMER_LOOKUP_AFTER_DROPDOWN =", reason)
                 if ok:
                     actions += 1
                     fresh = inspect(loop)
                     if customer_selected(fresh):
                         print("CUSTOMER_SELECTED_VERIFIED = True")
                         continue
+                    print("CUSTOMER_EXACT_CLICK_DONE_BUT_SELECTED_VALUE_UNAVAILABLE = True")
                 print("STOP = CUSTOMER_SELECTION_UNVERIFIED")
                 print("NO_BLIND_RETRY = True")
                 return 6
