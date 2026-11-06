@@ -81,3 +81,28 @@ def test_unique_inside_edit_takes_priority_over_named_field_elsewhere():
     )
     assert result.status == "type_in_unique_search_edit"
     assert result.selected_index == 1
+
+
+def test_true_child_of_picker_outweighs_overlapping_edit():
+    overlap = edit(inside_picker=True)
+    overlap["structural_child"] = False
+    descendant = edit(inside_picker=True)
+    descendant["structural_child"] = True
+    result = classify_customer_search_controls(
+        [overlap, descendant], picker_focused=False,
+    )
+    assert result.status == "type_in_unique_search_edit"
+    assert result.reason == "unique_customer_picker_child"
+    assert result.selected_index == 1
+
+
+def test_two_true_children_still_block_without_unique_focus():
+    left = edit(inside_picker=True)
+    left["structural_child"] = True
+    right = edit(inside_picker=True)
+    right["structural_child"] = True
+    result = classify_customer_search_controls(
+        [left, right], picker_focused=False,
+    )
+    assert result.status == "blocked"
+    assert result.reason == "multiple_possible_search_edits"
