@@ -147,3 +147,34 @@ def select_exact_customer_result(scene, customer_name: str) -> tuple[bool, str]:
     except Exception as exc:
         return False, "CUSTOMER_RESULT_CLICK_FAILED_" + type(exc).__name__
     return True, "EXACT_CUSTOMER_RESULT_CLICKED_PENDING_DOCUMENT_VERIFICATION"
+
+
+def reveal_customer_results(scene) -> tuple[bool, str]:
+    """Open one verified customer lookup dropdown, without selecting a row."""
+    from tools.run_windowhub_new_offer_native_invoke_once import resolve_native_wrapper
+    try:
+        picker = resolve_native_wrapper(
+            scene, label="Wybierz istniejącego klienta",
+            automation_id="IDC_ZAMAWIAJACY",
+            allowed_stages=("document_properties",),
+        )
+        rect = picker.rectangle()
+        if (str(picker.element_info.class_name).casefold() != "lookupedit"
+                or int(rect.width()) < 80 or int(rect.height()) < 16):
+            return False, "CUSTOMER_DROPDOWN_INVALID"
+        # Click only the arrow portion of the exact control, verified via
+        # native element identity. No item is selected or accepted here.
+        from pywinauto import mouse
+        import ctypes
+        from ctypes import wintypes
+        user32 = ctypes.WinDLL("user32", use_last_error=True)
+        user32.GetForegroundWindow.argtypes = []
+        user32.GetForegroundWindow.restype = wintypes.HWND
+        expected = scene.observation.metadata.get("window_handle")
+        if not isinstance(expected, int) or int(user32.GetForegroundWindow() or 0) != expected:
+            return False, "CUSTOMER_DOCUMENT_NOT_FOREGROUND"
+        mouse.click(coords=(int(rect.right) - 10,
+                            (int(rect.top) + int(rect.bottom)) // 2))
+        return True, "CUSTOMER_DROPDOWN_OPEN_ATTEMPTED"
+    except Exception as exc:
+        return False, "CUSTOMER_DROPDOWN_" + type(exc).__name__
