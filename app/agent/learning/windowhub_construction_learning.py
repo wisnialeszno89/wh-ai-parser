@@ -95,7 +95,13 @@ def construction_demonstration_report(records):
         for change in (transition.get("changed") or [])[:20]:
             if not isinstance(change, Mapping):
                 continue
-            name = safe_labels.get(change.get("label"))
+            # New demonstrations supply an unambiguous curated field name.
+            # Legacy recordings can still use a label only when the mapping
+            # identifies exactly one field in this wizard stage.
+            explicit = change.get("field_name")
+            name = (explicit if isinstance(explicit, str)
+                    and explicit in _FIELDS_BY_STEP[before]
+                    else safe_labels.get(change.get("label")))
             if not name or name not in _FIELDS_BY_STEP[before]:
                 continue
             old, new = change.get("before"), change.get("after")
