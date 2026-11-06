@@ -251,12 +251,16 @@ def type_directly_into_customer_lookup(scene: Any, customer_name: str) -> Custom
         # Query focus via UI Automation. No text if focus is on any other
         # offer property, and no assumption that a click focused the lookup.
         phase = "resolve_uia_focus"
-        # Desktop.get_active() is the documented backend API supported by
-        # pywinauto 0.6.x. Do not import private/version-specific UIA modules.
-        from pywinauto import Desktop
-        focused = Desktop(backend="uia").get_active()
-        if focused is None:
+        # Use UIAutomation's focused element, not the "active window"
+        # convenience API (which may differ between pywinauto releases).
+        # The package itself uses IUIA.get_focused_element in UIAWrapper.
+        from pywinauto import uia_defines
+        from pywinauto.uia_element_info import UIAElementInfo
+        from pywinauto.controls.uiawrapper import UIAWrapper
+        raw_focused = uia_defines.IUIA().get_focused_element()
+        if raw_focused is None:
             return CustomerSearchDecision("blocked", "no_focused_uia_element")
+        focused = UIAWrapper(UIAElementInfo(raw_focused))
         focus_rect = focused.rectangle()
         picker_rect = wrapper.rectangle()
         focus_inside = (
@@ -278,6 +282,9 @@ def type_directly_into_customer_lookup(scene: Any, customer_name: str) -> Custom
                                       "direct_verified_lookup_text_area")
     except Exception as exc:
         # Phase is safe to print; never log the customer text or raw UIA values.
+        print("DIRECT_LOOKUP_FAILURE_PHASE =", phase)
+        print("DIRECT_LOOKUP_EXCEPTION_TYPE =", type(exc).__name__)
+        print("DIRECT_LOOKUP_EXCEPTION_DETAIL =", str(exc)[:180])
         return CustomerSearchDecision(
             "blocked", "direct_lookup_" + phase + "_" + type(exc).__name__
         )
