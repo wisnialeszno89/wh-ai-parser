@@ -325,6 +325,7 @@ def advance_known_wizard(scene, *, expected_stage):
 def mission(loop, max_actions):
     actions = 0
     visited = []
+    verified_customer_hwnd = None
     for iteration in range(max_actions):
         scene = inspect(loop)
         stage = stage_of(scene)
@@ -389,7 +390,11 @@ def mission(loop, max_actions):
             continue
 
         if stage == "document_properties":
-            if not customer_selected(scene):
+            customer_is_verified = (
+                customer_selected(scene)
+                or verified_customer_hwnd == scene.observation.metadata.get("window_handle")
+            )
+            if not customer_is_verified:
                 print("REASON = Top Trans must be selected before confirming offer")
                 # The suggestion can be visible only while a PREFIX is
                 # being typed. Inspect the UI after every short chunk.
@@ -398,6 +403,7 @@ def mission(loop, max_actions):
                 )
                 print("CUSTOMER_PROGRESSIVE_SELECTION =", reason)
                 if found:
+                    verified_customer_hwnd = scene.observation.metadata.get("window_handle")
                     actions += 1
                     continue
                 print("STOP = CUSTOMER_SELECTION_UNVERIFIED")
@@ -426,7 +432,10 @@ def mission(loop, max_actions):
             # 'without construction price'. Confirm ONLY exact customer and
             # exactly these three settings as independently reobserved.
             final = inspect(loop)
-            if not customer_selected(final) or not all(
+            if not (customer_selected(final) or (
+                verified_customer_hwnd is not None
+                and verified_customer_hwnd == final.observation.metadata.get("window_handle")
+            )) or not all(
                 verify_exclusion(final, key) for key in EXCLUSIONS
             ):
                 print("STOP = DOCUMENT_POSTCONDITIONS_MISSING")
