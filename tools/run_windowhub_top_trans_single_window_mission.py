@@ -113,6 +113,77 @@ def handle_customer_lookup(scene):
     )
     return select_exact_customer_result(scene, CUSTOMER)
 
+def progressive_customer_selection(loop, initial_scene, name):
+    """Type in short chunks, observing BEFORE the final name is entered.
+
+    DevExpress suggestions can disappear after a full exact-name typeahead.
+    Only an exact UIA result or a native-owned, high-confidence exact OCR
+    line may be clicked; no Enter, top-row guesses or blind retries.
+    """
+    from app.agent.offers.windowhub_customer_result_selection import select_exact_customer_result
+    from app.agent.offers.windowhub_customer_visual_selection import select_exact_visual_customer
+    from pywinauto.keyboard import send_keys
+    import ctypes
+    from ctypes import wintypes
+    parts = customer_typing_chunks(name)
+    if not parts:
+        return False, "CUSTOMER_QUERY_EMPTY"
+    print("CUSTOMER_TYPING_CHUNKS =", len(parts))
+    started = type_directly_into_customer_lookup(initial_scene, parts[0])
+    print("CUSTOMER_INITIAL_TYPING =", started.status, started.reason)
+    if started.status != "search_submitted_unverified":
+        return False, started.reason
+    hwnd = initial_scene.observation.metadata.get("window_handle")
+    user32 = ctypes.WinDLL("user32", use_last_error=True)
+    user32.GetForegroundWindow.argtypes = []
+    user32.GetForegroundWindow.restype = wintypes.HWND
+    for index, part in enumerate(parts):
+        if index:
+            if int(user32.GetForegroundWindow() or 0) != hwnd:
+                return False, "CUSTOMER_TYPING_WINDOW_CHANGED"
+            try:
+                send_keys(part, with_spaces=True, pause=0.07)
+            except Exception as exc:
+                return False, "CUSTOMER_TYPING_" + type(exc).__name__
+        time.sleep(0.15)
+        current = inspect(loop)
+        if stage_of(current) != "document_properties":
+            return False, "CUSTOMER_SEARCH_STAGE_CHANGED"
+        print("CUSTOMER_SEARCH_CHECKPOINT =", index + 1, "/", len(parts))
+        if customer_selected(current):
+            return True, "CUSTOMER_VERIFIED_AFTER_TYPED_CHUNK"
+        matched, reason = select_exact_customer_result(current, name)
+        print("CUSTOMER_NATIVE_RESULT =", reason)
+        if not matched:
+            matched, reason = select_exact_visual_customer(current, name)
+            print("CUSTOMER_VISUAL_RESULT =", reason)
+        if matched:
+            # Selection is not the same as writing the filter. Verify new
+            # document state once, rather than retrying clicks.
+            time.sleep(0.15)
+            after = inspect(loop)
+            if customer_selected(after):
+                return True, "CUSTOMER_VERIFIED_AFTER_EXACT_RESULT_CLICK"
+            return False, "CUSTOMER_CLICKED_BUT_SELECTION_UNVERIFIED"
+    return False, "CUSTOMER_NO_EXACT_SUGGESTION_DURING_TYPING"
+
+
+def customer_typing_chunks(name):
+    """Small initial prefix + two-char increments, including spaces."""
+    if not isinstance(name, str) or not name.strip():
+        return ()
+    name = name.strip()
+    sizes = [3] + [2] * max(0, len(name))
+    chunks = []
+    cursor = 0
+    for size in sizes:
+        if cursor >= len(name):
+            break
+        chunks.append(name[cursor:cursor + size])
+        cursor += size
+    return tuple(chunks)
+
+
 
 def toggle_price_once(scene, key):
     prepared = prepare_price_exclusion(scene, key)
@@ -310,44 +381,15 @@ def mission(loop, max_actions):
         if stage == "document_properties":
             if not customer_selected(scene):
                 print("REASON = Top Trans must be selected before confirming offer")
-                # DevExpress LookUpEdit: write directly at the verified
-                # text area, not a guessed dropdown child or first grid row.
-                search = type_directly_into_customer_lookup(scene, CUSTOMER)
-                print("CUSTOMER_SEARCH_STATUS =", search.status)
-                print("CUSTOMER_SEARCH_REASON =", search.reason)
-                if search.status != "search_submitted_unverified":
-                    print("STOP = CUSTOMER_DIRECT_LOOKUP_INPUT_NOT_VERIFIED")
-                    print("NO_BLIND_RETRY = True")
-                    return 6
-                actions += 1
-                queried = inspect(loop)
-                print("CUSTOMER_AFTER_SEARCH_SELECTED =", customer_selected(queried))
-                if customer_selected(queried):
-                    continue
-                ok, reason = handle_customer_lookup(queried)
-                print("CUSTOMER_LOOKUP_RESULT =", reason)
-                if not ok and reason == "EXACT_CUSTOMER_RESULT_NOT_UNIQUE_OR_NOT_VISIBLE":
-                    # Text input and opening the dropdown are different
-                    # operations in the native LookUpEdit widget.
-                    from app.agent.offers.windowhub_customer_result_selection import (
-                        reveal_customer_results,
-                    )
-                    opened, open_reason = reveal_customer_results(queried)
-                    print("CUSTOMER_DROPDOWN_RESULT =", open_reason)
-                    if opened:
-                        actions += 1
-                        time.sleep(0.25)
-                        after_dropdown = inspect(loop)
-                        if stage_of(after_dropdown) == "document_properties":
-                            ok, reason = handle_customer_lookup(after_dropdown)
-                            print("CUSTOMER_LOOKUP_AFTER_DROPDOWN =", reason)
-                if ok:
+                # The suggestion can be visible only while a PREFIX is
+                # being typed. Inspect the UI after every short chunk.
+                found, reason = progressive_customer_selection(
+                    loop, scene, CUSTOMER
+                )
+                print("CUSTOMER_PROGRESSIVE_SELECTION =", reason)
+                if found:
                     actions += 1
-                    fresh = inspect(loop)
-                    if customer_selected(fresh):
-                        print("CUSTOMER_SELECTED_VERIFIED = True")
-                        continue
-                    print("CUSTOMER_EXACT_CLICK_DONE_BUT_SELECTED_VALUE_UNAVAILABLE = True")
+                    continue
                 print("STOP = CUSTOMER_SELECTION_UNVERIFIED")
                 print("NO_BLIND_RETRY = True")
                 return 6
