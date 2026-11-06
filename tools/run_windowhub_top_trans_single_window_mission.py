@@ -107,67 +107,11 @@ def customer_selected(scene):
 
 
 def handle_customer_lookup(scene):
-    """Select only a unique exact company item, with fresh native UIA identity."""
-    from pywinauto import Desktop
-    import psutil
-    window_hwnd = scene.observation.metadata.get("window_handle")
-    if not isinstance(window_hwnd, int) or window_hwnd <= 0:
-        return False, "CUSTOMER_PICKER_NO_WINDOW"
-    wrappers = []
-    try:
-        from ctypes import wintypes
-        import ctypes
-        user32 = ctypes.WinDLL("user32", use_last_error=True)
-        user32.GetWindowThreadProcessId.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.DWORD)]
-        user32.GetWindowThreadProcessId.restype = wintypes.DWORD
-        user32.GetWindow.argtypes = [wintypes.HWND, wintypes.UINT]
-        user32.GetWindow.restype = wintypes.HWND
-        pid = wintypes.DWORD()
-        user32.GetWindowThreadProcessId(window_hwnd, ctypes.byref(pid))
-        desktop = Desktop(backend="uia")
-        seen = set()
-        for w in desktop.windows():
-            try:
-                hwnd = int(w.handle)
-                if hwnd in seen:
-                    continue
-                seen.add(hwnd)
-                other = wintypes.DWORD()
-                user32.GetWindowThreadProcessId(hwnd, ctypes.byref(other))
-                if other.value != pid.value or not w.is_visible():
-                    continue
-                # Only the active document or its directly owned native popup.
-                # Never click a matching Top Trans row in another open offer.
-                owner = int(user32.GetWindow(hwnd, 4) or 0)  # GW_OWNER
-                if hwnd != window_hwnd and owner != window_hwnd:
-                    continue
-                wrappers.extend(w.descendants())
-            except Exception:
-                continue
-    except Exception as exc:
-        return False, "CUSTOMER_UIA_ACCESS_" + type(exc).__name__
-    exact = []
-    for item in wrappers:
-        try:
-            info = item.element_info
-            role = str(info.control_type or "").casefold()
-            name = str(info.name or "").strip()
-            if (name.casefold() == CUSTOMER.casefold()
-                    and role in ("dataitem", "listitem", "treeitem")
-                    and bool(info.enabled) and bool(info.visible)):
-                exact.append(item)
-        except Exception:
-            continue
-    print("TOP_TRANS_EXACT_SELECTABLE_ROWS =", len(exact))
-    if len(exact) != 1:
-        return False, "TOP_TRANS_ROW_NOT_UNIQUELY_SELECTABLE"
-    try:
-        exact[0].click_input()
-    except Exception as exc:
-        return False, "TOP_TRANS_ROW_CLICK_" + type(exc).__name__
-    # Click may select a row only, leaving the popup open. Do not send
-    # Enter or double-click blindly. Reobserve selected customer in caller.
-    return True, "TOP_TRANS_EXACT_ROW_CLICKED_PENDING_VERIFICATION"
+    """Find and click exactly one same-process native customer result."""
+    from app.agent.offers.windowhub_customer_result_selection import (
+        select_exact_customer_result,
+    )
+    return select_exact_customer_result(scene, CUSTOMER)
 
 
 def toggle_price_once(scene, key):
@@ -646,8 +590,16 @@ def main(argv=None):
     parser = argparse.ArgumentParser()
     parser.add_argument("--execute-live", action="store_true")
     parser.add_argument("--max-actions", type=int, default=16)
+    parser.add_argument("--customer-name", default="Top Trans",
+                        help="Exact existing customer name extracted from a verified order")
     args = parser.parse_args(argv)
-    print("=== WINDOWHUB TOP TRANS SINGLE WINDOW MISSION ===")
+    global CUSTOMER
+    if (not args.customer_name.strip() or len(args.customer_name.strip()) > 100
+            or any(ord(ch) < 32 for ch in args.customer_name)):
+        print("STOP = invalid requested customer name")
+        return 2
+    CUSTOMER = args.customer_name.strip()
+    print("=== WINDOWHUB EXISTING CUSTOMER SINGLE WINDOW MISSION ===")
     print("MISSION =", CUSTOMER, TARGET)
     print("DECISION_SOURCE = deterministic_verified_policy")
     print("MODEL_REQUESTS = 0")
