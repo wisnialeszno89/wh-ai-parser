@@ -71,3 +71,42 @@ def test_customer_skill_requires_explicit_mode_and_name():
     args = parse_args(["--customer-lookup-skill", "--customer-name", "Top Trans"])
     assert args.customer_lookup_skill is True
     assert args.customer_name == "Top Trans"
+
+
+def test_inspect_activate_window_fails_closed_without_desktop_authorization(monkeypatch, capsys):
+    import tools.run_windowhub_goal_v2 as runner
+    monkeypatch.setattr(runner.os, "name", "nt")
+    monkeypatch.delenv("WH_REAL_WINDOWHUB", raising=False)
+    monkeypatch.delenv("COMPUTER_USE_LIVE", raising=False)
+    code = runner.main([
+        "--mode", "inspect", "--activate-window",
+        "--goal", "Inspect WindowHub customer form",
+    ])
+    assert code == 2
+    assert "explicit desktop authorization" in capsys.readouterr().out
+
+
+def test_inspect_activate_window_uses_existing_bounded_focus_only(monkeypatch):
+    import tools.run_windowhub_goal_v2 as runner
+    called = []
+    monkeypatch.setattr(runner.os, "name", "nt")
+    monkeypatch.setenv("WH_REAL_WINDOWHUB", "1")
+    monkeypatch.setenv("COMPUTER_USE_LIVE", "1")
+
+    def fake_activate():
+        called.append("focus")
+        return False, "No unique WindowHub window"
+
+    monkeypatch.setattr(runner, "activate_windowhub_workflow_window", fake_activate)
+    code = runner.main([
+        "--mode", "inspect", "--activate-window",
+        "--goal", "Inspect WindowHub customer form",
+    ])
+    assert code == 3
+    assert called == ["focus"]
+
+
+def test_activate_flag_does_not_change_default_inspect_mode():
+    from tools.run_windowhub_goal_v2 import parse_args
+    args = parse_args(["--mode", "inspect", "--goal", "View customer form"])
+    assert args.activate_window is False
