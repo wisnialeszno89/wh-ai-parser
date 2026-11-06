@@ -33,8 +33,18 @@ def main(argv=None):
     for item in learned:
         if "observed_from_stage" in item:
             print("LEARNED_TRANSITION=" + item["observed_from_stage"] + " -> " + item["observed_to_stage"])
+        elif item.get("source") == "windowhub_construction_demonstration":
+            print("LEARNED_CONSTRUCTION_STAGE=" + str(item.get("stage"))
+                  + " group=" + str(item.get("construction_group"))
+                  + " observed_field_changes="
+                  + str(item.get("observed_field_state_changes")))
+        elif item.get("control") is not None and item.get("observed_state") is not None:
+            print("LEARNED_CONTROL_EFFECT=" + str(item["stage"]) + " "
+                  + str(item["control"]) + " "
+                  + str(item["observed_state"]) + "="
+                  + str(item["observed_value"]))
         else:
-            print("LEARNED_CONTROL_EFFECT=" + str(item.get("stage")) + " " + str(item.get("control")) + " " + str(item.get("observed_state")) + "=" + str(item.get("observed_value")))
+            print("EXPERIENCE_UNCLASSIFIED=" + str(item.get("source", "unknown")))
     if not report["modifier_observed"]:
         print("NEXT_GAP=Modifier was not recognized; learn or identify the later WindowHub stages.")
     print("NOTE=Observations are evidence of transitions, not proof of specific clicked controls.")
