@@ -37,9 +37,17 @@ def classify_customer_search_controls(controls, *, picker_focused: bool) -> Cust
     named = [(i, c) for i, c in usable
              if str(c.get("name") or "").casefold().strip() in known_names]
 
+    # A true UIA descendant of IDC_ZAMAWIAJACY is stronger than an edit
+    # which merely overlaps its rectangle. Prefer it only if unique.
+    structural = [(i, c) for i, c in inside if c.get("structural_child") is True]
+    if len(structural) == 1:
+        return CustomerSearchDecision(
+            "type_in_unique_search_edit", "unique_customer_picker_child",
+            len(inside), structural[0][0],
+        )
     # Inside-picker candidates are stronger than a similarly named field
     # elsewhere on the document. Restrict to this group first.
-    candidates = inside if inside else named
+    candidates = structural if len(structural) > 1 else inside if inside else named
     if len(candidates) == 1:
         return CustomerSearchDecision("type_in_unique_search_edit",
                                       "verified_search_edit", 1, candidates[0][0])
@@ -122,6 +130,7 @@ def type_customer_search(scene: Any, customer_name: str) -> CustomerSearchDecisi
                 "enabled": True,
                 "name": str(info.name or "").strip(),
                 "inside_picker": WindowHubUIAutomationProvider._runtime_id(w) in picker_descendants,
+                "structural_child": WindowHubUIAutomationProvider._runtime_id(w) in picker_descendants,
                 "focused": bool(getattr(info, "has_keyboard_focus", False)),
             })
         except Exception:
