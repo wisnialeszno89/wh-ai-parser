@@ -251,8 +251,8 @@ def type_directly_into_customer_lookup(scene: Any, customer_name: str) -> Custom
         # Query focus via UI Automation. No text if focus is on any other
         # offer property, and no assumption that a click focused the lookup.
         phase = "resolve_uia_focus"
-        from pywinauto.windows.uia_defines import IUIA
-        from pywinauto.windows.uia_element_info import UIAElementInfo
+        from pywinauto.uia_defines import IUIA
+        from pywinauto.uia_element_info import UIAElementInfo
         from pywinauto.controls.uiawrapper import UIAWrapper
         raw_focused = IUIA().get_focused_element()
         if raw_focused is None:
