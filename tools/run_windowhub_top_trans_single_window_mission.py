@@ -96,14 +96,15 @@ def verify_exclusion(scene, key):
     return len(observed) == 1 and (observed[0].metadata or {}).get("uia_checked") is True
 
 
-def customer_selected(scene):
+def customer_selected(scene, name=None):
     # The existing customer lookup does not reliably expose the selected value.
     # Never interpret a focused button or opened grid as a selected client.
     candidates = matches(scene, automation_id="IDC_ZAMAWIAJACY")
     if len(candidates) != 1:
         return False
     value = (candidates[0].metadata or {}).get("current_value")
-    return isinstance(value, str) and value.strip().casefold() == CUSTOMER.casefold()
+    expected = CUSTOMER if name is None else name
+    return isinstance(value, str) and value.strip().casefold() == expected.strip().casefold()
 
 
 def handle_customer_lookup(scene):
@@ -150,7 +151,7 @@ def progressive_customer_selection(loop, initial_scene, name):
         if stage_of(current) != "document_properties":
             return False, "CUSTOMER_SEARCH_STAGE_CHANGED"
         print("CUSTOMER_SEARCH_CHECKPOINT =", index + 1, "/", len(parts))
-        if customer_selected(current):
+        if customer_selected(current, name):
             return True, "CUSTOMER_VERIFIED_AFTER_TYPED_CHUNK"
         matched, reason = select_exact_customer_result(current, name)
         print("CUSTOMER_NATIVE_RESULT =", reason)
@@ -162,7 +163,7 @@ def progressive_customer_selection(loop, initial_scene, name):
             # document state once, rather than retrying clicks.
             time.sleep(0.15)
             after = inspect(loop)
-            if customer_selected(after):
+            if customer_selected(after, name):
                 return True, "CUSTOMER_VERIFIED_AFTER_EXACT_RESULT_CLICK"
             # Some legacy LookUpEdit widgets do not propagate their native
             # selection to the generic semantic scene. Gather distinct
