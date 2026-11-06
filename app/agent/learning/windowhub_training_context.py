@@ -15,6 +15,24 @@ from app.agent.learning.windowhub_construction_learning import (
 )
 
 
+def _json_compatible_construction_map(value):
+    """Convert static construction-mapping tuples to JSON arrays.
+
+    The underlying coverage report intentionally uses immutable tuples for
+    local consumers. NaviMind V2 accepts JSON lists, not Python tuples.
+    Keep the transformation limited to this curated mapping; never loosen
+    the V2 protocol validator for arbitrary objects.
+    """
+    if isinstance(value, dict):
+        return {key: _json_compatible_construction_map(item)
+                for key, item in value.items()}
+    if isinstance(value, tuple):
+        return [_json_compatible_construction_map(item) for item in value]
+    if value is None or isinstance(value, (str, bool, int, float)):
+        return value
+    raise TypeError("windowhub_construction_map_contains_unsupported_type")
+
+
 def windowhub_skill_knowledge() -> dict[str, object]:
     return {
         "application": "WindowHub",
@@ -54,7 +72,7 @@ def windowhub_skill_knowledge() -> dict[str, object]:
             "sash": "Sash count, opening direction and sash profile are distinct from the frame.",
             "glazing": "Glass package, spacer and applicable thickness constraints are separate choices.",
             "hardware": "Hardware type, opening mode and compatibility must be verified against the chosen sash.",
-            "ui_mapping": construction_map_coverage(),
+            "ui_mapping": _json_compatible_construction_map(construction_map_coverage()),
             "policy": "A demonstrated screen state is not proof of a valid buildable configuration.",
         },
         "uncertainties": [
