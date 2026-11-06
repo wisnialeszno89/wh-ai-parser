@@ -44,3 +44,40 @@ def test_disabled_search_edit_is_not_used():
         [edit(inside_picker=True, enabled=False)], picker_focused=False,
     )
     assert result.status == "blocked"
+
+
+def test_focused_edit_resolves_multiple_inside_picker_candidates():
+    first = edit(inside_picker=True, name="Search")
+    first["focused"] = False
+    second = edit(inside_picker=True)
+    second["focused"] = True
+    result = classify_customer_search_controls(
+        [first, second], picker_focused=False,
+    )
+    assert result.status == "type_in_unique_search_edit"
+    assert result.selected_index == 1
+    assert result.reason == "focused_search_edit_inside_lookup"
+
+
+def test_focus_outside_picker_does_not_resolve_ambiguous_fields():
+    inside_a = edit(inside_picker=True)
+    inside_a["focused"] = False
+    inside_b = edit(inside_picker=True)
+    inside_b["focused"] = False
+    unrelated = edit(name="Rabat")
+    unrelated["focused"] = True
+    result = classify_customer_search_controls(
+        [inside_a, inside_b, unrelated], picker_focused=True,
+    )
+    assert result.status == "blocked"
+    assert result.reason == "multiple_possible_search_edits"
+
+
+def test_unique_inside_edit_takes_priority_over_named_field_elsewhere():
+    outer = edit(name="Search")
+    inner = edit(inside_picker=True, name="")
+    result = classify_customer_search_controls(
+        [outer, inner], picker_focused=False
+    )
+    assert result.status == "type_in_unique_search_edit"
+    assert result.selected_index == 1
