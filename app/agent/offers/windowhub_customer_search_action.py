@@ -228,6 +228,7 @@ def type_directly_into_customer_lookup(scene: Any, customer_name: str) -> Custom
         )
     except Exception as exc:
         return CustomerSearchDecision("blocked", "lookup_identity_" + type(exc).__name__)
+    phase = "read_lookup_geometry"
     try:
         rect = wrapper.rectangle()
         if str(wrapper.element_info.class_name).casefold() != "lookupedit":
@@ -236,6 +237,7 @@ def type_directly_into_customer_lookup(scene: Any, customer_name: str) -> Custom
         from pywinauto import mouse
         # UIA identity and rectangle have just been reverified. Click the
         # left TEXT area instead of the right-side dropdown arrow.
+        phase = "click_lookup_text_area"
         mouse.click(coords=(int(rect.left) + click_offset[0],
                             int(rect.top) + click_offset[1]))
         import ctypes
@@ -248,8 +250,14 @@ def type_directly_into_customer_lookup(scene: Any, customer_name: str) -> Custom
 
         # Query focus via UI Automation. No text if focus is on any other
         # offer property, and no assumption that a click focused the lookup.
-        from pywinauto import Desktop
-        focused = Desktop(backend="uia").get_focus()
+        phase = "resolve_uia_focus"
+        from pywinauto.windows.uia_defines import IUIA
+        from pywinauto.windows.uia_element_info import UIAElementInfo
+        from pywinauto.controls.uiawrapper import UIAWrapper
+        raw_focused = IUIA().get_focused_element()
+        if raw_focused is None:
+            return CustomerSearchDecision("blocked", "no_focused_uia_element")
+        focused = UIAWrapper(UIAElementInfo(raw_focused))
         focus_rect = focused.rectangle()
         picker_rect = wrapper.rectangle()
         focus_inside = (
@@ -264,9 +272,13 @@ def type_directly_into_customer_lookup(scene: Any, customer_name: str) -> Custom
         if not focus_inside and not same_lookup:
             return CustomerSearchDecision("blocked", "text_area_not_focused")
         print("DIRECT_LOOKUP_TEXT_FOCUS_VERIFIED = True")
+        phase = "send_customer_name"
         from pywinauto.keyboard import send_keys
         send_keys(customer_name, with_spaces=True, pause=0.05)
         return CustomerSearchDecision("search_submitted_unverified",
                                       "direct_verified_lookup_text_area")
     except Exception as exc:
-        return CustomerSearchDecision("blocked", "direct_lookup_" + type(exc).__name__)
+        # Phase is safe to print; never log the customer text or raw UIA values.
+        return CustomerSearchDecision(
+            "blocked", "direct_lookup_" + phase + "_" + type(exc).__name__
+        )
