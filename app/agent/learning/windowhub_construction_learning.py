@@ -107,7 +107,11 @@ def construction_demonstration_report(records):
             old, new = change.get("before"), change.get("after")
             if not isinstance(old, Mapping) or not isinstance(new, Mapping):
                 continue
-            # Only effects (not values): a changed selection, toggle or nonempty status.
+            # Only effects (not values): a changed selection, toggle or
+            # nonempty status. New recordings may also report that an
+            # existing mapped value changed, without its raw content.
+            if change.get("value_changed") is True:
+                observed_control_effects.add((before, name, "value_changed"))
             for field in ("checked", "selected", "value_present"):
                 if type(old.get(field)) is bool and type(new.get(field)) is bool:
                     if old[field] != new[field]:
