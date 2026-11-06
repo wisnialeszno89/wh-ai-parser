@@ -72,9 +72,9 @@ def windowhub_skill_knowledge() -> dict[str, object]:
             "sash": "Sash count, opening direction and sash profile are distinct from the frame.",
             "glazing": "Glass package, spacer and applicable thickness constraints are separate choices.",
             "hardware": "Hardware type, opening mode and compatibility must be verified against the chosen sash.",
-            "ui_mapping": _json_compatible_construction_map(construction_map_coverage()),
             "policy": "A demonstrated screen state is not proof of a valid buildable configuration.",
         },
+        "construction_ui_mapping": _json_compatible_construction_map(construction_map_coverage()),
         "uncertainties": [
             "The selected customer value may not be exposed by the native lookup.",
             "Multiple offers may be open; Cancel may leave the intended workflow.",
