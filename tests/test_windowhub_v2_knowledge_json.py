@@ -14,10 +14,11 @@ def test_windowhub_skill_knowledge_serializes_as_strict_json():
     knowledge = windowhub_skill_knowledge()
     encoded = json.dumps(knowledge, ensure_ascii=False, allow_nan=False)
     decoded = json.loads(encoded)
-    assert isinstance(decoded["window_construction_learning"]["ui_mapping"]
+    assert isinstance(decoded["construction_ui_mapping"]
                       ["mapped_groups"]["item_type"]["mapped_fields"], list)
-    assert isinstance(decoded["window_construction_learning"]["ui_mapping"]
+    assert isinstance(decoded["construction_ui_mapping"]
                       ["pending_groups"], list)
+    assert "ui_mapping" not in decoded["window_construction_learning"]
 
 
 def test_full_windowhub_v2_cycle_accepts_construction_knowledge():
