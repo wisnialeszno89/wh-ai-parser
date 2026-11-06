@@ -16,25 +16,46 @@ class CustomerSearchDecision:
     status: str
     reason: str
     search_control_count: int = 0
+    selected_index: int | None = None
 
 
 def classify_customer_search_controls(controls, *, picker_focused: bool) -> CustomerSearchDecision:
-    """Pure policy: never type into a nonunique or unrelated edit field."""
-    editable = [
-        c for c in controls
-        if c.get("role") == "edit"
-        and c.get("visible") is True
-        and c.get("enabled") is True
-        and (c.get("inside_picker") is True or c.get("name", "").casefold() in {
-            "szukaj", "wyszukaj", "search", "filter", "filtr", "find"
-        })
+    """Choose one provable search edit, never a random document field.
+
+    Prefer one edit structurally inside the customer lookup. If that yields
+    several candidates, a uniquely focused edit inside the same lookup is
+    enough to resolve the ambiguity. Focus outside the lookup is insufficient.
+    """
+    usable = [
+        (index, control) for index, control in enumerate(controls)
+        if control.get("role") == "edit"
+        and control.get("visible") is True
+        and control.get("enabled") is True
     ]
-    if len(editable) == 1:
-        return CustomerSearchDecision("type_in_unique_search_edit", "verified_search_edit", 1)
-    if len(editable) > 1:
-        return CustomerSearchDecision("blocked", "multiple_possible_search_edits", len(editable))
+    inside = [(i, c) for i, c in usable if c.get("inside_picker") is True]
+    known_names = {"szukaj", "wyszukaj", "search", "filter", "filtr", "find"}
+    named = [(i, c) for i, c in usable
+             if str(c.get("name") or "").casefold().strip() in known_names]
+
+    # Inside-picker candidates are stronger than a similarly named field
+    # elsewhere on the document. Restrict to this group first.
+    candidates = inside if inside else named
+    if len(candidates) == 1:
+        return CustomerSearchDecision("type_in_unique_search_edit",
+                                      "verified_search_edit", 1, candidates[0][0])
+    if len(candidates) > 1:
+        focused = [(i, c) for i, c in candidates if c.get("focused") is True]
+        if len(focused) == 1:
+            return CustomerSearchDecision(
+                "type_in_unique_search_edit", "focused_search_edit_inside_lookup"
+                if inside else "focused_named_search_edit",
+                len(candidates), focused[0][0]
+            )
+        return CustomerSearchDecision("blocked", "multiple_possible_search_edits",
+                                      len(candidates))
     if picker_focused:
-        return CustomerSearchDecision("typeahead_on_focused_lookup", "focused_verified_picker", 0)
+        return CustomerSearchDecision("typeahead_on_focused_lookup",
+                                      "focused_verified_picker", 0)
     return CustomerSearchDecision("blocked", "no_edit_and_picker_not_focused", 0)
 
 
@@ -101,6 +122,7 @@ def type_customer_search(scene: Any, customer_name: str) -> CustomerSearchDecisi
                 "enabled": True,
                 "name": str(info.name or "").strip(),
                 "inside_picker": WindowHubUIAutomationProvider._runtime_id(w) in picker_descendants,
+                "focused": bool(getattr(info, "has_keyboard_focus", False)),
             })
         except Exception:
             continue
@@ -121,20 +143,21 @@ def type_customer_search(scene: Any, customer_name: str) -> CustomerSearchDecisi
     decision = classify_customer_search_controls(
         all_edits, picker_focused=bool((matching[0].metadata or {}).get("uia_focused"))
     )
+    print("CUSTOMER_SEARCH_EDITS_TOTAL =", len(all_edits))
+    print("CUSTOMER_SEARCH_EDITS_INSIDE_LOOKUP =", sum(
+        item["inside_picker"] for item in all_edits
+    ))
+    print("CUSTOMER_SEARCH_EDITS_FOCUSED =", sum(
+        item["focused"] for item in all_edits
+    ))
     if decision.status == "blocked":
         return decision
 
     try:
         if decision.status == "type_in_unique_search_edit":
-            candidates = [
-                item["wrapper"] for item in all_edits
-                if item["inside_picker"] or item["name"].casefold() in {
-                    "szukaj", "wyszukaj", "search", "filter", "filtr", "find"
-                }
-            ]
-            if len(candidates) != 1:
-                return CustomerSearchDecision("blocked", "search_edit_ambiguity")
-            edit = candidates[0]
+            if decision.selected_index is None:
+                return CustomerSearchDecision("blocked", "search_edit_identity_missing")
+            edit = all_edits[decision.selected_index]["wrapper"]
             edit.set_focus()
             try:
                 edit.set_edit_text(customer_name)
