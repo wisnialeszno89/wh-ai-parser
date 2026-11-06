@@ -32,7 +32,12 @@ def parse_args(argv=None):
     parser.add_argument("--max-actions", type=int, default=6)
     parser.add_argument("--show-window-title", action="store_true", help="Print current native title locally for unknown stages; may contain business details")
     parser.add_argument("--execute-live", action="store_true")
+    parser.add_argument("--activate-window", action="store_true",
+                        help="Explicitly focus an existing unique WindowHub window before inspect/think; does not type or click")
     parser.add_argument("--approve-persistent", action="store_true")
+    parser.add_argument("--customer-name", help="Existing client name to find by progressive native/OCR lookup")
+    parser.add_argument("--customer-lookup-skill", action="store_true",
+                        help="Allow one locally verified customer lookup before model decisions (execute mode only)")
     return parser.parse_args(argv)
 
 
@@ -79,16 +84,50 @@ def audit_start_action_read_only(prepared, scene):
 
 
 def run_goal(loop, *, goal, reasoner, mode, max_actions, experience=(),
-             approved_persistent=False, show_window_title=False):
+             approved_persistent=False, show_window_title=False,
+             customer_lookup_name=None):
     session = ComputerUseV2ActionSession()
     task_id = "wh-" + uuid4().hex[:16]
     feedback = list(experience)
+    customer_lookup_attempted = False
     for revision in range(max_actions if mode == "execute" else 1):
         scene = enrich_windowhub_scene(loop.observe_scene())
         stage = stage_of(scene)
         if stage is None:
             print("STOP: WindowHub must be the foreground application.")
             return 4
+        if (mode == "execute" and customer_lookup_name
+                and stage == "document_properties"
+                and not customer_lookup_attempted):
+            # Native DevExpress lookup is not represented by a generic model
+            # edit affordance. Execute one specifically approved local skill,
+            # then hand the verified result + fresh scene to NaviMind V2.
+            customer_lookup_attempted = True
+            from tools.run_windowhub_top_trans_single_window_mission import (
+                customer_selected, progressive_customer_selection,
+            )
+            if customer_selected(scene, customer_lookup_name):
+                verified, outcome = True, "CUSTOMER_ALREADY_SELECTED"
+            else:
+                verified, outcome = progressive_customer_selection(
+                    loop, scene, customer_lookup_name,
+                )
+            print("CUSTOMER_SKILL_STATUS=" + outcome)
+            feedback.append({
+                "source": "windowhub_local_customer_skill",
+                "action_type": "select_existing_customer",
+                "from_stage": "document_properties",
+                "to_stage": stage_of(enrich_windowhub_scene(loop.observe_scene())) or "unknown",
+                "verified": verified,
+                "result": outcome,
+            })
+            if not verified:
+                print("STOP: customer selection requires additional visual/native verification.")
+                return 6
+            if revision + 1 >= max_actions:
+                print("STOP: customer skill verified but model action budget exhausted.")
+                return 4
+            continue
         if show_window_title and stage == "windowhub_unmapped":
             print("UNMAPPED_FOREGROUND_TITLE=" + repr(scene.observation.state.active_window_title))
             print("TITLE_NOTE=local diagnostic only; review for business identifiers before sharing")
@@ -195,6 +234,21 @@ def main(argv=None):
     if not goal.strip() or len(goal) > 16000:
         print("STOP: --goal or --task-file required; empty or oversized request.")
         return 2
+    if args.customer_lookup_skill and (
+        args.mode != "execute" or not isinstance(args.customer_name, str)
+        or not args.customer_name.strip() or len(args.customer_name.strip()) > 100
+    ):
+        print("STOP: customer lookup skill requires execute mode and a valid --customer-name.")
+        return 2
+    if args.activate_window and args.mode != "execute":
+        # Opt-in focus transfer is separate from any model or GUI action.
+        if any(os.getenv(k) != "1" for k in ("WH_REAL_WINDOWHUB", "COMPUTER_USE_LIVE")):
+            print("STOP: --activate-window needs both explicit desktop authorization flags.")
+            return 2
+        focused, info = activate_windowhub_workflow_window()
+        print("WINDOWHUB_ACTIVATION=" + info)
+        if not focused:
+            return 3
     if args.mode == "execute":
         if not args.execute_live or any(
             os.getenv(k) != "1" for k in ("WH_REAL_WINDOWHUB", "COMPUTER_USE_LIVE")
@@ -260,6 +314,8 @@ def main(argv=None):
             max_actions=args.max_actions, experience=experience,
             approved_persistent=args.approve_persistent,
             show_window_title=args.show_window_title,
+            customer_lookup_name=(args.customer_name.strip()
+                                  if args.customer_lookup_skill else None),
         )
     except Exception as exc:
         print("STOP: " + type(exc).__name__ + ": " + str(exc)[:200])

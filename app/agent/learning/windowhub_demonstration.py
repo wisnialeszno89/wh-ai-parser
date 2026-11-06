@@ -8,9 +8,31 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from collections.abc import Mapping
+import hashlib
+import hmac
+import secrets
 from typing import Any
 
 from app.agent.perception.screen_scene import ScreenScene
+
+# Secret exists only in this recorder process. Fingerprints never go into JSONL.
+_EPHEMERAL_VALUE_KEY = secrets.token_bytes(32)
+
+def _logical_field_name(stage: str, control_key: str) -> str | None:
+    """Name a uniquely mapped UIA field without storing customer values."""
+    from app.agent.offers.windowhub_offer_form_map import WINDOWHUB_OFFER_CONTROL_SPECS
+    try:
+        role, automation_id = control_key.split(":", 1)
+    except ValueError:
+        return None
+    matches = {
+        spec.field_name for spec in WINDOWHUB_OFFER_CONTROL_SPECS
+        if spec.step.value == stage
+        and spec.control_type == role
+        and spec.automation_id == automation_id
+    }
+    return next(iter(matches)) if len(matches) == 1 else None
+
 
 
 KNOWN_STAGES = {
@@ -93,6 +115,16 @@ def semantic_snapshot(scene: ScreenScene) -> dict[str, Any] | None:
         value = meta.get("current_value")
         if isinstance(value, str):
             state["value_present"] = bool(value.strip())
+            # Track changed values only for uniquely identified, mapped
+            # construction fields. Do not fingerprint customer records or
+            # document properties, and never export this keyed fingerprint.
+            logical_field = _logical_field_name(stage, key)
+            if logical_field and element.kind in {"edit", "combobox"}:
+                state["_value_fingerprint"] = hmac.new(
+                    _EPHEMERAL_VALUE_KEY,
+                    value.encode("utf-8"),
+                    hashlib.sha256,
+                ).hexdigest()
         candidates[key] = {
             "role": element.kind,
             "label": _safe_control_label(element),
@@ -115,12 +147,31 @@ def semantic_transition(before: Mapping[str, object], after: Mapping[str, object
         a = old[key]
         b = new[key]
         if a.get("state") != b.get("state"):
-            changed.append({
+            before_state = dict(a.get("state") or {})
+            after_state = dict(b.get("state") or {})
+            old_digest = before_state.pop("_value_fingerprint", None)
+            new_digest = after_state.pop("_value_fingerprint", None)
+            content_changed = (
+                isinstance(old_digest, str) and isinstance(new_digest, str)
+                and old_digest != new_digest
+            )
+            if before_state == after_state and not content_changed:
+                continue
+            effect = {
                 "role": b.get("role"),
                 "label": b.get("label"),
-                "before": a.get("state"),
-                "after": b.get("state"),
-            })
+                "before": before_state,
+                "after": after_state,
+            }
+            # A non-sensitive logical field name lets later learning tell
+            # width_1 from width_2. Never save the raw value or native ID.
+            if before.get("stage") == after.get("stage"):
+                logical = _logical_field_name(str(after.get("stage")), key)
+                if logical is not None:
+                    effect["field_name"] = logical
+                    if content_changed:
+                        effect["value_changed"] = True
+            changed.append(effect)
     result = {
         "from_stage": before.get("stage"),
         "to_stage": after.get("stage"),
