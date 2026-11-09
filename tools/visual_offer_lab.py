@@ -12,19 +12,31 @@ STATE_FILE = Path(tempfile.gettempdir()) / "navimind-visual-offer-lab.json"
 CUSTOMER = "Klient Demo"
 DOCUMENT_TITLE = "NaviMind Document Properties Lab"
 DOCUMENT_STATE_FILE = Path(tempfile.gettempdir()) / "navimind-document-properties-lab.json"
+ORDER_TITLE = "NaviMind Top Trans Order Lab"
+ORDER_STATE_FILE = Path(tempfile.gettempdir()) / "navimind-top-trans-order-lab.json"
 DOCUMENT_CUSTOMER = "Top Trans"
+WINDOW_FIELDS = (
+    ("quantity", "Ilość sztuk", 2),
+    ("width", "Szerokość (mm)", 1500),
+    ("height", "Wysokość (mm)", 1400),
+)
 DOCUMENT_FIELDS = (
     ("construction", "Bez ceny konstrukcji", False),
     ("installation", "Bez ceny montażu", True),
     ("removal", "Bez ceny demontażu", True),
     ("finishing", "Bez ceny wykończenia", True),
 )
-DOCUMENT_GOAL = (
+DOCUMENT_TASK = (
     "Pole wyszukiwania klienta ma początkowy fokus. Wyszukaj i wybierz dokładnie Top Trans z listy. "
     "Odznacz Bez ceny konstrukcji. Zaznacz Bez ceny montażu, Bez ceny demontażu i Bez ceny wykończenia. "
     "Korzystaj z odczytu stanu i podanych punktów kliknięcia w pikselach bieżącego obrazu. "
     "Jeśli zaznaczony wiersz to Top Trans, nie wybieraj klienta ponownie. "
-    "Pracuj w pełnym widoku formularza. Kliknij OK i zakończ po wyświetleniu potwierdzenia. Nie zamykaj okna."
+    "Pracuj w pełnym widoku formularza. Kliknij OK. "
+)
+DOCUMENT_GOAL = DOCUMENT_TASK + "Zakończ po wyświetleniu potwierdzenia. Nie zamykaj okna."
+ORDER_GOAL = DOCUMENT_TASK + (
+    "Po OK uzupełnij pozycję: 2 sztuki, szerokość 1500 mm, wysokość 1400 mm. "
+    "Sprawdź wartości w Podsumowaniu, kliknij Zapisz szkic i zakończ. Nie zamykaj okna."
 )
 GOAL = (
     "Zapisz testowy szkic oferty dla klienta Klient Demo, z montażem. "
@@ -35,7 +47,7 @@ GOAL = (
 
 def save_state(path, nonce, draft, *, title=TITLE, document_ready=False, document_snapshot=None):
     state = dict(title=title, pid=os.getpid(), nonce=nonce, draft=draft)
-    if title == DOCUMENT_TITLE:
+    if title in {DOCUMENT_TITLE, ORDER_TITLE}:
         state["document_ready"] = document_ready
         state["document_snapshot"] = document_snapshot
     temporary = path.with_name(f".{path.name}.{nonce}.tmp")
@@ -97,13 +109,38 @@ def document_image_points(snapshot, frame):
     return result
 
 
-def document_observer(path, nonce, pid):
+def position_observation(snapshot, frame):
+    points = document_image_points(snapshot, frame)
+    stage = snapshot["stage"]
+    fields = "; ".join(
+        f"{label} = {str(snapshot.get(key, ''))[:24] or 'puste'}"
+        + (f" {points[key]}" if key in points else "")
+        for key, label, _ in WINDOW_FIELDS
+    )
+    actions = "; ".join(
+        f"{label} {points[key]}" for key, label in
+        (("review", "Podsumowanie"), ("save", "Zapisz szkic"), ("edit", "Popraw pozycję"))
+        if key in points
+    )
+    focus = snapshot.get("focus")
+    return (
+        f"Właściwości Top Trans zatwierdzone. Etap: {stage}. {fields}. "
+        f"Pole z fokusem: {focus or 'brak'}. Punkty x,y: {actions or 'brak'}."
+    )
+
+
+def document_observer(path, nonce, pid, *, title=DOCUMENT_TITLE):
     def observe(frame=None):
-        state = read_lab_state(path, nonce, pid, DOCUMENT_TITLE)
+        state = read_lab_state(path, nonce, pid, title)
         if state is None:
             return None
         confirmed = isinstance(state.get("draft"), dict)
         snapshot = state["draft"] if confirmed else state.get("document_snapshot")
+        if title == ORDER_TITLE:
+            if confirmed:
+                return "Szkic zapisany. Sprawdź, czy zadanie zostało wykonane."
+            if isinstance(snapshot, dict) and snapshot.get("stage") in {"pozycja", "podsumowanie"}:
+                return position_observation(snapshot, frame)
         if not isinstance(snapshot, dict) or any(type(snapshot.get(key)) is not bool for key, _, _ in DOCUMENT_FIELDS):
             return None
         customer = snapshot.get("customer")
@@ -130,22 +167,34 @@ def document_observer(path, nonce, pid):
 
 def document_start_ready(state):
     return (
-        state.get("title") == DOCUMENT_TITLE
+        state.get("title") in {DOCUMENT_TITLE, ORDER_TITLE}
         and state.get("document_ready") is True
         and "draft" in state
         and state["draft"] is None
     )
 
 
+def matches_document(draft):
+    return (
+        isinstance(draft, dict)
+        and draft.get("customer") == DOCUMENT_CUSTOMER
+        and draft.get("confirmed") is True
+        and all(draft.get(key) is checked for key, _, checked in DOCUMENT_FIELDS)
+    )
+
+
 def document_verifier(path, nonce, pid):
+    return lambda: matches_document(read_lab_draft(path, nonce, pid, DOCUMENT_TITLE))
+
+
+def matches_window(draft):
+    return all(type(draft.get(key)) is int and draft[key] == expected for key, _, expected in WINDOW_FIELDS)
+
+
+def order_verifier(path, nonce, pid):
     def verify():
-        draft = read_lab_draft(path, nonce, pid, DOCUMENT_TITLE)
-        return (
-            draft is not None
-            and draft.get("customer") == DOCUMENT_CUSTOMER
-            and draft.get("confirmed") is True
-            and all(draft.get(key) is checked for key, _, checked in DOCUMENT_FIELDS)
-        )
+        draft = read_lab_draft(path, nonce, pid, ORDER_TITLE)
+        return draft is not None and matches_document(draft.get("document")) and matches_window(draft)
 
     return verify
 
@@ -158,10 +207,7 @@ def offer_verifier(path, nonce, pid):
         return (
             draft.get("customer") == CUSTOMER
             and draft.get("installation") is True
-            and all(
-                type(draft.get(key)) is int and draft[key] == expected
-                for key, expected in (("quantity", 2), ("width", 1500), ("height", 1400))
-            )
+            and matches_window(draft)
         )
 
     return verify
@@ -173,11 +219,18 @@ def main(argv=None):
 
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--state-file", type=Path)
-    parser.add_argument("--document-only", action="store_true", help="Open the Top Trans document properties scenario")
+    modes = parser.add_mutually_exclusive_group()
+    modes.add_argument("--document-only", action="store_true", help="Open the Top Trans document properties scenario")
+    modes.add_argument("--order", action="store_true", help="Run the Top Trans properties and window draft scenario")
     args = parser.parse_args(argv)
     nonce = secrets.token_hex(16)
-    title = DOCUMENT_TITLE if args.document_only else TITLE
-    state_path = args.state_file or (DOCUMENT_STATE_FILE if args.document_only else STATE_FILE)
+    document_mode = args.document_only or args.order
+    title, default_path = TITLE, STATE_FILE
+    if args.order:
+        title, default_path = ORDER_TITLE, ORDER_STATE_FILE
+    elif args.document_only:
+        title, default_path = DOCUMENT_TITLE, DOCUMENT_STATE_FILE
+    state_path = args.state_file or default_path
 
     root = tk.Tk()
     root.title(title)
@@ -187,19 +240,44 @@ def main(argv=None):
     content.pack(fill="both", expand=True)
 
     def show(title):
+        content.unbind("<Configure>")
         for widget in content.winfo_children():
             widget.destroy()
         ttk.Label(content, text=title, font=("Arial", 18, "bold")).pack(anchor="w", pady=(0, 16))
         ttk.Label(content, text="Laboratorium ofert · dane fikcyjne").pack(anchor="w", pady=(0, 12))
 
+    def relative(widget, x, y):
+        return [widget.winfo_rootx() - root.winfo_rootx() + x,
+                widget.winfo_rooty() - root.winfo_rooty() + y]
+
+    def widget_points(widgets):
+        return {
+            key: relative(widget, widget.winfo_width() // 2, widget.winfo_height() // 2)
+            for key, widget in widgets.items() if widget.winfo_ismapped()
+        }
+
+    def observe_stage_widgets(stage, widgets, values):
+        def publish():
+            if not all(widget.winfo_exists() for widget in widgets.values()):
+                return
+            snapshot = values()
+            snapshot.update(stage=stage, points=widget_points(widgets),
+                            client_size=[root.winfo_width(), root.winfo_height()])
+            save_state(state_path, nonce, None, title=title, document_snapshot=snapshot)
+
+        root.update_idletasks()
+        publish()
+        content.bind("<Configure>", lambda _: publish())
+        return publish
+
     def new_offer():
         save_state(state_path, nonce, None, title=title)
-        show("Właściwości dokumentu" if args.document_only else "1 z 3 · Właściwości dokumentu")
-        query = tk.StringVar(value="" if args.document_only else "AKlient Demo")
+        show("Właściwości dokumentu" if document_mode else "1 z 3 · Właściwości dokumentu")
+        query = tk.StringVar(value="" if document_mode else "AKlient Demo")
         installation = tk.BooleanVar(value=False)
         customers = (
             ("Top Trans S.A.", DOCUMENT_CUSTOMER, "Klient Testowy")
-            if args.document_only else (CUSTOMER, "Klient Testowy")
+            if document_mode else (CUSTOMER, "Klient Testowy")
         )
         options = {}
         price_widgets = {}
@@ -215,13 +293,8 @@ def main(argv=None):
             selected = results.curselection()
             snapshot = {key: variable.get() for key, variable in options.items()}
             snapshot["customer"] = results.get(selected[0]) if selected else None
-            def relative(widget, x, y):
-                return [widget.winfo_rootx() - root.winfo_rootx() + x,
-                        widget.winfo_rooty() - root.winfo_rooty() + y]
-
             widgets = {"search": search_entry, "ok": ok_button, **price_widgets}
-            points = {key: relative(widget, widget.winfo_width() // 2, widget.winfo_height() // 2)
-                      for key, widget in widgets.items() if widget.winfo_ismapped()}
+            points = widget_points(widgets)
             for index, name in enumerate(results.get(0, "end")):
                 bounds = results.bbox(index)
                 if bounds:
@@ -245,7 +318,7 @@ def main(argv=None):
                     if term in customer.casefold():
                         results.insert("end", customer)
             message.set("" if results.size() else "Brak wyników. Zmień wyszukiwaną nazwę.")
-            if args.document_only:
+            if document_mode:
                 mark_document_changed()
 
         def next_step():
@@ -254,9 +327,15 @@ def main(argv=None):
                 message.set("Wybierz klienta z listy wyników.")
                 return
             customer = results.get(selected[0])
-            if args.document_only:
+            if document_mode:
                 draft = {key: variable.get() for key, variable in options.items()}
                 draft.update(customer=customer, confirmed=True)
+                if args.order:
+                    if not matches_document(draft):
+                        message.set("Sprawdź klienta i zaznaczenia pól przed przejściem dalej.")
+                        return
+                    dimensions(customer, None, document=draft)
+                    return
                 save_state(state_path, nonce, draft, title=title)
                 show("Właściwości dokumentu zatwierdzone")
                 ttk.Label(content, text=f"Klient: {customer}").pack(anchor="w")
@@ -268,20 +347,20 @@ def main(argv=None):
             else:
                 dimensions(customer, installation.get())
 
-        if args.document_only:
+        if document_mode:
             for key, label, expected in DOCUMENT_FIELDS:
                 options[key] = tk.BooleanVar(value=not expected)
                 price_widgets[key] = ttk.Checkbutton(content, text=label, variable=options[key], command=mark_document_changed)
                 price_widgets[key].pack(anchor="w")
         else:
             ttk.Checkbutton(content, text="Montaż", variable=installation).pack(anchor="w", pady=(0, 8))
-        ok_button = ttk.Button(content, text="OK" if args.document_only else "Dalej", command=next_step)
+        ok_button = ttk.Button(content, text="OK" if document_mode else "Dalej", command=next_step)
         ok_button.pack(anchor="w", pady=(8, 0))
         message = tk.StringVar()
         ttk.Label(content, textvariable=message).pack(anchor="w", pady=8)
         query.trace_add("write", filter_customers)
         filter_customers()
-        if args.document_only:
+        if document_mode:
             results.bind("<<ListboxSelect>>", mark_document_changed)
             root.after_idle(search_entry.focus_set)
             root.update_idletasks()
@@ -294,54 +373,90 @@ def main(argv=None):
             document_ready = True
             write_document_state()
 
-    def dimensions(customer, installation):
+    def dimensions(customer, installation, *, document=None, initial=None):
         show("2 z 3 · Dodawanie pozycji okiennej")
-        ttk.Label(content, text=f"Klient: {customer} · Montaż: {'TAK' if installation else 'NIE'}").pack(anchor="w", pady=(0, 8))
-        fields = []
-        for label in ("Ilość sztuk", "Szerokość (mm)", "Wysokość (mm)"):
+        header = f"Klient: {customer}"
+        if document is None:
+            header += f" · Montaż: {'TAK' if installation else 'NIE'}"
+        ttk.Label(content, text=header).pack(anchor="w", pady=(0, 8))
+        entries = {}
+        variables = {}
+        for key, label, _ in WINDOW_FIELDS:
             ttk.Label(content, text=label).pack(anchor="w")
-            entry = ttk.Entry(content, width=18)
+            variables[key] = tk.StringVar(value=str(initial[key]) if initial else "")
+            entry = ttk.Entry(content, width=18, textvariable=variables[key])
             entry.pack(anchor="w", pady=(2, 8))
-            fields.append(entry)
+            entries[key] = entry
 
         def review():
             try:
-                quantity, width, height = read_dimensions(entry.get() for entry in fields)
+                quantity, width, height = read_dimensions(value.get() for value in variables.values())
             except ValueError as exc:
                 message.set(str(exc))
                 return
-            summary(dict(customer=customer, installation=installation, quantity=quantity, width=width, height=height))
+            draft = dict(customer=customer, installation=installation, quantity=quantity, width=width, height=height)
+            if document is not None:
+                draft["document"] = document
+            summary(draft)
 
-        ttk.Button(content, text="Podsumowanie", command=review).pack(anchor="w")
+        review_button = ttk.Button(content, text="Podsumowanie", command=review)
+        review_button.pack(anchor="w")
         ttk.Button(content, text="Wróć do wyboru klienta", command=new_offer).pack(anchor="w", pady=(6, 0))
         message = tk.StringVar()
         ttk.Label(content, textvariable=message).pack(anchor="w", pady=8)
 
+        if document is not None:
+            def current_values():
+                active = root.focus_get()
+                focus = next((label for key, label, _ in WINDOW_FIELDS if entries[key] == active), None)
+                return dict(focus=focus, **{key: variable.get() for key, variable in variables.items()})
+
+            entries["quantity"].focus_set()
+            publish = observe_stage_widgets("pozycja", {**entries, "review": review_button}, current_values)
+            for key, entry in entries.items():
+                variables[key].trace_add("write", lambda *_: publish())
+                entry.bind("<FocusIn>", lambda _: publish())
+                entry.bind("<FocusOut>", lambda _: publish())
+
     def summary(draft):
         show("3 z 3 · Podsumowanie oferty")
         ttk.Label(content, text=f"Klient: {draft['customer']}").pack(anchor="w")
-        ttk.Label(content, text=f"Montaż: {'TAK' if draft['installation'] else 'NIE'}").pack(anchor="w")
+        document = draft.get("document")
+        if document is None:
+            ttk.Label(content, text=f"Montaż: {'TAK' if draft['installation'] else 'NIE'}").pack(anchor="w")
         ttk.Label(
             content,
             text=f"Okno · {draft['quantity']} szt. · {draft['width']} × {draft['height']} mm (szer. × wys.)",
         ).pack(anchor="w", pady=(0, 16))
 
         def save():
-            save_state(state_path, nonce, draft)
+            if document is not None and not matches_window(draft):
+                message.set("Ilość lub wymiary nie zgadzają się ze zleceniem. Kliknij Popraw pozycję.")
+                return
+            content.unbind("<Configure>")
+            save_state(state_path, nonce, draft, title=title)
             message.set("Szkic zapisany w laboratorium.")
             save_button.state(["disabled"])
             edit_button.state(["disabled"])
+            if document is not None:
+                result = "verified" if order_verifier(state_path, nonce, os.getpid())() else "mismatch"
+                print(f"ORDER_LAB_RESULT={result}", flush=True)
 
         save_button = ttk.Button(content, text="Zapisz szkic", command=save)
         save_button.pack(anchor="w")
         edit_button = ttk.Button(
-            content, text="Popraw pozycję", command=lambda: dimensions(draft["customer"], draft["installation"])
+            content, text="Popraw pozycję",
+            command=lambda: dimensions(draft["customer"], draft["installation"], document=document,
+                                       initial=draft if document is not None else None),
         )
         edit_button.pack(anchor="w", pady=(6, 0))
         message = tk.StringVar()
         ttk.Label(content, textvariable=message).pack(anchor="w", pady=8)
+        if document is not None:
+            observe_stage_widgets("podsumowanie", {"save": save_button, "edit": edit_button},
+                                  lambda: {key: draft[key] for key, _, _ in WINDOW_FIELDS})
 
-    if args.document_only:
+    if document_mode:
         new_offer()
     else:
         save_state(state_path, nonce, None)

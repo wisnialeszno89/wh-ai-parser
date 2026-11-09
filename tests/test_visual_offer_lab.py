@@ -114,3 +114,39 @@ def test_document_points_map_logical_widget_positions_to_cropped_image_pixels():
         "Top Trans": [120, 160], "Top Trans S.A.": [120, 140], "offscreen": [50, 200],
     }}
     assert document_image_points(snapshot, frame) == {"Top Trans": (50, 50), "Top Trans S.A.": (50, 25)}
+
+
+def test_order_verification_requires_document_and_saved_window_from_same_session(tmp_path):
+    from tools.visual_offer_lab import ORDER_TITLE, order_verifier
+
+    path = tmp_path / "order.json"
+    verify = order_verifier(path, "session", os.getpid())
+    document = dict(customer="Top Trans", confirmed=True, construction=False,
+                    installation=True, removal=True, finishing=True)
+    window = dict(quantity=2, width=1500, height=1400)
+    save_state(path, "session", None, title=ORDER_TITLE, document_snapshot=window)
+    assert not verify()
+    save_state(path, "session", window, title=ORDER_TITLE)
+    assert not verify()
+    draft = dict(document=document, **window)
+    save_state(path, "session", draft | {"width": 1400, "height": 1500}, title=ORDER_TITLE)
+    assert not verify()
+    save_state(path, "session", draft | {"document": document | {"confirmed": False}}, title=ORDER_TITLE)
+    assert not verify()
+    save_state(path, "wrong-session", draft, title=ORDER_TITLE)
+    assert not verify()
+    save_state(path, "session", draft, title=ORDER_TITLE)
+    assert verify()
+
+
+def test_order_observer_describes_position_values_and_focus(tmp_path):
+    from tools.visual_offer_lab import ORDER_TITLE, document_observer
+
+    path = tmp_path / "order.json"
+    snapshot = dict(stage="pozycja", quantity="2", width="", height="1400", focus="Szerokość (mm)")
+    save_state(path, "session", None, title=ORDER_TITLE, document_snapshot=snapshot)
+    observation = document_observer(path, "session", os.getpid(), title=ORDER_TITLE)()
+    assert "Ilość sztuk = 2" in observation
+    assert "Szerokość (mm) = puste" in observation
+    assert "Wysokość (mm) = 1400" in observation
+    assert "Pole z fokusem: Szerokość (mm)" in observation

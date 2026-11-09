@@ -1,4 +1,4 @@
-param([switch]$ExecuteLive,[ValidateRange(1,30)][int]$MaxSteps=8,[string]$TraceDirectory='', [ValidateSet('correction','offer','document')][string]$Scenario='correction')
+param([switch]$ExecuteLive,[ValidateRange(1,30)][int]$MaxSteps=8,[string]$TraceDirectory='', [ValidateSet('correction','offer','document','order')][string]$Scenario='correction')
 $ErrorActionPreference = 'Stop'
 Set-Location (Split-Path $PSScriptRoot -Parent)
 python -m pytest tests/test_visual_agent_runtime.py tests/test_visual_agent_progress.py tests/test_visual_offer_lab.py -q

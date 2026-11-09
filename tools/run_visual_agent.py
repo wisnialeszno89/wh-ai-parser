@@ -39,12 +39,17 @@ class LabTrace:
 
 def main(argv=None):
     parser=argparse.ArgumentParser();parser.add_argument('--state-file',type=Path)
-    parser.add_argument('--scenario', choices=('correction', 'offer', 'document'), default='correction')
+    parser.add_argument('--scenario', choices=('correction', 'offer', 'document', 'order'), default='correction')
     parser.add_argument('--execute-live',action='store_true');parser.add_argument('--max-steps',type=int,default=8)
     parser.add_argument('--trace-dir',type=Path);args=parser.parse_args(argv)
     if os.name!='nt':print('STOP: Windows driver required');return 2
     if args.execute_live and os.getenv('COMPUTER_USE_LIVE')!='1':print('STOP: explicit live authorization required');return 2
-    if args.scenario == 'document':
+    if args.scenario == 'order':
+        title, goal, verifier = (
+            visual_offer_lab.ORDER_TITLE, visual_offer_lab.ORDER_GOAL, visual_offer_lab.order_verifier
+        )
+        default_path = visual_offer_lab.ORDER_STATE_FILE
+    elif args.scenario == 'document':
         title, goal, verifier = (
             visual_offer_lab.DOCUMENT_TITLE, visual_offer_lab.DOCUMENT_GOAL, visual_offer_lab.document_verifier
         )
@@ -59,17 +64,17 @@ def main(argv=None):
     try:
         state=json.loads(state_path.read_text(encoding='utf-8'))
         if not isinstance(state, dict) or state.get('title')!=title or type(state.get('pid')) is not int or not isinstance(state.get('nonce'),str):raise ValueError('visual_lab_state_invalid')
-        if args.scenario == 'document' and not visual_offer_lab.document_start_ready(state):
+        if args.scenario in {'document', 'order'} and not visual_offer_lab.document_start_ready(state):
             raise ValueError('visual_document_start_not_fresh_reopen_lab')
         from app.agent.visual.windows_driver import WindowsVisualDriver
         driver=WindowsVisualDriver(state['title'],state['pid'],allow_enter=True)
-        if args.scenario == 'document':
+        if args.scenario in {'document', 'order'}:
             print('VISUAL_DOCUMENT_START=fresh')
         print('VISUAL_SCREENSHOTS_SENT=True SCOPE=local_test_lab')
         trace=LabTrace(args.trace_dir) if args.trace_dir else None
         observe = (
-            visual_offer_lab.document_observer(state_path, state['nonce'], state['pid'])
-            if args.scenario == 'document' else None
+            visual_offer_lab.document_observer(state_path, state['nonce'], state['pid'], title=title)
+            if args.scenario in {'document', 'order'} else None
         )
         result=run_visual_task(driver,VisualReasoner(),goal,execute=args.execute_live,max_steps=args.max_steps,
                                verify=verifier(state_path,state['nonce'],state['pid']),trace=trace,observe=observe)
