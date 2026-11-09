@@ -20,7 +20,7 @@ DOCUMENT_FIELDS = (
     ("finishing", "Bez ceny wykończenia", True),
 )
 DOCUMENT_GOAL = (
-    "W testowych Właściwościach dokumentu wyszukaj i wybierz dokładnie Top Trans z listy. "
+    "Pole wyszukiwania klienta ma początkowy fokus. Wyszukaj i wybierz dokładnie Top Trans z listy. "
     "Odznacz Bez ceny konstrukcji. Zaznacz Bez ceny montażu, Bez ceny demontażu i Bez ceny wykończenia. "
     "Pracuj w pełnym widoku formularza. Kliknij OK i zakończ po wyświetleniu potwierdzenia. Nie zamykaj okna."
 )
@@ -138,7 +138,8 @@ def main(argv=None):
         )
         options = {}
         ttk.Label(content, text="Wyszukaj istniejącego klienta").pack(anchor="w")
-        ttk.Entry(content, textvariable=query, width=34).pack(anchor="w", pady=(4, 6))
+        search_entry = ttk.Entry(content, textvariable=query, width=34)
+        search_entry.pack(anchor="w", pady=(4, 6))
         results = tk.Listbox(content, height=2, width=34, exportselection=False)
         results.pack(anchor="w", pady=(0, 10))
 
@@ -193,6 +194,7 @@ def main(argv=None):
         filter_customers()
         if args.document_only:
             results.bind("<<ListboxSelect>>", mark_document_changed)
+            root.after_idle(search_entry.focus_set)
             document_ready = True
             save_state(state_path, nonce, None, title=title, document_ready=True)
 

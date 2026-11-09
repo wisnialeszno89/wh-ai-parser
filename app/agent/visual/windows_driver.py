@@ -38,6 +38,10 @@ class WindowsVisualDriver:
         from ctypes import wintypes
         self.user32=ctypes.WinDLL('user32',use_last_error=True)
         self.user32.GetForegroundWindow.restype=wintypes.HWND
+        self.user32.GetClientRect.argtypes=[wintypes.HWND,ctypes.POINTER(wintypes.RECT)]
+        self.user32.GetClientRect.restype=wintypes.BOOL
+        self.user32.ClientToScreen.argtypes=[wintypes.HWND,ctypes.POINTER(wintypes.POINT)]
+        self.user32.ClientToScreen.restype=wintypes.BOOL
         self.user32.WindowFromPoint.argtypes=[wintypes.POINT]
         self.user32.WindowFromPoint.restype=wintypes.HWND
         self.user32.GetWindowThreadProcessId.argtypes=[wintypes.HWND,ctypes.POINTER(wintypes.DWORD)]
@@ -56,9 +60,19 @@ class WindowsVisualDriver:
         if actual.value!=self.pid or int(self.user32.GetForegroundWindow() or 0)!=self.hwnd:
             raise RuntimeError('visual_scope_or_foreground_changed')
 
+    def _client_box(self):
+        from ctypes import wintypes
+        rect=wintypes.RECT()
+        origin=wintypes.POINT()
+        if not self.user32.GetClientRect(self.hwnd,ctypes.byref(rect)):
+            raise RuntimeError('visual_client_rect_unavailable')
+        if not self.user32.ClientToScreen(self.hwnd,ctypes.byref(origin)):
+            raise RuntimeError('visual_client_origin_unavailable')
+        return origin.x,origin.y,origin.x+rect.right,origin.y+rect.bottom
+
     def capture(self):
         with physical_coordinates():
-            self._check();r=self.window.rectangle();box=(int(r.left),int(r.top),int(r.right),int(r.bottom))
+            self._check();box=self._client_box()
             width,height=box[2]-box[0],box[3]-box[1]
             if width<=0 or height<=0:raise RuntimeError('visual_window_geometry_invalid')
             view=self.view or (0,0,width,height)

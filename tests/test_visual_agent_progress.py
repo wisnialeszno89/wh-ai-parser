@@ -114,3 +114,37 @@ def test_crop_feedback_explains_how_to_return_to_full_window():
     assert run_visual_task(driver, model, "Goal", execute=True, verify=lambda: True) == "verified"
     assert "null bounds" in model.requests[1]["feedback"][-1]["status"]
     assert "Full-window screenshot" in model.requests[2]["feedback"][-1]["status"]
+
+
+def test_windows_capture_uses_client_bounds_for_image_and_click_mapping(monkeypatch):
+    from contextlib import nullcontext
+    from types import SimpleNamespace
+
+    from app.agent.visual import windows_driver
+
+    driver = windows_driver.WindowsVisualDriver.__new__(windows_driver.WindowsVisualDriver)
+    driver.hwnd, driver.pid, driver.view = 7, 8, None
+    driver._check = lambda: None
+
+    def client_rect(hwnd, pointer):
+        assert hwnd == 7
+        pointer._obj.right, pointer._obj.bottom = 920, 600
+        return True
+
+    def client_to_screen(hwnd, pointer):
+        assert hwnd == 7
+        pointer._obj.x, pointer._obj.y = 134, 164
+        return True
+
+    driver.user32 = SimpleNamespace(GetClientRect=client_rect, ClientToScreen=client_to_screen)
+    monkeypatch.setattr(windows_driver, "physical_coordinates", nullcontext)
+
+    def grab(*, bbox, all_screens):
+        assert bbox == (134, 164, 1054, 764)
+        assert all_screens is True
+        return Image.new("RGB", (920, 600))
+
+    monkeypatch.setattr(windows_driver.ImageGrab, "grab", grab)
+    frame = driver.capture()
+    assert frame.token.window_box == (134, 164, 1054, 764)
+    assert windows_driver.model_to_window(frame, 100, 170) == (100, 170)
