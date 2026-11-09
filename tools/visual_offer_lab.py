@@ -22,6 +22,7 @@ DOCUMENT_FIELDS = (
 DOCUMENT_GOAL = (
     "Pole wyszukiwania klienta ma początkowy fokus. Wyszukaj i wybierz dokładnie Top Trans z listy. "
     "Odznacz Bez ceny konstrukcji. Zaznacz Bez ceny montażu, Bez ceny demontażu i Bez ceny wykończenia. "
+    "Korzystaj z odczytu stanu. Jeśli zaznaczony wiersz to Top Trans, nie wybieraj klienta ponownie. "
     "Pracuj w pełnym widoku formularza. Kliknij OK i zakończ po wyświetleniu potwierdzenia. Nie zamykaj okna."
 )
 GOAL = (
@@ -31,10 +32,11 @@ GOAL = (
 )
 
 
-def save_state(path, nonce, draft, *, title=TITLE, document_ready=False):
+def save_state(path, nonce, draft, *, title=TITLE, document_ready=False, document_snapshot=None):
     state = dict(title=title, pid=os.getpid(), nonce=nonce, draft=draft)
     if title == DOCUMENT_TITLE:
         state["document_ready"] = document_ready
+        state["document_snapshot"] = document_snapshot
     temporary = path.with_name(f".{path.name}.{nonce}.tmp")
     temporary.write_text(json.dumps(state), encoding="utf-8")
     os.replace(temporary, path)
@@ -50,7 +52,7 @@ def read_dimensions(entries):
     return numbers
 
 
-def read_lab_draft(path, nonce, pid, title):
+def read_lab_state(path, nonce, pid, title):
     try:
         state = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
@@ -59,8 +61,35 @@ def read_lab_draft(path, nonce, pid, title):
         return None
     if (state.get("title"), state.get("nonce"), state.get("pid")) != (title, nonce, pid):
         return None
-    draft = state.get("draft")
+    return state
+
+
+def read_lab_draft(path, nonce, pid, title):
+    state = read_lab_state(path, nonce, pid, title)
+    draft = state.get("draft") if state else None
     return draft if isinstance(draft, dict) else None
+
+
+def document_observer(path, nonce, pid):
+    def observe():
+        state = read_lab_state(path, nonce, pid, DOCUMENT_TITLE)
+        if state is None:
+            return None
+        confirmed = isinstance(state.get("draft"), dict)
+        snapshot = state["draft"] if confirmed else state.get("document_snapshot")
+        if not isinstance(snapshot, dict) or any(type(snapshot.get(key)) is not bool for key, _, _ in DOCUMENT_FIELDS):
+            return None
+        customer = snapshot.get("customer")
+        if customer not in (None, DOCUMENT_CUSTOMER, "Top Trans S.A.", "Klient Testowy"):
+            return None
+        prices = "; ".join(f"{label}: {'zaznaczone' if snapshot[key] else 'odznaczone'}"
+                           for key, label, _ in DOCUMENT_FIELDS)
+        return (
+            f"Stan formularza testowego. Zaznaczony klient: {customer or 'brak'}. "
+            f"{prices}. Formularz po OK: {'tak' if confirmed else 'nie'}."
+        )
+
+    return observe
 
 
 def document_start_ready(state):
@@ -145,14 +174,19 @@ def main(argv=None):
 
         document_ready = False
 
+        def write_document_state():
+            selected = results.curselection()
+            snapshot = {key: variable.get() for key, variable in options.items()}
+            snapshot["customer"] = results.get(selected[0]) if selected else None
+            save_state(state_path, nonce, None, title=title,
+                       document_ready=document_ready, document_snapshot=snapshot)
+
         def mark_document_changed(*_):
             nonlocal document_ready
-            if document_ready:
-                document_ready = False
-                save_state(state_path, nonce, None, title=title)
+            document_ready = False
+            write_document_state()
 
         def filter_customers(*_):
-            mark_document_changed()
             results.delete(0, "end")
             term = query.get().strip().casefold()
             if term:
@@ -160,6 +194,8 @@ def main(argv=None):
                     if term in customer.casefold():
                         results.insert("end", customer)
             message.set("" if results.size() else "Brak wyników. Zmień wyszukiwaną nazwę.")
+            if args.document_only:
+                mark_document_changed()
 
         def next_step():
             selected = results.curselection()
@@ -196,7 +232,7 @@ def main(argv=None):
             results.bind("<<ListboxSelect>>", mark_document_changed)
             root.after_idle(search_entry.focus_set)
             document_ready = True
-            save_state(state_path, nonce, None, title=title, document_ready=True)
+            write_document_state()
 
     def dimensions(customer, installation):
         show("2 z 3 · Dodawanie pozycji okiennej")

@@ -80,3 +80,20 @@ def test_document_start_rejects_already_edited_and_confirmed_sessions(tmp_path):
     assert not document_start_ready(saved_state({"confirmed": True}, ready=True))
     assert not document_start_ready(saved_state(ready=True, title="NaviMind Visual Offer Lab"))
     assert not document_start_ready({"title": DOCUMENT_TITLE, "document_ready": True})
+
+
+def test_document_observer_reports_selected_customer_and_live_states(tmp_path):
+    from tools.visual_offer_lab import DOCUMENT_TITLE, document_observer
+
+    path = tmp_path / "document.json"
+    observe = document_observer(path, "session", os.getpid())
+    snapshot = dict(customer="Top Trans S.A.", construction=True,
+                    installation=False, removal=False, finishing=False)
+    save_state(path, "session", None, title=DOCUMENT_TITLE, document_snapshot=snapshot)
+    assert "Zaznaczony klient: Top Trans S.A.." in observe()
+    save_state(path, "session", None, title=DOCUMENT_TITLE,
+               document_snapshot=snapshot | {"customer": "Top Trans"})
+    assert "Zaznaczony klient: Top Trans." in observe()
+    assert "Bez ceny montażu: odznaczone" in observe()
+    assert "Formularz po OK: nie" in observe()
+    assert document_observer(path, "different", os.getpid())() is None

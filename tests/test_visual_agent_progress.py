@@ -148,3 +148,14 @@ def test_windows_capture_uses_client_bounds_for_image_and_click_mapping(monkeypa
     frame = driver.capture()
     assert frame.token.window_box == (134, 164, 1054, 764)
     assert windows_driver.model_to_window(frame, 100, 170) == (100, 170)
+
+
+def test_latest_form_observation_is_sent_on_each_turn():
+    driver = Driver()
+    model = Reasoner([action("click", x=100, y=80), action("done")])
+    assert run_visual_task(
+        driver, model, "Goal", execute=True, verify=lambda: True,
+        observe=lambda: "selected" if driver.calls else "not selected",
+    ) == "verified"
+    assert model.requests[0]["feedback"][-1] == {"action": "observe", "status": "not selected"}
+    assert model.requests[1]["feedback"][-1] == {"action": "observe", "status": "selected"}

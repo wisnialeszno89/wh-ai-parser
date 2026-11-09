@@ -67,8 +67,12 @@ def main(argv=None):
             print('VISUAL_DOCUMENT_START=fresh')
         print('VISUAL_SCREENSHOTS_SENT=True SCOPE=local_test_lab')
         trace=LabTrace(args.trace_dir) if args.trace_dir else None
+        observe = (
+            visual_offer_lab.document_observer(state_path, state['nonce'], state['pid'])
+            if args.scenario == 'document' else None
+        )
         result=run_visual_task(driver,VisualReasoner(),goal,execute=args.execute_live,max_steps=args.max_steps,
-                               verify=verifier(state_path,state['nonce'],state['pid']),trace=trace)
+                               verify=verifier(state_path,state['nonce'],state['pid']),trace=trace,observe=observe)
         print('VISUAL_FINAL_STATUS='+result)
         return 0 if result in ('proposed','verified') else 6
     except (ValueError,RuntimeError,OSError) as exc:print('VISUAL_STOP='+str(exc));return 6

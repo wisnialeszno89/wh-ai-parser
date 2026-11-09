@@ -31,7 +31,7 @@ def action_memory(action):
     if 'text' in fields:fields['text']=fields['text'][:80]
     return json.dumps(fields,ensure_ascii=False,separators=(',',':'))[:240]
 
-def run_visual_task(driver,reasoner,goal,*,execute=False,max_steps=12,verify=None,trace=None):
+def run_visual_task(driver,reasoner,goal,*,execute=False,max_steps=12,verify=None,trace=None,observe=None):
     if type(max_steps) is not int or not 1<=max_steps<=30:raise ValueError('visual_step_budget')
     task_id='visual-'+uuid4().hex
     history=[];repeats={};model_calls=0;input_actions=0;input_attempts=0;tool_failures=0
@@ -67,7 +67,11 @@ def run_visual_task(driver,reasoner,goal,*,execute=False,max_steps=12,verify=Non
                 ineffective_clicks=0;last_ineffective_click=None
             if ineffective_clicks>=3:
                 print('VISUAL_RESULT=clicks_without_visible_effect');return 'review'
-        request={'version':'visual-1','task_id':task_id,'turn':turn,'goal':goal,'screen':frame.screen(),'feedback':history[-6:]}
+        observation = observe() if observe else None
+        feedback = history[-6:]
+        if observation:
+            feedback = history[-5:] + [{'action':'observe','status':observation}]
+        request={'version':'visual-1','task_id':task_id,'turn':turn,'goal':goal,'screen':frame.screen(),'feedback':feedback}
         validate_request(request)
         response=reasoner.reason(request);model_calls+=1
         validate_response(response,request)
