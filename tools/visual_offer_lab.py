@@ -36,7 +36,9 @@ DOCUMENT_TASK = (
 DOCUMENT_GOAL = DOCUMENT_TASK + "Zakończ po wyświetleniu potwierdzenia. Nie zamykaj okna."
 ORDER_GOAL = DOCUMENT_TASK + (
     "Po OK uzupełnij pozycję: 2 sztuki, szerokość 1500 mm, wysokość 1400 mm. "
-    "Sprawdź wartości w Podsumowaniu, kliknij Zapisz szkic i zakończ. Nie zamykaj okna."
+    "Wpisanie tekstu zastępuje wartość tylko w aktywnym polu liczbowym. "
+    "Korzystaj z odczytanych wartości i punktów kliknięcia. Sprawdź Podsumowanie, zapisz szkic i zakończ."
+    " Nie zamykaj okna."
 )
 GOAL = (
     "Zapisz testowy szkic oferty dla klienta Klient Demo, z montażem. "
@@ -109,6 +111,19 @@ def document_image_points(snapshot, frame):
     return result
 
 
+def order_numeric_focus(path, nonce, pid):
+    def focused():
+        state = read_lab_state(path, nonce, pid, ORDER_TITLE)
+        snapshot = state.get("document_snapshot") if state else None
+        return (
+            isinstance(snapshot, dict)
+            and snapshot.get("stage") == "pozycja"
+            and snapshot.get("focus") in {label for _, label, _ in WINDOW_FIELDS}
+        )
+
+    return focused
+
+
 def position_observation(snapshot, frame):
     points = document_image_points(snapshot, frame)
     stage = snapshot["stage"]
@@ -123,9 +138,19 @@ def position_observation(snapshot, frame):
         if key in points
     )
     focus = snapshot.get("focus")
+    next_step = ""
+    if stage == "pozycja":
+        next_field = next(((label, expected) for key, label, expected in WINDOW_FIELDS
+                           if str(snapshot.get(key, "")) != str(expected)), None)
+        if next_field is None:
+            next_step = " Wszystkie wartości poprawne. Kliknij Podsumowanie."
+        else:
+            label, expected = next_field
+            verb = "Wpisz" if focus == label else "Ustaw fokus i wpisz"
+            next_step = f" {verb} {expected} w polu {label}. Poprawnych pól nie zmieniaj."
     return (
         f"Właściwości Top Trans zatwierdzone. Etap: {stage}. {fields}. "
-        f"Pole z fokusem: {focus or 'brak'}. Punkty x,y: {actions or 'brak'}."
+        f"Pole z fokusem: {focus or 'brak'}. Punkty x,y: {actions or 'brak'}.{next_step}"
     )
 
 
@@ -413,10 +438,15 @@ def main(argv=None):
 
             entries["quantity"].focus_set()
             publish = observe_stage_widgets("pozycja", {**entries, "review": review_button}, current_values)
+            def select_value(event):
+                event.widget.selection_range(0, "end")
+                return "break"
+
             for key, entry in entries.items():
                 variables[key].trace_add("write", lambda *_: publish())
                 entry.bind("<FocusIn>", lambda _: publish())
                 entry.bind("<FocusOut>", lambda _: publish())
+                entry.bind("<Control-a>", select_value)
 
     def summary(draft):
         show("3 z 3 · Podsumowanie oferty")

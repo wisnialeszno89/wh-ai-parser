@@ -159,3 +159,19 @@ def test_latest_form_observation_is_sent_on_each_turn():
     ) == "verified"
     assert model.requests[0]["feedback"][-1] == {"action": "observe", "status": "not selected"}
     assert model.requests[1]["feedback"][-1] == {"action": "observe", "status": "selected"}
+
+
+def test_visual_typing_only_replaces_text_under_explicit_focused_field_policy():
+    from app.agent.visual.windows_driver import WindowsVisualDriver
+
+    driver = WindowsVisualDriver.__new__(WindowsVisualDriver)
+    calls = []
+    driver._check = lambda: calls.append("scope")
+    driver.replace_focused_text = lambda: False
+    send = lambda keys, **_: calls.append(keys)
+    driver._type_text("Top Trans", send)
+    assert calls == ["Top Trans"]
+
+    driver.replace_focused_text = lambda: True
+    driver._type_text("1500", send)
+    assert calls[1:] == ["scope", "^a", "scope", "1500"]

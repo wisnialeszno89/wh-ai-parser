@@ -67,7 +67,12 @@ def main(argv=None):
         if args.scenario in {'document', 'order'} and not visual_offer_lab.document_start_ready(state):
             raise ValueError('visual_document_start_not_fresh_reopen_lab')
         from app.agent.visual.windows_driver import WindowsVisualDriver
-        driver=WindowsVisualDriver(state['title'],state['pid'],allow_enter=True)
+        replace_focused_text = (
+            visual_offer_lab.order_numeric_focus(state_path, state['nonce'], state['pid'])
+            if args.scenario == 'order' else None
+        )
+        driver=WindowsVisualDriver(state['title'],state['pid'],allow_enter=True,
+                                   replace_focused_text=replace_focused_text)
         if args.scenario in {'document', 'order'}:
             print('VISUAL_DOCUMENT_START=fresh')
         print('VISUAL_SCREENSHOTS_SENT=True SCOPE=local_test_lab')

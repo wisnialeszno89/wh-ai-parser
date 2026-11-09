@@ -150,3 +150,19 @@ def test_order_observer_describes_position_values_and_focus(tmp_path):
     assert "Szerokość (mm) = puste" in observation
     assert "Wysokość (mm) = 1400" in observation
     assert "Pole z fokusem: Szerokość (mm)" in observation
+
+
+def test_order_replace_policy_only_accepts_numeric_focus_in_current_position(tmp_path):
+    from tools.visual_offer_lab import ORDER_TITLE, order_numeric_focus
+
+    path = tmp_path / "order.json"
+    focused = order_numeric_focus(path, "session", os.getpid())
+    snapshot = {"stage": "pozycja", "focus": "Szerokość (mm)"}
+    assert not focused()
+    save_state(path, "session", None, title=ORDER_TITLE, document_snapshot=snapshot)
+    assert focused()
+    for change in ({"stage": "podsumowanie"}, {"focus": None}, {"focus": "Klient"}):
+        save_state(path, "session", None, title=ORDER_TITLE, document_snapshot=snapshot | change)
+        assert not focused()
+    save_state(path, "previous-session", None, title=ORDER_TITLE, document_snapshot=snapshot)
+    assert not focused()

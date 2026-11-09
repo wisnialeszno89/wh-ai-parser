@@ -33,7 +33,7 @@ def literal_keys(text):
     return ''.join({'{':'{{}','}':'{}}','+':'{+}','^':'{^}','%':'{%}','~':'{~}','(':'{(}',')':'{)}'}.get(c,c) for c in text)
 
 class WindowsVisualDriver:
-    def __init__(self,title,pid,*,allow_enter=False):
+    def __init__(self,title,pid,*,allow_enter=False,replace_focused_text=None):
         from pywinauto import Desktop
         from ctypes import wintypes
         self.user32=ctypes.WinDLL('user32',use_last_error=True)
@@ -50,6 +50,7 @@ class WindowsVisualDriver:
                     if w.window_text()==title and w.element_info.process_id==pid and w.is_visible()]
         if len(candidates)!=1:raise RuntimeError('visual_scope_not_unique')
         self.window=candidates[0];self.hwnd=int(self.window.handle);self.pid=pid;self.view=None;self.allow_enter=allow_enter
+        self.replace_focused_text=replace_focused_text
         self.window.set_focus()
         if int(self.user32.GetForegroundWindow() or 0)!=self.hwnd:raise RuntimeError('visual_focus_denied')
 
@@ -101,6 +102,13 @@ class WindowsVisualDriver:
         if hit:self.user32.GetWindowThreadProcessId(hit,ctypes.byref(actual))
         if not hit or actual.value!=self.pid:raise RuntimeError('visual_point_not_owned_by_scope')
 
+    def _type_text(self, text, send_keys):
+        if self.replace_focused_text and self.replace_focused_text():
+            self._check()
+            send_keys('^a', vk_packet=False, pause=.05)
+            self._check()
+        send_keys(literal_keys(text), with_spaces=True, pause=.03)
+
     def perform(self,frame,action):
         self._check();kind=action['kind']
         from pywinauto import mouse
@@ -110,7 +118,8 @@ class WindowsVisualDriver:
                 x,y=model_to_window(frame,action['x'],action['y']);l,t,_,_=frame.token.window_box
                 self._owned_point(l+x,t+y)
                 mouse.click(coords=(l+x,t+y))
-            elif kind=='type_text':send_keys(literal_keys(action['text']),with_spaces=True,pause=.03)
+            elif kind=='type_text':
+                self._type_text(action['text'], send_keys)
             elif kind=='key':
                 keys={'CTRL+A':'^a','BACKSPACE':'{BACKSPACE}','HOME':'{HOME}','END':'{END}','TAB':'{TAB}','ESC':'{ESC}','ENTER':'{ENTER}'}
                 if action['key']=='ENTER' and not self.allow_enter:raise ValueError('visual_enter_not_authorized')
