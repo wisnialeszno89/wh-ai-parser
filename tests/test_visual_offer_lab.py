@@ -62,3 +62,21 @@ def test_document_verifier_requires_exact_customer_prices_and_ok(tmp_path):
     assert not check()
     save_state(path, "session", valid, title=DOCUMENT_TITLE)
     assert check()
+
+
+def test_document_start_rejects_already_edited_and_confirmed_sessions(tmp_path):
+    import json
+
+    from tools.visual_offer_lab import DOCUMENT_TITLE, document_start_ready
+
+    path = tmp_path / "document.json"
+
+    def saved_state(draft=None, *, ready=False, title=DOCUMENT_TITLE):
+        save_state(path, "session", draft, title=title, document_ready=ready)
+        return json.loads(path.read_text(encoding="utf-8"))
+
+    assert document_start_ready(saved_state(ready=True))
+    assert not document_start_ready(saved_state())
+    assert not document_start_ready(saved_state({"confirmed": True}, ready=True))
+    assert not document_start_ready(saved_state(ready=True, title="NaviMind Visual Offer Lab"))
+    assert not document_start_ready({"title": DOCUMENT_TITLE, "document_ready": True})

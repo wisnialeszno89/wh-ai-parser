@@ -59,8 +59,12 @@ def main(argv=None):
     try:
         state=json.loads(state_path.read_text(encoding='utf-8'))
         if not isinstance(state, dict) or state.get('title')!=title or type(state.get('pid')) is not int or not isinstance(state.get('nonce'),str):raise ValueError('visual_lab_state_invalid')
+        if args.scenario == 'document' and not visual_offer_lab.document_start_ready(state):
+            raise ValueError('visual_document_start_not_fresh_reopen_lab')
         from app.agent.visual.windows_driver import WindowsVisualDriver
         driver=WindowsVisualDriver(state['title'],state['pid'],allow_enter=True)
+        if args.scenario == 'document':
+            print('VISUAL_DOCUMENT_START=fresh')
         print('VISUAL_SCREENSHOTS_SENT=True SCOPE=local_test_lab')
         trace=LabTrace(args.trace_dir) if args.trace_dir else None
         result=run_visual_task(driver,VisualReasoner(),goal,execute=args.execute_live,max_steps=args.max_steps,

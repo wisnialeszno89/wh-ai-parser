@@ -31,8 +31,10 @@ GOAL = (
 )
 
 
-def save_state(path, nonce, draft, *, title=TITLE):
+def save_state(path, nonce, draft, *, title=TITLE, document_ready=False):
     state = dict(title=title, pid=os.getpid(), nonce=nonce, draft=draft)
+    if title == DOCUMENT_TITLE:
+        state["document_ready"] = document_ready
     temporary = path.with_name(f".{path.name}.{nonce}.tmp")
     temporary.write_text(json.dumps(state), encoding="utf-8")
     os.replace(temporary, path)
@@ -59,6 +61,15 @@ def read_lab_draft(path, nonce, pid, title):
         return None
     draft = state.get("draft")
     return draft if isinstance(draft, dict) else None
+
+
+def document_start_ready(state):
+    return (
+        state.get("title") == DOCUMENT_TITLE
+        and state.get("document_ready") is True
+        and "draft" in state
+        and state["draft"] is None
+    )
 
 
 def document_verifier(path, nonce, pid):
@@ -131,7 +142,16 @@ def main(argv=None):
         results = tk.Listbox(content, height=2, width=34, exportselection=False)
         results.pack(anchor="w", pady=(0, 10))
 
+        document_ready = False
+
+        def mark_document_changed(*_):
+            nonlocal document_ready
+            if document_ready:
+                document_ready = False
+                save_state(state_path, nonce, None, title=title)
+
         def filter_customers(*_):
+            mark_document_changed()
             results.delete(0, "end")
             term = query.get().strip().casefold()
             if term:
@@ -163,7 +183,7 @@ def main(argv=None):
         if args.document_only:
             for key, label, expected in DOCUMENT_FIELDS:
                 options[key] = tk.BooleanVar(value=not expected)
-                ttk.Checkbutton(content, text=label, variable=options[key]).pack(anchor="w")
+                ttk.Checkbutton(content, text=label, variable=options[key], command=mark_document_changed).pack(anchor="w")
         else:
             ttk.Checkbutton(content, text="Montaż", variable=installation).pack(anchor="w", pady=(0, 8))
         ttk.Button(content, text="OK" if args.document_only else "Dalej", command=next_step).pack(anchor="w", pady=(8, 0))
@@ -171,6 +191,10 @@ def main(argv=None):
         ttk.Label(content, textvariable=message).pack(anchor="w", pady=8)
         query.trace_add("write", filter_customers)
         filter_customers()
+        if args.document_only:
+            results.bind("<<ListboxSelect>>", mark_document_changed)
+            document_ready = True
+            save_state(state_path, nonce, None, title=title, document_ready=True)
 
     def dimensions(customer, installation):
         show("2 z 3 · Dodawanie pozycji okiennej")
