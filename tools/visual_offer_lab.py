@@ -156,6 +156,48 @@ def order_numeric_focus(path, nonce, pid):
     return focused
 
 
+def order_position_action(path, nonce, pid, case):
+    """Choose one lab position action from the current session's widget state."""
+    order = ORDER_CASES[case]
+
+    def action(kind, reason, **fields):
+        return dict(kind=kind, reason=reason, **(
+            dict.fromkeys(("x", "y", "width", "height", "text", "key", "direction", "amount")) | fields
+        ))
+
+    def choose(frame):
+        state = read_lab_state(path, nonce, pid, ORDER_TITLE)
+        if state is None or state.get("order_case") != case:
+            return action("ask_user", "Stan formularza nie należy do tej sesji zlecenia.")
+        if isinstance(state.get("draft"), dict):
+            return action("done", "Szkic zapisany. Weryfikator sprawdzi komplet danych.")
+        snapshot = state.get("document_snapshot")
+        if not isinstance(snapshot, dict) or snapshot.get("stage") not in {"pozycja", "podsumowanie"}:
+            return None
+
+        points = document_image_points(snapshot, frame)
+
+        def click(key, reason):
+            if key not in points:
+                return action("ask_user", f"Brak widocznego punktu dla kontrolki {key}.")
+            x, y = points[key]
+            return action("click", reason, x=x, y=y)
+
+        if snapshot["stage"] == "podsumowanie":
+            if matches_window(snapshot, order):
+                return click("save", "Wymiary w podsumowaniu są zgodne. Zapisz szkic.")
+            return click("edit", "Wymiary w podsumowaniu wymagają poprawy.")
+
+        for (key, label, _), expected in zip(WINDOW_FIELDS, order.dimensions):
+            if str(snapshot.get(key, "")) != str(expected):
+                if snapshot.get("focus") == label:
+                    return action("type_text", f"Ustaw wartość pola {label}.", text=str(expected))
+                return click(key, f"Ustaw fokus w polu {label}.")
+        return click("review", "Wszystkie pola są zgodne. Przejdź do podsumowania.")
+
+    return choose
+
+
 def position_observation(snapshot, frame, order):
     points = document_image_points(snapshot, frame)
     stage = snapshot["stage"]

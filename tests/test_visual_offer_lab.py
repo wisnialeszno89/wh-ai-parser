@@ -198,3 +198,35 @@ def test_second_order_has_its_own_goal_observation_and_verification(tmp_path):
     save_state(path, "session", draft, title=ORDER_TITLE, order_case=case)
     assert verify()
     assert not order_verifier(path, "session", os.getpid())()
+
+
+def test_baupartner_local_position_actions_follow_verified_values_and_focus(tmp_path):
+    from types import SimpleNamespace
+
+    from PIL import Image
+
+    from tools.visual_offer_lab import ORDER_TITLE, order_position_action
+
+    path = tmp_path / "order.json"
+    case = "baupartner"
+    choose = order_position_action(path, "session", os.getpid(), case)
+    frame = SimpleNamespace(
+        image=Image.new("RGB", (800, 500)),
+        token=SimpleNamespace(window_box=(10, 20, 810, 520), view_box=(0, 0, 800, 500)),
+    )
+
+    def snapshot(**changes):
+        state = dict(stage="pozycja", quantity="3", width="1230", height="", focus="Szerokość (mm)",
+                     client_size=[800, 500], points={"height": [100, 320], "review": [80, 360],
+                                                     "edit": [50, 140], "save": [70, 110]})
+        save_state(path, "session", None, title=ORDER_TITLE, order_case=case,
+                   document_snapshot=state | changes)
+        return choose(frame)
+
+    assert snapshot(stage="document") is None
+    assert snapshot()["y"] == 320
+    assert snapshot(focus="Wysokość (mm)")["text"] == "1780"
+    assert snapshot(height="1780")["y"] == 360
+    assert snapshot(stage="podsumowanie", height=1400, width=1230, quantity=3)["y"] == 140
+    assert snapshot(stage="podsumowanie", height=1780, width=1230, quantity=3)["y"] == 110
+    assert snapshot(points={})["kind"] == "ask_user"

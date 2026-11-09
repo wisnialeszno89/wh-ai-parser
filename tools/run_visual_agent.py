@@ -89,8 +89,12 @@ def main(argv=None):
             visual_offer_lab.document_observer(state_path, state['nonce'], state['pid'], title=title)
             if args.scenario in {'document', 'order'} else None
         )
+        local_action = (
+            visual_offer_lab.order_position_action(state_path, state['nonce'], state['pid'], case)
+            if args.scenario == 'order' else None
+        )
         result=run_visual_task(driver,VisualReasoner(),goal,execute=args.execute_live,max_steps=args.max_steps,
-                               verify=verify,trace=trace,observe=observe)
+                               verify=verify,trace=trace,observe=observe,local_action=local_action)
         print('VISUAL_FINAL_STATUS='+result)
         return 0 if result in ('proposed','verified') else 6
     except (ValueError,RuntimeError,OSError) as exc:print('VISUAL_STOP='+str(exc));return 6

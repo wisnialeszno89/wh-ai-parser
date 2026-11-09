@@ -3,7 +3,7 @@ import base64,io,json,hashlib
 from uuid import uuid4
 from dataclasses import dataclass
 from PIL import ImageChops
-from .contract import validate_request,validate_response
+from .contract import validate_action,validate_request,validate_response
 
 @dataclass
 class VisualFrame:
@@ -31,7 +31,7 @@ def action_memory(action):
     if 'text' in fields:fields['text']=fields['text'][:80]
     return json.dumps(fields,ensure_ascii=False,separators=(',',':'))[:240]
 
-def run_visual_task(driver,reasoner,goal,*,execute=False,max_steps=12,verify=None,trace=None,observe=None):
+def run_visual_task(driver,reasoner,goal,*,execute=False,max_steps=12,verify=None,trace=None,observe=None,local_action=None):
     if type(max_steps) is not int or not 1<=max_steps<=30:raise ValueError('visual_step_budget')
     task_id='visual-'+uuid4().hex
     history=[];repeats={};model_calls=0;input_actions=0;input_attempts=0;tool_failures=0
@@ -67,17 +67,23 @@ def run_visual_task(driver,reasoner,goal,*,execute=False,max_steps=12,verify=Non
                 ineffective_clicks=0;last_ineffective_click=None
             if ineffective_clicks>=3:
                 print('VISUAL_RESULT=clicks_without_visible_effect');return 'review'
-        observation = observe(frame) if observe else None
-        feedback = history[-6:]
-        if observation:
-            feedback = history[-5:] + [{'action':'observe','status':observation}]
-        request={'version':'visual-1','task_id':task_id,'turn':turn,'goal':goal,'screen':frame.screen(),'feedback':feedback}
-        validate_request(request)
-        response=reasoner.reason(request);model_calls+=1
-        validate_response(response,request)
-        action=response['action'];kind=action['kind']
+        action = local_action(frame) if local_action else None
+        source = 'local' if action is not None else 'model'
+        if action is None:
+            observation = observe(frame) if observe else None
+            feedback = history[-6:]
+            if observation:
+                feedback = history[-5:] + [{'action':'observe','status':observation}]
+            request={'version':'visual-1','task_id':task_id,'turn':turn,'goal':goal,'screen':frame.screen(),'feedback':feedback}
+            validate_request(request)
+            response=reasoner.reason(request);model_calls+=1
+            validate_response(response,request)
+            action=response['action']
+        else:
+            validate_action(action, frame.image.width, frame.image.height)
+        kind=action['kind']
         if trace:trace(turn,frame,action)
-        print(f'VISUAL_TURN={turn} ACTION={kind} MODEL_CALLS={model_calls} INPUT_ACTIONS={input_actions} INPUT_ATTEMPTS={input_attempts}')
+        print(f'VISUAL_TURN={turn} ACTION={kind} MODEL_CALLS={model_calls} INPUT_ACTIONS={input_actions} INPUT_ATTEMPTS={input_attempts} SOURCE={source}')
         if kind=='click':print(f"VISUAL_CLICK_IMAGE_POINT=({action['x']},{action['y']})")
         if kind=='key':print('VISUAL_KEY='+action['key'])
         if kind=='ask_user':

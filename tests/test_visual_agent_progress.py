@@ -175,3 +175,15 @@ def test_visual_typing_only_replaces_text_under_explicit_focused_field_policy():
     driver.replace_focused_text = lambda: True
     driver._type_text("1500", send)
     assert calls[1:] == ["scope", "^a", "scope", "1500"]
+
+
+def test_local_action_uses_same_input_and_verifier_without_calling_model(capsys):
+    driver = Driver()
+    model = Reasoner([])
+    steps = iter([action("type_text", text="1780"), action("done")])
+    assert run_visual_task(
+        driver, model, "Goal", execute=True, verify=lambda: len(driver.calls) == 1,
+        local_action=lambda _: next(steps),
+    ) == "verified"
+    assert model.requests == []
+    assert "SOURCE=local" in capsys.readouterr().out
