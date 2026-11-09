@@ -41,3 +41,24 @@ def test_dimensions_reject_invalid_input(width):
 
 def test_dimensions_preserve_width_and_height_order():
     assert read_dimensions(iter(("2", " 1500 ", "1400"))) == (2, 1500, 1400)
+
+
+def test_document_verifier_requires_exact_customer_prices_and_ok(tmp_path):
+    from tools.visual_offer_lab import DOCUMENT_TITLE, document_verifier
+
+    path = tmp_path / "document.json"
+    check = document_verifier(path, "session", os.getpid())
+    valid = dict(customer="Top Trans", confirmed=True, construction=False,
+                 installation=True, removal=True, finishing=True)
+    for change in (
+        {"customer": "Top Trans S.A."}, {"confirmed": False}, {"construction": True},
+        {"installation": False}, {"removal": False}, {"finishing": False},
+        {"finishing": 1},
+    ):
+        save_state(path, "session", valid | change, title=DOCUMENT_TITLE)
+        assert not check()
+
+    save_state(path, "session", valid)
+    assert not check()
+    save_state(path, "session", valid, title=DOCUMENT_TITLE)
+    assert check()

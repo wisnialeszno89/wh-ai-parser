@@ -39,12 +39,17 @@ class LabTrace:
 
 def main(argv=None):
     parser=argparse.ArgumentParser();parser.add_argument('--state-file',type=Path)
-    parser.add_argument('--scenario', choices=('correction', 'offer'), default='correction')
+    parser.add_argument('--scenario', choices=('correction', 'offer', 'document'), default='correction')
     parser.add_argument('--execute-live',action='store_true');parser.add_argument('--max-steps',type=int,default=8)
     parser.add_argument('--trace-dir',type=Path);args=parser.parse_args(argv)
     if os.name!='nt':print('STOP: Windows driver required');return 2
     if args.execute_live and os.getenv('COMPUTER_USE_LIVE')!='1':print('STOP: explicit live authorization required');return 2
-    if args.scenario == 'offer':
+    if args.scenario == 'document':
+        title, goal, verifier = (
+            visual_offer_lab.DOCUMENT_TITLE, visual_offer_lab.DOCUMENT_GOAL, visual_offer_lab.document_verifier
+        )
+        default_path = visual_offer_lab.DOCUMENT_STATE_FILE
+    elif args.scenario == 'offer':
         title, goal, verifier = visual_offer_lab.TITLE, visual_offer_lab.GOAL, visual_offer_lab.offer_verifier
         default_path = visual_offer_lab.STATE_FILE
     else:
