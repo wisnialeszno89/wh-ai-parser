@@ -155,7 +155,7 @@ def test_latest_form_observation_is_sent_on_each_turn():
     model = Reasoner([action("click", x=100, y=80), action("done")])
     assert run_visual_task(
         driver, model, "Goal", execute=True, verify=lambda: True,
-        observe=lambda: "selected" if driver.calls else "not selected",
+        observe=lambda frame: "selected" if driver.calls else "not selected",
     ) == "verified"
     assert model.requests[0]["feedback"][-1] == {"action": "observe", "status": "not selected"}
     assert model.requests[1]["feedback"][-1] == {"action": "observe", "status": "selected"}

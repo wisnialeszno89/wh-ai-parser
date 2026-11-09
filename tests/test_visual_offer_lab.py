@@ -97,3 +97,20 @@ def test_document_observer_reports_selected_customer_and_live_states(tmp_path):
     assert "Bez ceny montażu: odznaczone" in observe()
     assert "Formularz po OK: nie" in observe()
     assert document_observer(path, "different", os.getpid())() is None
+
+
+def test_document_points_map_logical_widget_positions_to_cropped_image_pixels():
+    from types import SimpleNamespace
+
+    from PIL import Image
+
+    from tools.visual_offer_lab import document_image_points
+
+    frame = SimpleNamespace(
+        image=Image.new("RGB", (400, 200)),
+        token=SimpleNamespace(window_box=(125, 125, 1125, 750), view_box=(100, 150, 500, 350)),
+    )
+    snapshot = {"client_size": [800, 500], "points": {
+        "Top Trans": [120, 160], "Top Trans S.A.": [120, 140], "offscreen": [50, 200],
+    }}
+    assert document_image_points(snapshot, frame) == {"Top Trans": (50, 50), "Top Trans S.A.": (50, 25)}

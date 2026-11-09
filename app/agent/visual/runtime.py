@@ -67,7 +67,7 @@ def run_visual_task(driver,reasoner,goal,*,execute=False,max_steps=12,verify=Non
                 ineffective_clicks=0;last_ineffective_click=None
             if ineffective_clicks>=3:
                 print('VISUAL_RESULT=clicks_without_visible_effect');return 'review'
-        observation = observe() if observe else None
+        observation = observe(frame) if observe else None
         feedback = history[-6:]
         if observation:
             feedback = history[-5:] + [{'action':'observe','status':observation}]

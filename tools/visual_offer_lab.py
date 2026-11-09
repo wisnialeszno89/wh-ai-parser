@@ -22,7 +22,8 @@ DOCUMENT_FIELDS = (
 DOCUMENT_GOAL = (
     "Pole wyszukiwania klienta ma początkowy fokus. Wyszukaj i wybierz dokładnie Top Trans z listy. "
     "Odznacz Bez ceny konstrukcji. Zaznacz Bez ceny montażu, Bez ceny demontażu i Bez ceny wykończenia. "
-    "Korzystaj z odczytu stanu. Jeśli zaznaczony wiersz to Top Trans, nie wybieraj klienta ponownie. "
+    "Korzystaj z odczytu stanu i podanych punktów kliknięcia w pikselach bieżącego obrazu. "
+    "Jeśli zaznaczony wiersz to Top Trans, nie wybieraj klienta ponownie. "
     "Pracuj w pełnym widoku formularza. Kliknij OK i zakończ po wyświetleniu potwierdzenia. Nie zamykaj okna."
 )
 GOAL = (
@@ -70,8 +71,34 @@ def read_lab_draft(path, nonce, pid, title):
     return draft if isinstance(draft, dict) else None
 
 
+def document_image_points(snapshot, frame):
+    """Convert Tk client-relative points to pixels of the current screenshot."""
+    if frame is None or frame.token is None:
+        return {}
+    size = snapshot.get("client_size")
+    points = snapshot.get("points")
+    if not isinstance(size, list) or len(size) != 2 or any(type(n) is not int or n <= 0 for n in size):
+        return {}
+    if not isinstance(points, dict):
+        return {}
+    left, top, right, bottom = frame.token.window_box
+    vx, vy, vr, vb = frame.token.view_box
+    if vr <= vx or vb <= vy:
+        return {}
+    result = {}
+    for label, point in points.items():
+        if not isinstance(point, list) or len(point) != 2 or any(type(n) is not int for n in point):
+            continue
+        x = point[0] * (right - left) / size[0]
+        y = point[1] * (bottom - top) / size[1]
+        if vx <= x < vr and vy <= y < vb:
+            result[label] = (int((x - vx) * frame.image.width / (vr - vx)),
+                             int((y - vy) * frame.image.height / (vb - vy)))
+    return result
+
+
 def document_observer(path, nonce, pid):
-    def observe():
+    def observe(frame=None):
         state = read_lab_state(path, nonce, pid, DOCUMENT_TITLE)
         if state is None:
             return None
@@ -82,12 +109,21 @@ def document_observer(path, nonce, pid):
         customer = snapshot.get("customer")
         if customer not in (None, DOCUMENT_CUSTOMER, "Top Trans S.A.", "Klient Testowy"):
             return None
-        prices = "; ".join(f"{label}: {'zaznaczone' if snapshot[key] else 'odznaczone'}"
-                           for key, label, _ in DOCUMENT_FIELDS)
+        points = document_image_points(snapshot, frame)
+        def point(label):
+            return f" {points[label]}" if label in points else ""
+
+        prices = "; ".join(
+            f"{label}: {'zaznaczone' if snapshot[key] else 'odznaczone'}{point(key)}"
+            for key, label, _ in DOCUMENT_FIELDS
+        )
+        rows = ", ".join(f"{name}{point(name)}" for name in
+                         ("Top Trans S.A.", DOCUMENT_CUSTOMER, "Klient Testowy") if name in points)
         return (
             f"Stan formularza testowego. Zaznaczony klient: {customer or 'brak'}. "
-            f"{prices}. Formularz po OK: {'tak' if confirmed else 'nie'}."
-        )
+            f"{prices}. Formularz po OK: {'tak' if confirmed else 'nie'}. "
+            + (f"Punkty x,y: pole szukania{point('search')}; wyniki: {rows or 'brak'}; OK{point('ok')}." if points else "")
+        ).strip()
 
     return observe
 
@@ -166,6 +202,7 @@ def main(argv=None):
             if args.document_only else (CUSTOMER, "Klient Testowy")
         )
         options = {}
+        price_widgets = {}
         ttk.Label(content, text="Wyszukaj istniejącego klienta").pack(anchor="w")
         search_entry = ttk.Entry(content, textvariable=query, width=34)
         search_entry.pack(anchor="w", pady=(4, 6))
@@ -178,6 +215,20 @@ def main(argv=None):
             selected = results.curselection()
             snapshot = {key: variable.get() for key, variable in options.items()}
             snapshot["customer"] = results.get(selected[0]) if selected else None
+            def relative(widget, x, y):
+                return [widget.winfo_rootx() - root.winfo_rootx() + x,
+                        widget.winfo_rooty() - root.winfo_rooty() + y]
+
+            widgets = {"search": search_entry, "ok": ok_button, **price_widgets}
+            points = {key: relative(widget, widget.winfo_width() // 2, widget.winfo_height() // 2)
+                      for key, widget in widgets.items() if widget.winfo_ismapped()}
+            for index, name in enumerate(results.get(0, "end")):
+                bounds = results.bbox(index)
+                if bounds:
+                    x, y, width, height = bounds
+                    points[name] = relative(results, x + width // 2, y + height // 2)
+            snapshot["points"] = points
+            snapshot["client_size"] = [root.winfo_width(), root.winfo_height()]
             save_state(state_path, nonce, None, title=title,
                        document_ready=document_ready, document_snapshot=snapshot)
 
@@ -220,10 +271,12 @@ def main(argv=None):
         if args.document_only:
             for key, label, expected in DOCUMENT_FIELDS:
                 options[key] = tk.BooleanVar(value=not expected)
-                ttk.Checkbutton(content, text=label, variable=options[key], command=mark_document_changed).pack(anchor="w")
+                price_widgets[key] = ttk.Checkbutton(content, text=label, variable=options[key], command=mark_document_changed)
+                price_widgets[key].pack(anchor="w")
         else:
             ttk.Checkbutton(content, text="Montaż", variable=installation).pack(anchor="w", pady=(0, 8))
-        ttk.Button(content, text="OK" if args.document_only else "Dalej", command=next_step).pack(anchor="w", pady=(8, 0))
+        ok_button = ttk.Button(content, text="OK" if args.document_only else "Dalej", command=next_step)
+        ok_button.pack(anchor="w", pady=(8, 0))
         message = tk.StringVar()
         ttk.Label(content, textvariable=message).pack(anchor="w", pady=8)
         query.trace_add("write", filter_customers)
@@ -231,6 +284,13 @@ def main(argv=None):
         if args.document_only:
             results.bind("<<ListboxSelect>>", mark_document_changed)
             root.after_idle(search_entry.focus_set)
+            root.update_idletasks()
+
+            def refresh_positions(event):
+                if event.widget is root and results.winfo_exists():
+                    write_document_state()
+
+            root.bind("<Configure>", refresh_positions, add="+")
             document_ready = True
             write_document_state()
 
