@@ -64,3 +64,53 @@ def test_no_live_flags_means_no_action(monkeypatch):
     monkeypatch.delenv("WH_REAL_WINDOWHUB", raising=False)
     monkeypatch.delenv("COMPUTER_USE_LIVE", raising=False)
     assert mission.main(["--execute-live"]) == 2
+
+
+def test_document_only_selects_exact_customer_applies_mixed_states_and_stops_at_ok(monkeypatch, capsys):
+    customer = elem("button", "Klient", "IDC_ZAMAWIAJACY", value="")
+    ok = elem("button", "OK", "1")
+    boxes = {
+        key: elem("checkbox", key, automation_id, checked=key == "exclude_construction_price")
+        for key, automation_id in mission.DOCUMENT_PRICE_AUTOMATION_IDS.items()
+    }
+    current = scene(customer, ok, *boxes.values())
+    current.observation = SimpleNamespace(metadata={"window_handle": 42})
+    current.stage = "document_properties"
+    actions = []
+
+    def select(loop, observed, name, *, require_result_click):
+        assert observed is current and name == "Top Trans" and require_result_click
+        customer.metadata["current_value"] = name
+        actions.append("select")
+        return True, "verified"
+
+    def toggle(observed, key, *, desired_checked):
+        assert observed is current
+        boxes[key].metadata["uia_checked"] = desired_checked
+        actions.append((key, desired_checked))
+        return True
+
+    def confirm():
+        actions.append("OK")
+        current.stage = "offer_document"
+
+    def resolve(observed, *, label, allowed_stages):
+        assert observed is current and label == "OK" and allowed_stages == ("document_properties",)
+        return SimpleNamespace(iface_invoke=SimpleNamespace(Invoke=confirm))
+
+    monkeypatch.setattr(mission, "inspect", lambda loop: current)
+    monkeypatch.setattr(mission, "stage_of", lambda observed: observed.stage)
+    monkeypatch.setattr(mission, "progressive_customer_selection", select)
+    monkeypatch.setattr(mission, "toggle_price_once", toggle)
+    monkeypatch.setattr(mission, "resolve_native_wrapper", resolve)
+
+    assert mission.mission(None, 8, document_only=True) == 0
+    assert actions == [
+        "select",
+        ("exclude_installation_price", True),
+        ("exclude_removal_price", True),
+        ("exclude_finishing_price", True),
+        ("exclude_construction_price", False),
+        "OK",
+    ]
+    assert "WINDOWHUB_DOCUMENT_RESULT=confirmed" in capsys.readouterr().out
