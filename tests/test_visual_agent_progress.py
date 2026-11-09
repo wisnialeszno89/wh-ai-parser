@@ -87,3 +87,30 @@ def test_toggling_visual_states_with_jittered_clicks_cannot_bypass_loop_guard():
     assert run_visual_task(driver,model,'Goal',execute=True,max_steps=4)=='review'
     assert len(driver.calls)==2
     assert any('visually equivalent' in item['status'] for item in model.requests[-1]['feedback'])
+
+
+def test_stale_typing_attempt_does_not_block_a_fresh_retry_of_same_action(capsys):
+    driver = Driver()
+    driver.capture = lambda: VisualFrame(driver.image.copy(), None)
+    checks = iter([False, True])
+    driver.is_fresh = lambda *args: next(checks)
+    typing = action("type_text", text="Top")
+    model = Reasoner([typing, typing, action("done")])
+
+    assert run_visual_task(
+        driver, model, "Find the customer", execute=True, verify=lambda: driver.calls == [typing],
+    ) == "verified"
+    assert "VISUAL_ACTION_BLOCKED=stale_frame" in capsys.readouterr().out
+    assert "No input was attempted" in model.requests[1]["feedback"][-1]["status"]
+
+
+def test_crop_feedback_explains_how_to_return_to_full_window():
+    driver = Driver()
+    model = Reasoner([
+        action("inspect", x=10, y=10, width=200, height=200),
+        action("inspect"),
+        action("done"),
+    ])
+    assert run_visual_task(driver, model, "Goal", execute=True, verify=lambda: True) == "verified"
+    assert "null bounds" in model.requests[1]["feedback"][-1]["status"]
+    assert "Full-window screenshot" in model.requests[2]["feedback"][-1]["status"]

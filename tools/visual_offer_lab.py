@@ -22,7 +22,7 @@ DOCUMENT_FIELDS = (
 DOCUMENT_GOAL = (
     "W testowych Właściwościach dokumentu wyszukaj i wybierz dokładnie Top Trans z listy. "
     "Odznacz Bez ceny konstrukcji. Zaznacz Bez ceny montażu, Bez ceny demontażu i Bez ceny wykończenia. "
-    "Kliknij OK i zakończ po wyświetleniu potwierdzenia. Nie zamykaj okna."
+    "Pracuj w pełnym widoku formularza. Kliknij OK i zakończ po wyświetleniu potwierdzenia. Nie zamykaj okna."
 )
 GOAL = (
     "Zapisz testowy szkic oferty dla klienta Klient Demo, z montażem. "
