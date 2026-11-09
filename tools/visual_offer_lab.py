@@ -5,6 +5,7 @@ import json
 import os
 import secrets
 import tempfile
+from dataclasses import dataclass
 from pathlib import Path
 
 TITLE = "NaviMind Visual Offer Lab"
@@ -12,8 +13,8 @@ STATE_FILE = Path(tempfile.gettempdir()) / "navimind-visual-offer-lab.json"
 CUSTOMER = "Klient Demo"
 DOCUMENT_TITLE = "NaviMind Document Properties Lab"
 DOCUMENT_STATE_FILE = Path(tempfile.gettempdir()) / "navimind-document-properties-lab.json"
-ORDER_TITLE = "NaviMind Top Trans Order Lab"
-ORDER_STATE_FILE = Path(tempfile.gettempdir()) / "navimind-top-trans-order-lab.json"
+ORDER_TITLE = "NaviMind Order Lab"
+ORDER_STATE_FILE = Path(tempfile.gettempdir()) / "navimind-order-lab.json"
 DOCUMENT_CUSTOMER = "Top Trans"
 WINDOW_FIELDS = (
     ("quantity", "Ilość sztuk", 2),
@@ -34,12 +35,41 @@ DOCUMENT_TASK = (
     "Pracuj w pełnym widoku formularza. Kliknij OK. "
 )
 DOCUMENT_GOAL = DOCUMENT_TASK + "Zakończ po wyświetleniu potwierdzenia. Nie zamykaj okna."
-ORDER_GOAL = DOCUMENT_TASK + (
-    "Po OK uzupełnij pozycję: 2 sztuki, szerokość 1500 mm, wysokość 1400 mm. "
-    "Wpisanie tekstu zastępuje wartość tylko w aktywnym polu liczbowym. "
-    "Korzystaj z odczytanych wartości i punktów kliknięcia. Sprawdź Podsumowanie, zapisz szkic i zakończ."
-    " Nie zamykaj okna."
-)
+DEFAULT_ORDER_CASE = "top-trans"
+
+
+@dataclass(frozen=True)
+class OrderCase:
+    customer: str
+    similar_customer: str
+    price_states: tuple[bool, bool, bool, bool]
+    dimensions: tuple[int, int, int]
+
+    def goal(self):
+        preferences = " ".join(
+            f"{'Zaznacz' if checked else 'Odznacz'} {label}."
+            for (_, label, _), checked in zip(DOCUMENT_FIELDS, self.price_states)
+        )
+        quantity, width, height = self.dimensions
+        return (
+            f"Pole wyszukiwania klienta ma początkowy fokus. Wyszukaj i wybierz dokładnie {self.customer} z listy. "
+            f"{preferences} Korzystaj z odczytu stanu i punktów kliknięcia. "
+            "Gdy właściwy klient jest zaznaczony, przejdź do ustawień cen i zatwierdź OK. "
+            f"Po OK uzupełnij pozycję: {quantity} szt., szerokość {width} mm, wysokość {height} mm. "
+            "Wpisanie zastępuje wartość w aktywnym polu liczbowym. "
+            "Sprawdź Podsumowanie, zapisz szkic i zakończ. Nie zamykaj okna."
+        )
+
+
+ORDER_CASES = {
+    DEFAULT_ORDER_CASE: OrderCase(
+        DOCUMENT_CUSTOMER, "Top Trans S.A.",
+        tuple(checked for _, _, checked in DOCUMENT_FIELDS),
+        tuple(expected for _, _, expected in WINDOW_FIELDS),
+    ),
+    "baupartner": OrderCase("Baupartner Nord", "Baupartner Nord GmbH", (True, False, False, True), (3, 1230, 1780)),
+}
+
 GOAL = (
     "Zapisz testowy szkic oferty dla klienta Klient Demo, z montażem. "
     "Dodaj 2 sztuki okna o szerokości 1500 mm i wysokości 1400 mm. "
@@ -47,11 +77,13 @@ GOAL = (
 )
 
 
-def save_state(path, nonce, draft, *, title=TITLE, document_ready=False, document_snapshot=None):
+def save_state(path, nonce, draft, *, title=TITLE, document_ready=False, document_snapshot=None, order_case=DEFAULT_ORDER_CASE):
     state = dict(title=title, pid=os.getpid(), nonce=nonce, draft=draft)
     if title in {DOCUMENT_TITLE, ORDER_TITLE}:
         state["document_ready"] = document_ready
         state["document_snapshot"] = document_snapshot
+    if title == ORDER_TITLE:
+        state["order_case"] = order_case
     temporary = path.with_name(f".{path.name}.{nonce}.tmp")
     temporary.write_text(json.dumps(state), encoding="utf-8")
     os.replace(temporary, path)
@@ -124,7 +156,7 @@ def order_numeric_focus(path, nonce, pid):
     return focused
 
 
-def position_observation(snapshot, frame):
+def position_observation(snapshot, frame, order):
     points = document_image_points(snapshot, frame)
     stage = snapshot["stage"]
     fields = "; ".join(
@@ -140,7 +172,7 @@ def position_observation(snapshot, frame):
     focus = snapshot.get("focus")
     next_step = ""
     if stage == "pozycja":
-        next_field = next(((label, expected) for key, label, expected in WINDOW_FIELDS
+        next_field = next(((label, expected) for (key, label, _), expected in zip(WINDOW_FIELDS, order.dimensions)
                            if str(snapshot.get(key, "")) != str(expected)), None)
         if next_field is None:
             next_step = " Wszystkie wartości poprawne. Kliknij Podsumowanie."
@@ -149,7 +181,7 @@ def position_observation(snapshot, frame):
             verb = "Wpisz" if focus == label else "Ustaw fokus i wpisz"
             next_step = f" {verb} {expected} w polu {label}. Poprawnych pól nie zmieniaj."
     return (
-        f"Właściwości Top Trans zatwierdzone. Etap: {stage}. {fields}. "
+        f"Właściwości {order.customer} zatwierdzone. Etap: {stage}. {fields}. "
         f"Pole z fokusem: {focus or 'brak'}. Punkty x,y: {actions or 'brak'}.{next_step}"
     )
 
@@ -161,15 +193,24 @@ def document_observer(path, nonce, pid, *, title=DOCUMENT_TITLE):
             return None
         confirmed = isinstance(state.get("draft"), dict)
         snapshot = state["draft"] if confirmed else state.get("document_snapshot")
+        order = None
         if title == ORDER_TITLE:
+            case = state.get("order_case")
+            order = ORDER_CASES.get(case) if isinstance(case, str) else None
+            if order is None:
+                return None
             if confirmed:
                 return "Szkic zapisany. Sprawdź, czy zadanie zostało wykonane."
             if isinstance(snapshot, dict) and snapshot.get("stage") in {"pozycja", "podsumowanie"}:
-                return position_observation(snapshot, frame)
+                return position_observation(snapshot, frame, order)
         if not isinstance(snapshot, dict) or any(type(snapshot.get(key)) is not bool for key, _, _ in DOCUMENT_FIELDS):
             return None
         customer = snapshot.get("customer")
-        if customer not in (None, DOCUMENT_CUSTOMER, "Top Trans S.A.", "Klient Testowy"):
+        customer_names = (
+            (order.similar_customer, order.customer, "Klient Testowy")
+            if order else ("Top Trans S.A.", DOCUMENT_CUSTOMER, "Klient Testowy")
+        )
+        if customer is not None and customer not in customer_names:
             return None
         points = document_image_points(snapshot, frame)
         def point(label):
@@ -179,8 +220,7 @@ def document_observer(path, nonce, pid, *, title=DOCUMENT_TITLE):
             f"{label}: {'zaznaczone' if snapshot[key] else 'odznaczone'}{point(key)}"
             for key, label, _ in DOCUMENT_FIELDS
         )
-        rows = ", ".join(f"{name}{point(name)}" for name in
-                         ("Top Trans S.A.", DOCUMENT_CUSTOMER, "Klient Testowy") if name in points)
+        rows = ", ".join(f"{name}{point(name)}" for name in customer_names if name in points)
         return (
             f"Stan formularza testowego. Zaznaczony klient: {customer or 'brak'}. "
             f"{prices}. Formularz po OK: {'tak' if confirmed else 'nie'}. "
@@ -199,12 +239,14 @@ def document_start_ready(state):
     )
 
 
-def matches_document(draft):
+def matches_document(draft, order=None):
+    customer = order.customer if order else DOCUMENT_CUSTOMER
+    price_states = order.price_states if order else tuple(checked for _, _, checked in DOCUMENT_FIELDS)
     return (
         isinstance(draft, dict)
-        and draft.get("customer") == DOCUMENT_CUSTOMER
+        and draft.get("customer") == customer
         and draft.get("confirmed") is True
-        and all(draft.get(key) is checked for key, _, checked in DOCUMENT_FIELDS)
+        and all(draft.get(key) is checked for (key, _, _), checked in zip(DOCUMENT_FIELDS, price_states))
     )
 
 
@@ -212,14 +254,25 @@ def document_verifier(path, nonce, pid):
     return lambda: matches_document(read_lab_draft(path, nonce, pid, DOCUMENT_TITLE))
 
 
-def matches_window(draft):
-    return all(type(draft.get(key)) is int and draft[key] == expected for key, _, expected in WINDOW_FIELDS)
+def matches_window(draft, order=None):
+    dimensions = order.dimensions if order else tuple(expected for _, _, expected in WINDOW_FIELDS)
+    return all(type(draft.get(key)) is int and draft[key] == expected
+               for (key, _, _), expected in zip(WINDOW_FIELDS, dimensions))
 
 
-def order_verifier(path, nonce, pid):
+def order_verifier(path, nonce, pid, case=DEFAULT_ORDER_CASE):
+    order = ORDER_CASES[case]
+
     def verify():
-        draft = read_lab_draft(path, nonce, pid, ORDER_TITLE)
-        return draft is not None and matches_document(draft.get("document")) and matches_window(draft)
+        state = read_lab_state(path, nonce, pid, ORDER_TITLE)
+        if state is None or state.get("order_case") != case:
+            return False
+        draft = state.get("draft")
+        return (
+            isinstance(draft, dict)
+            and matches_document(draft.get("document"), order)
+            and matches_window(draft, order)
+        )
 
     return verify
 
@@ -246,8 +299,13 @@ def main(argv=None):
     parser.add_argument("--state-file", type=Path)
     modes = parser.add_mutually_exclusive_group()
     modes.add_argument("--document-only", action="store_true", help="Open the Top Trans document properties scenario")
-    modes.add_argument("--order", action="store_true", help="Run the Top Trans properties and window draft scenario")
+    modes.add_argument("--order", action="store_true", help="Run an order properties and window draft scenario")
+    parser.add_argument("--order-case", choices=ORDER_CASES)
     args = parser.parse_args(argv)
+    if args.order_case and not args.order:
+        parser.error("--order-case requires --order")
+    case = args.order_case or DEFAULT_ORDER_CASE
+    order = ORDER_CASES[case] if args.order else None
     nonce = secrets.token_hex(16)
     document_mode = args.document_only or args.order
     title, default_path = TITLE, STATE_FILE
@@ -263,6 +321,9 @@ def main(argv=None):
     root.minsize(620, 440)
     content = ttk.Frame(root, padding=24)
     content.pack(fill="both", expand=True)
+
+    def write_state(draft, **kwargs):
+        save_state(state_path, nonce, draft, title=title, order_case=case, **kwargs)
 
     def show(title):
         content.unbind("<Configure>")
@@ -288,7 +349,7 @@ def main(argv=None):
             snapshot = values()
             snapshot.update(stage=stage, points=widget_points(widgets),
                             client_size=[root.winfo_width(), root.winfo_height()])
-            save_state(state_path, nonce, None, title=title, document_snapshot=snapshot)
+            write_state(None, document_snapshot=snapshot)
 
         root.update_idletasks()
         publish()
@@ -296,12 +357,13 @@ def main(argv=None):
         return publish
 
     def new_offer():
-        save_state(state_path, nonce, None, title=title)
+        write_state(None)
         show("Właściwości dokumentu" if document_mode else "1 z 3 · Właściwości dokumentu")
         query = tk.StringVar(value="" if document_mode else "AKlient Demo")
         installation = tk.BooleanVar(value=False)
         customers = (
-            ("Top Trans S.A.", DOCUMENT_CUSTOMER, "Klient Testowy")
+            (order.similar_customer, order.customer, "Klient Testowy")
+            if order else ("Top Trans S.A.", DOCUMENT_CUSTOMER, "Klient Testowy")
             if document_mode else (CUSTOMER, "Klient Testowy")
         )
         options = {}
@@ -327,8 +389,7 @@ def main(argv=None):
                     points[name] = relative(results, x + width // 2, y + height // 2)
             snapshot["points"] = points
             snapshot["client_size"] = [root.winfo_width(), root.winfo_height()]
-            save_state(state_path, nonce, None, title=title,
-                       document_ready=document_ready, document_snapshot=snapshot)
+            write_state(None, document_ready=document_ready, document_snapshot=snapshot)
 
         def mark_document_changed(*_):
             nonlocal document_ready
@@ -356,12 +417,12 @@ def main(argv=None):
                 draft = {key: variable.get() for key, variable in options.items()}
                 draft.update(customer=customer, confirmed=True)
                 if args.order:
-                    if not matches_document(draft):
+                    if not matches_document(draft, order):
                         message.set("Sprawdź klienta i zaznaczenia pól przed przejściem dalej.")
                         return
                     dimensions(customer, None, document=draft)
                     return
-                save_state(state_path, nonce, draft, title=title)
+                write_state(draft)
                 show("Właściwości dokumentu zatwierdzone")
                 ttk.Label(content, text=f"Klient: {customer}").pack(anchor="w")
                 for key, label, _ in DOCUMENT_FIELDS:
@@ -373,8 +434,9 @@ def main(argv=None):
                 dimensions(customer, installation.get())
 
         if document_mode:
-            for key, label, expected in DOCUMENT_FIELDS:
-                options[key] = tk.BooleanVar(value=not expected)
+            for index, (key, label, expected) in enumerate(DOCUMENT_FIELDS):
+                checked = order.price_states[index] if order else expected
+                options[key] = tk.BooleanVar(value=not checked)
                 price_widgets[key] = ttk.Checkbutton(content, text=label, variable=options[key], command=mark_document_changed)
                 price_widgets[key].pack(anchor="w")
         else:
@@ -460,16 +522,16 @@ def main(argv=None):
         ).pack(anchor="w", pady=(0, 16))
 
         def save():
-            if document is not None and not matches_window(draft):
+            if document is not None and not matches_window(draft, order):
                 message.set("Ilość lub wymiary nie zgadzają się ze zleceniem. Kliknij Popraw pozycję.")
                 return
             content.unbind("<Configure>")
-            save_state(state_path, nonce, draft, title=title)
+            write_state(draft)
             message.set("Szkic zapisany w laboratorium.")
             save_button.state(["disabled"])
             edit_button.state(["disabled"])
             if document is not None:
-                result = "verified" if order_verifier(state_path, nonce, os.getpid())() else "mismatch"
+                result = "verified" if order_verifier(state_path, nonce, os.getpid(), case)() else "mismatch"
                 print(f"ORDER_LAB_RESULT={result}", flush=True)
 
         save_button = ttk.Button(content, text="Zapisz szkic", command=save)

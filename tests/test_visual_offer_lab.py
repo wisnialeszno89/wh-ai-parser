@@ -166,3 +166,35 @@ def test_order_replace_policy_only_accepts_numeric_focus_in_current_position(tmp
         assert not focused()
     save_state(path, "previous-session", None, title=ORDER_TITLE, document_snapshot=snapshot)
     assert not focused()
+
+
+def test_second_order_has_its_own_goal_observation_and_verification(tmp_path):
+    from tools.visual_offer_lab import ORDER_CASES, ORDER_TITLE, document_observer, order_verifier
+
+    path = tmp_path / "order.json"
+    case = "baupartner"
+    verify = order_verifier(path, "session", os.getpid(), case)
+    observe = document_observer(path, "session", os.getpid(), title=ORDER_TITLE)
+    goal = ORDER_CASES[case].goal()
+    assert "Baupartner Nord" in goal and "1230 mm" in goal and "1780 mm" in goal
+    assert "Zaznacz Bez ceny konstrukcji." in goal
+    assert "Odznacz Bez ceny montażu." in goal
+    snapshot = dict(stage="pozycja", quantity="3", width="", height="", focus="Szerokość (mm)")
+    save_state(path, "session", None, title=ORDER_TITLE, document_snapshot=snapshot, order_case=case)
+    assert "Wpisz 1230" in observe()
+    assert not verify()
+
+    document = dict(customer="Baupartner Nord", confirmed=True, construction=True,
+                    installation=False, removal=False, finishing=True)
+    draft = dict(document=document, quantity=3, width=1230, height=1780)
+    for candidate, stored_case in (
+        (draft, "top-trans"),
+        (draft | {"width": 1500}, case),
+        (draft | {"document": document | {"customer": "Baupartner Nord GmbH"}}, case),
+        (draft | {"document": document | {"installation": True}}, case),
+    ):
+        save_state(path, "session", candidate, title=ORDER_TITLE, order_case=stored_case)
+        assert not verify()
+    save_state(path, "session", draft, title=ORDER_TITLE, order_case=case)
+    assert verify()
+    assert not order_verifier(path, "session", os.getpid())()

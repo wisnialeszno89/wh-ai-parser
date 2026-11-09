@@ -45,9 +45,8 @@ def main(argv=None):
     if os.name!='nt':print('STOP: Windows driver required');return 2
     if args.execute_live and os.getenv('COMPUTER_USE_LIVE')!='1':print('STOP: explicit live authorization required');return 2
     if args.scenario == 'order':
-        title, goal, verifier = (
-            visual_offer_lab.ORDER_TITLE, visual_offer_lab.ORDER_GOAL, visual_offer_lab.order_verifier
-        )
+        title = visual_offer_lab.ORDER_TITLE
+        verifier = visual_offer_lab.order_verifier
         default_path = visual_offer_lab.ORDER_STATE_FILE
     elif args.scenario == 'document':
         title, goal, verifier = (
@@ -66,6 +65,15 @@ def main(argv=None):
         if not isinstance(state, dict) or state.get('title')!=title or type(state.get('pid')) is not int or not isinstance(state.get('nonce'),str):raise ValueError('visual_lab_state_invalid')
         if args.scenario in {'document', 'order'} and not visual_offer_lab.document_start_ready(state):
             raise ValueError('visual_document_start_not_fresh_reopen_lab')
+        if args.scenario == 'order':
+            case = state.get('order_case')
+            if not isinstance(case, str) or case not in visual_offer_lab.ORDER_CASES:
+                raise ValueError('visual_order_case_invalid')
+            goal = visual_offer_lab.ORDER_CASES[case].goal()
+            verify = verifier(state_path,state['nonce'],state['pid'],case)
+            print('VISUAL_ORDER_CASE='+case)
+        else:
+            verify = verifier(state_path,state['nonce'],state['pid'])
         from app.agent.visual.windows_driver import WindowsVisualDriver
         replace_focused_text = (
             visual_offer_lab.order_numeric_focus(state_path, state['nonce'], state['pid'])
@@ -82,7 +90,7 @@ def main(argv=None):
             if args.scenario in {'document', 'order'} else None
         )
         result=run_visual_task(driver,VisualReasoner(),goal,execute=args.execute_live,max_steps=args.max_steps,
-                               verify=verifier(state_path,state['nonce'],state['pid']),trace=trace,observe=observe)
+                               verify=verify,trace=trace,observe=observe)
         print('VISUAL_FINAL_STATUS='+result)
         return 0 if result in ('proposed','verified') else 6
     except (ValueError,RuntimeError,OSError) as exc:print('VISUAL_STOP='+str(exc));return 6
