@@ -687,9 +687,11 @@ class RobotGUIExecutor(ActionExecutor):
             )
 
         if field_name.startswith("exclude_"):
-            # A second click could turn a checked exclusion off; only allow
-            # the click when a fresh observation still proves it is unchecked.
-            return (candidates[0].metadata or {}).get("uia_checked") is False
+            desired_checked = scope.get("desired_checked", True)
+            return (
+                type(desired_checked) is bool
+                and (candidates[0].metadata or {}).get("uia_checked") is (not desired_checked)
+            )
 
         if field_name == "confirm_new_customer":
             # Check the business name again immediately before persisting a
@@ -713,11 +715,15 @@ class RobotGUIExecutor(ActionExecutor):
 
         if field_name == "confirm_document":
             # Revalidate all business prerequisites immediately before OK.
+            required_customer = scope.get("required_customer_name")
             client_controls = [
                 e for e in scene.elements
                 if (
-                    e.kind == "combobox"
-                    and getattr(e, "label", None) == "Klient"
+                    (
+                        e.kind == "combobox" and getattr(e, "label", None) == "Klient"
+                        or isinstance(required_customer, str) and e.kind == "button"
+                        and (e.metadata or {}).get("automation_id") == "IDC_ZAMAWIAJACY"
+                    )
                     and (e.metadata or {}).get("source") in {
                         "windows_ui_automation", "windowhub_ui_automation"
                     }
@@ -728,15 +734,22 @@ class RobotGUIExecutor(ActionExecutor):
             if len(client_controls) != 1:
                 return False
             client = (client_controls[0].metadata or {}).get("current_value")
-            if not isinstance(client, str) or not client.strip():
+            if (
+                not isinstance(client, str) or not client.strip()
+                or isinstance(required_customer, str) and client.strip() != required_customer.strip()
+            ):
                 return False
-            required_ids = (
-                "IDC_CENA_OKNA",
-                "IDC_CENA_MONTAZU",
-                "IDC_CENA_DEMONTAZU",
-                "IDC_CENA_WYKONCZENIA",
-            )
-            for required_id in required_ids:
+
+            from app.agent.offers.windowhub_document_properties_action import DOCUMENT_PRICE_AUTOMATION_IDS
+
+            requested = scope.get("required_price_states", dict.fromkeys(DOCUMENT_PRICE_AUTOMATION_IDS, True))
+            if (
+                not isinstance(requested, dict)
+                or requested.keys() != DOCUMENT_PRICE_AUTOMATION_IDS.keys()
+                or any(type(value) is not bool for value in requested.values())
+            ):
+                return False
+            for key, required_id in DOCUMENT_PRICE_AUTOMATION_IDS.items():
                 checkbox_matches = [
                     e for e in scene.elements
                     if (
@@ -747,10 +760,12 @@ class RobotGUIExecutor(ActionExecutor):
                         }
                         and (e.metadata or {}).get("uia_enabled") is True
                         and (e.metadata or {}).get("uia_visible") is True
-                        and (e.metadata or {}).get("uia_checked") is True
                     )
                 ]
-                if len(checkbox_matches) != 1:
+                if (
+                    len(checkbox_matches) != 1
+                    or (checkbox_matches[0].metadata or {}).get("uia_checked") is not requested[key]
+                ):
                     return False
             return True
 

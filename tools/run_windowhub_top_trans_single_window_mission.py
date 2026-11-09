@@ -323,6 +323,40 @@ def advance_known_wizard(scene, *, expected_stage):
         return False
 
 
+def open_new_position(scene):
+    """Open the position wizard only through a uniquely verified native control."""
+    approved = ("Nowa pozycja", "Dodaj nową pozycję", "Dodawanie nowej pozycji")
+    candidates = [e for e in scene.elements
+                  if e.kind == "button"
+                  and (e.label or "").strip().casefold() in {
+                      label.casefold() for label in approved
+                  }
+                  and (e.metadata or {}).get("uia_visible") is True
+                  and (e.metadata or {}).get("uia_enabled") is True]
+    print("NEW_POSITION_NATIVE_CANDIDATES =", len(candidates))
+    if len(candidates) != 1:
+        print("STOP = new position control not uniquely exposed")
+        return False
+    try:
+        wrapper = resolve_native_wrapper(
+            scene, label=candidates[0].label,
+            automation_id=(candidates[0].metadata or {}).get("automation_id"),
+            allowed_stages=("offer_document",),
+        )
+        try:
+            invocation = wrapper.iface_invoke
+        except Exception:
+            invocation = None
+        if invocation is None:
+            wrapper.click_input()
+        else:
+            invocation.Invoke()
+    except Exception as exc:
+        print("STOP = new position activation", type(exc).__name__)
+        return False
+    return True
+
+
 def mission(loop, max_actions):
     actions = 0
     visited = []
@@ -355,34 +389,7 @@ def mission(loop, max_actions):
 
         if stage == "offer_document" and actions > 0:
             print("REASON = Document properties confirmed; add a new window position")
-            approved = ("Nowa pozycja", "Dodaj nową pozycję", "Dodawanie nowej pozycji")
-            candidates = [e for e in scene.elements
-                          if e.kind == "button"
-                          and (e.label or "").strip().casefold() in {
-                              label.casefold() for label in approved
-                          }
-                          and (e.metadata or {}).get("uia_visible") is True
-                          and (e.metadata or {}).get("uia_enabled") is True]
-            print("NEW_POSITION_NATIVE_CANDIDATES =", len(candidates))
-            if len(candidates) != 1:
-                print("STOP = new position control not uniquely exposed")
-                return 6
-            try:
-                wrapper = resolve_native_wrapper(
-                    scene, label=candidates[0].label,
-                    automation_id=(candidates[0].metadata or {}).get("automation_id"),
-                    allowed_stages=("offer_document",),
-                )
-                try:
-                    invocation = wrapper.iface_invoke
-                except Exception:
-                    invocation = None
-                if invocation is None:
-                    wrapper.click_input()
-                else:
-                    invocation.Invoke()
-            except Exception as exc:
-                print("STOP = new position activation", type(exc).__name__)
+            if not open_new_position(scene):
                 return 6
             actions += 1
             if observe_step(loop, "position") is None:

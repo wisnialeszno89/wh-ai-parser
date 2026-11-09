@@ -7,6 +7,7 @@ position wizard is active. Stops at unverified customer/catalog/finish actions.
 from __future__ import annotations
 
 import argparse
+import csv
 from dataclasses import replace
 from datetime import datetime
 import os
@@ -17,6 +18,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from app.agent.intake.windowhub_preferences import read_excluded_prices
 from app.agent.offers.windowhub_new_offer_action import prepare_new_offer_from_start
 from app.agent.offers.windowhub_customer_creation_action import (
     prepare_add_customer, prepare_customer_name, prepare_confirm_new_customer,
@@ -27,7 +29,7 @@ from app.agent.runtime.windowhub_customer_grid_inspection import (
 from app.agent.offers.windowhub_client_lookup_action import prepare_open_customer_lookup
 from app.agent.offers.windowhub_document_properties_action import (
     prepare_price_exclusion, prepare_document_confirmation,
-    prepare_defer_document_properties,
+    prepare_defer_document_properties, DOCUMENT_PRICE_EXCLUSIONS,
 )
 from app.agent.offers.windowhub_new_offer_mission import (
     NewWindowOfferGoal, NewWindowOfferMissionPlanner, OfferDecision,
@@ -39,10 +41,6 @@ from app.agent.offers.windowhub_position_mission import WindowPositionRequest
 from app.agent.runtime.windowhub_window_activation import (
     activate_windowhub_workflow_window,
 )
-from app.agent.runtime.windows_desktop_agent_control_loop import (
-    create_windows_desktop_agent_control_loop,
-)
-from tools.live_windowhub_position_mission import run_mission, verified_action
 
 
 def parse_args(argv=None):
@@ -51,12 +49,22 @@ def parse_args(argv=None):
     parser.add_argument("--width", type=int, default=1230)
     parser.add_argument("--height", type=int, default=1478)
     parser.add_argument(
-        "--customer-mode", choices=("create", "select", "blank", "defer"), default="create",
+        "--customer-mode", choices=("create", "select", "blank", "defer"), default=None,
         help="create: make a customer with a supplied/demo name; select: existing customer; blank: inspect empty records; defer: postpone settings",
     )
-    parser.add_argument("--customer-name", default=None, help="Name for newly created customer; omitted generates unique XYZ TEST AGENT demo name")
+    parser.add_argument("--customer-name", default=None, help="Name for a new customer, or the exact already selected name in select mode")
+    parser.add_argument("--preferences-file", type=Path, help="Four-row UTF-8 price preference CSV")
+    parser.add_argument("--inspect-preferences", action="store_true", help="Print the parsed table without desktop access")
     parser.add_argument("--execute-live", action="store_true")
-    return parser.parse_args(argv)
+    args = parser.parse_args(argv)
+    if args.inspect_preferences and args.preferences_file is None:
+        parser.error("--inspect-preferences requires --preferences-file")
+    if args.preferences_file and args.customer_mode not in (None, "select"):
+        parser.error("--preferences-file uses an existing customer; use --customer-mode select")
+    if args.preferences_file and args.execute_live and not args.inspect_preferences and not (args.customer_name or "").strip():
+        parser.error("--preferences-file with live execution requires the exact selected --customer-name")
+    args.customer_mode = args.customer_mode or ("select" if args.preferences_file else "create")
+    return args
 
 
 def report_relevant_controls(scene):
@@ -129,8 +137,12 @@ def report_customer_grid():
     return evidence
 
 
-def run_goal(goal, loop, *, max_actions=8):
+def run_goal(goal, loop, *, max_actions=8, stop_at_position=False):
+    from tools.live_windowhub_position_mission import run_mission, verified_action
+    from tools.run_windowhub_top_trans_single_window_mission import open_new_position, observe_step
+
     planner = NewWindowOfferMissionPlanner()
+    preferences_confirmed = False
     for index in range(max_actions):
         scene = loop.observe_scene()
         decision = planner.decide(goal, scene)
@@ -139,8 +151,24 @@ def run_goal(goal, loop, *, max_actions=8):
         print(f"REASON={decision.reason}")
 
         if decision.decision is OfferDecision.DELEGATE_POSITION or decision.observed_stage == "dimensions":
+            if stop_at_position:
+                if preferences_confirmed and decision.decision is OfferDecision.DELEGATE_POSITION:
+                    print("OFFER_PREFERENCES_RESULT=position_verified")
+                    return 0
+                print("STOP: Start in document properties so the preferences can be verified.")
+                return 4
             print("DELEGATE: verified quantity / overall dimension mission.")
             return run_mission(goal.position, loop)
+
+        if decision.decision is OfferDecision.OPEN_NEW_POSITION and stop_at_position:
+            if not preferences_confirmed:
+                print("STOP: Document properties were not confirmed in this run.")
+                return 4
+            if open_new_position(scene) and observe_step(loop, "position") is not None:
+                print("OFFER_PREFERENCES_RESULT=position_verified")
+                return 0
+            print("STOP: New position wizard could not be verified.")
+            return 6
 
         if decision.decision is OfferDecision.OPEN_NEW_OFFER:
             prepared = prepare_new_offer_from_start(scene)
@@ -153,7 +181,7 @@ def run_goal(goal, loop, *, max_actions=8):
         elif decision.decision is OfferDecision.CONFIRM_NEW_CUSTOMER:
             prepared = prepare_confirm_new_customer(scene, goal.customer_name)
         elif decision.decision is OfferDecision.SET_PRICE_PREFERENCES:
-            prepared = prepare_price_exclusion(scene, decision.field_name)
+            prepared = prepare_price_exclusion(scene, decision.field_name, desired_checked=decision.desired_value)
         elif decision.decision is OfferDecision.CONFIRM_DOCUMENT:
             prepared = prepare_document_confirmation(scene, goal)
         elif decision.decision is OfferDecision.DEFER_CUSTOMER_PREFERENCES:
@@ -241,6 +269,8 @@ def run_goal(goal, loop, *, max_actions=8):
                 continue
         else:
             print("PASS: action verified.")
+        if decision.decision is OfferDecision.CONFIRM_DOCUMENT:
+            preferences_confirmed = True
         if decision.decision is OfferDecision.CONFIRM_NEW_CUSTOMER:
             goal = replace(goal, customer_policy="test_existing_customer")
             print("CUSTOMER_CREATION_CONFIRMED: checking document for selected customer.")
@@ -261,14 +291,19 @@ def run_goal(goal, loop, *, max_actions=8):
 
 def main(argv=None):
     args = parse_args(argv)
-    if os.name != "nt":
-        print("STOP: Windows required.")
-        return 2
-    if not args.execute_live or any(
-        os.environ.get(name) != "1"
-        for name in ("WH_REAL_WINDOWHUB", "COMPUTER_USE_LIVE")
+    preference_options = {}
+    if args.preferences_file is not None:
+        try:
+            preference_options["excluded_prices"] = read_excluded_prices(args.preferences_file)
+        except (OSError, ValueError, csv.Error) as exc:
+            print(f"STOP: {exc}")
+            return 5
+    if not args.inspect_preferences and (
+        os.name != "nt" or not args.execute_live or any(
+            os.environ.get(name) != "1" for name in ("WH_REAL_WINDOWHUB", "COMPUTER_USE_LIVE")
+        )
     ):
-        print("STOP: --execute-live and both explicit live flags required.")
+        print("STOP: Windows, --execute-live and both explicit live flags required.")
         return 2
     try:
         customer_name = args.customer_name
@@ -281,7 +316,8 @@ def main(argv=None):
                 width_mm=args.width,
                 height_mm=args.height,
             ),
-            customer_name=(customer_name if args.customer_mode == "create" else None),
+            customer_name=(customer_name if args.customer_mode in {"create", "select"} else None),
+            **preference_options,
             customer_policy=(
                 "defer_to_salesperson" if args.customer_mode == "defer"
                 else "select_blank_customer" if args.customer_mode == "blank"
@@ -289,11 +325,21 @@ def main(argv=None):
                 else "test_existing_customer"
             ),
         )
+        if args.inspect_preferences:
+            for field, checked in goal.price_states:
+                print(f"{DOCUMENT_PRICE_EXCLUSIONS[field]}: {'zaznacz' if checked else 'odznacz'}")
+            print("OFFER_PREFERENCES_RESULT=table_validated")
+            return 0
+        from app.agent.runtime.windows_desktop_agent_control_loop import create_windows_desktop_agent_control_loop
+
         activated, reason = activate_windowhub_workflow_window()
         print(f"WINDOWHUB_ACTIVATION={reason}")
         if not activated:
             return 3
-        return run_goal(goal, create_windows_desktop_agent_control_loop())
+        return run_goal(
+            goal, create_windows_desktop_agent_control_loop(),
+            stop_at_position=args.preferences_file is not None,
+        )
     except Exception as exc:
         print(f"STOP: {type(exc).__name__}: {exc}")
         return 5

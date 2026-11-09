@@ -111,7 +111,8 @@ def test_price_action_wrong_dialog_is_blocked():
     assert result.status is WindowHubFormActionStatus.BLOCKED
 
 
-def test_document_confirmation_requires_all_business_conditions():
+@pytest.mark.parametrize("excluded", [("construction", "installation", "removal", "finishing"), ("construction", "installation")])
+def test_document_confirmation_requires_all_business_conditions(excluded):
     from app.agent.offers.windowhub_document_properties_action import (
         prepare_document_confirmation,
     )
@@ -119,7 +120,8 @@ def test_document_confirmation_requires_all_business_conditions():
     from app.agent.offers.windowhub_position_mission import WindowPositionRequest
 
     goal = NewWindowOfferGoal(
-        WindowPositionRequest(quantity=1, width_mm=1230, height_mm=1478)
+        WindowPositionRequest(quantity=1, width_mm=1230, height_mm=1478),
+        excluded_prices=excluded,
     )
     def client(value="TEST CUSTOMER"):
         return ScreenElement(
@@ -141,8 +143,8 @@ def test_document_confirmation_requires_all_business_conditions():
         },
     )
     checked_controls = tuple(
-        checkbox(label, checked=True, runtime_id="price-" + str(i))
-        for i, label in enumerate(DOCUMENT_PRICE_EXCLUSIONS.values())
+        checkbox(DOCUMENT_PRICE_EXCLUSIONS[key], checked=checked, runtime_id="price-" + str(i))
+        for i, (key, checked) in enumerate(goal.price_states)
     )
     valid = scene(client(), *checked_controls, button)
     prepared = prepare_document_confirmation(valid, goal)
@@ -169,7 +171,7 @@ def test_document_confirmation_requires_all_business_conditions():
     ) is False
     unchecked_prices = scene(
         client(), *checked_controls[:-1],
-        checkbox("Bez ceny wykończenia", checked=False, runtime_id="price-3"),
+        checkbox("Bez ceny wykończenia", checked="finishing" not in excluded, runtime_id="price-3"),
         button,
     )
     assert RobotGUIExecutor._matches_windowhub_form_action_scope(
@@ -226,3 +228,22 @@ def test_defer_route_clicks_cancel_only_with_explicit_policy():
     assert prepare_defer_document_properties(
         scene(cancel, cancel), deferred
     ).status is WindowHubFormActionStatus.BLOCKED
+
+def test_checked_exclusion_is_cleared_only_if_still_checked():
+    name = "exclude_installation_price"
+    label = DOCUMENT_PRICE_EXCLUSIONS[name]
+    before = scene(checkbox(label, checked=True))
+    after = scene(checkbox(label, checked=False))
+    prepared = prepare_price_exclusion(before, name, desired_checked=False)
+    assert prepared.status is WindowHubFormActionStatus.READY
+    assert prepared.expected_outcome.expected_element_state_value is False
+
+    class FakeLoop:
+        def run(self, *, plan, context):
+            self.scope = context.get_value("_windowhub_form_action_scope")
+
+    loop = FakeLoop()
+    WindowHubOfferFormActionExecutor.execute_prepared(prepared, before, loop, request_message="Set order preference")
+    assert RobotGUIExecutor._matches_windowhub_form_action_scope(prepared.action, before, loop.scope)
+    assert not RobotGUIExecutor._matches_windowhub_form_action_scope(prepared.action, after, loop.scope)
+    assert prepare_price_exclusion(after, name, desired_checked=False).status is WindowHubFormActionStatus.ALREADY_SATISFIED

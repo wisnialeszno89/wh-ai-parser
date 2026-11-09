@@ -9,6 +9,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 
+from app.agent.offers.windowhub_document_properties_action import (
+    DOCUMENT_PRICE_AUTOMATION_IDS, DOCUMENT_PRICE_EXCLUSIONS,
+)
 from app.agent.offers.windowhub_offer_form_map import (
     WindowHubFormStep,
     WindowHubOfferFormMap,
@@ -65,10 +68,21 @@ class NewWindowOfferGoal:
                 or any(ord(ch) < 32 for ch in self.customer_name)
             ):
                 raise ValueError("valid_new_customer_name_required")
-        if set(self.excluded_prices) != {
-            "construction", "installation", "removal", "finishing",
-        }:
+        allowed = {key.removeprefix("exclude_").removesuffix("_price") for key in DOCUMENT_PRICE_EXCLUSIONS}
+        if (
+            not isinstance(self.excluded_prices, (tuple, list))
+            or any(not isinstance(price, str) or price not in allowed for price in self.excluded_prices)
+            or len(set(self.excluded_prices)) != len(self.excluded_prices)
+        ):
             raise ValueError("offer_excluded_prices_invalid")
+        object.__setattr__(self, "excluded_prices", tuple(self.excluded_prices))
+
+    @property
+    def price_states(self) -> tuple[tuple[str, bool], ...]:
+        return tuple(
+            (key, key.removeprefix("exclude_").removesuffix("_price") in self.excluded_prices)
+            for key in DOCUMENT_PRICE_EXCLUSIONS
+        )
 
 
 @dataclass(frozen=True)
@@ -276,13 +290,9 @@ class NewWindowOfferMissionPlanner:
                     "document_properties",
                     "customer",
                 )
-            exclusions = (
-                ("exclude_construction_price", "Bez ceny konstrukcji", "IDC_CENA_OKNA"),
-                ("exclude_installation_price", "Bez ceny montażu", "IDC_CENA_MONTAZU"),
-                ("exclude_removal_price", "Bez ceny demontażu", "IDC_CENA_DEMONTAZU"),
-                ("exclude_finishing_price", "Bez ceny wykończenia", "IDC_CENA_WYKONCZENIA"),
-            )
-            for key, label, automation_id in exclusions:
+            for key, desired_checked in goal.price_states:
+                label = DOCUMENT_PRICE_EXCLUSIONS[key]
+                automation_id = DOCUMENT_PRICE_AUTOMATION_IDS[key]
                 matches = [
                     e for e in scene.elements
                     if e.kind == "checkbox"
@@ -298,13 +308,20 @@ class NewWindowOfferMissionPlanner:
                         key,
                     )
                 checked = (matches[0].metadata or {}).get("uia_checked")
-                if checked is not True:
+                if type(checked) is not bool:
                     return OfferInstruction(
-                        OfferDecision.SET_PRICE_PREFERENCES,
-                        f"Pricing exclusion {label} is not confirmed checked.",
+                        OfferDecision.STOP_UNSUPPORTED,
+                        f"Cannot observe the checked state of {label}.",
                         "document_properties",
                         key,
-                        True,
+                    )
+                if checked is not desired_checked:
+                    return OfferInstruction(
+                        OfferDecision.SET_PRICE_PREFERENCES,
+                        f"Pricing exclusion {label} differs from the requested state.",
+                        "document_properties",
+                        key,
+                        desired_checked,
                     )
             buttons = self._controls(scene, "OK", "button")
             if len(buttons) != 1:
@@ -315,7 +332,7 @@ class NewWindowOfferMissionPlanner:
                 )
             return OfferInstruction(
                 OfferDecision.CONFIRM_DOCUMENT,
-                "A client and all four excluded prices are confirmed; document can be confirmed.",
+                "A client and the four requested price states are confirmed.",
                 "document_properties",
             )
 

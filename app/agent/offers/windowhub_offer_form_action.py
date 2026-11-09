@@ -56,6 +56,7 @@ class PreparedWindowHubFormAction:
     runtime_id: str | None = None
     required_quantity: str | None = None
     required_customer_name: str | None = None
+    required_price_states: tuple[tuple[str, bool], ...] = ()
 
 
 class WindowHubOfferFormActionPlanner:
@@ -431,6 +432,14 @@ class WindowHubOfferFormActionExecutor:
         if prepared.field_name == "confirm_new_customer":
             if not isinstance(prepared.required_customer_name, str) or not prepared.required_customer_name.strip():
                 raise ValueError("new_customer_confirmation_requires_name")
+            scope["required_customer_name"] = prepared.required_customer_name
+        if prepared.field_name.startswith("exclude_"):
+            desired_checked = prepared.expected_outcome.expected_element_state_value
+            if type(desired_checked) is not bool:
+                raise ValueError("windowhub_price_boolean_required")
+            scope["desired_checked"] = desired_checked
+        if prepared.field_name == "confirm_document":
+            scope["required_price_states"] = dict(prepared.required_price_states)
             scope["required_customer_name"] = prepared.required_customer_name
         context.set_value("_windowhub_form_action_scope", scope)
         context.set_value(
