@@ -7,6 +7,7 @@ ROOT=Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:sys.path.insert(0,str(ROOT))
 from app.agent.visual.runtime import run_visual_task
 from app.agent.visual.client import VisualReasoner
+from tools import visual_offer_lab
 
 LAB_GOAL='Przygotuj sprawdzony wynik formularza testowego: klient ma nazywać się dokładnie Top Trans, a montaż ma mieć wartość TAK. Zakończ, gdy formularz pokazuje wynik potwierdzający te dane. Nie zamykaj okna.'
 
@@ -37,20 +38,28 @@ class LabTrace:
         (self.path/f'turn-{turn:02d}.json').write_text(json.dumps(record,ensure_ascii=False,indent=2),encoding='utf-8')
 
 def main(argv=None):
-    parser=argparse.ArgumentParser();parser.add_argument('--state-file',type=Path,default=Path(tempfile.gettempdir())/'navimind-visual-lab.json')
+    parser=argparse.ArgumentParser();parser.add_argument('--state-file',type=Path)
+    parser.add_argument('--scenario', choices=('correction', 'offer'), default='correction')
     parser.add_argument('--execute-live',action='store_true');parser.add_argument('--max-steps',type=int,default=8)
     parser.add_argument('--trace-dir',type=Path);args=parser.parse_args(argv)
     if os.name!='nt':print('STOP: Windows driver required');return 2
     if args.execute_live and os.getenv('COMPUTER_USE_LIVE')!='1':print('STOP: explicit live authorization required');return 2
+    if args.scenario == 'offer':
+        title, goal, verifier = visual_offer_lab.TITLE, visual_offer_lab.GOAL, visual_offer_lab.offer_verifier
+        default_path = visual_offer_lab.STATE_FILE
+    else:
+        title, goal, verifier = 'NaviMind Visual Lab', LAB_GOAL, lab_verifier
+        default_path = Path(tempfile.gettempdir()) / 'navimind-visual-lab.json'
+    state_path = args.state_file or default_path
     try:
-        state=json.loads(args.state_file.read_text(encoding='utf-8'))
-        if state.get('title')!='NaviMind Visual Lab' or type(state.get('pid')) is not int or not isinstance(state.get('nonce'),str):raise ValueError('visual_lab_state_invalid')
+        state=json.loads(state_path.read_text(encoding='utf-8'))
+        if not isinstance(state, dict) or state.get('title')!=title or type(state.get('pid')) is not int or not isinstance(state.get('nonce'),str):raise ValueError('visual_lab_state_invalid')
         from app.agent.visual.windows_driver import WindowsVisualDriver
         driver=WindowsVisualDriver(state['title'],state['pid'],allow_enter=True)
         print('VISUAL_SCREENSHOTS_SENT=True SCOPE=local_test_lab')
         trace=LabTrace(args.trace_dir) if args.trace_dir else None
-        result=run_visual_task(driver,VisualReasoner(),LAB_GOAL,execute=args.execute_live,max_steps=args.max_steps,
-                               verify=lab_verifier(args.state_file,state['nonce'],state['pid']),trace=trace)
+        result=run_visual_task(driver,VisualReasoner(),goal,execute=args.execute_live,max_steps=args.max_steps,
+                               verify=verifier(state_path,state['nonce'],state['pid']),trace=trace)
         print('VISUAL_FINAL_STATUS='+result)
         return 0 if result in ('proposed','verified') else 6
     except (ValueError,RuntimeError,OSError) as exc:print('VISUAL_STOP='+str(exc));return 6

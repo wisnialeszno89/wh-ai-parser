@@ -1,12 +1,12 @@
-param([switch]$ExecuteLive,[ValidateRange(1,30)][int]$MaxSteps=8,[string]$TraceDirectory='')
+param([switch]$ExecuteLive,[ValidateRange(1,30)][int]$MaxSteps=8,[string]$TraceDirectory='', [ValidateSet('correction','offer')][string]$Scenario='correction')
 $ErrorActionPreference = 'Stop'
 Set-Location (Split-Path $PSScriptRoot -Parent)
-python -m pytest tests/test_visual_agent_runtime.py tests/test_visual_agent_progress.py -q
+python -m pytest tests/test_visual_agent_runtime.py tests/test_visual_agent_progress.py tests/test_visual_offer_lab.py -q
 if ($LASTEXITCODE -ne 0) { throw 'Visual tests failed. No API call or GUI input started.' }
 $priorLive=$env:COMPUTER_USE_LIVE
 try {
     $env:COMPUTER_USE_LIVE='1'
-    $runArgs=@('tools/run_visual_agent.py','--max-steps',"$MaxSteps")
+    $runArgs=@('tools/run_visual_agent.py','--max-steps',"$MaxSteps",'--scenario',$Scenario)
     if ($TraceDirectory) { $runArgs+=@('--trace-dir',$TraceDirectory) }
     if ($ExecuteLive) { $runArgs+='--execute-live' }
     python -u @runArgs
