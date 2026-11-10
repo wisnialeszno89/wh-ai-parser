@@ -1,4 +1,11 @@
-from tools.check_windowhub_mixed_offer import prepare_mixed_offer, sample_positions
+import json
+from pathlib import Path
+
+import pytest
+
+from tools.check_windowhub_mixed_offer import prepare_mixed_offer, request_positions, sample_positions
+
+EXAMPLE = Path(__file__).resolve().parents[1] / "examples/windowhub-mixed-request.json"
 
 
 def test_mixed_handoff_continues_after_incomplete_position():
@@ -21,3 +28,31 @@ def test_mixed_handoff_continues_after_incomplete_position():
     assert third["status"] == "planned"
     assert third["steps"][1]["parameters"]["offset_from_left_mm"] == 650
     assert third["steps"][-1]["side"] == "RIGHT"
+
+
+def test_one_request_file_controls_layout_and_handoff():
+    request = json.loads(EXAMPLE.read_text(encoding="utf-8"))
+
+    report = prepare_mixed_offer(request_positions(request))
+    single, incomplete, planned = report["positions"]
+
+    assert single["source"]["cover_strip"]["size_mm"] == "2x30"
+    assert incomplete["status"] == "review"
+    assert planned["steps"][-1]["side"] == "LEFT"
+    assert planned["steps"][-1]["parameters"]["opening_code"] == "DKR"
+
+
+def test_request_rejects_duplicate_position_identifiers():
+    with pytest.raises(ValueError, match="Powtórzony identyfikator"):
+        request_positions({"positions": [{"position": "1"}, {"position": "1"}]})
+
+
+def test_invalid_field_in_one_request_position_does_not_block_next():
+    request = json.loads(EXAMPLE.read_text(encoding="utf-8"))
+    request["positions"][0]["opening"] = ["DKL", "DKR"]
+
+    report = prepare_mixed_offer(request_positions(request))
+
+    assert report["positions"][0]["status"] == "review"
+    assert "Pole opening" in report["positions"][0]["reason"]
+    assert report["positions"][-1]["status"] == "planned"

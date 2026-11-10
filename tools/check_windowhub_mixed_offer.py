@@ -1,4 +1,4 @@
-"""Prepare a mixed test offer offline from a Zirkon draft and two FIX/RU cases."""
+"""Prepare a mixed offer offline from a structured request or the Zirkon test case."""
 
 import argparse
 import json
@@ -18,6 +18,13 @@ def prepare_mixed_offer(rows):
     for kind, row in rows:
         entry = {"position": row["position"], "kind": kind, "source": row}
         try:
+            quantity = row.get("quantity")
+            if type(quantity) is not int or quantity <= 0:
+                raise ValueError("Podaj dodatnią całkowitą ilość pozycji.")
+            for field in ("opening", "layout"):
+                value = row.get(field)
+                if value is not None and not isinstance(value, str):
+                    raise ValueError(f"Pole {field} musi być tekstem.")
             if kind == "single_sash":
                 entry["simulation"] = check_single_sash(row)
                 entry["status"] = "simulated"
@@ -41,6 +48,22 @@ def prepare_mixed_offer(rows):
     return {"status": "sales_review_required", "mode": "offline", "positions": positions}
 
 
+def request_positions(request):
+    if not isinstance(request, dict) or not isinstance(request.get("positions"), list) or not request["positions"]:
+        raise ValueError("Zapytanie musi zawierać niepustą listę positions.")
+    rows = []
+    references = set()
+    for row in request["positions"]:
+        reference = row.get("position") if isinstance(row, dict) else None
+        if not isinstance(reference, str) or not reference.strip():
+            raise ValueError("Każda pozycja musi mieć identyfikator tekstowy position.")
+        if reference.strip() in references:
+            raise ValueError(f"Powtórzony identyfikator pozycji: {reference}.")
+        references.add(reference.strip())
+        rows.append((row.get("kind"), row))
+    return rows
+
+
 def sample_positions(draft):
     if not isinstance(draft, dict) or draft.get("status") != "technical_draft" or not isinstance(draft.get("positions"), list):
         raise ValueError("Oczekiwano szkicu technicznego Zirkon.")
@@ -57,14 +80,18 @@ def sample_positions(draft):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--zirkon-draft", type=Path, required=True)
+    source = parser.add_mutually_exclusive_group(required=True)
+    source.add_argument("--request-file", type=Path, help="UTF-8 JSON with every position in the request.")
+    source.add_argument("--zirkon-draft", type=Path, help="Run the original fixed Zirkon test case.")
     parser.add_argument("--output", type=Path, help="Save the offline handoff report as JSON.")
     args = parser.parse_args()
     try:
-        if args.output and args.output.resolve() == args.zirkon_draft.resolve():
-            raise ValueError("Wskaż inny plik wyjściowy niż szkic źródłowy.")
-        draft = json.loads(args.zirkon_draft.read_text(encoding="utf-8-sig"))
-        report = prepare_mixed_offer(sample_positions(draft))
+        input_file = args.request_file or args.zirkon_draft
+        if args.output and args.output.resolve() == input_file.resolve():
+            raise ValueError("Wskaż inny plik wyjściowy niż plik źródłowy.")
+        data = json.loads(input_file.read_text(encoding="utf-8-sig"))
+        rows = request_positions(data) if args.request_file else sample_positions(data)
+        report = prepare_mixed_offer(rows)
         if args.output:
             args.output.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     except (OSError, ValueError) as exc:
@@ -76,6 +103,9 @@ def main():
         reason = f" REASON={row['reason']}" if "reason" in row else ""
         print(f"POSITION={row['position']} STATUS={row['status']}{reason}")
     print(f"DRAFT_OFFER_STATUS={report['status']}")
+    if args.request_file:
+        print("WH_MIXED_OFFER_RESULT=processed")
+        return 0
     verified = statuses == ["simulated", "planned", "review"] and (
         "Brakuje wymiaru podziału" in report["positions"][2]["reason"]
     )
