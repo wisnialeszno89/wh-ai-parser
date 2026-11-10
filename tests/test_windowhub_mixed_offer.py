@@ -116,3 +116,29 @@ def test_mail_does_not_copy_a_common_quantity_to_both_stulp_variants():
     text = "2 Stk. Fenster\n1590 x 960 mit Stulp\n1590 x 960 ohne Stulp"
 
     assert [row["quantity"] for _, row in mail_positions(text)] == [None, None]
+
+
+def test_mail_distinguishes_tilt_only_from_tilt_turn_and_conflicting_request():
+    example = EXAMPLE.with_name("windowhub-tilt-mail.txt")
+    report = prepare_mixed_offer(mail_positions(example.read_text(encoding="utf-8")))
+    tilt, tilt_turn, conflict = report["positions"]
+
+    assert tilt["status"] == "planned"
+    assert [step["tool"] for step in tilt["steps"]] == ["FRAME", "SASH", "GLASS", "HARDWARE"]
+    assert tilt["steps"][1]["parameters"]["opening"] == "tilt"
+    assert tilt["steps"][-1]["parameters"] == {"opening": "tilt"}
+    assert tilt["review_notes"]
+    assert tilt_turn["status"] == "simulated"
+    assert tilt_turn["simulation"]["final_direction"] == "RIGHT"
+    assert conflict["status"] == "review"
+    assert "sprzeczny" in conflict["reason"]
+
+
+def test_only_plans_a_single_sash_when_confirmed_for_tilt():
+    text = (
+        "Fenster 1 Stk. nur kippbar, einflügelig, 800 x 600 mm\n"
+        "Kippfenster 1 Stk. zweiflügelig, 800 x 600 mm\n"
+        "Fenster 1 Stk. nicht nur kippbar, 800 x 600 mm"
+    )
+    report = prepare_mixed_offer(mail_positions(text))
+    assert [row["status"] for row in report["positions"]] == ["planned", "review", "review"]

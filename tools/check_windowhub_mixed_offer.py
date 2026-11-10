@@ -12,7 +12,16 @@ if str(ROOT) not in sys.path:
 from app.agent.intake.german_offer_mail import inspect_german_offer_mail
 from app.agent.intake.task_document import read_task_document
 from app.agent.offers.windowhub_fix_ru_plan import plan_fix_ru
+from app.agent.offers.windowhub_tilt_plan import plan_single_tilt
 from tools.test_single_sash_construction_lab import check_single_sash
+
+
+def step_payload(steps):
+    return [
+        {"tool": step.gui_tool.value, "target": step.element_id, "side": step.side.value,
+         "parent": step.parent_id, "parameters": step.properties}
+        for step in steps
+    ]
 
 
 def prepare_mixed_offer(rows):
@@ -22,6 +31,8 @@ def prepare_mixed_offer(rows):
         try:
             if kind == "entrance_door":
                 raise ValueError("Drzwi wejściowe wymagają osobnego planu konstrukcji.")
+            if kind == "opening_conflict":
+                raise ValueError("Opis rodzaju otwierania jest sprzeczny. Ustal, czy chodzi o sam uchył.")
             if kind == "stulp_variant":
                 requirement = row.get("mullion_requirement")
                 group = row.get("variant_group")
@@ -53,11 +64,16 @@ def prepare_mixed_offer(rows):
                     layout=row.get("layout"), split_from_left_mm=row.get("split_from_left_mm"),
                     opening_code=row.get("opening"),
                 )
-                entry["steps"] = [
-                    {"tool": step.gui_tool.value, "target": step.element_id, "side": step.side.value,
-                     "parent": step.parent_id, "parameters": step.properties}
-                    for step in steps
-                ]
+                entry["steps"] = step_payload(steps)
+                entry["status"] = "planned"
+            elif kind == "tilt_only":
+                if row.get("opening") or row.get("layout") or row.get("construction"):
+                    raise ValueError("Sprawdź dodatkowe oznaczenia konstrukcji przed zaplanowaniem samego uchyłu.")
+                if row.get("single_sash_confirmed") is not True:
+                    raise ValueError("Potwierdź jedno skrzydło w oknie uchylnym.")
+                steps = plan_single_tilt(width_mm=row.get("width_mm"), height_mm=row.get("height_mm"))
+                entry["steps"] = step_payload(steps)
+                entry["review_notes"] = ["Dobierz konkretne okucie uchylne w katalogu WH."]
                 entry["status"] = "planned"
             elif kind == "window_unspecified":
                 raise ValueError("Brakuje jednoznacznego typu konstrukcji. Sprawdź układ pól i opis klienta.")
@@ -88,11 +104,15 @@ def request_positions(request):
 def mail_positions(text):
     parsed = inspect_german_offer_mail(text)
     if not parsed:
-        raise ValueError("Nie rozpoznano pozycji Fenster ani Haustür w treści maila.")
+        raise ValueError("Nie rozpoznano pozycji Fenster, Kippfenster ani Haustür w treści maila.")
     rows = []
     for index, row in enumerate(parsed, 1):
         if row["product_type"] == "entrance_door":
             kind = "entrance_door"
+        elif row.get("opening_mode") == "conflicting":
+            kind = "opening_conflict"
+        elif row.get("opening_mode") == "tilt_only":
+            kind = "tilt_only"
         elif row.get("variant_group") is not None:
             kind = "stulp_variant"
         elif row["layout"]:

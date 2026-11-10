@@ -3,12 +3,17 @@
 import re
 
 _PIECES = r"(?<![\w.,+-])(\d+)\s*(?:Stk\.?|Stück)(?!\w)"
-_POSITION = re.compile(rf"^(?:{_PIECES}\s+)?(Haustür|Haustuer|Fenster)\b\s*:?\s*(.*)$", re.IGNORECASE)
+_POSITION = re.compile(rf"^(?:{_PIECES}\s+)?(Haustür|Haustuer|Fenster|Kipp-?fenster)\b\s*:?\s*(.*)$", re.IGNORECASE)
 _QUANTITY = re.compile(_PIECES, re.IGNORECASE)
 _LAYOUT = re.compile(r"\b[A-Z][A-Z0-9]*(?:[ \t]*\+[ \t]*[A-Z][A-Z0-9]*)+\b", re.IGNORECASE)
 _OPENING = re.compile(r"\b(?:DKL|DKR)\b", re.IGNORECASE)
 _SPLIT = re.compile(r"\bTeilung\s*:?\s*(\d+)\s*mm\s+von\s+links\b", re.IGNORECASE)
 _F004 = re.compile(r"\bF004\s+DK-Fenster\b", re.IGNORECASE)
+_TILT_ONLY = re.compile(r"(?<![\w-])(?:kipp-?fenster|nur[ \t]+kippbar)\b", re.IGNORECASE)
+_TURN_TILT = re.compile(r"\b(?:Dreh[ -]?Kipp|Kipp[ -]?Dreh)(?:-?fenster)?\b", re.IGNORECASE)
+_NEGATED_TILT = re.compile(r"\b(?:nicht|kein\w*)[ \t]+" + _TILT_ONLY.pattern, re.IGNORECASE)
+_SINGLE_SASH = re.compile(r"\b(?:einfl[üu]gelig|1[ -]fl[üu]gelig)\b", re.IGNORECASE)
+_MULTIPLE_SASHES = re.compile(r"\b(?:(?:zwei|drei|vier)fl[üu]gelig|[2-9][ -]fl[üu]gelig)\b", re.IGNORECASE)
 _SIZE = re.compile(
     r"(?<![\w.,+-])([1-9][0-9]{1,4})\s*[x×]\s*([1-9][0-9]{1,4})(?![\d.,])"
     r"(?:\s*mm\b)?(?!\w|\s*(?:cm|m)\b)",
@@ -74,7 +79,7 @@ def inspect_german_offer_mail(text: str) -> list[dict]:
     positions = []
     for (heading, *notes), variant_group, mullion_requirement in _expand_stulp_pairs(blocks):
         _, name, description = _POSITION.fullmatch(heading).groups()
-        product = "window" if name.casefold() == "fenster" else "entrance_door"
+        product = "entrance_door" if name.casefold() in {"haustür", "haustuer"} else "window"
         details = [line for line in [description, *notes] if line]
         block = "\n".join([heading, *notes])
         sizes = [match for line in details for match in _SIZE.finditer(line)]
@@ -101,6 +106,13 @@ def inspect_german_offer_mail(text: str) -> list[dict]:
             "source_lines": [heading, *notes],
             "proposed_variants": variants,
         }
+        if product == "window" and _TILT_ONLY.search(block):
+            conflicting = (
+                layouts or construction or position["opening"] or _OPENING.search(block)
+                or _TURN_TILT.search(block) or _NEGATED_TILT.search(block) or variant_group is not None
+            )
+            position["opening_mode"] = "conflicting" if conflicting else "tilt_only"
+            position["single_sash_confirmed"] = bool(_SINGLE_SASH.search(block) and not _MULTIPLE_SASHES.search(block))
         if variant_group is not None:
             position.update(
                 variant_group=variant_group,
