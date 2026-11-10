@@ -4,6 +4,7 @@
       "position": "01", "kind": "tilt_turn_window", "quantity": 2,
       "width_mm": 1000, "height_mm": 1010, "opening": "DKL",
       "color_pair": "mahoń/białe", "glazing_panes": 2,
+      "single_sash_confirmed": true, "test_assumptions": ["single_sash_confirmed"],
       "source_text": "2szt dkl 1000x1010"
     },
     {

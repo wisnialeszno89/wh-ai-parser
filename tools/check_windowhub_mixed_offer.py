@@ -16,6 +16,7 @@ from app.agent.offers.windowhub_door_lab import simulate_entrance_door
 from app.agent.offers.windowhub_double_sash_lab import simulate_double_sash, simulate_stulp
 from app.agent.offers.windowhub_fix_ru_plan import plan_fix_ru
 from app.agent.offers.windowhub_psk_plan import plan_hst, plan_psk
+from app.agent.offers.windowhub_single_sash_lab import simulate_single_tilt_turn
 from app.agent.offers.windowhub_tilt_plan import plan_single_tilt, plan_single_tilt_turn
 from tools.test_single_sash_construction_lab import check_single_sash
 
@@ -58,6 +59,7 @@ def prepare_mixed_offer(rows):
             quantity = row.get("quantity")
             if type(quantity) is not int or quantity <= 0:
                 raise ValueError("Podaj dodatnią całkowitą ilość pozycji.")
+            entry["quantity"] = quantity
             for field in ("opening", "layout"):
                 value = row.get(field)
                 if value is not None and not isinstance(value, str):
@@ -97,6 +99,10 @@ def prepare_mixed_offer(rows):
                 if row.get("color_pair"):
                     entry["review_notes"].append("Potwierdź przypisanie kolorów do stron.")
                 entry["status"] = "planned"
+                if row.get("single_sash_confirmed") is True:
+                    entry["simulation"] = simulate_single_tilt_turn(row)
+                    entry["status"] = "simulated"
+                    entry["review_notes"][0] = "Potwierdź w WH system i okucie dla jednego skrzydła."
             elif kind == "fix_ru":
                 steps = plan_fix_ru(
                     width_mm=row.get("width_mm"), height_mm=row.get("height_mm"),
@@ -228,7 +234,11 @@ def main():
         recommendation = f" PROPOSAL=2_sashes_{proposal['mullion']}_mullion" if proposal else ""
         reason = f" REASON={row['reason']}" if "reason" in row else ""
         print(f"POSITION={row['position']} STATUS={row['status']}{recommendation}{reason}")
-        if row["kind"] == "double_sash_fixed" and row["status"] == "simulated":
+        if row["kind"] == "tilt_turn_window" and row["status"] == "simulated":
+            result = row["simulation"]
+            print("  BUILD=" + " -> ".join(step["stage"] for step in result["trace"]))
+            print(f"  DIRECTION={result['direction']} PANES={result['panes']} QUANTITY={row['quantity']}")
+        elif row["kind"] == "double_sash_fixed" and row["status"] == "simulated":
             result = row["simulation"]
             print("  BUILD=" + " -> ".join(step["stage"] for step in result["trace"]))
             print(f"  LEFT={result['final_directions']['left']} RIGHT={result['final_directions']['right']}")

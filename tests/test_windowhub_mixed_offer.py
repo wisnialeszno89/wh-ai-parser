@@ -1,9 +1,10 @@
 import json
+import sys
 from pathlib import Path
 
 import pytest
 
-from tools.check_windowhub_mixed_offer import mail_positions, prepare_mixed_offer, request_positions, sample_positions
+from tools.check_windowhub_mixed_offer import main, mail_positions, prepare_mixed_offer, request_positions, sample_positions
 
 EXAMPLE = Path(__file__).resolve().parents[1] / "examples/windowhub-mixed-request.json"
 MAIL_EXAMPLE = EXAMPLE.with_name("windowhub-mixed-mail.txt")
@@ -171,13 +172,22 @@ def test_psk_mail_blocks_ambiguous_or_conflicting_configuration(details, reason)
     assert "plan" not in entry
 
 
-def test_five_position_request_preserves_per_item_finishes_and_glazing():
+def test_five_position_request_preserves_per_item_finishes_and_glazing(monkeypatch, tmp_path):
     example = EXAMPLE.with_name("windowhub-five-position-request.json")
-    report = prepare_mixed_offer(request_positions(json.loads(example.read_text(encoding="utf-8"))))
+    output = tmp_path / "draft.json"
+    monkeypatch.setattr(sys, "argv", ["check_windowhub_mixed_offer.py", "--request-file", str(example), "--output", str(output)])
+    assert main() == 0
+    report = json.loads(output.read_text(encoding="utf-8"))
     first, double, stulp, door, balcony = report["positions"]
 
-    assert [row["status"] for row in report["positions"]] == ["planned", "simulated", "simulated", "simulated", "simulated"]
-    assert first["source"]["quantity"] == 2
+    assert [row["status"] for row in report["positions"]] == ["simulated"] * 5
+    assert [row["position"] for row in report["positions"]] == ["01", "02", "03", "04", "05"]
+    assert first["quantity"] == first["source"]["quantity"] == 2
+    scene = first["simulation"]["scene"]
+    assert scene["opening"] == {"width": 1000, "height": 1010}
+    assert [item["kind"] for item in scene["elements"]] == ["FRAME", "SASH", "GLASS"]
+    assert scene["elements"][1]["direction"] == "LEFT"
+    assert scene["elements"][2]["panes"] == 2
     assert first["steps"][0]["parameters"] == {"width_mm": 1000, "height_mm": 1010}
     assert first["steps"][2]["parameters"] == {"panes": 2}
     assert first["steps"][3]["parameters"]["direction"] == "LEFT"
@@ -258,3 +268,13 @@ def test_confirmed_single_sash_uses_window_r_shorthand_in_the_simulator():
 
     assert position["status"] == "simulated"
     assert position["simulation"]["final_direction"] == "RIGHT"
+
+
+def test_tilt_turn_window_without_single_sash_confirmation_stays_planned():
+    row = {"position": "01", "quantity": 2, "width_mm": 1000, "height_mm": 1010,
+           "opening": "DKL", "glazing_panes": 2}
+    (position,) = prepare_mixed_offer([("tilt_turn_window", row)])["positions"]
+
+    assert position["status"] == "planned"
+    assert position["quantity"] == 2
+    assert "simulation" not in position
