@@ -11,14 +11,13 @@ if str(ROOT) not in sys.path:
 
 from app.agent.intake.german_offer_mail import inspect_german_offer_mail
 from app.agent.intake.task_document import read_task_document
-from app.agent.offers.windowhub_double_sash_lab import simulate_double_sash
+from app.agent.offers.windowhub_double_sash_lab import simulate_double_sash, simulate_stulp
 from app.agent.offers.windowhub_fix_ru_plan import plan_fix_ru
 from app.agent.offers.windowhub_psk_plan import plan_hst, plan_psk
 from app.agent.offers.windowhub_tilt_plan import plan_single_tilt, plan_single_tilt_turn
 from tools.test_single_sash_construction_lab import check_single_sash
 
 REVIEW_LAYOUTS = {
-    "stulp_window": "Potwierdź, czy chodzi o całe okno ze słupkiem ruchomym. Ustal skrzydło czynne, kierunek i podział.",
     "balcony_window": "Potwierdź konfigurację balkonową i próg w katalogu WH.",
     "arched_window": "Sprawdź geometrię łuku na rysunku, sposób otwierania oraz dostępność w systemie WH.",
 }
@@ -72,6 +71,10 @@ def prepare_mixed_offer(rows):
             elif kind == "double_sash_fixed":
                 entry["simulation"] = simulate_double_sash(row)
                 entry["review_notes"] = ["Potwierdź system, okucie i kolory po stronach w WH."]
+                entry["status"] = "simulated"
+            elif kind == "stulp_window":
+                entry["simulation"] = simulate_stulp(row)
+                entry["review_notes"] = ["Potwierdź wariant okucia i rygla, system oraz kolory po stronach w WH."]
                 entry["status"] = "simulated"
             elif kind == "tilt_turn_window":
                 steps = plan_single_tilt_turn(
@@ -218,6 +221,10 @@ def main():
             result = row["simulation"]
             print("  BUILD=" + " -> ".join(step["stage"] for step in result["trace"]))
             print(f"  LEFT={result['final_directions']['left']} RIGHT={result['final_directions']['right']}")
+        elif row["kind"] == "stulp_window" and row["status"] == "simulated":
+            result = row["simulation"]
+            print("  BUILD=" + " -> ".join(step["stage"] for step in result["trace"]))
+            print(f"  ACTIVE={result['active_side'].upper()} PASSIVE={result['passive_side'].upper()}")
     print(f"DRAFT_OFFER_STATUS={report['status']}")
     if not args.zirkon_draft:
         print("WH_MIXED_OFFER_RESULT=processed")

@@ -16,6 +16,7 @@
     {
       "position": "03", "kind": "stulp_window", "quantity": 1,
       "width_mm": 1200, "height_mm": 1000, "mullion": "movable",
+      "active_side": "left", "left_opening": "DKL", "split_from_left_mm": 600,
       "color_pair": "mahoń/białe", "glazing_panes": 2,
       "source_text": "1x stulpprofil 1200x1000"
     },

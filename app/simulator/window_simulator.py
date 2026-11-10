@@ -73,6 +73,18 @@ class WindowSimulator:
             self.scene.add(SceneElement("mullion_1", "MULLION", "frame_outer", "center", offset_from_left_mm=offset))
             return
 
+        if action.action_type == "attach_movable_mullion":
+            self._require_tool("mullion_tool")
+            side = action.target_id
+            offset = int(action.value or "0")
+            if side not in {"left", "right"} or not all(self.scene.has("SASH", side=s) for s in ("left", "right")):
+                raise ValueError("two sashes and an explicit passive sash are required")
+            if self.scene.has("MULLION") or self.hardware.installed_sides or not 0 < offset < self.scene.width:
+                raise ValueError("movable mullion requires a valid split and no fixed mullion")
+            self.scene.add(SceneElement("stulp_1", "MOVABLE_MULLION", f"sash_{side}", side,
+                                        offset_from_left_mm=offset))
+            return
+
         if action.action_type == "add_sash":
             self._require_tool("sash_tool")
             if not self.scene.has("FRAME"):
@@ -136,8 +148,31 @@ class WindowSimulator:
             self._set_sash_inversion(side, action.value == "on", direction)
             return
 
+        if action.action_type == "add_stulp_hardware":
+            self._require_tool("hardware_tool")
+            active = action.target_id
+            if active not in {"left", "right"}:
+                raise ValueError("active sash must be explicit")
+            passive = "right" if active == "left" else "left"
+            if not self.scene.has("MOVABLE_MULLION", side=passive):
+                raise ValueError("movable mullion must belong to the passive sash")
+            if not all(self.scene.has("GLASS", side=side) for side in ("left", "right")):
+                raise ValueError("both sashes require glazing")
+            if self.hardware.selected is None or self.hardware.selected.product != SINGLE_SASH_HARDWARE:
+                raise ValueError("ActivPilot must be selected for the active sash in this test")
+            if self.hardware.installed_sides or self.double_sash_auto_direction not in {"LEFT", "RIGHT"}:
+                raise ValueError("Stulp hardware requires a new installation with a known direction")
+            self.scene.add(SceneElement(f"hardware_{active}", "HARDWARE", f"sash_{active}", active))
+            self.scene.add(SceneElement(f"latch_{passive}", "PASSIVE_LATCH", f"sash_{passive}", passive))
+            self.hardware.selected = HardwareSpec(product=SINGLE_SASH_HARDWARE, required_sides=(active,))
+            self.hardware.installed_sides.add(active)
+            self._set_sash_inversion(active, False, self.double_sash_auto_direction)
+            return
+
         if action.action_type == "add_hardware":
             self._require_tool("hardware_tool")
+            if self.scene.has("MOVABLE_MULLION"):
+                raise ValueError("use Stulp hardware for an assembly with a movable mullion")
             if self.hardware.selected is None:
                 raise ValueError("hardware product must be selected")
             readiness = self.hardware_readiness()
