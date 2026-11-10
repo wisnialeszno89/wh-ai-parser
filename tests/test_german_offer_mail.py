@@ -1,0 +1,43 @@
+import pytest
+
+from app.agent.intake.german_offer_mail import inspect_german_offer_mail
+
+
+def test_mail_keeps_door_and_window_separate_and_only_proposes_window_variants():
+    text = (
+        "Bitte um Angebot\n\nHaustür DL\nWeiss/weiss\n"
+        "Wie immer mit Stange und standardfüllug\n950 x 2070\nFenster 1500x1000"
+    )
+    door, window = inspect_german_offer_mail(text)
+
+    assert door["product_type"] == "entrance_door"
+    assert (door["width_mm"], door["height_mm"]) == (950, 2070)
+    assert (door["color_inside"], door["color_outside"]) == ("white", "white")
+    assert door["source_lines"][0] == "Haustür DL"
+    assert "Wie immer mit Stange und standardfüllug" in door["source_lines"]
+    assert not door["proposed_variants"]
+
+    assert window["product_type"] == "window"
+    assert (window["width_mm"], window["height_mm"]) == (1500, 1000)
+    assert window["color_inside"] is None
+    assert window["quantity"] is None
+    assert window["profile"] is None
+    assert window["proposed_variants"] == (
+        "Dwa skrzydła, słupek ruchomy",
+        "Dwa skrzydła, słupek stały",
+    )
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Fenster 1499x1000",
+        "Fenster 1500x1000 Festverglasung",
+        "Fenster 1500x1000 cm",
+        "Fenster -1500x1000",
+        "Fenster 1500x1000\n1200x900",
+    ],
+)
+def test_proposals_are_limited_to_the_reviewed_unspecified_window(text):
+    (window,) = inspect_german_offer_mail(text)
+    assert not window["proposed_variants"]
