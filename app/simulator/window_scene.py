@@ -14,6 +14,7 @@ class SceneElement:
     inversion_checked: bool | None = None
     offset_from_left_mm: int | None = None
     panes: int | None = None
+    swing: str | None = None
 
 
 @dataclass
@@ -53,6 +54,7 @@ class WindowScene:
                     **({"inversion_checked": item.inversion_checked} if item.inversion_checked is not None else {}),
                     **({"offset_from_left_mm": item.offset_from_left_mm} if item.offset_from_left_mm is not None else {}),
                     **({"panes": item.panes} if item.panes is not None else {}),
+                    **({"swing": item.swing} if item.swing is not None else {}),
                 }
                 for item in self.elements
             ],

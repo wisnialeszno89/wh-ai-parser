@@ -176,7 +176,7 @@ def test_five_position_request_preserves_per_item_finishes_and_glazing():
     report = prepare_mixed_offer(request_positions(json.loads(example.read_text(encoding="utf-8"))))
     first, double, stulp, door, balcony = report["positions"]
 
-    assert [row["status"] for row in report["positions"]] == ["planned", "simulated", "simulated", "review", "review"]
+    assert [row["status"] for row in report["positions"]] == ["planned", "simulated", "simulated", "simulated", "review"]
     assert first["source"]["quantity"] == 2
     assert first["steps"][0]["parameters"] == {"width_mm": 1000, "height_mm": 1010}
     assert first["steps"][2]["parameters"] == {"panes": 2}
@@ -188,6 +188,8 @@ def test_five_position_request_preserves_per_item_finishes_and_glazing():
     assert stulp["simulation"]["active_side"] == "left"
     assert stulp["simulation"]["passive_side"] == "right"
     assert door["source"]["opening"] == "DL" and "glazing_panes" not in door["source"]
+    assert door["source"]["test_assumptions"] == ["swing", "infill"]
+    assert (door["simulation"]["direction"], door["simulation"]["swing"]) == ("LEFT", "inward")
     assert balcony["source"]["color"] == "biały" and "color_pair" not in balcony["source"]
     assert balcony["source"]["glazing_panes"] == 2
 

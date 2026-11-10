@@ -61,6 +61,34 @@ class WindowSimulator:
             self.scene.add(SceneElement("frame_outer", "FRAME"))
             return
 
+        if action.action_type == "add_door_leaf":
+            self._require_tool("sash_tool")
+            if self.scene.kinds() != ("FRAME",):
+                raise ValueError("a single door leaf requires an empty frame")
+            self.scene.add(SceneElement("door_leaf", "DOOR_LEAF", "frame_outer", "center"))
+            return
+
+        if action.action_type == "add_door_panel":
+            self._require_tool("panel_tool")
+            if action.value != "solid_panel":
+                raise ValueError("the door pilot requires a solid panel")
+            self.scene.add(SceneElement("door_panel", "SOLID_PANEL", "door_leaf"))
+            return
+
+        if action.action_type == "add_door_hinges":
+            self._require_tool("hardware_tool")
+            direction, _, swing = (action.value or "").partition(":")
+            if direction not in {"LEFT", "RIGHT"} or swing not in {"inward", "outward"}:
+                raise ValueError("door hinge side and swing must be explicit")
+            if not self.scene.has("SOLID_PANEL"):
+                raise ValueError("the door panel must be fitted first")
+            self.scene.add(SceneElement("door_hinges", "DOOR_HINGES", "door_leaf"))
+            for index, item in enumerate(self.scene.elements):
+                if item.id == "door_leaf":
+                    self.scene.elements[index] = replace(item, opening="TURN", direction=direction, swing=swing)
+                    break
+            return
+
         if action.action_type == "insert_mullion":
             self._require_tool("mullion_tool")
             if not self.scene.has("FRAME"):

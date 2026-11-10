@@ -11,6 +11,7 @@ if str(ROOT) not in sys.path:
 
 from app.agent.intake.german_offer_mail import inspect_german_offer_mail
 from app.agent.intake.task_document import read_task_document
+from app.agent.offers.windowhub_door_lab import simulate_entrance_door
 from app.agent.offers.windowhub_double_sash_lab import simulate_double_sash, simulate_stulp
 from app.agent.offers.windowhub_fix_ru_plan import plan_fix_ru
 from app.agent.offers.windowhub_psk_plan import plan_hst, plan_psk
@@ -37,8 +38,6 @@ def prepare_mixed_offer(rows):
     for kind, row in rows:
         entry = {"position": row["position"], "kind": kind, "source": row}
         try:
-            if kind == "entrance_door":
-                raise ValueError("Drzwi wejściowe wymagają osobnego planu konstrukcji.")
             if kind == "opening_conflict":
                 raise ValueError("Opis rodzaju otwierania jest sprzeczny. Potwierdź typ konstrukcji.")
             if kind == "stulp_variant":
@@ -75,6 +74,12 @@ def prepare_mixed_offer(rows):
             elif kind == "stulp_window":
                 entry["simulation"] = simulate_stulp(row)
                 entry["review_notes"] = ["Potwierdź wariant okucia i rygla, system oraz kolory po stronach w WH."]
+                entry["status"] = "simulated"
+            elif kind == "entrance_door":
+                entry["simulation"] = simulate_entrance_door(row)
+                entry["review_notes"] = ["Potwierdź w WH system, próg, panel i okucie drzwiowe."]
+                if row.get("test_assumptions"):
+                    entry["review_notes"].append("Potwierdź testowe założenia dotyczące otwierania i wypełnienia.")
                 entry["status"] = "simulated"
             elif kind == "tilt_turn_window":
                 steps = plan_single_tilt_turn(
@@ -225,6 +230,10 @@ def main():
             result = row["simulation"]
             print("  BUILD=" + " -> ".join(step["stage"] for step in result["trace"]))
             print(f"  ACTIVE={result['active_side'].upper()} PASSIVE={result['passive_side'].upper()}")
+        elif row["kind"] == "entrance_door" and row["status"] == "simulated":
+            result = row["simulation"]
+            print("  BUILD=" + " -> ".join(step["stage"] for step in result["trace"]))
+            print(f"  HINGE_SIDE={result['direction']} SWING={result['swing'].upper()}")
     print(f"DRAFT_OFFER_STATUS={report['status']}")
     if not args.zirkon_draft:
         print("WH_MIXED_OFFER_RESULT=processed")

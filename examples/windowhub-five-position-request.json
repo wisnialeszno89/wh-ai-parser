@@ -23,6 +23,7 @@
     {
       "position": "04", "kind": "entrance_door", "quantity": 1,
       "width_mm": 1000, "height_mm": 2000, "opening": "DL",
+      "swing": "inward", "infill": "solid_panel", "test_assumptions": ["swing", "infill"],
       "source_text": "1x drzwi 1000x2000 DL"
     },
     {
