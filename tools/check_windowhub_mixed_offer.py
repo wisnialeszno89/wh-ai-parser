@@ -23,10 +23,15 @@ def prepare_mixed_offer(rows):
             if kind == "entrance_door":
                 raise ValueError("Drzwi wejściowe wymagają osobnego planu konstrukcji.")
             if kind == "stulp_variant":
-                reason = ("Potwierdź, czy to warianty do porównania czy oddzielne pozycje, "
-                          "oraz ilość i kierunek otwierania.")
-                if row.get("mullion_requirement") == "without_movable":
-                    reason += " Ustal układ skrzydeł w wersji bez słupka ruchomego."
+                requirement = row.get("mullion_requirement")
+                group = row.get("variant_group")
+                if requirement not in ("movable", "without_movable") or type(group) is not int or group < 1:
+                    raise ValueError("Brakuje jednoznacznego powiązania wariantów Stulp.")
+                mullion = "movable" if requirement == "movable" else "fixed"
+                entry["proposal"] = {
+                    "kind": "comparison_variant", "group": group, "sash_count": 2, "mullion": mullion,
+                }
+                reason = "Potwierdź ilość, kierunek otwierania i podział skrzydeł przed wykonaniem."
                 if row.get("profile_preference"):
                     reason += " Dobierz system wąskiego profilu."
                 if row.get("color_pair"):
@@ -143,8 +148,10 @@ def main():
     statuses = []
     for row in report["positions"]:
         statuses.append(row["status"])
+        proposal = row.get("proposal")
+        recommendation = f" PROPOSAL=2_sashes_{proposal['mullion']}_mullion" if proposal else ""
         reason = f" REASON={row['reason']}" if "reason" in row else ""
-        print(f"POSITION={row['position']} STATUS={row['status']}{reason}")
+        print(f"POSITION={row['position']} STATUS={row['status']}{recommendation}{reason}")
     print(f"DRAFT_OFFER_STATUS={report['status']}")
     if not args.zirkon_draft:
         print("WH_MIXED_OFFER_RESULT=processed")

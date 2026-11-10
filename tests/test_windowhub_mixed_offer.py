@@ -102,8 +102,14 @@ def test_mail_preserves_stulp_pair_and_common_preferences_without_guessing():
         assert row["quantity"] is None and row["layout"] is None and row["opening"] is None
         assert row["color_inside"] is None and row["color_outside"] is None
         assert entry["status"] == "review"
-        assert "warianty do porównania czy oddzielne pozycje" in entry["reason"]
-    assert "Ustal układ skrzydeł" in without_stulp["reason"]
+        assert entry["proposal"]["kind"] == "comparison_variant"
+        assert entry["proposal"]["group"] == 1
+        assert entry["proposal"]["sash_count"] == 2
+        assert "Potwierdź ilość" in entry["reason"]
+        assert "steps" not in entry
+    assert with_stulp["proposal"]["mullion"] == "movable"
+    assert without_stulp["proposal"]["mullion"] == "fixed"
+    assert without_stulp["source"]["mullion_requirement"] == "without_movable"
 
 
 def test_mail_does_not_copy_a_common_quantity_to_both_stulp_variants():
