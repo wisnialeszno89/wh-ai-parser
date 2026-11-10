@@ -18,11 +18,14 @@ class SimulationResult:
 class WindowSimulator:
     """Execute the small, safe subset of construction actions used by v1."""
 
-    def __init__(self, scene: WindowScene | None = None, *, single_sash_auto_direction: str | None = None) -> None:
+    def __init__(self, scene: WindowScene | None = None, *, single_sash_auto_direction: str | None = None,
+                 double_sash_auto_direction: str | None = None) -> None:
         self.scene = scene or WindowScene.empty()
         self.selected_tool: str | None = None
         self.hardware = HardwareState()
         self.single_sash_auto_direction = single_sash_auto_direction
+        self.double_sash_auto_direction = double_sash_auto_direction
+        self.glazing_panes: int | None = None
 
     def apply(self, actions: list[Action] | tuple[Action, ...]) -> SimulationResult:
         applied: list[str] = []
@@ -64,7 +67,10 @@ class WindowSimulator:
                 raise ValueError("FRAME is required")
             if self.scene.has("MULLION"):
                 raise ValueError("MULLION already exists")
-            self.scene.add(SceneElement("mullion_1", "MULLION", "frame_outer", "center"))
+            offset = int(action.value) if action.value is not None else None
+            if offset is not None and not 0 < offset < self.scene.width:
+                raise ValueError("mullion offset must lie inside the frame")
+            self.scene.add(SceneElement("mullion_1", "MULLION", "frame_outer", "center", offset_from_left_mm=offset))
             return
 
         if action.action_type == "add_sash":
@@ -85,6 +91,14 @@ class WindowSimulator:
             self.scene.add(SceneElement(element_id, "SASH", "frame_outer", side))
             return
 
+        if action.action_type == "set_glazing_package":
+            self._require_tool("glass_tool")
+            panes = int(action.value or "0")
+            if panes <= 0:
+                raise ValueError("glazing must contain at least one pane")
+            self.glazing_panes = panes
+            return
+
         if action.action_type == "add_glass":
             self._require_tool("glass_tool")
             side = action.value or "left"
@@ -94,7 +108,7 @@ class WindowSimulator:
             glass_id = f"glass_{side}"
             if any(item.id == glass_id for item in self.scene.elements):
                 raise ValueError(f"GLASS {side} already exists")
-            self.scene.add(SceneElement(glass_id, "GLASS", sash_id, side))
+            self.scene.add(SceneElement(glass_id, "GLASS", sash_id, side, panes=self.glazing_panes))
             return
 
         if action.action_type == "select_hardware":
@@ -105,7 +119,7 @@ class WindowSimulator:
             if self.scene.has("SASH", side="center"):
                 if product != SINGLE_SASH_HARDWARE:
                     raise ValueError("the single-sash pilot requires ActivPilot")
-                self._set_single_sash_inversion(False)
+                self._set_sash_inversion("center", False, self.single_sash_auto_direction)
             self.hardware.selected = HardwareSpec(product=product)
             return
 
@@ -113,9 +127,13 @@ class WindowSimulator:
             self._require_tool("hardware_tool")
             if self.hardware.selected is None or self.hardware.selected.product != SINGLE_SASH_HARDWARE:
                 raise ValueError("ActivPilot must be selected")
-            if action.value not in {"on", "off"} or self.single_sash_auto_direction not in {"LEFT", "RIGHT"}:
+            side = action.target_id or "center"
+            direction = self.single_sash_auto_direction if side == "center" else self.double_sash_auto_direction
+            if side != "center" and side not in self.hardware.installed_sides:
+                raise ValueError("hardware must be installed on the target sash")
+            if action.value not in {"on", "off"} or direction not in {"LEFT", "RIGHT"}:
                 raise ValueError("known inversion state and automatic direction are required")
-            self._set_single_sash_inversion(action.value == "on")
+            self._set_sash_inversion(side, action.value == "on", direction)
             return
 
         if action.action_type == "add_hardware":
@@ -134,21 +152,22 @@ class WindowSimulator:
                 hardware_id = f"hardware_{side}"
                 if not any(item.id == hardware_id for item in self.scene.elements):
                     self.scene.add(SceneElement(hardware_id, "HARDWARE", f"sash_{side}", side))
+                    if self.hardware.selected.product == SINGLE_SASH_HARDWARE and self.double_sash_auto_direction:
+                        self._set_sash_inversion(side, False, self.double_sash_auto_direction)
             return
 
         raise ValueError(f"unsupported action: {action.action_type}")
 
-    def _set_single_sash_inversion(self, checked: bool) -> None:
-        direction = self.single_sash_auto_direction
+    def _set_sash_inversion(self, side: str, checked: bool, direction: str | None) -> None:
         if checked:
             direction = {"LEFT": "RIGHT", "RIGHT": "LEFT"}[direction]
         for index, item in enumerate(self.scene.elements):
-            if item.id == "sash_center":
+            if item.id == f"sash_{side}":
                 self.scene.elements[index] = replace(
                     item, opening="TILT_TURN", direction=direction, inversion_checked=checked,
                 )
                 return
-        raise ValueError("center sash is required")
+        raise ValueError(f"SASH {side} is required")
 
     def _require_tool(self, expected: str) -> None:
         if self.selected_tool != expected:

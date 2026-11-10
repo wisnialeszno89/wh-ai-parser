@@ -176,14 +176,15 @@ def test_five_position_request_preserves_per_item_finishes_and_glazing():
     report = prepare_mixed_offer(request_positions(json.loads(example.read_text(encoding="utf-8"))))
     first, double, stulp, door, balcony = report["positions"]
 
-    assert [row["status"] for row in report["positions"]] == ["planned", "review", "review", "review", "review"]
+    assert [row["status"] for row in report["positions"]] == ["planned", "simulated", "review", "review", "review"]
     assert first["source"]["quantity"] == 2
     assert first["steps"][0]["parameters"] == {"width_mm": 1000, "height_mm": 1010}
     assert first["steps"][2]["parameters"] == {"panes": 2}
     assert first["steps"][3]["parameters"]["direction"] == "LEFT"
     assert [row["source"]["color_pair"] for row in (first, double, stulp)] == ["mahoń/białe"] * 3
-    assert double["source"]["opening"] == "DKR … DKL/DKR"
-    assert "wymiar podziału" in double["reason"]
+    assert double["source"]["split_from_left_mm"] == 755
+    assert double["simulation"]["final_directions"] == {"left": "LEFT", "right": "RIGHT"}
+    assert "dkr 1510x1400 dkl/dkr" in double["source"]["source_text"]
     assert "całe okno" in stulp["reason"]
     assert door["source"]["opening"] == "DL" and "glazing_panes" not in door["source"]
     assert balcony["source"]["color"] == "biały" and "color_pair" not in balcony["source"]

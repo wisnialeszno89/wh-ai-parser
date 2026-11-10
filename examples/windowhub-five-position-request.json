@@ -9,7 +9,8 @@
     {
       "position": "02", "kind": "double_sash_fixed", "quantity": 1,
       "width_mm": 1510, "height_mm": 1400, "mullion": "fixed",
-      "opening": "DKR … DKL/DKR", "color_pair": "mahoń/białe", "glazing_panes": 2,
+      "left_opening": "DKL", "right_opening": "DKR", "split_from_left_mm": 755,
+      "color_pair": "mahoń/białe", "glazing_panes": 2,
       "source_text": "1 szt dkr 1510x1400 dkl/dkr mit festem Pfosten"
     },
     {
