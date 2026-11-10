@@ -1,6 +1,6 @@
 import pytest
 
-from tools.transfer_offer_draft_lab import form_values, plan_lab_transfer, serialize_form_rows
+from tools.transfer_offer_draft_lab import form_values, parse_requested_discount, plan_lab_transfer, serialize_form_rows
 
 
 def source_draft():
@@ -39,3 +39,15 @@ def test_simulation_rejects_unknown_position_and_incomplete_source():
     draft["positions"][1]["width_mm"] = True
     with pytest.raises(ValueError, match="20.0.*width_mm"):
         plan_lab_transfer(draft, set())
+
+
+def test_discount_distinguishes_no_instruction_from_explicit_zero():
+    assert parse_requested_discount(None) is None
+    assert parse_requested_discount("0") == "0"
+    assert parse_requested_discount("5,50") == "5.5"
+
+
+@pytest.mark.parametrize("value", ["", "-5", "100.01", "5.555", "5%", "NaN"])
+def test_discount_rejects_invalid_instructions(value):
+    with pytest.raises(ValueError, match="Rabat"):
+        parse_requested_discount(value)
