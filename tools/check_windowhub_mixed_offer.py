@@ -12,6 +12,7 @@ if str(ROOT) not in sys.path:
 from app.agent.intake.german_offer_mail import inspect_german_offer_mail
 from app.agent.intake.task_document import read_task_document
 from app.agent.offers.windowhub_fix_ru_plan import plan_fix_ru
+from app.agent.offers.windowhub_psk_plan import plan_psk
 from app.agent.offers.windowhub_tilt_plan import plan_single_tilt
 from tools.test_single_sash_construction_lab import check_single_sash
 
@@ -32,7 +33,7 @@ def prepare_mixed_offer(rows):
             if kind == "entrance_door":
                 raise ValueError("Drzwi wejściowe wymagają osobnego planu konstrukcji.")
             if kind == "opening_conflict":
-                raise ValueError("Opis rodzaju otwierania jest sprzeczny. Ustal, czy chodzi o sam uchył.")
+                raise ValueError("Opis rodzaju otwierania jest sprzeczny. Potwierdź typ konstrukcji.")
             if kind == "stulp_variant":
                 requirement = row.get("mullion_requirement")
                 group = row.get("variant_group")
@@ -75,6 +76,16 @@ def prepare_mixed_offer(rows):
                 entry["steps"] = step_payload(steps)
                 entry["review_notes"] = ["Dobierz konkretne okucie uchylne w katalogu WH."]
                 entry["status"] = "planned"
+            elif kind == "psk":
+                if row.get("opening") or row.get("construction"):
+                    raise ValueError("Potwierdź typ konstrukcji przy dodatkowych oznaczeniach otwierania PSK.")
+                entry["plan"] = plan_psk(
+                    width_mm=row.get("width_mm"), height_mm=row.get("height_mm"),
+                    layout=row.get("layout"), split_from_left_mm=row.get("split_from_left_mm"),
+                    slide_direction=row.get("slide_direction"), view=row.get("view"),
+                )
+                entry["review_notes"] = ["Sprawdź zgodność wymiarów z systemem i dobierz wariant okucia PSK w WH."]
+                entry["status"] = "planned"
             elif kind == "window_unspecified":
                 raise ValueError("Brakuje jednoznacznego typu konstrukcji. Sprawdź układ pól i opis klienta.")
             else:
@@ -104,7 +115,7 @@ def request_positions(request):
 def mail_positions(text):
     parsed = inspect_german_offer_mail(text)
     if not parsed:
-        raise ValueError("Nie rozpoznano pozycji Fenster, Kippfenster ani Haustür w treści maila.")
+        raise ValueError("Nie rozpoznano nagłówka okna ani drzwi w treści maila.")
     rows = []
     for index, row in enumerate(parsed, 1):
         if row["product_type"] == "entrance_door":
@@ -113,6 +124,10 @@ def mail_positions(text):
             kind = "opening_conflict"
         elif row.get("opening_mode") == "tilt_only":
             kind = "tilt_only"
+        elif row.get("opening_mode") == "psk":
+            kind = "psk"
+        elif row["product_type"] == "sliding_door":
+            kind = "window_unspecified"
         elif row.get("variant_group") is not None:
             kind = "stulp_variant"
         elif row["layout"]:

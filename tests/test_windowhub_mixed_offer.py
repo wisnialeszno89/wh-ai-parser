@@ -142,3 +142,30 @@ def test_only_plans_a_single_sash_when_confirmed_for_tilt():
     )
     report = prepare_mixed_offer(mail_positions(text))
     assert [row["status"] for row in report["positions"]] == ["planned", "review", "review"]
+
+
+def test_psk_mail_keeps_sash_position_separate_from_its_slide_direction():
+    example = EXAMPLE.with_name("windowhub-psk-mail.txt")
+    report = prepare_mixed_offer(mail_positions(example.read_text(encoding="utf-8")))
+    left, right, missing = report["positions"]
+
+    assert [row["status"] for row in (left, right, missing)] == ["planned", "planned", "review"]
+    assert (left["plan"]["hardware"]["target_side"], left["plan"]["slide_direction"]) == ("RIGHT", "LEFT")
+    assert (right["plan"]["hardware"]["target_side"], right["plan"]["slide_direction"]) == ("LEFT", "RIGHT")
+    assert left["plan"]["fields"][0] == {"side": "LEFT", "role": "fixed", "field_width_mm": 1150}
+    assert "kierunku przesuwu" in missing["reason"]
+
+
+@pytest.mark.parametrize(("details", "reason"), [
+    ("Schieberichtung: links", "widok odniesienia"),
+    ("Innenansicht, Schieberichtung: rechts", "w stronę pola stałego"),
+    ("Innenansicht, Schieberichtung: links/rechts", "kierunku przesuwu"),
+    ("Innenansicht, Schieberichtung: links, HST", "sprzeczny"),
+])
+def test_psk_mail_blocks_ambiguous_or_conflicting_configuration(details, reason):
+    mail = "PSK-Tür 1 Stk. FIX+PSK 2400 x 2100 mm\nTeilung: 1150 mm von links\n" + details
+    (entry,) = prepare_mixed_offer(mail_positions(mail))["positions"]
+
+    assert entry["status"] == "review"
+    assert reason in entry["reason"]
+    assert "plan" not in entry

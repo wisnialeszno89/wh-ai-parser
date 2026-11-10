@@ -3,7 +3,10 @@
 import re
 
 _PIECES = r"(?<![\w.,+-])(\d+)\s*(?:Stk\.?|Stück)(?!\w)"
-_POSITION = re.compile(rf"^(?:{_PIECES}\s+)?(Haustür|Haustuer|Fenster|Kipp-?fenster)\b\s*:?\s*(.*)$", re.IGNORECASE)
+_POSITION = re.compile(
+    rf"^(?:{_PIECES}\s+)?(Haustür|Haustuer|Fenster|Kipp-?fenster|PSK[- ]T[üu]r|Schiebet[üu]r)\b\s*:?\s*(.*)$",
+    re.IGNORECASE,
+)
 _QUANTITY = re.compile(_PIECES, re.IGNORECASE)
 _LAYOUT = re.compile(r"\b[A-Z][A-Z0-9]*(?:[ \t]*\+[ \t]*[A-Z][A-Z0-9]*)+\b", re.IGNORECASE)
 _OPENING = re.compile(r"\b(?:DKL|DKR)\b", re.IGNORECASE)
@@ -14,6 +17,13 @@ _TURN_TILT = re.compile(r"\b(?:Dreh[ -]?Kipp|Kipp[ -]?Dreh)(?:-?fenster)?\b", re
 _NEGATED_TILT = re.compile(r"\b(?:nicht|kein\w*)[ \t]+" + _TILT_ONLY.pattern, re.IGNORECASE)
 _SINGLE_SASH = re.compile(r"\b(?:einfl[üu]gelig|1[ -]fl[üu]gelig)\b", re.IGNORECASE)
 _MULTIPLE_SASHES = re.compile(r"\b(?:(?:zwei|drei|vier)fl[üu]gelig|[2-9][ -]fl[üu]gelig)\b", re.IGNORECASE)
+_PSK = re.compile(r"\b(?:PSK|Parallel[- ]Schiebe[- ]Kipp)\b", re.IGNORECASE)
+_PSK_CONFLICT = re.compile(r"\b(?:HST|Hebe[- ]Schiebe|(?:nicht|kein\w*)[ \t]+PSK)\b", re.IGNORECASE)
+_SLIDE_DIRECTION = re.compile(
+    r"\bSchieberichtung\s*:?\s*(?:nach\s+)?(links|rechts)\b"
+    r"(?!\s*(?:/|oder)\s*(?:nach\s+)?(?:links|rechts)\b)", re.IGNORECASE,
+)
+_SLIDE_VIEW = re.compile(r"\b(Innenansicht|Au(?:ß|ss)enansicht)\b", re.IGNORECASE)
 _SIZE = re.compile(
     r"(?<![\w.,+-])([1-9][0-9]{1,4})\s*[x×]\s*([1-9][0-9]{1,4})(?![\d.,])"
     r"(?:\s*mm\b)?(?!\w|\s*(?:cm|m)\b)",
@@ -80,6 +90,8 @@ def inspect_german_offer_mail(text: str) -> list[dict]:
     for (heading, *notes), variant_group, mullion_requirement in _expand_stulp_pairs(blocks):
         _, name, description = _POSITION.fullmatch(heading).groups()
         product = "entrance_door" if name.casefold() in {"haustür", "haustuer"} else "window"
+        if name.casefold().startswith(("psk", "schiebet")):
+            product = "sliding_door"
         details = [line for line in [description, *notes] if line]
         block = "\n".join([heading, *notes])
         sizes = [match for line in details for match in _SIZE.finditer(line)]
@@ -96,10 +108,10 @@ def inspect_german_offer_mail(text: str) -> list[dict]:
             "width_mm": width,
             "height_mm": height,
             "quantity": _unique(map(int, _QUANTITY.findall(block))) if variant_group is None else None,
-            "layout": _unique(layouts) if product == "window" else None,
+            "layout": _unique(layouts) if product != "entrance_door" else None,
             "construction": construction,
             "opening": _unique(value.upper() for value in _OPENING.findall(block)) if product == "window" else None,
-            "split_from_left_mm": _unique(map(int, _SPLIT.findall(block))) if product == "window" else None,
+            "split_from_left_mm": _unique(map(int, _SPLIT.findall(block))) if product != "entrance_door" else None,
             "profile": None,
             "color_inside": "white" if white else None,
             "color_outside": "white" if white else None,
@@ -113,6 +125,18 @@ def inspect_german_offer_mail(text: str) -> list[dict]:
             )
             position["opening_mode"] = "conflicting" if conflicting else "tilt_only"
             position["single_sash_confirmed"] = bool(_SINGLE_SASH.search(block) and not _MULTIPLE_SASHES.search(block))
+        if product != "entrance_door" and _PSK.search(block):
+            conflicting = (
+                position.get("opening_mode") or _OPENING.search(block) or _F004.search(block)
+                or _TURN_TILT.search(block) or _PSK_CONFLICT.search(block) or variant_group is not None
+            )
+            position.update(
+                opening_mode="conflicting" if conflicting else "psk",
+                slide_direction=_unique("LEFT" if value.casefold() == "links" else "RIGHT"
+                                        for value in _SLIDE_DIRECTION.findall(block)),
+                view=_unique("inside" if value.casefold() == "innenansicht" else "outside"
+                             for value in _SLIDE_VIEW.findall(block)),
+            )
         if variant_group is not None:
             position.update(
                 variant_group=variant_group,
