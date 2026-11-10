@@ -22,6 +22,16 @@ def prepare_mixed_offer(rows):
         try:
             if kind == "entrance_door":
                 raise ValueError("Drzwi wejściowe wymagają osobnego planu konstrukcji.")
+            if kind == "stulp_variant":
+                reason = ("Potwierdź, czy to warianty do porównania czy oddzielne pozycje, "
+                          "oraz ilość i kierunek otwierania.")
+                if row.get("mullion_requirement") == "without_movable":
+                    reason += " Ustal układ skrzydeł w wersji bez słupka ruchomego."
+                if row.get("profile_preference"):
+                    reason += " Dobierz system wąskiego profilu."
+                if row.get("color_pair"):
+                    reason += " Potwierdź przypisanie kolorów do stron."
+                raise ValueError(reason)
             quantity = row.get("quantity")
             if type(quantity) is not int or quantity <= 0:
                 raise ValueError("Podaj dodatnią całkowitą ilość pozycji.")
@@ -78,6 +88,8 @@ def mail_positions(text):
     for index, row in enumerate(parsed, 1):
         if row["product_type"] == "entrance_door":
             kind = "entrance_door"
+        elif row.get("variant_group") is not None:
+            kind = "stulp_variant"
         elif row["layout"]:
             kind = "fix_ru"
         elif row["construction"]:

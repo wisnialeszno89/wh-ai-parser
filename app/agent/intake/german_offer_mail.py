@@ -14,6 +14,10 @@ _SIZE = re.compile(
     r"(?:\s*mm\b)?(?!\w|\s*(?:cm|m)\b)",
     re.IGNORECASE,
 )
+_STULP_SUFFIX = re.compile(r"\s+(?:(ohne|mit)\s+)?stulp[.;]?$", re.IGNORECASE)
+_THREE_PANES = re.compile(r"dreifach[-\s]*verglasung", re.IGNORECASE)
+_NARROW_PROFILE = re.compile(r"schmales\s+profil", re.IGNORECASE)
+_WHITE_ANTHRACITE = re.compile(r"(?:wei(?:ß|ss)\s*/\s*anthrazit|anthrazit\s*/\s*wei(?:ß|ss))", re.IGNORECASE)
 
 # Sales proposals for the reviewed size. Feasibility depends on the chosen system.
 _WINDOW_VARIANTS = {
@@ -29,6 +33,34 @@ def _unique(values):
     return next(iter(values)) if len(values) == 1 else None
 
 
+def _stulp_line(line):
+    suffix = _STULP_SUFFIX.search(line)
+    if suffix is None:
+        return None
+    size = _SIZE.fullmatch(line[:suffix.start()])
+    if size is None:
+        return None
+    requirement = "without_movable" if (suffix.group(1) or "").casefold() == "ohne" else "movable"
+    return tuple(map(int, size.groups())), requirement
+
+
+def _expand_stulp_pairs(blocks):
+    """Split an explicit same-size with/without Stulp pair, keeping its common notes."""
+    for group, (heading, *notes) in enumerate(blocks, 1):
+        _, name, description = _POSITION.fullmatch(heading).groups()
+        if name.casefold() == "fenster" and len(notes) >= 2:
+            first, second = map(_stulp_line, notes[-2:])
+            common = [description, *notes[:-2]]
+            if (
+                first and second and first[0] == second[0] and first[1] != second[1]
+                and not any(_SIZE.search(line) for line in common)
+            ):
+                for line, (_, requirement) in zip(notes[-2:], (first, second)):
+                    yield [heading, *notes[:-2], line], group, requirement
+                continue
+        yield [heading, *notes], None, None
+
+
 def inspect_german_offer_mail(text: str) -> list[dict]:
     """Separate positions and attach proposals without selecting a configuration."""
     blocks: list[list[str]] = []
@@ -40,7 +72,7 @@ def inspect_german_offer_mail(text: str) -> list[dict]:
             blocks[-1].append(line)
 
     positions = []
-    for heading, *notes in blocks:
+    for (heading, *notes), variant_group, mullion_requirement in _expand_stulp_pairs(blocks):
         _, name, description = _POSITION.fullmatch(heading).groups()
         product = "window" if name.casefold() == "fenster" else "entrance_door"
         details = [line for line in [description, *notes] if line]
@@ -54,11 +86,11 @@ def inspect_german_offer_mail(text: str) -> list[dict]:
         layouts = ["".join(value.upper().split()) for value in _LAYOUT.findall(block)]
         construction = "F004 DK-Fenster" if product == "window" and not layouts and _F004.search(block) else None
 
-        positions.append({
+        position = {
             "product_type": product,
             "width_mm": width,
             "height_mm": height,
-            "quantity": _unique(map(int, _QUANTITY.findall(block))),
+            "quantity": _unique(map(int, _QUANTITY.findall(block))) if variant_group is None else None,
             "layout": _unique(layouts) if product == "window" else None,
             "construction": construction,
             "opening": _unique(value.upper() for value in _OPENING.findall(block)) if product == "window" else None,
@@ -68,5 +100,14 @@ def inspect_german_offer_mail(text: str) -> list[dict]:
             "color_outside": "white" if white else None,
             "source_lines": [heading, *notes],
             "proposed_variants": variants,
-        })
+        }
+        if variant_group is not None:
+            position.update(
+                variant_group=variant_group,
+                mullion_requirement=mullion_requirement,
+                glazing_panes=3 if any(_THREE_PANES.fullmatch(line) for line in details) else None,
+                profile_preference="narrow" if any(_NARROW_PROFILE.fullmatch(line) for line in details) else None,
+                color_pair=_unique(line for line in details if _WHITE_ANTHRACITE.fullmatch(line)),
+            )
+        positions.append(position)
     return positions

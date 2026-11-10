@@ -82,3 +82,31 @@ def test_mail_keeps_door_and_more_complex_layout_in_review():
     assert door["source"]["source_lines"][0] == "Haustür DL"
     assert window["source"]["layout"] == "FIX+RU+FIX"
     assert "steps" not in window
+
+
+def test_mail_preserves_stulp_pair_and_common_preferences_without_guessing():
+    text = (
+        "Fenster Dreifach Verglasung\nSchmales Profil\nWeiß/Anthrazit\n\n"
+        "1590 x 960 stulp\n1590 x 960 ohne Stulp"
+    )
+    report = prepare_mixed_offer(mail_positions(text))
+    with_stulp, without_stulp = report["positions"]
+
+    assert with_stulp["source"]["mullion_requirement"] == "movable"
+    assert without_stulp["source"]["mullion_requirement"] == "without_movable"
+    for entry in (with_stulp, without_stulp):
+        row = entry["source"]
+        assert (row["width_mm"], row["height_mm"]) == (1590, 960)
+        assert (row["glazing_panes"], row["profile_preference"], row["color_pair"]) == (3, "narrow", "Weiß/Anthrazit")
+        assert row["variant_group"] == 1
+        assert row["quantity"] is None and row["layout"] is None and row["opening"] is None
+        assert row["color_inside"] is None and row["color_outside"] is None
+        assert entry["status"] == "review"
+        assert "warianty do porównania czy oddzielne pozycje" in entry["reason"]
+    assert "Ustal układ skrzydeł" in without_stulp["reason"]
+
+
+def test_mail_does_not_copy_a_common_quantity_to_both_stulp_variants():
+    text = "2 Stk. Fenster\n1590 x 960 mit Stulp\n1590 x 960 ohne Stulp"
+
+    assert [row["quantity"] for _, row in mail_positions(text)] == [None, None]
