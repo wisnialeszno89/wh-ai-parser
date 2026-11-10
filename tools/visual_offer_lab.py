@@ -156,8 +156,8 @@ def order_numeric_focus(path, nonce, pid):
     return focused
 
 
-def order_position_action(path, nonce, pid, case):
-    """Choose one lab position action from the current session's widget state."""
+def order_form_action(path, nonce, pid, case):
+    """Choose one verified lab form action from the current order session."""
     order = ORDER_CASES[case]
 
     def action(kind, reason, **fields):
@@ -172,9 +172,11 @@ def order_position_action(path, nonce, pid, case):
         if isinstance(state.get("draft"), dict):
             return action("done", "Szkic zapisany. Weryfikator sprawdzi komplet danych.")
         snapshot = state.get("document_snapshot")
-        if not isinstance(snapshot, dict) or snapshot.get("stage") not in {"pozycja", "podsumowanie"}:
+        if not isinstance(snapshot, dict):
             return None
-
+        stage = snapshot.get("stage")
+        if stage not in {"wlasciwosci", "pozycja", "podsumowanie"}:
+            return None
         points = document_image_points(snapshot, frame)
 
         def click(key, reason):
@@ -183,7 +185,20 @@ def order_position_action(path, nonce, pid, case):
             x, y = points[key]
             return action("click", reason, x=x, y=y)
 
-        if snapshot["stage"] == "podsumowanie":
+        if stage == "wlasciwosci":
+            if snapshot.get("customer") != order.customer:
+                if order.customer in points:
+                    return click(order.customer, "Wybierz dokładny rekord klienta z listy.")
+                return None  # The model still handles finding the exact customer.
+            for (key, label, _), expected in zip(DOCUMENT_FIELDS, order.price_states):
+                checked = snapshot.get(key)
+                if type(checked) is not bool:
+                    return action("ask_user", f"Nie udało się odczytać zaznaczenia pola {label}.")
+                if checked is not expected:
+                    return click(key, f"Ustaw pole {label} zgodnie ze zleceniem.")
+            return click("ok", "Klient i cztery preferencje są zgodne. Zatwierdź OK.")
+
+        if stage == "podsumowanie":
             if matches_window(snapshot, order):
                 return click("save", "Wymiary w podsumowaniu są zgodne. Zapisz szkic.")
             return click("edit", "Wymiary w podsumowaniu wymagają poprawy.")
@@ -421,6 +436,7 @@ def main(argv=None):
         def write_document_state():
             selected = results.curselection()
             snapshot = {key: variable.get() for key, variable in options.items()}
+            snapshot["stage"] = "wlasciwosci"
             snapshot["customer"] = results.get(selected[0]) if selected else None
             widgets = {"search": search_entry, "ok": ok_button, **price_widgets}
             points = widget_points(widgets)

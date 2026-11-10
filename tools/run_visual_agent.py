@@ -90,7 +90,7 @@ def main(argv=None):
             if args.scenario in {'document', 'order'} else None
         )
         local_action = (
-            visual_offer_lab.order_position_action(state_path, state['nonce'], state['pid'], case)
+            visual_offer_lab.order_form_action(state_path, state['nonce'], state['pid'], case)
             if args.scenario == 'order' else None
         )
         result=run_visual_task(driver,VisualReasoner(),goal,execute=args.execute_live,max_steps=args.max_steps,

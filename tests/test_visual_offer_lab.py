@@ -205,11 +205,11 @@ def test_baupartner_local_position_actions_follow_verified_values_and_focus(tmp_
 
     from PIL import Image
 
-    from tools.visual_offer_lab import ORDER_TITLE, order_position_action
+    from tools.visual_offer_lab import ORDER_TITLE, order_form_action
 
     path = tmp_path / "order.json"
     case = "baupartner"
-    choose = order_position_action(path, "session", os.getpid(), case)
+    choose = order_form_action(path, "session", os.getpid(), case)
     frame = SimpleNamespace(
         image=Image.new("RGB", (800, 500)),
         token=SimpleNamespace(window_box=(10, 20, 810, 520), view_box=(0, 0, 800, 500)),
@@ -230,3 +230,39 @@ def test_baupartner_local_position_actions_follow_verified_values_and_focus(tmp_
     assert snapshot(stage="podsumowanie", height=1400, width=1230, quantity=3)["y"] == 140
     assert snapshot(stage="podsumowanie", height=1780, width=1230, quantity=3)["y"] == 110
     assert snapshot(points={})["kind"] == "ask_user"
+
+
+def test_order_actions_require_exact_customer_and_read_back_each_preference(tmp_path):
+    from types import SimpleNamespace
+
+    from PIL import Image
+
+    from tools.visual_offer_lab import ORDER_TITLE, order_form_action
+
+    path = tmp_path / "order.json"
+    case = "baupartner"
+    choose = order_form_action(path, "session", os.getpid(), case)
+    frame = SimpleNamespace(
+        image=Image.new("RGB", (800, 500)),
+        token=SimpleNamespace(window_box=(10, 20, 810, 520), view_box=(0, 0, 800, 500)),
+    )
+    points = {"Baupartner Nord": [100, 220], "Baupartner Nord GmbH": [100, 200],
+              "construction": [110, 262], "installation": [110, 288],
+              "removal": [110, 315], "finishing": [110, 341], "ok": [77, 380]}
+
+    def next_action(**changes):
+        snapshot = dict(stage="wlasciwosci", client_size=[800, 500], points=points,
+                        customer="Baupartner Nord", construction=True, installation=False,
+                        removal=False, finishing=True)
+        save_state(path, "session", None, title=ORDER_TITLE, order_case=case,
+                   document_snapshot=snapshot | changes)
+        return choose(frame)
+
+    assert next_action(customer=None, points={"Baupartner Nord GmbH": [100, 200]}) is None
+    assert next_action(customer="Baupartner Nord GmbH")["y"] == 220
+    assert next_action(construction=False, installation=True)["y"] == 262
+    assert next_action(installation=True)["y"] == 288
+    assert next_action(removal=True)["y"] == 315
+    assert next_action(finishing=False)["y"] == 341
+    assert next_action(installation=None)["kind"] == "ask_user"
+    assert next_action()["y"] == 380
