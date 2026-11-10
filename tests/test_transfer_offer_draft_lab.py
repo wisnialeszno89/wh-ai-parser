@@ -72,3 +72,30 @@ def test_photo_failure_stops_before_opening_form_and_preserves_output(tmp_path, 
     assert lab.main(["--photo", str(photo), "--output", str(output), "--tesseract", "local-tesseract"]) == 2
     assert output.read_text(encoding="utf-8") == "existing"
     assert "Pozycja 20.0: nieczytelny wymiar" in capsys.readouterr().err
+
+
+def test_mail_draft_transfers_all_manual_descriptions_without_filling_prices():
+    from tools.check_windowhub_mixed_offer import mail_positions, prepare_mixed_offer
+
+    example = lab.ROOT / "examples" / "windowhub-shading-mail.txt"
+    draft = prepare_mixed_offer(mail_positions(example.read_text(encoding="utf-8")))
+    planned = plan_lab_transfer(draft, set())
+    saved = serialize_form_rows(map(form_values, planned))
+
+    assert len(saved) == 13
+    for source, target in zip(draft["positions"], saved):
+        assert target["reference"] == source["position"]
+        assert target["description"] == source["description"]
+        assert target["execution"] == "manual"
+        assert target.get("quantity") == source["quantity"]
+        assert target["price"] is None
+    assert all("quantity" not in row for row in saved[-2:])
+
+
+def test_manual_transfer_rejects_mixed_rows_instead_of_omitting_them():
+    draft = {"status": "sales_review_required", "positions": [
+        {"position": "MAIL-01", "status": "manual", "execution": "manual", "description": "ZIP"},
+        {"position": "MAIL-02", "status": "planned"},
+    ]}
+    with pytest.raises(ValueError, match="wyłącznie szkice z pozycjami ręcznymi"):
+        plan_lab_transfer(draft, set())

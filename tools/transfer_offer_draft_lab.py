@@ -1,4 +1,4 @@
-"""Transfer an OCR offer draft into an isolated Tk offer form."""
+"""Transfer an OCR or manual mail draft into an isolated Tk offer form."""
 
 import argparse
 import json
@@ -39,12 +39,36 @@ def parse_requested_discount(value):
     return format(Decimal(value).normalize(), "f")
 
 
+def plan_manual_transfer(rows):
+    positions = []
+    references = set()
+    for row in rows:
+        if not isinstance(row, dict) or row.get("status") != "manual" or row.get("execution") != "manual":
+            raise ValueError("Ten tryb przenosi wyłącznie szkice z pozycjami ręcznymi.")
+        reference, description, quantity = (row.get(key) for key in ("position", "description", "quantity"))
+        if not isinstance(reference, str) or not reference.strip() or reference.strip() in references:
+            raise ValueError("Każda pozycja ręczna musi mieć unikalny numer.")
+        if not isinstance(description, str) or not description.strip():
+            raise ValueError(f"Pozycja {reference}: brakuje opisu.")
+        if quantity is not None and (type(quantity) is not int or quantity <= 0):
+            raise ValueError(f"Pozycja {reference}: nieprawidłowa ilość.")
+        if row.get("price") is not None:
+            raise ValueError(f"Pozycja {reference}: oczekiwano szkicu bez ceny.")
+        references.add(reference.strip())
+        positions.append(dict(reference=reference, execution="manual", description=description, quantity=quantity))
+    return positions
+
+
 def plan_lab_transfer(draft, unavailable):
-    if not isinstance(draft, dict) or draft.get("status") != "technical_draft":
-        raise ValueError("Oczekiwano szkicu technicznego OCR.")
+    if not isinstance(draft, dict) or draft.get("status") not in ("technical_draft", OFFER_STATUS):
+        raise ValueError("Oczekiwano szkicu technicznego OCR lub szkicu pozycji ręcznych.")
     rows = draft.get("positions")
     if not isinstance(rows, list) or not rows:
         raise ValueError("Szkic musi zawierać aktywne pozycje.")
+    if draft["status"] == OFFER_STATUS:
+        if unavailable:
+            raise ValueError("Symulacja niedostępności dotyczy tylko szkicu technicznego OCR.")
+        return plan_manual_transfer(rows)
 
     positions = []
     references = set()
