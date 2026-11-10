@@ -3,9 +3,10 @@ from pathlib import Path
 
 import pytest
 
-from tools.check_windowhub_mixed_offer import prepare_mixed_offer, request_positions, sample_positions
+from tools.check_windowhub_mixed_offer import mail_positions, prepare_mixed_offer, request_positions, sample_positions
 
 EXAMPLE = Path(__file__).resolve().parents[1] / "examples/windowhub-mixed-request.json"
+MAIL_EXAMPLE = EXAMPLE.with_name("windowhub-mixed-mail.txt")
 
 
 def test_mixed_handoff_continues_after_incomplete_position():
@@ -56,3 +57,28 @@ def test_invalid_field_in_one_request_position_does_not_block_next():
     assert report["positions"][0]["status"] == "review"
     assert "Pole opening" in report["positions"][0]["reason"]
     assert report["positions"][-1]["status"] == "planned"
+
+
+def test_german_mail_flows_into_the_same_sales_review_report():
+    report = prepare_mixed_offer(mail_positions(MAIL_EXAMPLE.read_text(encoding="utf-8")))
+    first, second, third = report["positions"]
+
+    assert report["status"] == "sales_review_required"
+    assert first["status"] == "simulated"
+    assert second["status"] == "review"
+    assert "Brakuje wymiaru podziału" in second["reason"]
+    assert third["status"] == "planned"
+    assert third["source"]["quantity"] == 2
+    assert third["steps"][-1]["side"] == "LEFT"
+    assert third["steps"][-1]["parameters"]["opening_code"] == "DKR"
+
+
+def test_mail_keeps_door_and_more_complex_layout_in_review():
+    text = "Haustür DL\n950 x 2070\nFenster 1 Stk. FIX+RU+FIX, DKL\n1600 x 1400\nTeilung: 650 mm von links"
+    report = prepare_mixed_offer(mail_positions(text))
+    door, window = report["positions"]
+
+    assert door["status"] == window["status"] == "review"
+    assert door["source"]["source_lines"][0] == "Haustür DL"
+    assert window["source"]["layout"] == "FIX+RU+FIX"
+    assert "steps" not in window
