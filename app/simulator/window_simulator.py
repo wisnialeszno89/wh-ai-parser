@@ -61,6 +61,15 @@ class WindowSimulator:
             self.scene.add(SceneElement("frame_outer", "FRAME"))
             return
 
+        if action.action_type == "add_balcony_threshold":
+            self._require_tool("threshold_tool")
+            if self.scene.kinds() != ("FRAME",):
+                raise ValueError("a balcony threshold requires an empty frame")
+            if action.value not in ("standard", "low"):
+                raise ValueError("a standard or low threshold is required")
+            self.scene.add(SceneElement("threshold", "THRESHOLD", "frame_outer", threshold=action.value))
+            return
+
         if action.action_type == "add_door_leaf":
             self._require_tool("sash_tool")
             if self.scene.kinds() != ("FRAME",):

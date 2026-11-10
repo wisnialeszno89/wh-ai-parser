@@ -11,6 +11,7 @@ if str(ROOT) not in sys.path:
 
 from app.agent.intake.german_offer_mail import inspect_german_offer_mail
 from app.agent.intake.task_document import read_task_document
+from app.agent.offers.windowhub_balcony_lab import simulate_balcony_window
 from app.agent.offers.windowhub_door_lab import simulate_entrance_door
 from app.agent.offers.windowhub_double_sash_lab import simulate_double_sash, simulate_stulp
 from app.agent.offers.windowhub_fix_ru_plan import plan_fix_ru
@@ -19,7 +20,6 @@ from app.agent.offers.windowhub_tilt_plan import plan_single_tilt, plan_single_t
 from tools.test_single_sash_construction_lab import check_single_sash
 
 REVIEW_LAYOUTS = {
-    "balcony_window": "Potwierdź konfigurację balkonową i próg w katalogu WH.",
     "arched_window": "Sprawdź geometrię łuku na rysunku, sposób otwierania oraz dostępność w systemie WH.",
 }
 SLIDING_PLANNERS = {"psk": plan_psk, "hst": plan_hst}
@@ -80,6 +80,12 @@ def prepare_mixed_offer(rows):
                 entry["review_notes"] = ["Potwierdź w WH system, próg, panel i okucie drzwiowe."]
                 if row.get("test_assumptions"):
                     entry["review_notes"].append("Potwierdź testowe założenia dotyczące otwierania i wypełnienia.")
+                entry["status"] = "simulated"
+            elif kind == "balcony_window":
+                entry["simulation"] = simulate_balcony_window(row)
+                entry["review_notes"] = ["Potwierdź w WH system, próg, pakiet szybowy i okucie balkonowe."]
+                if row.get("test_assumptions"):
+                    entry["review_notes"].append("Potwierdź testowe założenia dotyczące skrzydła, otwierania i progu.")
                 entry["status"] = "simulated"
             elif kind == "tilt_turn_window":
                 steps = plan_single_tilt_turn(
@@ -234,6 +240,10 @@ def main():
             result = row["simulation"]
             print("  BUILD=" + " -> ".join(step["stage"] for step in result["trace"]))
             print(f"  HINGE_SIDE={result['direction']} SWING={result['swing'].upper()}")
+        elif row["kind"] == "balcony_window" and row["status"] == "simulated":
+            result = row["simulation"]
+            print("  BUILD=" + " -> ".join(step["stage"] for step in result["trace"]))
+            print(f"  DIRECTION={result['direction']} PANES={result['panes']} THRESHOLD={result['threshold'].upper()}")
     print(f"DRAFT_OFFER_STATUS={report['status']}")
     if not args.zirkon_draft:
         print("WH_MIXED_OFFER_RESULT=processed")

@@ -30,6 +30,8 @@
       "position": "05", "kind": "balcony_window", "quantity": 1,
       "width_mm": 1010, "height_mm": 2100, "opening": "DKR",
       "color": "biały", "glazing_panes": 2,
+      "single_sash_confirmed": true, "swing": "inward", "threshold": "standard",
+      "test_assumptions": ["single_sash_confirmed", "swing", "threshold"],
       "source_text": "1x biale okno balkonowe 1010x2100 dkr"
     }
   ]

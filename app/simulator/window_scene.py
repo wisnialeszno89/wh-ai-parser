@@ -15,6 +15,7 @@ class SceneElement:
     offset_from_left_mm: int | None = None
     panes: int | None = None
     swing: str | None = None
+    threshold: str | None = None
 
 
 @dataclass
@@ -55,6 +56,7 @@ class WindowScene:
                     **({"offset_from_left_mm": item.offset_from_left_mm} if item.offset_from_left_mm is not None else {}),
                     **({"panes": item.panes} if item.panes is not None else {}),
                     **({"swing": item.swing} if item.swing is not None else {}),
+                    **({"threshold": item.threshold} if item.threshold is not None else {}),
                 }
                 for item in self.elements
             ],

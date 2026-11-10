@@ -176,7 +176,7 @@ def test_five_position_request_preserves_per_item_finishes_and_glazing():
     report = prepare_mixed_offer(request_positions(json.loads(example.read_text(encoding="utf-8"))))
     first, double, stulp, door, balcony = report["positions"]
 
-    assert [row["status"] for row in report["positions"]] == ["planned", "simulated", "simulated", "simulated", "review"]
+    assert [row["status"] for row in report["positions"]] == ["planned", "simulated", "simulated", "simulated", "simulated"]
     assert first["source"]["quantity"] == 2
     assert first["steps"][0]["parameters"] == {"width_mm": 1000, "height_mm": 1010}
     assert first["steps"][2]["parameters"] == {"panes": 2}
@@ -192,6 +192,49 @@ def test_five_position_request_preserves_per_item_finishes_and_glazing():
     assert (door["simulation"]["direction"], door["simulation"]["swing"]) == ("LEFT", "inward")
     assert balcony["source"]["color"] == "biały" and "color_pair" not in balcony["source"]
     assert balcony["source"]["glazing_panes"] == 2
+    assert balcony["source"]["test_assumptions"] == ["single_sash_confirmed", "swing", "threshold"]
+    assert balcony["simulation"]["threshold"] == "standard"
+    assert report["status"] == "sales_review_required"
+
+
+@pytest.mark.parametrize(("threshold", "opening", "direction", "inverted"), [
+    ("standard", "DKR", "RIGHT", True),
+    ("low", "DKR", "RIGHT", True),
+    ("low", "DKL", "LEFT", False),
+])
+def test_balcony_reads_back_threshold_glazing_and_opening(threshold, opening, direction, inverted):
+    example = EXAMPLE.with_name("windowhub-five-position-request.json")
+    row = json.loads(example.read_text(encoding="utf-8"))["positions"][-1]
+    row.update(threshold=threshold, opening=opening)
+    (entry,) = prepare_mixed_offer([("balcony_window", row)])["positions"]
+
+    assert entry["status"] == "simulated"
+    scene = entry["simulation"]["scene"]
+    assert scene["opening"] == {"width": 1010, "height": 2100}
+    frame, sill, sash, glass = scene["elements"]
+    assert (sill["kind"], sill["threshold"], sill["parent_id"]) == ("THRESHOLD", threshold, frame["id"])
+    assert (sash["opening"], sash["direction"], sash["inversion_checked"]) == ("TILT_TURN", direction, inverted)
+    assert (glass["panes"], glass["parent_id"]) == (2, sash["id"])
+    stages = ["frame", "threshold", "sash", "glazing", "hardware"]
+    assert [step["stage"] for step in entry["simulation"]["trace"]] == stages + (["inversion"] if inverted else [])
+
+
+@pytest.mark.parametrize(("field", "value", "reason"), [
+    ("threshold", None, "progu"),
+    ("threshold", "unknown", "progu"),
+    ("single_sash_confirmed", False, "skrzydło"),
+    ("swing", "outward", "do wewnątrz"),
+    ("glazing_panes", True, "szyb"),
+])
+def test_balcony_leaves_incomplete_or_unsupported_configuration_for_review(field, value, reason):
+    example = EXAMPLE.with_name("windowhub-five-position-request.json")
+    row = json.loads(example.read_text(encoding="utf-8"))["positions"][-1]
+    row[field] = value
+    (entry,) = prepare_mixed_offer([("balcony_window", row)])["positions"]
+
+    assert entry["status"] == "review"
+    assert reason in entry["reason"]
+    assert "simulation" not in entry
 
 
 def test_hst_psk_and_arch_stay_separate_in_one_mail():
