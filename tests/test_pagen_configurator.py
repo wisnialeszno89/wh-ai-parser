@@ -6,6 +6,7 @@ from urllib.parse import urlencode
 
 import pytest
 
+from app.agent.intake.pagen_order import read_pagen_order
 from app.agent.offers import pagen_configurator as pagen
 
 EXAMPLE = Path(__file__).resolve().parents[1] / "examples" / "pagen-two-windows.json"
@@ -13,6 +14,38 @@ EXAMPLE = Path(__file__).resolve().parents[1] / "examples" / "pagen-two-windows.
 
 def example_order():
     return json.loads(EXAMPLE.read_text(encoding="utf-8"))
+
+
+def test_csv_preserves_position_order_and_accepts_windows_utf8_bom(tmp_path):
+    table = tmp_path / "zlecenie.CSV"
+    table.write_text(EXAMPLE.with_suffix(".csv").read_text(encoding="utf-8"), encoding="utf-8-sig")
+
+    order = read_pagen_order(table)
+
+    assert order.profile == "Okna PVC Premium Line (Salamander)"
+    assert [
+        (row.window_type, row.dimensions.quantity, row.dimensions.width_mm, row.dimensions.height_mm)
+        for row in order.positions
+    ] == [("Okno stałe", 1, 1100, 950), ("Okno dwuskrzydłowe", 3, 1230, 1780)]
+    assert read_pagen_order(EXAMPLE) == pagen.PagenOrder.from_dict(example_order())
+
+
+@pytest.mark.parametrize(
+    ("original", "replacement", "message"),
+    [
+        ("Szerokość [mm]", "Szerokość [cm]", "nagłówek"),
+        (";1100;950", ";1100,5;950", "Wiersz 2"),
+        (";1100;950", ";1100;", "Wiersz 2"),
+        (";1100;950", ";1100;0", "Wiersz 2"),
+        ("Okna PVC Premium Line (Salamander);Okno dwuskrzydłowe", "Inny profil;Okno dwuskrzydłowe", "Wiersz 3"),
+    ],
+)
+def test_csv_rejects_ambiguous_or_invalid_order(tmp_path, original, replacement, message):
+    table = tmp_path / "zlecenie.csv"
+    source = EXAMPLE.with_suffix(".csv").read_text(encoding="utf-8")
+    table.write_text(source.replace(original, replacement), encoding="utf-8")
+    with pytest.raises(ValueError, match=message):
+        read_pagen_order(table)
 
 
 @pytest.mark.parametrize("value", [0, -1, True, "1230", 1230.5])

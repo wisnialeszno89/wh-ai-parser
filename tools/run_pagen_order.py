@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import argparse
-import json
+import csv
 import sys
 from pathlib import Path
 
@@ -11,18 +11,19 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from app.agent.offers.pagen_configurator import PagenOrder, fill_pagen_order
+from app.agent.intake.pagen_order import read_pagen_order
+from app.agent.offers.pagen_configurator import fill_pagen_order
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--order-file", type=Path, required=True)
+    parser.add_argument("--order-file", type=Path, required=True, help="UTF-8 CSV (separator ;) or JSON.")
     parser.add_argument("--execute-live", action="store_true", help="Open PAGEN and fill the public form.")
     args = parser.parse_args()
 
     try:
-        order = PagenOrder.from_dict(json.loads(args.order_file.read_text(encoding="utf-8-sig")))
-    except (OSError, ValueError) as exc:
+        order = read_pagen_order(args.order_file)
+    except (csv.Error, OSError, ValueError) as exc:
         print(f"PAGEN_RESULT=invalid_order\n{exc}", file=sys.stderr)
         return 2
 
