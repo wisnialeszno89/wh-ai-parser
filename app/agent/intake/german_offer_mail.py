@@ -73,10 +73,76 @@ def _stulp_line(line):
     return tuple(map(int, size.groups())), requirement
 
 
+_SHADING = re.compile(
+    r"^(?:Macht\s+ihr\s+)?(?:"
+    r"(?P<zip>ZIP(?:[-\s]?(?:Anlagen?|Screens?))|Senkrecht[- ]?Markisen?)"
+    r"|(?P<roller>Roll(?:l)?l[aä]den|Roll(?:l)?laden))\b\s*:?(?P<details>.*)$",
+    re.IGNORECASE,
+)
+_REMOTE = re.compile(r"\b(\d+)\s*[- ]?\s*Kanal\s*[- ]?\s*Fernbedie\w*", re.IGNORECASE)
+_SIGNOFF = re.compile(r"^(?:besten dank|vielen dank|mit freundlichen gr[üu][ßs]en)\b", re.IGNORECASE)
+_SHADING_LABELS = {"zip": "ZIP-Anlage (Senkrechtmarkise)", "roller": "Rollladen"}
+
+
+def _shading_positions(heading, notes):
+    match = _SHADING.fullmatch(heading)
+    kind = "zip" if match["zip"] else "roller"
+    label = _SHADING_LABELS[kind]
+    details = re.sub(r"^\(Senkrecht[- ]?Markisen?\)\s*[?!.]*\s*", "", match["details"].strip(), flags=re.IGNORECASE)
+    common, items, remotes = [], [], {}
+    # Keep individual dimension lines, including repeats and their own alternatives.
+    for line in ([details] if details and re.search(r"\w", details) else []) + notes:
+        if _SIGNOFF.match(line):
+            break
+        remote = _REMOTE.search(line)
+        sizes = list(_SIZE.finditer(line))
+        if remote and not sizes and kind == "roller":
+            remotes.setdefault(int(remote[1]), []).append(line)
+        elif sizes:
+            items.append([line])
+        elif re.match(r"^alle\b", line, re.IGNORECASE):
+            common.append(line)
+        elif items and (kind == "roller" or not _QUANTITY.fullmatch(line)):
+            items[-1].append(line)
+        else:
+            common.append(line)
+
+    quantities = {int(value) for line in common for value in _QUANTITY.findall(line)}
+    for item in items or [[]]:
+        sizes = [match for line in item for match in _SIZE.finditer(line)]
+        width, height = map(int, sizes[0].groups()) if len(sizes) == 1 else (None, None)
+        explicit = {int(value) for line in item for value in _QUANTITY.findall(line)}
+        if len(items) <= 1:
+            explicit.update(quantities)
+        quantity = _unique(explicit) if explicit else None
+        if not explicit and not quantities and kind == "roller" and len(sizes) == 1:
+            quantity = 1
+        yield {
+            "product_type": "manual_shading",
+            "description": " · ".join([label, *item, *common]),
+            "quantity": quantity,
+            "width_mm": width,
+            "height_mm": height,
+            "source_lines": [heading, *common, *item],
+        }
+    for channels, variants in remotes.items():
+        base = [line for line in variants if not re.search(r"\balternativ\b", line, re.IGNORECASE)]
+        yield {
+            "product_type": "manual_shading",
+            "description": " · ".join([f"Rollladen-Zubehör: {channels}-Kanal-Fernbedienung", *variants]),
+            "quantity": _unique(int(value) for line in base for value in _QUANTITY.findall(line)),
+            "source_lines": variants,
+        }
+
+
 def _expand_stulp_pairs(blocks):
     """Split an explicit same-size with/without Stulp pair, keeping its common notes."""
     for group, (heading, *notes) in enumerate(blocks, 1):
-        _, name, description = _POSITION.fullmatch(heading).groups()
+        match = _POSITION.fullmatch(heading)
+        if match is None:
+            yield [heading, *notes], None, None
+            continue
+        _, name, description = match.groups()
         if name.casefold() == "fenster" and len(notes) >= 2:
             first, second = map(_stulp_line, notes[-2:])
             common = [description, *notes[:-2]]
@@ -94,14 +160,17 @@ def inspect_german_offer_mail(text: str) -> list[dict]:
     """Separate positions and attach proposals without selecting a configuration."""
     blocks: list[list[str]] = []
     for source_line in text.splitlines():
-        line = source_line.strip()
-        if _POSITION.fullmatch(line):
+        line = source_line.strip().strip("*\\").strip()
+        if _POSITION.fullmatch(line) or _SHADING.fullmatch(line):
             blocks.append([line])
         elif line and blocks:
             blocks[-1].append(line)
 
     positions = []
     for (heading, *notes), variant_group, mullion_requirement in _expand_stulp_pairs(blocks):
+        if _SHADING.fullmatch(heading):
+            positions.extend(_shading_positions(heading, notes))
+            continue
         _, name, description = _POSITION.fullmatch(heading).groups()
         product = "entrance_door" if name.casefold() in {"haustür", "haustuer"} else "window"
         if name.casefold().startswith(("psk", "hst", "schiebet")):

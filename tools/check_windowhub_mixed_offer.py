@@ -38,6 +38,7 @@ def prepare_mixed_offer(rows):
     positions = []
     for kind, row in rows:
         entry = {"position": row["position"], "kind": kind, "source": row}
+        positions.append(entry)
         try:
             if kind == "opening_conflict":
                 raise ValueError("Opis rodzaju otwierania jest sprzeczny. Potwierdź typ konstrukcji.")
@@ -56,6 +57,17 @@ def prepare_mixed_offer(rows):
                 if row.get("color_pair"):
                     reason += " Potwierdź przypisanie kolorów do stron."
                 raise ValueError(reason)
+            if kind == "manual_shading":
+                description = row.get("description")
+                if not isinstance(description, str) or not description.strip():
+                    raise ValueError("Podaj opis ręcznej pozycji osłonowej.")
+                quantity = row.get("quantity")
+                entry.update(
+                    status="manual", execution="manual", description=description,
+                    quantity=quantity if type(quantity) is int and quantity > 0 else None,
+                    price=None, reason="Potwierdź dane i uzupełnij wycenę.",
+                )
+                continue
             quantity = row.get("quantity")
             if type(quantity) is not int or quantity <= 0:
                 raise ValueError("Podaj dodatnią całkowitą ilość pozycji.")
@@ -137,7 +149,6 @@ def prepare_mixed_offer(rows):
                 raise ValueError(f"Nieobsługiwany rodzaj pozycji: {kind}.")
         except ValueError as exc:
             entry.update(status="review", reason=str(exc))
-        positions.append(entry)
     return {"status": "sales_review_required", "mode": "offline", "positions": positions}
 
 
@@ -160,10 +171,12 @@ def request_positions(request):
 def mail_positions(text):
     parsed = inspect_german_offer_mail(text)
     if not parsed:
-        raise ValueError("Nie rozpoznano nagłówka okna ani drzwi w treści maila.")
+        raise ValueError("Nie rozpoznano nagłówka okna, drzwi, ZIP ani rolet w treści maila.")
     rows = []
     for index, row in enumerate(parsed, 1):
-        if row["product_type"] == "entrance_door":
+        if row["product_type"] == "manual_shading":
+            kind = "manual_shading"
+        elif row["product_type"] == "entrance_door":
             kind = "entrance_door"
         elif row.get("opening_mode") == "conflicting":
             kind = "opening_conflict"
@@ -234,7 +247,10 @@ def main():
         recommendation = f" PROPOSAL=2_sashes_{proposal['mullion']}_mullion" if proposal else ""
         reason = f" REASON={row['reason']}" if "reason" in row else ""
         print(f"POSITION={row['position']} STATUS={row['status']}{recommendation}{reason}")
-        if row["kind"] == "tilt_turn_window" and row["status"] == "simulated":
+        if row["status"] == "manual":
+            quantity = row["quantity"] if row["quantity"] is not None else "?"
+            print(f"  QUANTITY={quantity} {row['description']}")
+        elif row["kind"] == "tilt_turn_window" and row["status"] == "simulated":
             result = row["simulation"]
             print("  BUILD=" + " -> ".join(step["stage"] for step in result["trace"]))
             print(f"  DIRECTION={result['direction']} PANES={result['panes']} QUANTITY={row['quantity']}")

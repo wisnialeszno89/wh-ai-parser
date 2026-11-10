@@ -278,3 +278,37 @@ def test_tilt_turn_window_without_single_sash_confirmation_stays_planned():
     assert position["status"] == "planned"
     assert position["quantity"] == 2
     assert "simulation" not in position
+
+
+def test_shading_mail_saves_descriptive_unpriced_positions(monkeypatch, tmp_path):
+    example = EXAMPLE.with_name("windowhub-shading-mail.txt")
+    output = tmp_path / "shading.json"
+    monkeypatch.setattr(sys, "argv", ["check_windowhub_mixed_offer.py", "--mail-file", str(example), "--output", str(output)])
+
+    assert main() == 0
+    draft = json.loads(output.read_text(encoding="utf-8"))
+    zip_line, *rollers, ten_channel, one_channel = draft["positions"]
+
+    assert draft["status"] == "sales_review_required"
+    assert all(row["status"] == "manual" and row["price"] is None for row in draft["positions"])
+    assert zip_line["quantity"] == 2
+    assert "Funk ohne Solar" in zip_line["description"]
+    assert "Kabelausgang links und rechts" in zip_line["description"]
+    assert len(rollers) == 10 and all(row["quantity"] == 1 for row in rollers)
+    assert [row["source"]["width_mm"] for row in rollers].count(1930) == 2
+    assert [row["source"]["width_mm"] for row in rollers].count(920) == 2
+    assert all("Anthrazit" in row["description"] and "Solar" in row["description"] for row in rollers)
+    assert [row["source"]["width_mm"] for row in rollers if "LHTF" in row["description"]] == [925, 915]
+    assert [row["source"]["width_mm"] for row in rollers if "Gurtführung" in row["description"]] == [2740]
+    assert "mit Steuerung" in ten_channel["description"]
+    assert ten_channel["quantity"] is one_channel["quantity"] is None
+
+
+def test_shading_without_dimensions_survives_in_mixed_mail():
+    text = "ZIP-Anlagen\nRAL 9007 Struktur\nFenster 1 Stk. F004 DK-Fenster R, 1000 x 1000 mm"
+    shading, window = prepare_mixed_offer(mail_positions(text))["positions"]
+
+    assert shading["status"] == "manual"
+    assert shading["quantity"] is shading["source"]["width_mm"] is shading["price"] is None
+    assert "RAL 9007 Struktur" in shading["description"]
+    assert window["status"] == "simulated"
