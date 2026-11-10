@@ -12,7 +12,7 @@ if str(ROOT) not in sys.path:
 from app.agent.intake.german_offer_mail import inspect_german_offer_mail
 from app.agent.intake.task_document import read_task_document
 from app.agent.offers.windowhub_fix_ru_plan import plan_fix_ru
-from app.agent.offers.windowhub_psk_plan import plan_psk
+from app.agent.offers.windowhub_psk_plan import plan_hst, plan_psk
 from app.agent.offers.windowhub_tilt_plan import plan_single_tilt, plan_single_tilt_turn
 from tools.test_single_sash_construction_lab import check_single_sash
 
@@ -20,7 +20,9 @@ REVIEW_LAYOUTS = {
     "double_sash_fixed": "Potwierdź kierunki obu skrzydeł i wymiar podziału przy słupku stałym.",
     "stulp_window": "Potwierdź, czy chodzi o całe okno ze słupkiem ruchomym. Ustal skrzydło czynne, kierunek i podział.",
     "balcony_window": "Potwierdź konfigurację balkonową i próg w katalogu WH.",
+    "arched_window": "Sprawdź geometrię łuku na rysunku, sposób otwierania oraz dostępność w systemie WH.",
 }
+SLIDING_PLANNERS = {"psk": plan_psk, "hst": plan_hst}
 
 
 def step_payload(steps):
@@ -94,15 +96,16 @@ def prepare_mixed_offer(rows):
                 entry["steps"] = step_payload(steps)
                 entry["review_notes"] = ["Dobierz konkretne okucie uchylne w katalogu WH."]
                 entry["status"] = "planned"
-            elif kind == "psk":
+            elif isinstance(kind, str) and kind in SLIDING_PLANNERS:
+                family = kind.upper()
                 if row.get("opening") or row.get("construction"):
-                    raise ValueError("Potwierdź typ konstrukcji przy dodatkowych oznaczeniach otwierania PSK.")
-                entry["plan"] = plan_psk(
+                    raise ValueError(f"Potwierdź typ konstrukcji przy dodatkowych oznaczeniach otwierania {family}.")
+                entry["plan"] = SLIDING_PLANNERS[kind](
                     width_mm=row.get("width_mm"), height_mm=row.get("height_mm"),
                     layout=row.get("layout"), split_from_left_mm=row.get("split_from_left_mm"),
                     slide_direction=row.get("slide_direction"), view=row.get("view"),
                 )
-                entry["review_notes"] = ["Sprawdź zgodność wymiarów z systemem i dobierz wariant okucia PSK w WH."]
+                entry["review_notes"] = [f"Sprawdź zgodność wymiarów z systemem i dobierz wariant okucia {family} w WH."]
                 entry["status"] = "planned"
             elif kind == "window_unspecified":
                 raise ValueError("Brakuje jednoznacznego typu konstrukcji. Sprawdź układ pól i opis klienta.")
@@ -140,10 +143,12 @@ def mail_positions(text):
             kind = "entrance_door"
         elif row.get("opening_mode") == "conflicting":
             kind = "opening_conflict"
+        elif row.get("shape") == "arch":
+            kind = "arched_window"
         elif row.get("opening_mode") == "tilt_only":
             kind = "tilt_only"
-        elif row.get("opening_mode") == "psk":
-            kind = "psk"
+        elif row.get("opening_mode") in SLIDING_PLANNERS:
+            kind = row["opening_mode"]
         elif row["product_type"] == "sliding_door":
             kind = "window_unspecified"
         elif row.get("variant_group") is not None:

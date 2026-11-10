@@ -5,24 +5,33 @@ from app.wh.runtime.construction_parser import ConstructionParser
 from app.window_model.topology import WindowSide
 
 
-def plan_psk(*, width_mm, height_mm, layout, split_from_left_mm, slide_direction, view):
+def plan_psk(**spec):
+    return _plan_sliding(Opening.PSK, **spec)
+
+
+def plan_hst(**spec):
+    return _plan_sliding(Opening.HST, **spec)
+
+
+def _plan_sliding(opening, *, width_mm, height_mm, layout, split_from_left_mm, slide_direction, view):
     """Plan only the explicit fixed-plus-sliding layout inside one frame."""
+    family = opening.name
     if any(type(value) is not int or value <= 0 for value in (width_mm, height_mm)):
-        raise ValueError("Podaj dodatnią szerokość i wysokość zestawu PSK w mm.")
-    if layout not in ("FIX+PSK", "PSK+FIX"):
-        raise ValueError("Podaj kolejność pól PSK od lewej: FIX+PSK albo PSK+FIX.")
+        raise ValueError(f"Podaj dodatnią szerokość i wysokość zestawu {family} w mm.")
+    if layout not in (f"FIX+{family}", f"{family}+FIX"):
+        raise ValueError(f"Podaj kolejność pól {family} od lewej: FIX+{family} albo {family}+FIX.")
     if split_from_left_mm is None:
-        raise ValueError("Brakuje wymiaru podziału PSK od lewej krawędzi.")
+        raise ValueError(f"Brakuje wymiaru podziału {family} od lewej krawędzi.")
     if type(split_from_left_mm) is not int or not 0 < split_from_left_mm < width_mm:
-        raise ValueError("Wymiar podziału PSK musi leżeć wewnątrz zestawu.")
+        raise ValueError(f"Wymiar podziału {family} musi leżeć wewnątrz zestawu.")
     if slide_direction not in ("LEFT", "RIGHT"):
-        raise ValueError("Brakuje jednoznacznego kierunku przesuwu PSK.")
+        raise ValueError(f"Brakuje jednoznacznego kierunku przesuwu {family}.")
     if view not in ("inside", "outside"):
-        raise ValueError("Podaj widok odniesienia dla stron PSK: od wewnątrz albo od zewnątrz.")
+        raise ValueError(f"Podaj widok odniesienia dla stron {family}: od wewnątrz albo od zewnątrz.")
 
     schema = ConstructionParser().parse(layout)
     fields = [
-        {"side": side.value, "role": "sliding" if segment.opening is Opening.PSK else "fixed",
+        {"side": side.value, "role": "sliding" if segment.opening is opening else "fixed",
          "field_width_mm": width}
         for side, segment, width in zip(
             (WindowSide.LEFT, WindowSide.RIGHT), schema.segments,
@@ -36,5 +45,5 @@ def plan_psk(*, width_mm, height_mm, layout, split_from_left_mm, slide_direction
     return {
         "width_mm": width_mm, "height_mm": height_mm, "split_from_left_mm": split_from_left_mm,
         "view": view, "fields": fields, "slide_direction": slide_direction,
-        "hardware": {"family": "PSK", "target_side": sliding["side"]},
+        "hardware": {"family": family, "target_side": sliding["side"]},
     }

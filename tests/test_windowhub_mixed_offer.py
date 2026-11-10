@@ -188,3 +188,26 @@ def test_five_position_request_preserves_per_item_finishes_and_glazing():
     assert door["source"]["opening"] == "DL" and "glazing_panes" not in door["source"]
     assert balcony["source"]["color"] == "biały" and "color_pair" not in balcony["source"]
     assert balcony["source"]["glazing_panes"] == 2
+
+
+def test_hst_psk_and_arch_stay_separate_in_one_mail():
+    example = EXAMPLE.with_name("windowhub-sliding-arch-mail.txt")
+    report = prepare_mixed_offer(mail_positions(example.read_text(encoding="utf-8")))
+    hst_right, psk, hst_left, arch, door = report["positions"]
+
+    assert [row["status"] for row in report["positions"]] == ["planned", "planned", "planned", "review", "review"]
+    assert hst_right["plan"]["hardware"] == {"family": "HST", "target_side": "RIGHT"}
+    assert hst_right["plan"]["slide_direction"] == "LEFT"
+    assert psk["plan"]["hardware"] == {"family": "PSK", "target_side": "LEFT"}
+    assert hst_left["plan"]["hardware"] == {"family": "HST", "target_side": "LEFT"}
+    assert hst_left["plan"]["slide_direction"] == "RIGHT"
+    assert arch["source"]["arch_rise_mm"] == 600
+    assert "łuku" in arch["reason"] and "plan" not in arch
+    assert door["source"]["opening_spec"] == {"type": "turn", "direction": "LEFT"}
+
+
+def test_confirmed_single_sash_uses_window_r_shorthand_in_the_simulator():
+    (position,) = prepare_mixed_offer(mail_positions("Fenster 1 Stk. F004 DK-Fenster R, 1000 x 1000 mm"))["positions"]
+
+    assert position["status"] == "simulated"
+    assert position["simulation"]["final_direction"] == "RIGHT"

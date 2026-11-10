@@ -41,3 +41,22 @@ def test_mail_keeps_door_and_window_separate_and_only_proposes_window_variants()
 def test_proposals_are_limited_to_the_reviewed_unspecified_window(text):
     (window,) = inspect_german_offer_mail(text)
     assert not window["proposed_variants"]
+
+
+@pytest.mark.parametrize(("label", "code", "mode", "direction"), [
+    ("Fenster DKR", "DKR", "tilt_turn", "RIGHT"),
+    ("Fenster RUP", "DKR", "tilt_turn", "RIGHT"),
+    ("Fenster RUL", "DKL", "tilt_turn", "LEFT"),
+    ("Fenster R", "DKR", "tilt_turn", "RIGHT"),
+    ("Fenster L", "DKL", "tilt_turn", "LEFT"),
+    ("Fenster RU", "RU", "tilt_turn", None),
+    ("Fenster Kipp", None, "tilt", None),
+    ("Haustür L", "DL", "turn", "LEFT"),
+    ("Haustür R", "DR", "turn", "RIGHT"),
+    ("Haustür DL", "DL", "turn", "LEFT"),
+])
+def test_opening_shorthand_follows_product_conventions(label, code, mode, direction):
+    (position,) = inspect_german_offer_mail(label + " 1 Stk. 1000 x 2000 mm")
+
+    assert position["opening"] == code
+    assert position["opening_spec"] == {"type": mode, "direction": direction}

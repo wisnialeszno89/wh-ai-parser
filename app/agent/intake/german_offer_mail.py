@@ -4,21 +4,26 @@ import re
 
 _PIECES = r"(?<![\w.,+-])(\d+)\s*(?:Stk\.?|Stück)(?!\w)"
 _POSITION = re.compile(
-    rf"^(?:{_PIECES}\s+)?(Haustür|Haustuer|Fenster|Kipp-?fenster|PSK[- ]T[üu]r|Schiebet[üu]r)\b\s*:?\s*(.*)$",
+    rf"^(?:{_PIECES}\s+)?(Haustür|Haustuer|Fenster|Kipp-?fenster|(?:Rundbogen|Segmentbogen|Bogen)fenster|(?:PSK|HST)[- ]T[üu]r|Schiebet[üu]r)\b\s*:?\s*(.*)$",
     re.IGNORECASE,
 )
 _QUANTITY = re.compile(_PIECES, re.IGNORECASE)
 _LAYOUT = re.compile(r"\b[A-Z][A-Z0-9]*(?:[ \t]*\+[ \t]*[A-Z][A-Z0-9]*)+\b", re.IGNORECASE)
-_OPENING = re.compile(r"\b(?:DKL|DKR)\b", re.IGNORECASE)
+_OPENING = re.compile(r"(?<![\w-])(?:DKL|DKR|RUP|RUL|LUP|DL|DR|RU|R|L)(?![\w-])", re.IGNORECASE)
 _SPLIT = re.compile(r"\bTeilung\s*:?\s*(\d+)\s*mm\s+von\s+links\b", re.IGNORECASE)
 _F004 = re.compile(r"\bF004\s+DK-Fenster\b", re.IGNORECASE)
 _TILT_ONLY = re.compile(r"(?<![\w-])(?:kipp-?fenster|nur[ \t]+kippbar)\b", re.IGNORECASE)
 _TURN_TILT = re.compile(r"\b(?:Dreh[ -]?Kipp|Kipp[ -]?Dreh)(?:-?fenster)?\b", re.IGNORECASE)
 _NEGATED_TILT = re.compile(r"\b(?:nicht|kein\w*)[ \t]+" + _TILT_ONLY.pattern, re.IGNORECASE)
+_KIPP = re.compile(r"(?<![\w-])kipp(?![\w-])", re.IGNORECASE)
+_NEGATED_KIPP = re.compile(r"\b(?:nicht|kein\w*)[ \t]+kipp\b", re.IGNORECASE)
 _SINGLE_SASH = re.compile(r"\b(?:einfl[üu]gelig|1[ -]fl[üu]gelig)\b", re.IGNORECASE)
 _MULTIPLE_SASHES = re.compile(r"\b(?:(?:zwei|drei|vier)fl[üu]gelig|[2-9][ -]fl[üu]gelig)\b", re.IGNORECASE)
 _PSK = re.compile(r"\b(?:PSK|Parallel[- ]Schiebe[- ]Kipp)\b", re.IGNORECASE)
-_PSK_CONFLICT = re.compile(r"\b(?:HST|Hebe[- ]Schiebe|(?:nicht|kein\w*)[ \t]+PSK)\b", re.IGNORECASE)
+_HST = re.compile(r"\b(?:HST|Hebe[- ]Schiebe)\b", re.IGNORECASE)
+_NEGATED_SLIDING = re.compile(r"\b(?:nicht|kein\w*)[ \t]+(?:PSK|HST)\b", re.IGNORECASE)
+_ARCH = re.compile(r"\b(?:Rundbogen|Segmentbogen|Bogen)fenster\b", re.IGNORECASE)
+_ARCH_RISE = re.compile(r"\bStichh[öo]he\s*:?\s*(\d+)\s*mm\b", re.IGNORECASE)
 _SLIDE_DIRECTION = re.compile(
     r"\bSchieberichtung\s*:?\s*(?:nach\s+)?(links|rechts)\b"
     r"(?!\s*(?:/|oder)\s*(?:nach\s+)?(?:links|rechts)\b)", re.IGNORECASE,
@@ -46,6 +51,15 @@ _WINDOW_VARIANTS = {
 def _unique(values):
     values = set(values)
     return next(iter(values)) if len(values) == 1 else None
+
+
+def _opening_codes(block, product):
+    if product == "sliding_door":
+        return set()
+    left, right = ("DL", "DR") if product == "entrance_door" else ("DKL", "DKR")
+    aliases = {"RUL": "DKL", "LUP": "DKL", "RUP": "DKR", "L": left, "R": right}
+    tokens = (token.upper() for token in _OPENING.findall(_LAYOUT.sub("", block)))
+    return {aliases.get(token, token) for token in tokens}
 
 
 def _stulp_line(line):
@@ -90,7 +104,7 @@ def inspect_german_offer_mail(text: str) -> list[dict]:
     for (heading, *notes), variant_group, mullion_requirement in _expand_stulp_pairs(blocks):
         _, name, description = _POSITION.fullmatch(heading).groups()
         product = "entrance_door" if name.casefold() in {"haustür", "haustuer"} else "window"
-        if name.casefold().startswith(("psk", "schiebet")):
+        if name.casefold().startswith(("psk", "hst", "schiebet")):
             product = "sliding_door"
         details = [line for line in [description, *notes] if line]
         block = "\n".join([heading, *notes])
@@ -102,6 +116,7 @@ def inspect_german_offer_mail(text: str) -> list[dict]:
             variants = _WINDOW_VARIANTS.get((width, height), ())
         layouts = ["".join(value.upper().split()) for value in _LAYOUT.findall(block)]
         construction = "F004 DK-Fenster" if product == "window" and not layouts and _F004.search(block) else None
+        opening_codes = _opening_codes(block, product)
 
         position = {
             "product_type": product,
@@ -110,7 +125,7 @@ def inspect_german_offer_mail(text: str) -> list[dict]:
             "quantity": _unique(map(int, _QUANTITY.findall(block))) if variant_group is None else None,
             "layout": _unique(layouts) if product != "entrance_door" else None,
             "construction": construction,
-            "opening": _unique(value.upper() for value in _OPENING.findall(block)) if product == "window" else None,
+            "opening": _unique(opening_codes),
             "split_from_left_mm": _unique(map(int, _SPLIT.findall(block))) if product != "entrance_door" else None,
             "profile": None,
             "color_inside": "white" if white else None,
@@ -118,25 +133,39 @@ def inspect_german_offer_mail(text: str) -> list[dict]:
             "source_lines": [heading, *notes],
             "proposed_variants": variants,
         }
-        if product == "window" and _TILT_ONLY.search(block):
+        if len(opening_codes) > 1:
+            position["opening_mode"] = "conflicting"
+        code = position["opening"]
+        if code is not None:
+            position["opening_spec"] = {
+                "type": "turn" if code in {"DL", "DR"} else "tilt_turn",
+                "direction": {"L": "LEFT", "R": "RIGHT"}.get(code[-1]) if code != "RU" else None,
+            }
+        if product == "window" and (_TILT_ONLY.search(block) or _KIPP.search(_TURN_TILT.sub("", block))):
             conflicting = (
-                layouts or construction or position["opening"] or _OPENING.search(block)
-                or _TURN_TILT.search(block) or _NEGATED_TILT.search(block) or variant_group is not None
+                layouts or construction or opening_codes or _TURN_TILT.search(block)
+                or _NEGATED_TILT.search(block) or _NEGATED_KIPP.search(block) or variant_group is not None
             )
             position["opening_mode"] = "conflicting" if conflicting else "tilt_only"
             position["single_sash_confirmed"] = bool(_SINGLE_SASH.search(block) and not _MULTIPLE_SASHES.search(block))
-        if product != "entrance_door" and _PSK.search(block):
+            if not conflicting:
+                position["opening_spec"] = {"type": "tilt", "direction": None}
+        psk, hst = bool(_PSK.search(block)), bool(_HST.search(block))
+        if product != "entrance_door" and (psk or hst):
             conflicting = (
                 position.get("opening_mode") or _OPENING.search(block) or _F004.search(block)
-                or _TURN_TILT.search(block) or _PSK_CONFLICT.search(block) or variant_group is not None
+                or _TURN_TILT.search(block) or (psk and hst) or _NEGATED_SLIDING.search(block)
+                or variant_group is not None
             )
             position.update(
-                opening_mode="conflicting" if conflicting else "psk",
+                opening_mode="conflicting" if conflicting else ("psk" if psk else "hst"),
                 slide_direction=_unique("LEFT" if value.casefold() == "links" else "RIGHT"
                                         for value in _SLIDE_DIRECTION.findall(block)),
                 view=_unique("inside" if value.casefold() == "innenansicht" else "outside"
                              for value in _SLIDE_VIEW.findall(block)),
             )
+        if _ARCH.search(heading):
+            position.update(shape="arch", arch_rise_mm=_unique(map(int, _ARCH_RISE.findall(block))))
         if variant_group is not None:
             position.update(
                 variant_group=variant_group,
