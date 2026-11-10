@@ -11,6 +11,7 @@ class SceneElement:
     side: str | None = None
     opening: str | None = None
     direction: str | None = None
+    inversion_checked: bool | None = None
 
 
 @dataclass
@@ -47,6 +48,7 @@ class WindowScene:
                     "parent_id": item.parent_id,
                     "side": item.side,
                     **({"opening": item.opening, "direction": item.direction} if item.opening is not None else {}),
+                    **({"inversion_checked": item.inversion_checked} if item.inversion_checked is not None else {}),
                 }
                 for item in self.elements
             ],

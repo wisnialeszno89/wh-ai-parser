@@ -1,6 +1,7 @@
 import pytest
 
-from tools.test_single_sash_construction_lab import SemanticWindowSimulator, check_single_sash
+from app.agent.offers.windowhub_hardware_direction import plan_hardware_inversion
+from tools.test_single_sash_construction_lab import WindowSimulator, check_single_sash
 
 
 def zirkon(opening):
@@ -11,27 +12,39 @@ def zirkon(opening):
 
 
 @pytest.mark.parametrize(("code", "direction"), [("DKL", "LEFT"), ("DKR", "RIGHT")])
-def test_zirkon_direction_selects_different_tool_but_keeps_one_central_sash(code, direction):
-    result = check_single_sash(zirkon(code))
+@pytest.mark.parametrize("auto_direction", ["LEFT", "RIGHT"])
+def test_zirkon_only_inverts_a_mismatch(code, direction, auto_direction):
+    result = check_single_sash(zirkon(code), auto_direction=auto_direction)
 
-    assert result["tool"] == f"tilt_turn_{direction.lower()}_tool"
+    assert result["inversion_action"] == ("unchanged" if direction == auto_direction else "on")
     assert result["scene"]["opening"] == {"width": 935, "height": 1145}
     assert [element["kind"] for element in result["scene"]["elements"]] == ["FRAME", "SASH"]
     assert result["scene"]["elements"][1]["side"] == "center"
     assert result["scene"]["elements"][1]["direction"] == direction
 
 
-def test_wrong_tool_fails_readback(monkeypatch):
-    build = SemanticWindowSimulator.build_actions
+def test_unapplied_inversion_fails_readback(monkeypatch):
+    apply = WindowSimulator._apply_one
 
-    def select_wrong_tool(self, desired, topology):
-        actions = build(self, desired, topology)
-        actions[-2].tool_name = "tilt_turn_right_tool"
-        return actions
+    def ignore_inversion(self, action):
+        if action.action_type != "set_hardware_inversion":
+            apply(self, action)
 
-    monkeypatch.setattr(SemanticWindowSimulator, "build_actions", select_wrong_tool)
+    monkeypatch.setattr(WindowSimulator, "_apply_one", ignore_inversion)
     with pytest.raises(ValueError, match="nie potwierdził wymaganego otwierania"):
-        check_single_sash(zirkon("DKL"))
+        check_single_sash(zirkon("DKR"))
+
+
+def test_unknown_automatic_direction_stops_for_review():
+    with pytest.raises(ValueError, match="Brak jednoznacznego kierunku"):
+        check_single_sash(zirkon("DKR"), auto_direction=None)
+
+
+def test_inversion_plan_uses_observed_checkbox_state():
+    assert plan_hardware_inversion("LEFT", "RIGHT", True) is False
+    assert plan_hardware_inversion("LEFT", "LEFT", True) is None
+    with pytest.raises(ValueError, match="stanu pola Inwersja"):
+        plan_hardware_inversion("LEFT", "RIGHT", None)
 
 
 def test_missing_direction_stops_without_guessing():

@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from app.actions.models.action import Action
 from app.simulator.hardware import HardwareReadiness, HardwareSpec, HardwareState
 from app.simulator.window_scene import SceneElement, WindowScene
 
-TILT_TURN_TOOLS = {"LEFT": "tilt_turn_left_tool", "RIGHT": "tilt_turn_right_tool"}
+SINGLE_SASH_HARDWARE = "UR Activpilot"
 
 
 @dataclass(frozen=True)
@@ -18,10 +18,11 @@ class SimulationResult:
 class WindowSimulator:
     """Execute the small, safe subset of construction actions used by v1."""
 
-    def __init__(self, scene: WindowScene | None = None) -> None:
+    def __init__(self, scene: WindowScene | None = None, *, single_sash_auto_direction: str | None = None) -> None:
         self.scene = scene or WindowScene.empty()
         self.selected_tool: str | None = None
         self.hardware = HardwareState()
+        self.single_sash_auto_direction = single_sash_auto_direction
 
     def apply(self, actions: list[Action] | tuple[Action, ...]) -> SimulationResult:
         applied: list[str] = []
@@ -67,20 +68,15 @@ class WindowSimulator:
             return
 
         if action.action_type == "add_sash":
-            side = action.value or "left"
-            if side == "center":
-                direction = next((key for key, tool in TILT_TURN_TOOLS.items() if tool == self.selected_tool), None)
-                if direction is None:
-                    raise ValueError("a directional tilt-and-turn tool must be selected")
-                if not self.scene.has("FRAME"):
-                    raise ValueError("FRAME is required")
-                if self.scene.has("MULLION") or self.scene.has("SASH"):
-                    raise ValueError("a single sash requires an undivided empty frame")
-                self.scene.add(SceneElement("sash_center", "SASH", "frame_outer", side, "TILT_TURN", direction))
-                return
             self._require_tool("sash_tool")
             if not self.scene.has("FRAME"):
                 raise ValueError("FRAME is required")
+            side = action.value or "left"
+            if side == "center":
+                if self.scene.has("MULLION") or self.scene.has("SASH"):
+                    raise ValueError("a single sash requires an undivided empty frame")
+                self.scene.add(SceneElement("sash_center", "SASH", "frame_outer", side))
+                return
             if side not in {"left", "right"}:
                 raise ValueError("sash side must be left or right")
             element_id = f"sash_{side}"
@@ -106,7 +102,20 @@ class WindowSimulator:
             product = (action.value or "").strip()
             if not product:
                 raise ValueError("hardware product is required")
+            if self.scene.has("SASH", side="center"):
+                if product != SINGLE_SASH_HARDWARE:
+                    raise ValueError("the single-sash pilot requires ActivPilot")
+                self._set_single_sash_inversion(False)
             self.hardware.selected = HardwareSpec(product=product)
+            return
+
+        if action.action_type == "set_hardware_inversion":
+            self._require_tool("hardware_tool")
+            if self.hardware.selected is None or self.hardware.selected.product != SINGLE_SASH_HARDWARE:
+                raise ValueError("ActivPilot must be selected")
+            if action.value not in {"on", "off"} or self.single_sash_auto_direction not in {"LEFT", "RIGHT"}:
+                raise ValueError("known inversion state and automatic direction are required")
+            self._set_single_sash_inversion(action.value == "on")
             return
 
         if action.action_type == "add_hardware":
@@ -128,6 +137,18 @@ class WindowSimulator:
             return
 
         raise ValueError(f"unsupported action: {action.action_type}")
+
+    def _set_single_sash_inversion(self, checked: bool) -> None:
+        direction = self.single_sash_auto_direction
+        if checked:
+            direction = {"LEFT": "RIGHT", "RIGHT": "LEFT"}[direction]
+        for index, item in enumerate(self.scene.elements):
+            if item.id == "sash_center":
+                self.scene.elements[index] = replace(
+                    item, opening="TILT_TURN", direction=direction, inversion_checked=checked,
+                )
+                return
+        raise ValueError("center sash is required")
 
     def _require_tool(self, expected: str) -> None:
         if self.selected_tool != expected:
