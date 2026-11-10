@@ -13,8 +13,14 @@ from app.agent.intake.german_offer_mail import inspect_german_offer_mail
 from app.agent.intake.task_document import read_task_document
 from app.agent.offers.windowhub_fix_ru_plan import plan_fix_ru
 from app.agent.offers.windowhub_psk_plan import plan_psk
-from app.agent.offers.windowhub_tilt_plan import plan_single_tilt
+from app.agent.offers.windowhub_tilt_plan import plan_single_tilt, plan_single_tilt_turn
 from tools.test_single_sash_construction_lab import check_single_sash
+
+REVIEW_LAYOUTS = {
+    "double_sash_fixed": "Potwierdź kierunki obu skrzydeł i wymiar podziału przy słupku stałym.",
+    "stulp_window": "Potwierdź, czy chodzi o całe okno ze słupkiem ruchomym. Ustal skrzydło czynne, kierunek i podział.",
+    "balcony_window": "Potwierdź konfigurację balkonową i próg w katalogu WH.",
+}
 
 
 def step_payload(steps):
@@ -56,9 +62,21 @@ def prepare_mixed_offer(rows):
                 value = row.get(field)
                 if value is not None and not isinstance(value, str):
                     raise ValueError(f"Pole {field} musi być tekstem.")
+            if isinstance(kind, str) and kind in REVIEW_LAYOUTS:
+                raise ValueError(REVIEW_LAYOUTS[kind])
             if kind == "single_sash":
                 entry["simulation"] = check_single_sash(row)
                 entry["status"] = "simulated"
+            elif kind == "tilt_turn_window":
+                steps = plan_single_tilt_turn(
+                    width_mm=row.get("width_mm"), height_mm=row.get("height_mm"),
+                    opening_code=row.get("opening"), glazing_panes=row.get("glazing_panes"),
+                )
+                entry["steps"] = step_payload(steps)
+                entry["review_notes"] = ["Potwierdź jedno skrzydło i dobierz system oraz okucie w WH."]
+                if row.get("color_pair"):
+                    entry["review_notes"].append("Potwierdź przypisanie kolorów do stron.")
+                entry["status"] = "planned"
             elif kind == "fix_ru":
                 steps = plan_fix_ru(
                     width_mm=row.get("width_mm"), height_mm=row.get("height_mm"),
