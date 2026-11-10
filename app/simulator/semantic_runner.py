@@ -3,10 +3,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from app.actions.models.action import Action
-from app.simulator.window_simulator import SimulationResult, WindowSimulator
+from app.simulator.window_simulator import TILT_TURN_TOOLS, SimulationResult, WindowSimulator
 from app.window_model.dependency_planner import DependencyPlanner
 from app.window_model.model import WindowElementType, WindowModel
-from app.window_model.topology import WindowTopology
+from app.window_model.topology import WindowSide, WindowTopology
 
 
 @dataclass(frozen=True)
@@ -44,9 +44,14 @@ class SemanticWindowSimulator:
                 continue
 
             if step.element_type is WindowElementType.SASH:
+                tool = "sash_tool"
+                if step.side is WindowSide.CENTER and step.properties.get("opening") == "TILT_TURN":
+                    tool = TILT_TURN_TOOLS.get(step.properties.get("direction"))
+                    if tool is None:
+                        raise ValueError("Single tilt-and-turn sash needs an explicit LEFT or RIGHT direction")
                 actions.extend(
                     (
-                        Action("select_tool", tool_name="sash_tool"),
+                        Action("select_tool", tool_name=tool),
                         Action("add_sash", value=step.side.value.lower()),
                     )
                 )

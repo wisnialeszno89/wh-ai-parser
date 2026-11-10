@@ -6,6 +6,8 @@ from app.actions.models.action import Action
 from app.simulator.hardware import HardwareReadiness, HardwareSpec, HardwareState
 from app.simulator.window_scene import SceneElement, WindowScene
 
+TILT_TURN_TOOLS = {"LEFT": "tilt_turn_left_tool", "RIGHT": "tilt_turn_right_tool"}
+
 
 @dataclass(frozen=True)
 class SimulationResult:
@@ -65,10 +67,20 @@ class WindowSimulator:
             return
 
         if action.action_type == "add_sash":
+            side = action.value or "left"
+            if side == "center":
+                direction = next((key for key, tool in TILT_TURN_TOOLS.items() if tool == self.selected_tool), None)
+                if direction is None:
+                    raise ValueError("a directional tilt-and-turn tool must be selected")
+                if not self.scene.has("FRAME"):
+                    raise ValueError("FRAME is required")
+                if self.scene.has("MULLION") or self.scene.has("SASH"):
+                    raise ValueError("a single sash requires an undivided empty frame")
+                self.scene.add(SceneElement("sash_center", "SASH", "frame_outer", side, "TILT_TURN", direction))
+                return
             self._require_tool("sash_tool")
             if not self.scene.has("FRAME"):
                 raise ValueError("FRAME is required")
-            side = action.value or "left"
             if side not in {"left", "right"}:
                 raise ValueError("sash side must be left or right")
             element_id = f"sash_{side}"

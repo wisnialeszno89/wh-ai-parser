@@ -9,6 +9,8 @@ class SceneElement:
     kind: str
     parent_id: str | None = None
     side: str | None = None
+    opening: str | None = None
+    direction: str | None = None
 
 
 @dataclass
@@ -44,6 +46,7 @@ class WindowScene:
                     "kind": item.kind,
                     "parent_id": item.parent_id,
                     "side": item.side,
+                    **({"opening": item.opening, "direction": item.direction} if item.opening is not None else {}),
                 }
                 for item in self.elements
             ],
