@@ -1,5 +1,6 @@
 import pytest
 
+from tools import transfer_offer_draft_lab as lab
 from tools.transfer_offer_draft_lab import form_values, parse_requested_discount, plan_lab_transfer, serialize_form_rows
 
 
@@ -51,3 +52,23 @@ def test_discount_distinguishes_no_instruction_from_explicit_zero():
 def test_discount_rejects_invalid_instructions(value):
     with pytest.raises(ValueError, match="Rabat"):
         parse_requested_discount(value)
+
+
+def test_photo_failure_stops_before_opening_form_and_preserves_output(tmp_path, monkeypatch, capsys):
+    import tkinter
+
+    photo = tmp_path / "offer.jpg"
+    output = tmp_path / "existing.json"
+    output.write_text("existing", encoding="utf-8")
+
+    def fail_ocr(path, *, tesseract):
+        assert path == photo
+        assert tesseract == "local-tesseract"
+        raise ValueError("Pozycja 20.0: nieczytelny wymiar")
+
+    monkeypatch.setattr(lab, "read_german_offer_photo_file", fail_ocr)
+    monkeypatch.setattr(tkinter, "Tk", lambda: pytest.fail("Formularz otworzył się po błędzie OCR."))
+
+    assert lab.main(["--photo", str(photo), "--output", str(output), "--tesseract", "local-tesseract"]) == 2
+    assert output.read_text(encoding="utf-8") == "existing"
+    assert "Pozycja 20.0: nieczytelny wymiar" in capsys.readouterr().err

@@ -2,7 +2,10 @@
 
 import csv
 import re
+import shutil
+import subprocess
 from dataclasses import dataclass
+from pathlib import Path
 from statistics import median
 
 _HEADER = re.compile(r"^(\d+\.\d+)\s+(\d+)\s*Stk\.?\s*(.*)$", re.IGNORECASE)
@@ -12,6 +15,19 @@ _STRIP = re.compile(
     r"Abdeckstreifen:\s*Aluminium\s+au(?:ß|ss|b|f)en,\s*(3|4)-seitig,\s*(\d+\s*x\s*\d+)\s*mm",
     re.IGNORECASE,
 )
+
+
+def read_german_offer_photo_file(path: Path, *, tesseract: str = "tesseract") -> dict:
+    if not path.is_file():
+        raise ValueError(f"Brak pliku zdjęcia: {path}")
+    executable = shutil.which(tesseract)
+    if not executable:
+        raise ValueError("Nie znaleziono Tesseract. Użyj --tesseract ze ścieżką do tesseract.exe.")
+    result = subprocess.run(
+        [executable, str(path.resolve()), "stdout", "--psm", "11", "-l", "eng", "tsv"],
+        check=True, capture_output=True, encoding="utf-8", timeout=60,
+    )
+    return read_german_offer_photo(result.stdout)
 
 
 @dataclass(frozen=True)

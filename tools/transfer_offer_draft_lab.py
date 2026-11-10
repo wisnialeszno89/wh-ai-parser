@@ -3,6 +3,7 @@
 import argparse
 import json
 import re
+import subprocess
 import sys
 from decimal import Decimal
 from pathlib import Path
@@ -11,6 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from app.agent.intake.german_offer_photo import read_german_offer_photo_file
 from app.agent.offers.offer_draft_routing import CatalogStatus, DraftPosition, route_draft_positions
 
 FIELDS = {
@@ -187,28 +189,36 @@ def transfer_in_form(root, positions, output, keep_open=False, *, requested_disc
         root.mainloop()
 
 
-def main():
+def main(argv=None):
     import tkinter as tk
 
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--draft-file", type=Path, required=True)
+    source = parser.add_mutually_exclusive_group(required=True)
+    source.add_argument("--draft-file", type=Path)
+    source.add_argument("--photo", type=Path, help="Read a German offer photo with Tesseract before opening the form.")
+    parser.add_argument("--tesseract", default="tesseract", help="Tesseract executable for --photo.")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--simulate-unsupported", action="append", default=[], metavar="POSITION")
     parser.add_argument("--discount-percent", help="Apply an explicitly requested discount to catalog items.")
     parser.add_argument("--keep-open", action="store_true", help="Leave the verified lab form open for inspection.")
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     try:
-        if args.draft_file.resolve() == args.output.resolve():
+        input_file = args.photo or args.draft_file
+        if input_file.resolve() == args.output.resolve():
             raise ValueError("Plik wyjściowy musi być inny niż źródłowy.")
         requested_discount = parse_requested_discount(args.discount_percent)
-        draft = json.loads(args.draft_file.read_text(encoding="utf-8-sig"))
+        if args.photo:
+            draft = read_german_offer_photo_file(args.photo, tesseract=args.tesseract)
+            print("PHOTO_OFFER_RESULT=technical_draft", flush=True)
+        else:
+            draft = json.loads(args.draft_file.read_text(encoding="utf-8-sig"))
         positions = plan_lab_transfer(draft, set(args.simulate_unsupported))
         root = tk.Tk()
         try:
             transfer_in_form(root, positions, args.output, args.keep_open, requested_discount=requested_discount)
         finally:
             root.destroy()
-    except (OSError, ValueError, tk.TclError) as exc:
+    except (OSError, ValueError, subprocess.SubprocessError, tk.TclError) as exc:
         print(f"DRAFT_TRANSFER_RESULT=review\n{exc}", file=sys.stderr)
         return 2
     return 0

@@ -2,7 +2,6 @@
 
 import argparse
 import json
-import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -11,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from app.agent.intake.german_offer_photo import read_german_offer_photo
+from app.agent.intake.german_offer_photo import read_german_offer_photo_file
 
 
 def main() -> int:
@@ -22,18 +21,9 @@ def main() -> int:
     args = parser.parse_args()
 
     try:
-        if not args.image.is_file():
-            raise ValueError(f"Brak pliku zdjęcia: {args.image}")
         if args.output and args.output.resolve() == args.image.resolve():
             raise ValueError("Wskaż osobny plik wyjściowy JSON.")
-        executable = shutil.which(args.tesseract)
-        if not executable:
-            raise ValueError("Nie znaleziono Tesseract. Użyj --tesseract ze ścieżką do tesseract.exe.")
-        result = subprocess.run(
-            [executable, str(args.image.resolve()), "stdout", "--psm", "11", "-l", "eng", "tsv"],
-            check=True, capture_output=True, encoding="utf-8", timeout=60,
-        )
-        draft = read_german_offer_photo(result.stdout)
+        draft = read_german_offer_photo_file(args.image, tesseract=args.tesseract)
         output = json.dumps(draft, ensure_ascii=False, indent=2)
         if args.output:
             args.output.write_text(output + "\n", encoding="utf-8")
