@@ -17,13 +17,20 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("image", type=Path)
     parser.add_argument("--tesseract", default="tesseract", help="Tesseract executable or its full path.")
+    parser.add_argument("--insect-screen-service", action="store_true",
+                        help="Prepare a replacement draft from invoice items marked with a blue X.")
     parser.add_argument("--output", type=Path, help="Save the technical draft as UTF-8 JSON.")
     args = parser.parse_args()
 
     try:
         if args.output and args.output.resolve() == args.image.resolve():
             raise ValueError("Wskaż osobny plik wyjściowy JSON.")
-        draft = read_german_offer_photo_file(args.image, tesseract=args.tesseract)
+        if args.insect_screen_service:
+            from app.agent.intake.insect_screen_service_photo import read_insect_screen_service_photo
+
+            draft = read_insect_screen_service_photo(args.image, tesseract=args.tesseract)
+        else:
+            draft = read_german_offer_photo_file(args.image, tesseract=args.tesseract)
         output = json.dumps(draft, ensure_ascii=False, indent=2)
         if args.output:
             args.output.write_text(output + "\n", encoding="utf-8")
@@ -31,7 +38,7 @@ def main() -> int:
         print(f"PHOTO_OFFER_RESULT=review\n{exc}", file=sys.stderr)
         return 2
 
-    print("PHOTO_OFFER_RESULT=technical_draft")
+    print(f"PHOTO_OFFER_RESULT={draft['status']}")
     print(output)
     return 0
 
