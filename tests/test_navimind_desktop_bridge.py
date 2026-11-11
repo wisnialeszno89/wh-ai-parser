@@ -234,3 +234,16 @@ def test_catalog_does_not_adopt_arbitrary_text_or_symlinked_folders(tmp_path):
     for name in ['../outside.txt', 'other.exe', 'NUL.txt']:
         with pytest.raises(ValueError):
             validate_task({'kind': 'create_window_table', 'folder': 'Offer', 'file_name': name, 'rows': ROWS})
+
+
+def test_revision_binds_table_identity_when_copies_have_identical_contents(tmp_path):
+    executor = TableExecutor(tmp_path, Writer())
+    source = executor.execute(job())
+    copied = executor.execute(task_job({'kind':'copy_window_table','folder':'Oferta Top Trans','file_name':'identyczna.txt'}, source['revision'], 'identity-12345678'))
+    assert copied['status'] == 'verified'
+    assert copied['rows'] == source['rows']
+    assert copied['revision'] != source['revision']
+    before = Path(copied['file']).read_bytes()
+    stale = executor.execute(task_job({'kind':'append_window_rows','rows':[ROWS[0]]}, source['revision'], 'wrong-file-12345'))
+    assert stale['status'] == 'review'
+    assert Path(copied['file']).read_bytes() == before

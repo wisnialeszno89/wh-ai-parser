@@ -142,6 +142,10 @@ def revision(text):
     return hashlib.sha256(text.encode('utf-8')).hexdigest()
 
 
+def table_revision(path, text):
+    return revision(json.dumps({'folder': path.parent.name, 'file_name': path.name, 'text': text}, ensure_ascii=False, sort_keys=True))
+
+
 def wait_for(read, description, timeout=15):
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
@@ -277,7 +281,7 @@ class TableExecutor:
                         path = self.safe_path(directory.name, candidate.name)
                         text = read_text(path)
                         rows = parse_table(text)
-                        tables.append({'folder': directory.name, 'file_name': path.name, 'row_count': len(rows), 'revision': revision(text)})
+                        tables.append({'folder': directory.name, 'file_name': path.name, 'row_count': len(rows), 'revision': table_revision(path, text)})
                     except (OSError, ValueError, UnicodeError):
                         continue
                     if len(tables) >= 50:
@@ -293,7 +297,7 @@ class TableExecutor:
                 saved = json.loads(state.read_text(encoding='utf-8'))
                 path = self.safe_path(saved['folder'], saved['file_name'])
                 text = read_text(path)
-                if revision(text) != saved['revision']:
+                if table_revision(path, text) != saved['revision']:
                     raise ValueError('Ostatni plik zmieniono poza agentem. Otwórz go ponownie poleceniem, aby wczytać zapisane dane.')
                 self.active = (path, parse_table(text), saved['revision'])
             else:
@@ -302,7 +306,7 @@ class TableExecutor:
                     item = tables[0]
                     path = self.safe_path(item['folder'], item['file_name'])
                     text = read_text(path)
-                    self.active = (path, parse_table(text), revision(text))
+                    self.active = (path, parse_table(text), table_revision(path, text))
         except (OSError, ValueError, KeyError, TypeError, UnicodeError) as exc:
             self.startup_warning = str(exc)
 
@@ -371,7 +375,7 @@ class TableExecutor:
                 path = self.safe_path(task['folder'], task['file_name'])
                 text = read_text(path)
                 rows = parse_table(text)
-                if body['expectedRevision'] != revision(text):
+                if body['expectedRevision'] != table_revision(path, text):
                     raise ValueError('Plik zmienił się od wyboru zadania. Wybierz go ponownie.')
                 message = 'Otworzono i odczytano tabelę. To aktywny plik do kolejnych zmian.'
             else:
@@ -411,9 +415,9 @@ class TableExecutor:
                 self.writer.save(path, text, previous, trace)
             if read_text(path) != text:
                 raise RuntimeError('Zapisana tabela nie zgadza się z poleceniem.')
-            self.active = (path, rows, revision(text))
+            self.active = (path, rows, table_revision(path, text))
             self.remember()
-            result = {'status': 'verified', 'message': message, 'file': str(path), 'rows': rows, 'revision': revision(text)}
+            result = {'status': 'verified', 'message': message, 'file': str(path), 'rows': rows, 'revision': table_revision(path, text)}
         except Exception as exc:
             result = {'status': 'review', 'message': str(exc)}
         finally:
