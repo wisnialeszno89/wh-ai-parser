@@ -37,33 +37,93 @@ def folder_name(value):
     return value
 
 
+CAPABILITIES = ['create_window_table', 'update_window_width', 'append_window_rows', 'edit_window_rows', 'open_window_table', 'copy_window_table']
+
+
+def file_name(value):
+    name = folder_name(value)
+    if not name.lower().endswith('.txt') or len(name) <= 4:
+        raise ValueError('Nazwa pliku musi kończyć się na .txt.')
+    return name
+
+
+def validate_fields(fields):
+    if not isinstance(fields, dict) or not fields or not set(fields) <= {'label', 'width_mm', 'height_mm', 'quantity'}:
+        raise ValueError('Nieprawidłowe pola korekty.')
+    for key, value in fields.items():
+        if key == 'label':
+            if not isinstance(value, str) or not value.strip() or len(value) > 120 or any(ord(c) < 32 for c in value):
+                raise ValueError('Nieprawidłowy opis pozycji.')
+        elif key == 'quantity':
+            integer(value, 1, 999)
+        else:
+            integer(value, 100, 10000)
+    return fields
+
+
+def validate_rows(rows):
+    if not isinstance(rows, list) or not 1 <= len(rows) <= 50:
+        raise ValueError('Tabela musi zawierać 1–50 pozycji.')
+    for row in rows:
+        if not isinstance(row, dict) or set(row) != {'label', 'width_mm', 'height_mm', 'quantity'}:
+            raise ValueError('Nieprawidłowa pozycja.')
+        validate_fields(row)
+    return rows
+
+
 def validate_task(task):
     if not isinstance(task, dict):
-        raise ValueError("Nieprawidłowe zadanie.")
-    if task.get('kind') == 'create_window_table':
-        if set(task) != {'kind', 'folder', 'rows'}:
-            raise ValueError("Nieprawidłowe pola zadania.")
+        raise ValueError('Nieprawidłowe zadanie.')
+    kind = task.get('kind')
+    if kind == 'create_window_table':
+        if set(task) not in ({'kind', 'folder', 'rows'}, {'kind', 'folder', 'file_name', 'rows'}):
+            raise ValueError('Nieprawidłowe pola zadania.')
         folder_name(task['folder'])
-        rows = task['rows']
-        if not isinstance(rows, list) or not 1 <= len(rows) <= 50:
-            raise ValueError("Tabela musi zawierać 1–50 pozycji.")
-        for row in rows:
-            if not isinstance(row, dict) or set(row) != {'label', 'width_mm', 'height_mm', 'quantity'}:
-                raise ValueError("Nieprawidłowa pozycja.")
-            label = row['label']
-            if not isinstance(label, str) or not label.strip() or len(label) > 120 or any(ord(c) < 32 for c in label):
-                raise ValueError("Nieprawidłowy opis pozycji.")
-            integer(row['width_mm'], 100, 10000)
-            integer(row['height_mm'], 100, 10000)
-            integer(row['quantity'], 1, 999)
-    elif task.get('kind') == 'update_window_width':
+        file_name(task.get('file_name', 'tabela-okien.txt'))
+        validate_rows(task['rows'])
+    elif kind == 'append_window_rows':
+        if set(task) != {'kind', 'rows'}:
+            raise ValueError('Nieprawidłowe pola dopisywania.')
+        validate_rows(task['rows'])
+    elif kind == 'edit_window_rows':
+        if set(task) != {'kind', 'changes'} or not isinstance(task['changes'], list) or not 1 <= len(task['changes']) <= 50:
+            raise ValueError('Nieprawidłowa lista korekt.')
+        indices = []
+        for change in task['changes']:
+            if not isinstance(change, dict) or set(change) != {'row_number', 'fields'}:
+                raise ValueError('Nieprawidłowa korekta.')
+            indices.append(integer(change['row_number'], 1, 50))
+            validate_fields(change['fields'])
+        if len(set(indices)) != len(indices):
+            raise ValueError('Powtórzona pozycja w korekcie.')
+    elif kind == 'update_window_width':
         if set(task) != {'kind', 'row_number', 'width_mm'}:
-            raise ValueError("Nieprawidłowe pola korekty.")
+            raise ValueError('Nieprawidłowe pola korekty.')
         integer(task['row_number'], 1, 50)
         integer(task['width_mm'], 100, 10000)
+    elif kind in {'open_window_table', 'copy_window_table'}:
+        if set(task) != {'kind', 'folder', 'file_name'}:
+            raise ValueError('Nieprawidłowe pola wyboru pliku.')
+        folder_name(task['folder'])
+        file_name(task['file_name'])
     else:
-        raise ValueError("Ten wykonawca obsługuje tworzenie tabeli okien i korektę szerokości.")
+        raise ValueError('Zaktualizuj wykonawcę lub wybierz obsługiwane zadanie tabeli okien.')
     return task
+
+
+def parse_table(text):
+    if not text.startswith(HEADER):
+        raise ValueError('Plik nie ma formatu tabeli okien NaviMind.')
+    rows = []
+    for line in text[len(HEADER):].splitlines():
+        parts = line.split('\t')
+        if len(parts) != 4 or any(not value.isdecimal() for value in parts[1:]):
+            raise ValueError('Nieprawidłowy wiersz tabeli.')
+        rows.append({'label': parts[0], 'width_mm': int(parts[1]), 'height_mm': int(parts[2]), 'quantity': int(parts[3])})
+    validate_rows(rows)
+    if render_table(rows) != text:
+        raise ValueError('Niestandardowe formatowanie tabeli.')
+    return rows
 
 
 def render_table(rows):
@@ -71,6 +131,8 @@ def render_table(rows):
 
 
 def read_text(path):
+    if path.stat().st_size > 65536:
+        raise ValueError('Plik jest za duży dla pilota tabel.')
     data = path.read_bytes()
     encoding = 'utf-16' if data.startswith((b'\xff\xfe', b'\xfe\xff')) else 'utf-8-sig'
     return data.decode(encoding).replace('\r\n', '\n').rstrip('\n') + '\n'
@@ -97,7 +159,7 @@ class NotepadWriter:
         self.path = None
         self.pid = None
 
-    def save(self, path, text, previous, trace):
+    def prepare(self, path, previous):
         from pywinauto import Application, Desktop
         from pywinauto.keyboard import send_keys
         import win32gui
@@ -120,12 +182,6 @@ class NotepadWriter:
             self.pid = process.pid
             if win32process.GetWindowThreadProcessId(self.window.handle)[1] != process.pid:
                 raise RuntimeError('Okno nie należy do wykonawcy.')
-        def keys(control, sequence):
-            control.set_focus()
-            if win32gui.GetForegroundWindow() != control.handle:
-                raise RuntimeError('Okno zadania utraciło fokus.')
-            send_keys(sequence, pause=.05)
-
         window = self.window
         if win32process.GetWindowThreadProcessId(window.handle)[1] != self.pid:
             raise RuntimeError('Zmienił się proces edytora. Uruchom ponownie wykonawcę.')
@@ -141,6 +197,25 @@ class NotepadWriter:
         window.set_focus()
         if win32gui.GetForegroundWindow() != window.handle:
             raise RuntimeError('Notatnik nie uzyskał fokusu.')
+        return window, edit
+
+    def open(self, path, text, trace):
+        window, _ = self.prepare(path, text)
+        window.capture_as_image().save(trace / 'opened.png')
+        if read_text(path) != text:
+            raise RuntimeError('Plik zmienił się podczas otwierania.')
+
+    def save(self, path, text, previous, trace):
+        from pywinauto import Application, Desktop
+        from pywinauto.keyboard import send_keys
+        import win32gui
+        window, edit = self.prepare(path, previous)
+        def keys(control, sequence):
+            control.set_focus()
+            if win32gui.GetForegroundWindow() != control.handle:
+                raise RuntimeError('Okno zadania utraciło fokus.')
+            send_keys(sequence, pause=.05)
+
         window.capture_as_image().save(trace / 'before.png')
         edit.set_edit_text(text.replace('\n', '\r\n'))
         if edit.window_text().replace('\r\n', '\n').rstrip('\n') != text.rstrip('\n'):
@@ -148,7 +223,7 @@ class NotepadWriter:
         keys(window, '^s')
         if previous is None:
             def dialog_window():
-                windows = Desktop(backend='win32').windows(process=process.pid, class_name='#32770', visible_only=True)
+                windows = Desktop(backend='win32').windows(process=self.pid, class_name='#32770', visible_only=True)
                 return windows[0] if len(windows) == 1 else None
             dialog = wait_for(dialog_window, 'okno zapisu')
             uia = Application(backend='uia').connect(handle=dialog.handle).window(handle=dialog.handle)
@@ -176,23 +251,90 @@ class TableExecutor:
         self.active = None
         self.results = {}
         self.lock = threading.Lock()
+        self.startup_warning = None
+        self.restore_active()
+
+    def safe_path(self, folder, filename):
+        path = self.root / folder_name(folder) / file_name(filename)
+        if self.root.is_symlink() or (hasattr(self.root, 'is_junction') and self.root.is_junction()):
+            raise ValueError('Obszar pracy nie może być dowiązaniem.')
+        # Reject reparse points even when they redirect to a different folder inside the root.
+        directory = path.parent
+        if directory.is_symlink() or (hasattr(directory, 'is_junction') and directory.is_junction()):
+            raise ValueError('Folder nie może być dowiązaniem.')
+        if path.is_symlink() or path.resolve().parent.parent != self.root.resolve():
+            raise ValueError('Plik znajduje się poza obszarem pracy.')
+        return path
+
+    def catalog(self):
+        tables = []
+        if self.root.is_dir():
+            for directory in sorted(self.root.iterdir()):
+                if not directory.is_dir() or directory.name.startswith('.'):
+                    continue
+                for candidate in sorted(directory.glob('*.txt')):
+                    try:
+                        path = self.safe_path(directory.name, candidate.name)
+                        text = read_text(path)
+                        rows = parse_table(text)
+                        tables.append({'folder': directory.name, 'file_name': path.name, 'row_count': len(rows), 'revision': revision(text)})
+                    except (OSError, ValueError, UnicodeError):
+                        continue
+                    if len(tables) >= 50:
+                        return tables
+        return tables
+
+    def restore_active(self):
+        state = self.root / '.active-table.json'
+        try:
+            if state.exists():
+                if state.is_symlink() or state.stat().st_size > 4096:
+                    raise ValueError('Nieprawidłowy zapis aktywnej tabeli.')
+                saved = json.loads(state.read_text(encoding='utf-8'))
+                path = self.safe_path(saved['folder'], saved['file_name'])
+                text = read_text(path)
+                if revision(text) != saved['revision']:
+                    raise ValueError('Ostatni plik zmieniono poza agentem. Otwórz go ponownie poleceniem, aby wczytać zapisane dane.')
+                self.active = (path, parse_table(text), saved['revision'])
+            else:
+                tables = self.catalog()
+                if len(tables) == 1:
+                    item = tables[0]
+                    path = self.safe_path(item['folder'], item['file_name'])
+                    text = read_text(path)
+                    self.active = (path, parse_table(text), revision(text))
+        except (OSError, ValueError, KeyError, TypeError, UnicodeError) as exc:
+            self.startup_warning = str(exc)
+
+    def remember(self):
+        path, _, expected = self.active
+        state = self.root / '.active-table.json'
+        if state.is_symlink():
+            raise ValueError('Nieprawidłowy plik stanu.')
+        temporary = self.root / ('.active-' + secrets.token_hex(8) + '.tmp')
+        try:
+            temporary.write_text(json.dumps({'folder': path.parent.name, 'file_name': path.name, 'revision': expected}), encoding='utf-8')
+            temporary.replace(state)
+        finally:
+            temporary.unlink(missing_ok=True)
+        self.startup_warning = None
 
     def current(self):
         if not self.active:
             return None
         path, rows, expected = self.active
-        if path.is_symlink() or path.resolve().parent.parent != self.root.resolve() or read_text(path) != render_table(rows):
-            raise ValueError('Plik zmieniono poza agentem. Utwórz nową tabelę lub uruchom ponownie wykonawcę.')
-        return {'folder': path.parent.name, 'rows': rows, 'revision': expected, 'file': str(path)}
+        if path != self.safe_path(path.parent.name, path.name) or read_text(path) != render_table(rows):
+            raise ValueError('Plik zmieniono poza agentem. Otwórz go ponownie poleceniem, aby wczytać zapisane zmiany.')
+        return {'folder': path.parent.name, 'file_name': path.name, 'rows': rows, 'revision': expected, 'file': str(path)}
 
     def status(self):
-        warning = None
+        warning = self.startup_warning
         try:
             current = self.current()
         except (ValueError, OSError, UnicodeError) as exc:
             current = None
             warning = str(exc)
-        return {'status': 'ready', 'protocol': 1, 'capabilities': ['create_window_table', 'update_window_width'], 'currentTable': current, 'warning': warning}
+        return {'status': 'ready', 'protocol': 1, 'capabilities': CAPABILITIES, 'currentTable': current, 'tables': self.catalog(), 'warning': warning}
 
     def execute(self, body):
         if not isinstance(body, dict) or set(body) != {'id', 'task', 'expectedRevision'}:
@@ -214,42 +356,64 @@ class TableExecutor:
                 return result
             if len(self.results) >= 500:
                 raise ValueError('Zakończ tę sesję wykonawcy i uruchom nową.')
-            # Reserve before side effects; failures are never re-executed silently.
             result = {'status': 'review', 'message': 'Zadanie rozpoczęto. Nie ponawiaj automatycznie.'}
             self.results[job_id] = (fingerprint, result)
             reserved = True
+            kind = task['kind']
             previous = None
-            if task['kind'] == 'create_window_table':
+            if kind == 'create_window_table':
                 if body['expectedRevision'] is not None:
                     raise ValueError('Tworzenie tabeli nie wymaga wersji poprzedniej.')
-                target_dir = self.root / folder_name(task['folder'])
-                if target_dir.exists() or target_dir.is_symlink():
-                    raise ValueError('Folder już istnieje. Podaj inną nazwę; agent nie zastąpi istniejącej oferty.')
-                self.root.mkdir(parents=True, exist_ok=True)
-                if self.root.is_symlink() or (hasattr(self.root, 'is_junction') and self.root.is_junction()) or target_dir.resolve().parent != self.root.resolve():
-                    raise ValueError('Folder znajduje się poza obszarem pracy.')
-                target_dir.mkdir()
-                path = target_dir / 'tabela-okien.txt'
+                path = self.safe_path(task['folder'], task.get('file_name', 'tabela-okien.txt'))
                 rows = json.loads(json.dumps(task['rows']))
+                message = 'Utworzono i sprawdzono nową tabelę.'
+            elif kind == 'open_window_table':
+                path = self.safe_path(task['folder'], task['file_name'])
+                text = read_text(path)
+                rows = parse_table(text)
+                if body['expectedRevision'] != revision(text):
+                    raise ValueError('Plik zmienił się od wyboru zadania. Wybierz go ponownie.')
+                message = 'Otworzono i odczytano tabelę. To aktywny plik do kolejnych zmian.'
             else:
                 current = self.current()
                 if not current or body['expectedRevision'] != current['revision']:
-                    raise ValueError('Tabela lub jej wersja nie zgadza się z poleceniem. Połącz ponownie i spróbuj jeszcze raz.')
+                    raise ValueError('Tabela lub jej wersja nie zgadza się z poleceniem. Wczytaj aktualny plik ponownie.')
                 path, old_rows, _ = self.active
                 rows = json.loads(json.dumps(old_rows))
-                index = task['row_number'] - 1
-                if index >= len(rows):
-                    raise ValueError('Wskazana pozycja nie istnieje.')
-                previous = render_table(old_rows)
-                rows[index]['width_mm'] = task['width_mm']
+                if kind == 'copy_window_table':
+                    path = self.safe_path(task['folder'], task['file_name'])
+                    message = 'Zapisano kopię tabeli w osobnym pliku. Plik źródłowy zachowano.'
+                else:
+                    previous = render_table(old_rows)
+                    if kind == 'append_window_rows':
+                        rows.extend(json.loads(json.dumps(task['rows'])))
+                        validate_rows(rows)
+                        message = f"Dopisano {len(task['rows'])} pozycji. Wcześniejsze pozycje zachowano."
+                    else:
+                        changes = task['changes'] if kind == 'edit_window_rows' else [{'row_number': task['row_number'], 'fields': {'width_mm': task['width_mm']}}]
+                        for change in changes:
+                            index = change['row_number'] - 1
+                            if index >= len(rows):
+                                raise ValueError('Wskazana pozycja nie istnieje.')
+                            rows[index].update(change['fields'])
+                        validate_rows(rows)
+                        message = 'Zmieniono wskazane pola. Pozostałe dane i pozycje zachowano.'
+            if kind in {'create_window_table', 'copy_window_table'}:
+                if path.exists() or path.is_symlink():
+                    raise ValueError('Plik już istnieje. Użyj dopisywania/edycji albo podaj nową nazwę pliku.')
+                path.parent.mkdir(parents=True, exist_ok=True)
             trace = self.root / '.traces' / job_id
             trace.mkdir(parents=True)
             text = render_table(rows)
-            self.writer.save(path, text, previous, trace)
+            if kind == 'open_window_table':
+                self.writer.open(path, text, trace)
+            else:
+                self.writer.save(path, text, previous, trace)
             if read_text(path) != text:
                 raise RuntimeError('Zapisana tabela nie zgadza się z poleceniem.')
             self.active = (path, rows, revision(text))
-            result = {'status': 'verified', 'message': 'Zapisano i sprawdzono tabelę.' if previous is None else 'Zmieniono szerokość wskazanej pozycji. Pozostałe dane zachowano.', 'file': str(path), 'rows': rows, 'revision': revision(text)}
+            self.remember()
+            result = {'status': 'verified', 'message': message, 'file': str(path), 'rows': rows, 'revision': revision(text)}
         except Exception as exc:
             result = {'status': 'review', 'message': str(exc)}
         finally:
