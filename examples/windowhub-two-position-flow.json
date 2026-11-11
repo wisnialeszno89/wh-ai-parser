@@ -1,0 +1,28 @@
+{
+  "mode": "offline_test_scenario",
+  "test_assumptions": [
+    "Kolor biały wewnątrz i antracyt na zewnątrz dla obu pozycji.",
+    "Po jednej sztuce każdej pozycji i pakiet trzyszybowy.",
+    "Pierwsza pozycja 1000 x 1000 mm, druga 1500 x 1400 mm.",
+    "Druga pozycja ze słupkiem stałym w połowie szerokości, lewe DKL, prawe DKR."
+  ],
+  "document": {
+    "customer": "Top Trans", "confirmed": true,
+    "construction": false, "installation": true, "removal": true, "finishing": true
+  },
+  "positions": [
+    {
+      "kind": "single", "quantity": 1, "width_mm": 1000, "height_mm": 1000,
+      "color_inside": "biały", "color_outside": "antracyt",
+      "specification": {"opening": "DKR", "glazing_panes": 3}
+    },
+    {
+      "kind": "double_fixed", "quantity": 1, "width_mm": 1500, "height_mm": 1400,
+      "color_inside": "biały", "color_outside": "antracyt",
+      "specification": {
+        "mullion": "fixed", "split_from_left_mm": 750,
+        "left_opening": "DKL", "right_opening": "DKR", "glazing_panes": 3
+      }
+    }
+  ]
+}
