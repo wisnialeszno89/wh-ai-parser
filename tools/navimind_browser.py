@@ -187,6 +187,8 @@ class BrowserController:
             raise ValueError('Ten przycisk wymaga ręcznej obsługi: zatwierdzanie formularzy, płatności, zwrotów, wysyłania i usuwania pozostaje użytkownikowi.')
         if meta['href']:
             self._url(meta['href'])
+            if urlsplit(meta['href']).hostname != urlsplit(self.page.url).hostname:
+                raise ValueError('Odnośnik prowadzi do innej domeny. Podaj jej pełny adres http/https w nowym poleceniu, aby przejść tam jawnie.')
         handle.click(no_wait_after=True)
         self.page.wait_for_timeout(350)
         return 'Kliknięto wskazany element i odczytano stronę po kroku. Oceń efekt w nowym widoku.'

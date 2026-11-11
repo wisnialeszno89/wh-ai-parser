@@ -84,6 +84,11 @@ class BrowserTests(unittest.TestCase):
         self.assertEqual(r['status'],'review')
         s=self.agent.observe();r=self.agent.execute(self.job(s,dict(kind='browser_select',ref=s['controls'][0]['ref'],value='antracyt')))
         self.assertEqual(r['status'],'verified')
+    def test_cross_domain_links_require_an_explicit_navigation_command(self):
+        self.page.controls=[control('Następna strona')];self.page.controls[0]['href']='https://other.example/orders'
+        snapshot=self.agent.observe();r=self.agent.execute(self.job(snapshot,dict(kind='browser_click',ref=snapshot['controls'][0]['ref'])))
+        self.assertEqual(r['status'],'review');self.assertEqual(self.page.clicks,0)
+
     def test_script_and_raw_selectors_are_not_tasks(self):
         for task in [dict(kind='shell',command='whoami'),dict(kind='browser_click',selector='body'),dict(kind='browser_evaluate',script='anything')]:
             with self.assertRaises(ValueError):validate_browser_task(task)

@@ -72,3 +72,5 @@ Test rzeczywistego Chromium z fikcyjnymi danymi (osobne okno, bez modelu i kont)
 ```
 
 Oczekiwany wynik: `BROWSER_LAB_RESULT=verified STEPS=7 CUSTOMER=Top_Trans WIDTH=1100 HEIGHT=1000 COLOR=antracyt OPENING=DKR`. Test sprawdza wybór spośród podobnych nazw, wpisanie i odczyt wymiarów, listy kolorów/okucia, podgląd końcowy oraz zgodność danych. Testy jednostkowe odczytu, wersji strony, blokad i idempotencji uruchamia `python -m unittest discover -s tests -p test_navimind_browser.py`. Nie zastępują one próby na Windows.
+
+Nowy adres nawigacji musi pochodzić z bieżącego polecenia użytkownika jako pełny http/https. Odnośniki otwieramy w obrębie bieżącej domeny; przejście do innej domeny wymaga nowego jawnego polecenia z jej pełnym adresem. Agent nie tworzy adresów z danych odczytanych na stronie.
