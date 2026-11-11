@@ -1,0 +1,22 @@
+{
+  "test_assumptions": [
+    "Fikcyjny numer istniejącej oferty i numery pozycji.",
+    "Korekta pozycji 20.0 na 1800 x 1500 mm, słupek ruchomy, podział 900 mm od lewej.",
+    "Prawe skrzydło czynne DKR i lewe bierne, trzy szyby.",
+    "Kolejność wierszy jest odwrócona, aby wyszukiwać po numerze pozycji."
+  ],
+  "offer_number": "OFR/TEST/2026/101",
+  "position_reference": "20.0",
+  "changes": {
+    "kind": "stulp",
+    "width_mm": 1800,
+    "height_mm": 1500,
+    "specification": {
+      "mullion": "movable",
+      "active_side": "right",
+      "right_opening": "DKR",
+      "split_from_left_mm": 900,
+      "glazing_panes": 3
+    }
+  }
+}
