@@ -138,7 +138,8 @@ def execute_task(trace_path, report):
 
     dialog = wait_for(save_dialog, "okno zapisu Notatnika")
     uia_dialog = Application(backend="uia").connect(handle=dialog.handle).window(handle=dialog.handle)
-    filename_fields = uia_dialog.descendants(control_type="Edit", auto_id="1001")
+    filename_fields = [field for field in uia_dialog.descendants(control_type="Edit")
+                       if field.element_info.automation_id == "1001"]
     if len(filename_fields) != 1:
         raise RuntimeError("Nie znaleziono jednoznacznego pola nazwy pliku w oknie zapisu.")
     focus(dialog)
