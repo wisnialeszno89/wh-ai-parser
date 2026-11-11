@@ -247,3 +247,18 @@ def test_revision_binds_table_identity_when_copies_have_identical_contents(tmp_p
     stale = executor.execute(task_job({'kind':'append_window_rows','rows':[ROWS[0]]}, source['revision'], 'wrong-file-12345'))
     assert stale['status'] == 'review'
     assert Path(copied['file']).read_bytes() == before
+
+
+def test_browser_observation_requires_pairing_and_an_enabled_browser(tmp_path):
+    tables = TableExecutor(tmp_path, Writer())
+    assert '409 Conflict' in request(tables, path='/browser/observe')
+    class WithBrowser:
+        results = tables.results
+        def browser_observe(self):
+            return {'scope': 'owned_chromium_tab', 'text': 'synthetic browser page'}
+    browser = WithBrowser()
+    assert 'synthetic browser page' in request(browser, path='/browser/observe')
+    for kwargs in [{'token':'wrong'}, {'origin':'https://evil.example'}, {'host':'evil.example:43127'}]:
+        response = request(browser, path='/browser/observe', **kwargs)
+        assert '403 Forbidden' in response and 'synthetic browser page' not in response
+    assert '204 No Content' in request(browser, method='OPTIONS', path='/browser/observe', extra='Access-Control-Request-Method: GET\r\nAccess-Control-Request-Headers: authorization\r\n')

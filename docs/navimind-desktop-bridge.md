@@ -9,7 +9,7 @@ Pilot obsługuje tworzenie, dopisywanie, edycję, otwieranie i kopiowanie teksto
 5. Zleć: `Utwórz folder Oferta Top Trans i tabelę: 2 okna DKR 1000x1000 mm oraz 1 okno dwuskrzydłowe 1500x1400 mm.`
 6. Po potwierdzeniu: `Zmień szerokość pierwszej pozycji na 1100 mm. Pozostałe dane zachowaj.`
 
-Wyniki powstają w `Pulpit\NaviMind-Praca\<nazwa>\tabela-okien.txt`. Pilot otwiera poprawne tabele ze swojego obszaru pracy, nie tworzy XLSX i nie przyjmuje skryptów ani dowolnych ścieżek. Nazwy oraz liczby są sprawdzane także lokalnie. Nowy plik można zapisać w istniejącym folderze. Plików nie zastępuje poleceniem tworzenia. Korekta dotyczy aktywnej tabeli; wykonawca pamięta ją po restarcie. Przeglądarka pamięta kod tylko w bieżącej karcie.
+Wyniki powstają w `Pulpit\NaviMind-Praca\<nazwa>\tabela-okien.txt`. Pilot otwiera poprawne tabele ze swojego obszaru pracy, tworzy też raporty XLSX i nie przyjmuje skryptów ani dowolnych ścieżek. Nazwy oraz liczby są sprawdzane także lokalnie. Nowy plik można zapisać w istniejącym folderze. Plików nie zastępuje poleceniem tworzenia. Korekta dotyczy aktywnej tabeli; wykonawca pamięta ją po restarcie. Przeglądarka pamięta kod tylko w bieżącej karcie.
 
 Każdy zapis jest sprawdzany przez ponowny odczyt całego pliku. Wynik oraz zrzuty przed/po trafiają lokalnie do `NaviMind-Praca\.traces\<id>`. Zmiany użytkownika w pliku albo niezapisane zmiany w obsługiwanym oknie Notatnika zatrzymują edycję. Aby przyjąć zapisane ręczne zmiany, zamknij edytor i jawnie otwórz plik poleceniem. Przy braku potwierdzenia transportu kliknij „Sprawdź wynik zadania”; odczyta wynik bez ponawiania operacji. Zatrzymanie wykonawcy: Ctrl+C w PowerShell.
 
@@ -41,3 +41,34 @@ Raport zawiera pochodzenie każdego wiersza, wymiary w mm, ilość, powierzchni�
 Przykład: `Zbierz te zestawienia z NaviMind-Praca w jeden arkusz, policz sztuki i metry kwadratowe, pokaż powtórki i otwórz wynik.` Przy zleceniu konkretnego folderu raport obejmie wybrane pliki z tego folderu. Domyślny folder wynikowy to Raporty. Nowy raport nie zastępuje istniejącego. System przekazuje polecenie otwarcia domyślnej aplikacji arkuszy; jeśli jej brak, próbuje otworzyć podgląd w przeglądarce. Wykonawca potwierdza zawartość pliku; nie udaje, że zweryfikował widoczność okna zewnętrznego programu.
 
 Planista rozróżnia `execute`, `clarify` i `respond`. Pytanie doprecyzowujące ma `task:null` i nie wykonuje zmian. Korzysta z historii rozmowy i aktualnej tabeli, aby rozumieć krótkie odpowiedzi, literówki i jawne jednostki podane słownie. Gdy wymiar albo wskazanie pozycji jest niejednoznaczne, pyta o tę konkretną informację. Nie prosi o JSON. Błędny format odpowiedzi modelu jest poprawiany jednokrotnie na serwerze, przed jakimkolwiek wykonaniem lokalnym.
+
+
+## Przeglądarka: osobne okno Chromium NaviMind
+
+Wersja pilotażowa uruchamiana z `--browser` otwiera osobny Chromium, sterowany lokalnie przez Playwright. Nie podłącza zwykłego Firefoksa ani domyślnego profilu Chrome. Profil sesji jest przechowywany tylko na tym komputerze w `%LOCALAPPDATA%\NaviMind\BrowserProfile`. Hasła i logowanie wprowadza użytkownik ręcznie. Pliki tego profilu nie trafiają do repo ani serwera NaviMind.
+
+Po aktualizacji, w PowerShell w folderze repo:
+
+```powershell
+& .\.venv\Scripts\python.exe -m pip install playwright
+& .\.venv\Scripts\python.exe -m playwright install chromium
+& .\.venv\Scripts\python.exe .\tools\run_navimind_desktop_bridge.py --execute-live --browser
+```
+
+Zamknij poprzedniego wykonawcę przez Ctrl+C, zanim uruchomisz nowego. W NaviMind po Ctrl+F5 sparuj świeży kod i zaznacz **Przeglądarka · Chromium NaviMind**. Włączenie tego trybu wyłącza tryb tabel. Jeśli pole jest niedostępne, lokalny wykonawca nie zgłosił gotowego modułu przeglądarki.
+
+W pustej karcie pojawia się laboratorium z fikcyjnym formularzem. Polecenie do czatu: `Wybierz dokładnie Top Trans, ustaw szerokość 1100 mm, wysokość 1000 mm, kolor antracyt, okucie DKR i pokaż podgląd.` Agent odczytuje widok, wybiera jeden krok, wykonuje go lokalnie i odczytuje stronę ponownie. Do 12 kroków na polecenie. Przycisk zatrzymania blokuje następny krok; nie cofa już wykonanych. Zmieniony widok przed akcją powoduje maksymalnie dwa ponowne odczyty i ponowne planowanie, bez wykonania starego kliknięcia. Dwie bezskuteczne próby tego samego kliknięcia w tym samym widoku zatrzymują zadanie.
+
+Przy wysłaniu polecenia tekst strony, nazwy i rodzaje widocznych elementów oraz opcje list trafiają do modelu. Wartości pól, cookies i storage nie są przekazywane. Parametry adresów i fragmenty URL są usuwane z odczytu dla modelu. Dane konta widoczne jako tekst strony mogą znaleźć się w odczycie — włączaj ten tryb dla strony, na której chcesz pracować. Nie zapisujemy zrzutów ani treści stron w śladach lokalnych tego modułu. To odczyt DOM, nie analiza pikseli ekranu.
+
+Dostępne: publiczna nawigacja http/https, zwykłe pola tekstowe/liczbowe, listy select, otwieranie menu, przyciski niesłużące zatwierdzaniu, przewijanie i Wstecz. Elementy mają krótkotrwałe identyfikatory przypisane do konkretnego odczytu; model nie dostarcza CSS, Javascript, shell ani współrzędnych. Wpisany tekst i wybór listy są sprawdzane lokalnie przez odczyt. Po kliknięciu agent ocenia nowy widok; potwierdzenie samej akcji nie dowodzi osiągnięcia celu.
+
+Granice pilota: jedna kontrolowana karta i główny dokument. Nowe karty, iframe, canvas, pobieranie, hasła, kody, końcowe wysyłanie formularzy, usuwanie i operacje płatnicze wymagają ręcznej obsługi. Przycisk typu submit jest blokowany lokalnie. Lokalne filtry nazw przycisków ograniczają operacje finansowe i usuwanie, ale nie stanowią pełnego rozumienia dowolnej strony — pierwsze zadania należy obserwować. Użytkownik może zalogować się ręcznie w tym oknie, następnie poprosić agenta o odszukanie zamówienia lub odczyt menu; końcowego Refund wykonawca nie klika.
+
+Test rzeczywistego Chromium z fikcyjnymi danymi (osobne okno, bez modelu i kont):
+
+```powershell
+& .\.venv\Scripts\python.exe .\tools\test_navimind_browser_live.py --execute-live
+```
+
+Oczekiwany wynik: `BROWSER_LAB_RESULT=verified STEPS=7 CUSTOMER=Top_Trans WIDTH=1100 HEIGHT=1000 COLOR=antracyt OPENING=DKR`. Test sprawdza wybór spośród podobnych nazw, wpisanie i odczyt wymiarów, listy kolorów/okucia, podgląd końcowy oraz zgodność danych. Testy jednostkowe odczytu, wersji strony, blokad i idempotencji uruchamia `python -m unittest discover -s tests -p test_navimind_browser.py`. Nie zastępują one próby na Windows.

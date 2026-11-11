@@ -550,7 +550,7 @@ def handler_for(executor, token, port=PORT, origins=None):
 
         def do_OPTIONS(self):
             headers = {h.strip().lower() for h in self.headers.get('Access-Control-Request-Headers', '').split(',') if h.strip()}
-            if not self.trusted() or (self.path not in {'/status', '/execute'} and not re.fullmatch(r'/result/[a-zA-Z0-9-]{16,80}', self.path)) or not headers <= {'authorization', 'content-type'} or self.headers.get('Access-Control-Request-Method') not in {'GET', 'POST'}:
+            if not self.trusted() or (self.path not in {'/status', '/execute', '/browser/observe'} and not re.fullmatch(r'/result/[a-zA-Z0-9-]{16,80}', self.path)) or not headers <= {'authorization', 'content-type'} or self.headers.get('Access-Control-Request-Method') not in {'GET', 'POST'}:
                 return self.send_json(403, {'error': 'ORIGIN_DENIED'})
             self.send_response(204)
             self.send_header('Access-Control-Allow-Origin', self.headers['Origin'])
@@ -571,6 +571,13 @@ def handler_for(executor, token, port=PORT, origins=None):
                 job_id = self.path.removeprefix('/result/')
                 cached = executor.results.get(job_id)
                 return self.send_json(200, cached[1]) if cached else self.send_json(404, {'status': 'review', 'message': 'Nie znaleziono wyniku w tej sesji wykonawcy. Sprawdź plik i okno PowerShell; zadania nie ponowiono.'})
+            if self.path == '/browser/observe':
+                if not hasattr(executor, 'browser_observe'):
+                    return self.send_json(409, {'status': 'review', 'message': 'Uruchom wykonawcę z --browser, aby połączyć przeglądarkę.'})
+                try:
+                    return self.send_json(200, executor.browser_observe())
+                except Exception as exc:
+                    return self.send_json(409, {'status': 'review', 'message': str(exc)[:600]})
             if self.path != '/status':
                 return self.send_json(404, {'error': 'NOT_FOUND'})
             try:
@@ -610,6 +617,7 @@ def desktop_path():
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--execute-live', action='store_true')
+    parser.add_argument('--browser', action='store_true', help='Otwórz osobne okno Chromium sterowane przez NaviMind.')
     args = parser.parse_args()
     if os.name != 'nt' or not args.execute_live:
         print('Uruchom na Windows: python tools/run_navimind_desktop_bridge.py --execute-live')
@@ -621,12 +629,31 @@ def main():
     pythoncom.CoInitialize()
     token = secrets.token_urlsafe(32)
     executor = TableExecutor(desktop_path() / 'NaviMind-Praca', NotepadWriter())
+    browser_runtime = browser_context = None
+    if args.browser:
+        try:
+            try:
+                from .navimind_browser import start_browser, DesktopWithBrowser
+            except ImportError:
+                from navimind_browser import start_browser, DesktopWithBrowser
+            profile = Path(os.environ['LOCALAPPDATA']) / 'NaviMind' / 'BrowserProfile'
+            browser_runtime, browser_context, browser = start_browser(profile)
+            executor = DesktopWithBrowser(executor, browser)
+        except Exception as exc:
+            print('BROWSER_START=review ' + str(exc)[:600], flush=True)
+            print('Zainstaluj: python -m pip install playwright; python -m playwright install chromium', flush=True)
+            return 6
     try:
         server = HTTPServer(('127.0.0.1', PORT), handler_for(executor, token))
     except OSError:
+        if browser_context:
+            browser_context.close()
+            browser_runtime.stop()
         print('DESKTOP_BRIDGE=port_busy Zamknij poprzednie okno wykonawcy i ponów.')
         return 6
     print('DESKTOP_BRIDGE=ready', flush=True)
+    if args.browser:
+        print('BROWSER=ready Osobne okno NaviMind. Włącz tryb Przeglądarka w czacie.', flush=True)
     print('OBSZAR_PRACY=' + str(executor.root), flush=True)
     print('KOD_PAROWANIA=' + token, flush=True)
     try:
@@ -641,6 +668,9 @@ def main():
         pass
     finally:
         server.server_close()
+        if browser_context:
+            browser_context.close()
+            browser_runtime.stop()
     return 0
 
 
