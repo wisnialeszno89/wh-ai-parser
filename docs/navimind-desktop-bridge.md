@@ -31,3 +31,13 @@ Przykłady kolejnych poleceń:
 - `Zapisz dokładną kopię aktywnej tabeli jako kopia-okien.txt.`
 
 Maksymalnie 50 pozycji na plik. Wymyślanie danych jest dopuszczone na wyraźne życzenie, a opisy takich wierszy powinny wskazywać, że to warianty testowe. Nie są to automatycznie zatwierdzone konstrukcje produkcyjne.
+
+## Raport zbiorczy i rozmowa bez składni
+
+`aggregate_window_tables` odczytuje 1–50 wskazanych plików tabel (do 2500 wierszy), zachowuje dane i tworzy nowy XLSX oraz lokalny podgląd HTML. Nie wymaga zainstalowanego Excela ani dodatkowych pakietów Pythona. Źródła są wybierane z lokalnego katalogu; serwer wiąże propozycję modelu z wersją każdego pliku. Zmiana źródeł przed publikacją zatrzymuje raport. Wynik nie zmienia aktywnego pliku tabeli.
+
+Raport zawiera pochodzenie każdego wiersza, wymiary w mm, ilość, powierzchnię jednej sztuki i łączną powierzchnię. Powierzchnie oraz sumy sztuk i m² zachowują formuły Excel i poprawne wartości zapisane w pliku. Powtórzenie oznacza zgodny opis po ujednoliceniu wielkości liter/odstępów oraz zgodne wymiary. Ilość nie decyduje o dopasowaniu. Żadnego wiersza nie usuwa się automatycznie; sumy obejmują także oznaczone kopie. Oznaczenia duplikatów są stanem z chwili generowania.
+
+Przykład: `Zbierz te zestawienia z NaviMind-Praca w jeden arkusz, policz sztuki i metry kwadratowe, pokaż powtórki i otwórz wynik.` Przy zleceniu konkretnego folderu raport obejmie wybrane pliki z tego folderu. Domyślny folder wynikowy to Raporty. Nowy raport nie zastępuje istniejącego. System przekazuje polecenie otwarcia domyślnej aplikacji arkuszy; jeśli jej brak, próbuje otworzyć podgląd w przeglądarce. Wykonawca potwierdza zawartość pliku; nie udaje, że zweryfikował widoczność okna zewnętrznego programu.
+
+Planista rozróżnia `execute`, `clarify` i `respond`. Pytanie doprecyzowujące ma `task:null` i nie wykonuje zmian. Korzysta z historii rozmowy i aktualnej tabeli, aby rozumieć krótkie odpowiedzi, literówki i jawne jednostki podane słownie. Gdy wymiar albo wskazanie pozycji jest niejednoznaczne, pyta o tę konkretną informację. Nie prosi o JSON. Błędny format odpowiedzi modelu jest poprawiany jednokrotnie na serwerze, przed jakimkolwiek wykonaniem lokalnym.

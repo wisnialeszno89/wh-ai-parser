@@ -37,7 +37,7 @@ def folder_name(value):
     return value
 
 
-CAPABILITIES = ['create_window_table', 'update_window_width', 'append_window_rows', 'edit_window_rows', 'open_window_table', 'copy_window_table']
+CAPABILITIES = ['create_window_table', 'update_window_width', 'append_window_rows', 'edit_window_rows', 'open_window_table', 'copy_window_table', 'aggregate_window_tables']
 
 
 def file_name(value):
@@ -75,7 +75,23 @@ def validate_task(task):
     if not isinstance(task, dict):
         raise ValueError('Nieprawidłowe zadanie.')
     kind = task.get('kind')
-    if kind == 'create_window_table':
+    if kind == 'aggregate_window_tables':
+        if set(task) != {'kind', 'sources', 'folder', 'file_name', 'open_result'} or type(task['open_result']) is not bool:
+            raise ValueError('Nieprawidłowe zadanie raportu.')
+        folder_name(task['folder'])
+        if not folder_name(task['file_name']).lower().endswith('.xlsx') or len(task['file_name']) <= 5:
+            raise ValueError('Raport wymaga nazwy .xlsx.')
+        if not isinstance(task['sources'], list) or not 1 <= len(task['sources']) <= 50:
+            raise ValueError('Wybierz 1–50 plików źródłowych.')
+        seen = set()
+        for source in task['sources']:
+            if not isinstance(source, dict) or set(source) != {'folder', 'file_name', 'revision'}:
+                raise ValueError('Nieprawidłowe źródło raportu.')
+            key = (folder_name(source['folder']).casefold(), file_name(source['file_name']).casefold())
+            if key in seen or not isinstance(source['revision'], str) or not re.fullmatch(r'[0-9a-f]{64}', source['revision']):
+                raise ValueError('Powtórzony plik lub błędna wersja źródła.')
+            seen.add(key)
+    elif kind == 'create_window_table':
         if set(task) not in ({'kind', 'folder', 'rows'}, {'kind', 'folder', 'file_name', 'rows'}):
             raise ValueError('Nieprawidłowe pola zadania.')
         folder_name(task['folder'])
@@ -162,6 +178,14 @@ class NotepadWriter:
         self.window = None
         self.path = None
         self.pid = None
+
+    def assert_clean(self):
+        import win32gui
+        import win32process
+        if self.window is not None and win32gui.IsWindow(self.window.handle):
+            edits = self.window.descendants(class_name='Edit')
+            if win32process.GetWindowThreadProcessId(self.window.handle)[1] != self.pid or len(edits) != 1 or win32gui.SendMessage(edits[0].handle, 0x00B8, 0, 0):
+                raise RuntimeError('Notatnik ma niezapisane zmiany. Zapisz plik przed raportem.')
 
     def prepare(self, path, previous):
         from pywinauto import Application, Desktop
@@ -258,8 +282,11 @@ class TableExecutor:
         self.startup_warning = None
         self.restore_active()
 
-    def safe_path(self, folder, filename):
-        path = self.root / folder_name(folder) / file_name(filename)
+    def safe_path(self, folder, filename, report=False):
+        name = folder_name(filename) if report else file_name(filename)
+        if report and not (name.lower().endswith('.xlsx') or name.lower().endswith('.html')):
+            raise ValueError('Nieprawidłowy typ pliku raportu.')
+        path = self.root / folder_name(folder) / name
         if self.root.is_symlink() or (hasattr(self.root, 'is_junction') and self.root.is_junction()):
             raise ValueError('Obszar pracy nie może być dowiązaniem.')
         # Reject reparse points even when they redirect to a different folder inside the root.
@@ -287,6 +314,67 @@ class TableExecutor:
                     if len(tables) >= 50:
                         return tables
         return tables
+
+    def reports(self):
+        reports = []
+        if self.root.is_dir():
+            for directory in sorted(self.root.iterdir()):
+                if not directory.is_dir() or directory.name.startswith('.'):
+                    continue
+                for candidate in sorted(directory.glob('*.xlsx')):
+                    try:
+                        path = self.safe_path(directory.name, candidate.name, report=True)
+                        if path.is_file():
+                            reports.append({'folder': directory.name, 'file_name': candidate.name})
+                    except (OSError, ValueError):
+                        continue
+                    if len(reports) >= 50:
+                        return reports
+        return reports
+
+    def aggregate_report(self, task, expected, trace):
+        try:
+            from .window_table_report import aggregate, write_xlsx, verify_xlsx, write_preview, open_report
+        except ImportError:
+            from window_table_report import aggregate, write_xlsx, verify_xlsx, write_preview, open_report
+        if expected is not None:
+            raise ValueError('Raport opiera się na wersjach wszystkich źródeł, nie aktywnej tabeli.')
+        if hasattr(self.writer, 'assert_clean'):
+            self.writer.assert_clean()
+        sources = []
+        for ref in task['sources']:
+            path = self.safe_path(ref['folder'], ref['file_name'])
+            text = read_text(path)
+            if table_revision(path, text) != ref['revision']:
+                raise ValueError('Plik źródłowy zmienił się. Ponów przygotowanie raportu z aktualnego katalogu.')
+            sources.append({**ref, 'rows': parse_table(text)})
+        target = self.safe_path(task['folder'], task['file_name'], report=True)
+        preview = self.safe_path(task['folder'], target.stem + '.html', report=True)
+        if target.exists() or preview.exists():
+            raise ValueError('Raport o tej nazwie już istnieje. Podaj nową nazwę pliku.')
+        entries, summary = aggregate(sources)
+        staged = trace / 'report.xlsx'
+        write_xlsx(staged, entries, summary)
+        verify_xlsx(staged, entries, summary)
+        for ref in task['sources']:
+            path = self.safe_path(ref['folder'], ref['file_name'])
+            if table_revision(path, read_text(path)) != ref['revision']:
+                raise ValueError('Źródła zmieniły się podczas tworzenia raportu. Nie opublikowano wyniku.')
+        target.parent.mkdir(parents=True, exist_ok=True)
+        self.safe_path(task['folder'], target.name, report=True)
+        with target.open('xb') as stream:
+            stream.write(staged.read_bytes())
+        verify_xlsx(target, entries, summary)
+        write_preview(preview, entries, summary)
+        opener = getattr(self.writer, 'open_report', open_report)
+        opened = opener(target, preview) if task['open_result'] else {'open_status': 'not_requested', 'opened_with': None}
+        message = 'Zapisano i odczytano arkusz. Powtórzenia oznaczono; wszystkie pozycje i pliki źródłowe zachowano.'
+        if opened['open_status'] == 'requested':
+            message += ' Przekazano polecenie otwarcia wyniku' + (' w przeglądarce.' if opened['opened_with'] == 'browser_preview' else ' w domyślnym programie arkuszy.')
+        elif opened['open_status'] == 'unavailable':
+            message += ' Nie udało się otworzyć wyniku automatycznie; pliki są zapisane.'
+        result = {'status': 'verified', 'message': message, 'file': str(target), 'preview': str(preview), 'summary': summary, 'sources': task['sources'], **opened}
+        return result
 
     def restore_active(self):
         state = self.root / '.active-table.json'
@@ -338,7 +426,7 @@ class TableExecutor:
         except (ValueError, OSError, UnicodeError) as exc:
             current = None
             warning = str(exc)
-        return {'status': 'ready', 'protocol': 1, 'capabilities': CAPABILITIES, 'currentTable': current, 'tables': self.catalog(), 'warning': warning}
+        return {'status': 'ready', 'protocol': 1, 'capabilities': CAPABILITIES, 'currentTable': current, 'tables': self.catalog(), 'reports': self.reports(), 'warning': warning}
 
     def execute(self, body):
         if not isinstance(body, dict) or set(body) != {'id', 'task', 'expectedRevision'}:
@@ -364,6 +452,14 @@ class TableExecutor:
             self.results[job_id] = (fingerprint, result)
             reserved = True
             kind = task['kind']
+            if kind == 'aggregate_window_tables':
+                # Validate source paths before making a job directory.
+                for ref in task['sources']:
+                    self.safe_path(ref['folder'], ref['file_name'])
+                trace = self.root / '.traces' / job_id
+                trace.mkdir(parents=True)
+                result = self.aggregate_report(task, body['expectedRevision'], trace)
+                return result
             previous = None
             if kind == 'create_window_table':
                 if body['expectedRevision'] is not None:
