@@ -51,6 +51,9 @@ def test_stale_revision_and_external_changes_cannot_be_overwritten(tmp_path):
     path.write_text('ręcznie poprawiona oferta', encoding='utf-8')
     assert executor.execute(job('update_window_width', 'external-job-1234', revision=first['revision']))['status'] == 'review'
     assert path.read_text(encoding='utf-8') == 'ręcznie poprawiona oferta'
+    assert executor.status()['currentTable'] is None
+    assert executor.status()['warning']
+    assert executor.status()['status'] == 'ready'
 
 
 def test_create_never_overwrites_and_unknown_tasks_are_refused(tmp_path):

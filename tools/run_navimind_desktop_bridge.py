@@ -186,7 +186,13 @@ class TableExecutor:
         return {'folder': path.parent.name, 'rows': rows, 'revision': expected, 'file': str(path)}
 
     def status(self):
-        return {'status': 'ready', 'protocol': 1, 'capabilities': ['create_window_table', 'update_window_width'], 'currentTable': self.current()}
+        warning = None
+        try:
+            current = self.current()
+        except (ValueError, OSError, UnicodeError) as exc:
+            current = None
+            warning = str(exc)
+        return {'status': 'ready', 'protocol': 1, 'capabilities': ['create_window_table', 'update_window_width'], 'currentTable': current, 'warning': warning}
 
     def execute(self, body):
         if not isinstance(body, dict) or set(body) != {'id', 'task', 'expectedRevision'}:
