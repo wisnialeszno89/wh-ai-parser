@@ -45,12 +45,20 @@ def verify_saved(report, original, scenario):
             if any(after[key] != before[key] for key in ("reference", "quantity", "color_inside", "color_outside")):
                 raise ValueError("Zmieniły się pola poza zakresem korekty.")
             result = after["simulation"]
-            if (
-                result["scene"]["opening"] != {"width": after["width_mm"], "height": after["height_mm"]}
-                or result.get("active_side") != "right" or result.get("passive_side") != "left"
-                or result["final_directions"] != {"right": "RIGHT"}
-            ):
-                raise ValueError("Odczyt konstrukcji nie potwierdził korekty słupka i kierunku.")
+            if result["scene"]["opening"] != {"width": after["width_mm"], "height": after["height_mm"]}:
+                raise ValueError("Odczyt konstrukcji nie potwierdził wymiarów.")
+            spec = after["specification"]
+            if after["kind"] == "single":
+                expected = "LEFT" if spec["opening"] == "DKL" else "RIGHT"
+                if result["direction"] != expected:
+                    raise ValueError("Odczyt nie potwierdził kierunku skrzydła.")
+            else:
+                sides = (spec["active_side"],) if after["kind"] == "stulp" else ("left", "right")
+                expected = {side: "LEFT" if spec[f"{side}_opening"] == "DKL" else "RIGHT" for side in sides}
+                if result["final_directions"] != expected:
+                    raise ValueError("Odczyt nie potwierdził kierunków skrzydeł.")
+                if after["kind"] == "stulp" and result.get("active_side") != spec["active_side"]:
+                    raise ValueError("Odczyt nie potwierdził skrzydła czynnego.")
         elif after != before:
             raise ValueError("Zmieniła się inna pozycja oferty.")
 
