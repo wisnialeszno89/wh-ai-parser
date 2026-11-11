@@ -6,7 +6,7 @@ from app.simulator.window_scene import WindowScene
 from app.simulator.window_simulator import SINGLE_SASH_HARDWARE, WindowSimulator
 
 
-def simulate_single_tilt_turn(row, *, threshold=None):
+def simulate_single_tilt_turn(row, *, threshold=None, auto_direction="LEFT"):
     width, height = row.get("width_mm"), row.get("height_mm")
     if any(type(value) is not int or value <= 0 for value in (width, height)):
         raise ValueError("Podaj dodatnią szerokość i wysokość w mm.")
@@ -18,7 +18,7 @@ def simulate_single_tilt_turn(row, *, threshold=None):
     if type(panes) is not int or panes <= 0:
         raise ValueError("Podaj liczbę szyb w pakiecie.")
 
-    simulator = WindowSimulator(WindowScene.empty(width, height), single_sash_auto_direction="LEFT")
+    simulator = WindowSimulator(WindowScene.empty(width, height), single_sash_auto_direction=auto_direction)
     trace = []
 
     def apply(stage, *actions):
@@ -60,7 +60,13 @@ def simulate_single_tilt_turn(row, *, threshold=None):
         or (inversion is not None and sash.get("inversion_checked") is not inversion)
     ):
         raise ValueError("Odczyt nie potwierdził pakietu szybowego lub otwierania skrzydła.")
-    result = {"direction": sash["direction"], "panes": glass["panes"], "trace": trace, "scene": actual}
+    if simulator.hardware.selected is None or simulator.hardware.selected.product != SINGLE_SASH_HARDWARE:
+        raise ValueError("Odczyt nie potwierdził wybranego okucia ActivPilot.")
+    result = {
+        "direction": sash["direction"], "panes": glass["panes"], "trace": trace, "scene": actual,
+        "hardware_product": simulator.hardware.selected.product,
+        "automatic_direction": auto_direction,
+    }
     if fittings:
         (sill,) = fittings
         if sill["parent_id"] != frame["id"] or sill.get("threshold") != threshold:
