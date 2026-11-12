@@ -31,10 +31,22 @@ class PagenPosition:
 class PagenOrder:
     profile: str
     positions: tuple[PagenPosition, ...]
+    color: str | None = None
+    glazing: str | None = None
+
+    def to_dict(self):
+        data = {"profile": self.profile, "positions": [
+            {"window_type": position.window_type,
+             **{attribute: getattr(position.dimensions, attribute) for _, attribute in _NUMBER_FIELDS}}
+            for position in self.positions]}
+        for key in ("color", "glazing"):
+            if getattr(self, key) is not None:
+                data[key] = getattr(self, key)
+        return data
 
     @classmethod
     def from_dict(cls, data: object) -> PagenOrder:
-        if not isinstance(data, dict) or data.keys() != {"profile", "positions"}:
+        if not isinstance(data, dict) or not {"profile", "positions"} <= data.keys() or data.keys() - {"profile", "positions", "color", "glazing"}:
             raise ValueError("Zlecenie musi zawierać pola profile i positions.")
         profile, positions = data["profile"], data["positions"]
         if not isinstance(profile, str) or not profile.strip():
@@ -50,7 +62,13 @@ class PagenOrder:
                 raise ValueError(f"Brakuje typu okna w pozycji {number}.")
             dimensions = WindowPositionRequest(row["quantity"], row["width_mm"], row["height_mm"])
             rows.append(PagenPosition(name.strip(), dimensions))
-        return cls(profile.strip(), tuple(rows))
+        shared = {}
+        for key in ("color", "glazing"):
+            value = data.get(key)
+            if key in data and (not isinstance(value, str) or not value.strip()):
+                raise ValueError(f"Pole {key} wymaga dokładnej nazwy opcji z katalogu.")
+            shared[key] = value.strip() if value is not None else None
+        return cls(profile.strip(), tuple(rows), **shared)
 
 
 def _is_add_request(request) -> bool:
@@ -149,21 +167,80 @@ def _verify_rows(page, positions: tuple[PagenPosition, ...]) -> list[dict]:
     return verified
 
 
-def fill_pagen_order(page, order: PagenOrder) -> dict:
-    """Fill a fresh isolated page. Only the add-row AJAX POST may leave it."""
-    from playwright.sync_api import expect
+_SHARED_FIELDS = {"color": "Kolor", "glazing": "Szyba"}
 
+
+def _shared_control(page, key):
+    return page.get_by_role("combobox", name=_SHARED_FIELDS[key], exact=True)
+
+
+def _observe_catalog(control):
+    if control.count() != 1 or not control.is_visible():
+        raise ValueError("Lista katalogowa nie jest jednoznaczna i widoczna.")
+    options = control.evaluate(_READ_OPTIONS)
+    # Reuse the binding schema validation even for an empty catalog.
+    bind_catalog_choice("__catalog_schema_check__", options)
+    return {"enabled": bool(control.is_enabled()), "options": options}
+
+
+def _open_pagen(page):
     page.context.route("**/*", _guard_request)
     page.goto(PAGEN_URL)
     if page.url != PAGEN_URL:
         raise ValueError("Otwarta strona nie odpowiada konfiguratorowi PAGEN.")
-
     reject = page.get_by_role("button", name=re.compile(r"odrzuć|deny all|reject all", re.I))
     if reject.is_visible():
         reject.click()
 
+
+def inspect_pagen_catalog(page, profile_label=None):
+    """Read current options; optionally select a profile to expose its catalog."""
+    _open_pagen(page)
+    profile = page.get_by_role("combobox", name="Wybierz profil okien", exact=True)
+    profile_evidence = _select_observed(profile, profile_label) if profile_label else None
+    fields = {"profile": _observe_catalog(profile),
+              "window_type": _observe_catalog(_rows(page).nth(0).get_by_role("combobox"))}
+    fields.update({key: _observe_catalog(_shared_control(page, key)) for key in _SHARED_FIELDS})
+    return {"status": "catalog_observed", "evidence": "browser_dom_catalog",
+            "url": PAGEN_URL, "selected_profile": profile_evidence, "catalog": fields,
+            "submitted": False, "wh_offer_created": False}
+
+
+def _verify_shared(page, order):
+    results = {}
+    for key in _SHARED_FIELDS:
+        requested = getattr(order, key)
+        if requested is None:
+            results[key] = {"status": "not_requested", "scope": "whole_form"}
+            continue
+        control = _shared_control(page, key)
+        catalog = _observe_catalog(control)
+        binding = bind_catalog_choice(requested, catalog["options"])
+        actual = control.input_value()
+        if not catalog["enabled"] or binding.status != "bound" or actual != binding.value:
+            raise ValueError(f"Końcowy odczyt pola {_SHARED_FIELDS[key]} nie odpowiada zleceniu.")
+        results[key] = {"status": "verified", "scope": "whole_form", "requested": requested,
+                        "observed_label": binding.label, "observed_value": actual}
+    return results
+
+
+def fill_pagen_order(page, order: PagenOrder) -> dict:
+    """Fill a fresh isolated page. Only the add-row AJAX POST may leave it."""
+    from playwright.sync_api import expect
+
+    _open_pagen(page)
+
     profile = page.get_by_role("combobox", name="Wybierz profil okien", exact=True)
     profile_evidence = _select_observed(profile, order.profile)
+    # Resolve every requested shared option before editing any window rows.
+    for key in _SHARED_FIELDS:
+        requested = getattr(order, key)
+        if requested is not None:
+            catalog = _observe_catalog(_shared_control(page, key))
+            binding = bind_catalog_choice(requested, catalog["options"])
+            if not catalog["enabled"] or binding.status != "bound":
+                available = [item["label"] for item in catalog["options"] if not item["disabled"] and item["value"]]
+                raise ValueError(f"{_SHARED_FIELDS[key]}: {binding.reason or 'Kontrolka wyłączona.'} Dostępne: {available!r}")
     position_evidence = []
     rows = _rows(page)
     expect(rows).to_have_count(1)
@@ -186,6 +263,12 @@ def fill_pagen_order(page, order: PagenOrder) -> dict:
         position_evidence.append({"position": index + 1, "type": type_evidence,
                                   **{attribute: getattr(position.dimensions, attribute) for _, attribute in _NUMBER_FIELDS}})
 
+    for key in _SHARED_FIELDS:
+        requested = getattr(order, key)
+        if requested is not None:
+            _select_observed(_shared_control(page, key), requested)
+    shared_readback = _verify_shared(page, order)
+
     expect(rows).to_have_count(len(order.positions))
     expect(profile).to_have_value(profile_evidence["observed_value"])
     readback = _verify_rows(page, order.positions)
@@ -196,6 +279,6 @@ def fill_pagen_order(page, order: PagenOrder) -> dict:
         raise ValueError("Profil zmienił się przed końcowym odczytem.")
     return {"status": "form_verified", "evidence": "browser_dom_readback",
             "url": PAGEN_URL, "profile": profile_evidence, "positions": readback,
-            "selection_trace": position_evidence,
+            "selection_trace": position_evidence, "shared_options": shared_readback,
             "submitted": False, "wh_offer_created": False,
             "sales_review_required": True}
