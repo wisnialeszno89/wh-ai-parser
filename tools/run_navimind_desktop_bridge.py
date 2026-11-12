@@ -617,6 +617,7 @@ def desktop_path():
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--execute-live', action='store_true')
+    parser.add_argument('--paint', action='store_true', help='Twórz schematy PNG i otwieraj je w nowym oknie Painta Windows 10.')
     parser.add_argument('--browser', action='store_true', help='Otwórz osobne okno Chromium sterowane przez NaviMind.')
     args = parser.parse_args()
     if os.name != 'nt' or not args.execute_live:
@@ -629,6 +630,20 @@ def main():
     pythoncom.CoInitialize()
     token = secrets.token_urlsafe(32)
     executor = TableExecutor(desktop_path() / 'NaviMind-Praca', NotepadWriter())
+    if args.paint:
+        try:
+            import PIL  # noqa: F401
+        except ImportError:
+            print('PAINT_START=review Zainstaluj: python -m pip install pillow', flush=True)
+            return 6
+        if not (Path(os.environ['SystemRoot']) / 'System32' / 'mspaint.exe').is_file():
+            print('PAINT_START=review Nie znaleziono mspaint.exe.', flush=True)
+            return 6
+        try:
+            from .navimind_paint import DesktopWithPaint, PaintLauncher
+        except ImportError:
+            from navimind_paint import DesktopWithPaint, PaintLauncher
+        executor = DesktopWithPaint(executor, PaintLauncher())
     browser_runtime = browser_context = None
     if args.browser:
         try:
@@ -652,6 +667,8 @@ def main():
         print('DESKTOP_BRIDGE=port_busy Zamknij poprzednie okno wykonawcy i ponów.')
         return 6
     print('DESKTOP_BRIDGE=ready', flush=True)
+    if args.paint:
+        print('PAINT=ready Schemat PNG i nowe okno Painta Windows 10.', flush=True)
     if args.browser:
         print('BROWSER=ready Osobne okno NaviMind. Włącz tryb Przeglądarka w czacie.', flush=True)
     print('OBSZAR_PRACY=' + str(executor.root), flush=True)
