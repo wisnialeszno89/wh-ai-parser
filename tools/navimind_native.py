@@ -61,6 +61,7 @@ class NativeController:
     def start(self,body):
         if body!={}:raise ValueError('Nieprawidlowy poczatek zadania.')
         self._check_document();self.driver.focus()
+        if hasattr(self.driver,'park_pointer'):self.driver.park_pointer()
         self.baseline=file_pixels(self.path);self.started=True;self.session=secrets.token_hex(16)
         return {**self._capture(),'session':self.session}
     def observe(self):return self._capture()
