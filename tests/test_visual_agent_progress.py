@@ -87,3 +87,103 @@ def test_toggling_visual_states_with_jittered_clicks_cannot_bypass_loop_guard():
     assert run_visual_task(driver,model,'Goal',execute=True,max_steps=4)=='review'
     assert len(driver.calls)==2
     assert any('visually equivalent' in item['status'] for item in model.requests[-1]['feedback'])
+
+
+def test_stale_typing_attempt_does_not_block_a_fresh_retry_of_same_action(capsys):
+    driver = Driver()
+    driver.capture = lambda: VisualFrame(driver.image.copy(), None)
+    checks = iter([False, True])
+    driver.is_fresh = lambda *args: next(checks)
+    typing = action("type_text", text="Top")
+    model = Reasoner([typing, typing, action("done")])
+
+    assert run_visual_task(
+        driver, model, "Find the customer", execute=True, verify=lambda: driver.calls == [typing],
+    ) == "verified"
+    assert "VISUAL_ACTION_BLOCKED=stale_frame" in capsys.readouterr().out
+    assert "No input was attempted" in model.requests[1]["feedback"][-1]["status"]
+
+
+def test_crop_feedback_explains_how_to_return_to_full_window():
+    driver = Driver()
+    model = Reasoner([
+        action("inspect", x=10, y=10, width=200, height=200),
+        action("inspect"),
+        action("done"),
+    ])
+    assert run_visual_task(driver, model, "Goal", execute=True, verify=lambda: True) == "verified"
+    assert "null bounds" in model.requests[1]["feedback"][-1]["status"]
+    assert "Full-window screenshot" in model.requests[2]["feedback"][-1]["status"]
+
+
+def test_windows_capture_uses_client_bounds_for_image_and_click_mapping(monkeypatch):
+    from contextlib import nullcontext
+    from types import SimpleNamespace
+
+    from app.agent.visual import windows_driver
+
+    driver = windows_driver.WindowsVisualDriver.__new__(windows_driver.WindowsVisualDriver)
+    driver.hwnd, driver.pid, driver.view = 7, 8, None
+    driver._check = lambda: None
+
+    def client_rect(hwnd, pointer):
+        assert hwnd == 7
+        pointer._obj.right, pointer._obj.bottom = 920, 600
+        return True
+
+    def client_to_screen(hwnd, pointer):
+        assert hwnd == 7
+        pointer._obj.x, pointer._obj.y = 134, 164
+        return True
+
+    driver.user32 = SimpleNamespace(GetClientRect=client_rect, ClientToScreen=client_to_screen)
+    monkeypatch.setattr(windows_driver, "physical_coordinates", nullcontext)
+
+    def grab(*, bbox, all_screens):
+        assert bbox == (134, 164, 1054, 764)
+        assert all_screens is True
+        return Image.new("RGB", (920, 600))
+
+    monkeypatch.setattr(windows_driver.ImageGrab, "grab", grab)
+    frame = driver.capture()
+    assert frame.token.window_box == (134, 164, 1054, 764)
+    assert windows_driver.model_to_window(frame, 100, 170) == (100, 170)
+
+
+def test_latest_form_observation_is_sent_on_each_turn():
+    driver = Driver()
+    model = Reasoner([action("click", x=100, y=80), action("done")])
+    assert run_visual_task(
+        driver, model, "Goal", execute=True, verify=lambda: True,
+        observe=lambda frame: "selected" if driver.calls else "not selected",
+    ) == "verified"
+    assert model.requests[0]["feedback"][-1] == {"action": "observe", "status": "not selected"}
+    assert model.requests[1]["feedback"][-1] == {"action": "observe", "status": "selected"}
+
+
+def test_visual_typing_only_replaces_text_under_explicit_focused_field_policy():
+    from app.agent.visual.windows_driver import WindowsVisualDriver
+
+    driver = WindowsVisualDriver.__new__(WindowsVisualDriver)
+    calls = []
+    driver._check = lambda: calls.append("scope")
+    driver.replace_focused_text = lambda: False
+    send = lambda keys, **_: calls.append(keys)
+    driver._type_text("Top Trans", send)
+    assert calls == ["Top Trans"]
+
+    driver.replace_focused_text = lambda: True
+    driver._type_text("1500", send)
+    assert calls[1:] == ["scope", "^a", "scope", "1500"]
+
+
+def test_local_action_uses_same_input_and_verifier_without_calling_model(capsys):
+    driver = Driver()
+    model = Reasoner([])
+    steps = iter([action("type_text", text="1780"), action("done")])
+    assert run_visual_task(
+        driver, model, "Goal", execute=True, verify=lambda: len(driver.calls) == 1,
+        local_action=lambda _: next(steps),
+    ) == "verified"
+    assert model.requests == []
+    assert "SOURCE=local" in capsys.readouterr().out

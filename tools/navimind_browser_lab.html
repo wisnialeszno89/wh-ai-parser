@@ -1,0 +1,13 @@
+<!doctype html><html lang="pl"><meta charset="utf-8"><title>NaviMind — laboratorium przeglądarki</title>
+<style>body{font:18px system-ui;max-width:820px;margin:40px auto;background:#f1f5f9;color:#172033}section{padding:24px;background:white;border-radius:16px;margin:20px 0}label{display:block;margin:14px 0}input,select,button{font:inherit;padding:10px;margin:5px;border:1px solid #94a3b8;border-radius:6px}button{cursor:pointer}#summary{white-space:pre-wrap;background:#dcfce7;padding:18px}#summary:empty{display:none}</style>
+<h1>NaviMind · laboratorium przeglądarki</h1><p>Dane fikcyjne. W tym oknie ćwiczymy odczyt formularza, wybór klienta i przygotowanie podglądu. Niczego nie zamawiamy ani nie wysyłamy.</p>
+<section><h2>Klient i okno</h2><label>Wyszukaj klienta <input id="search" aria-label="Wyszukaj klienta" type="search" autocomplete="off"></label><div id="customers"></div><p id="chosen">Nie wybrano klienta.</p>
+<label>Szerokość [mm] <input id="width" aria-label="Szerokość [mm]" type="number" min="100" max="10000"></label><label>Wysokość [mm] <input id="height" aria-label="Wysokość [mm]" type="number" min="100" max="10000"></label>
+<label>Kolor zewnętrzny <select id="color" aria-label="Kolor zewnętrzny"><option value="">Wybierz kolor</option value="bialy">Biały</option><option value="antracyt">Antracyt</option><option value="mahon">Mahoń</option></select></label>
+<label>Otwieranie <select id="opening" aria-label="Otwieranie"><option value="">Wybierz okucie</option><option value="DKL">DKL</option><option value="DKR">DKR</option></select></label>
+<button type="button" id="preview">Pokaż podgląd</button><div id="summary" role="status"></div></section>
+<script>
+let customer='';const byId=id=>document.getElementById(id);
+byId('search').addEventListener('input',()=>{const list=byId('customers');list.replaceChildren();for(const name of ['Top Trans S.A.','Top Trans','Baupartner'])if(byId('search').value&&name.toLowerCase().includes(byId('search').value.toLowerCase())){const b=document.createElement('button');b.type='button';b.textContent=name;b.onclick=()=>{customer=name;byId('chosen').textContent='Wybrany klient: '+name;list.replaceChildren();byId('summary').textContent='';};list.append(b);}});
+byId('preview').onclick=()=>{const w=Number(byId('width').value),h=Number(byId('height').value),color=byId('color').value,opening=byId('opening').value;byId('summary').textContent=customer&&w>=100&&w<=10000&&h>=100&&h<=10000&&color&&opening?`PODGLĄD GOTOWY\nKlient: ${customer}\nSzerokość: ${w} mm\nWysokość: ${h} mm\nKolor: ${color}\nOkucie: ${opening}`:'Uzupełnij klienta, wymiary, kolor i okucie.';};
+</script></html>

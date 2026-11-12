@@ -1,0 +1,93 @@
+{
+  "data_kind": "synthetic_test_catalog",
+  "candidates": [
+    {
+      "panes": 3,
+      "thickness_mm": 48,
+      "ug": 0.5,
+      "warm_edge": true,
+      "spacer": "Swisspacer Ultimate",
+      "id": "LAB-3-48-U05-SU",
+      "label": "3 szyby 48 mm Ug 0,5 Swisspacer Ultimate"
+    },
+    {
+      "panes": 3,
+      "thickness_mm": 48,
+      "ug": 0.6,
+      "warm_edge": true,
+      "spacer": "Swisspacer Ultimate",
+      "id": "LAB-3-48-U06-SU",
+      "label": "3 szyby 48 mm Ug 0,6 Swisspacer Ultimate"
+    },
+    {
+      "panes": 3,
+      "thickness_mm": 44,
+      "ug": 0.5,
+      "warm_edge": true,
+      "spacer": "Swisspacer Ultimate",
+      "id": "LAB-3-44-U05-SU",
+      "label": "3 szyby 44 mm Ug 0,5 Swisspacer Ultimate"
+    },
+    {
+      "panes": 3,
+      "thickness_mm": 48,
+      "ug": 0.5,
+      "warm_edge": false,
+      "spacer": "aluminium",
+      "id": "LAB-3-48-U05-AL",
+      "label": "3 szyby 48 mm Ug 0,5 aluminium"
+    },
+    {
+      "panes": 2,
+      "thickness_mm": 24,
+      "ug": 1.1,
+      "warm_edge": false,
+      "spacer": "aluminium",
+      "id": "LAB-2-24-U11-AL",
+      "label": "2 szyby 24 mm Ug 1,1 aluminium"
+    }
+  ],
+  "cases": [
+    {
+      "name": "exact_triple",
+      "requirements": {
+        "panes": 3,
+        "thickness_mm": 48,
+        "ug": 0.5,
+        "warm_edge": true,
+        "spacer": "Swisspacer Ultimate"
+      },
+      "expected_status": "selected",
+      "expected_id": "LAB-3-48-U05-SU"
+    },
+    {
+      "name": "exact_double",
+      "requirements": {
+        "panes": 2,
+        "thickness_mm": 24,
+        "ug": "1,10",
+        "warm_edge": false
+      },
+      "expected_status": "selected",
+      "expected_id": "LAB-2-24-U11-AL"
+    },
+    {
+      "name": "unavailable_52mm",
+      "requirements": {
+        "panes": 3,
+        "thickness_mm": 52,
+        "ug": 0.5,
+        "warm_edge": true,
+        "spacer": "Swisspacer Ultimate"
+      },
+      "expected_status": "review"
+    },
+    {
+      "name": "insufficient_details",
+      "requirements": {
+        "panes": 3
+      },
+      "expected_status": "review"
+    }
+  ]
+}

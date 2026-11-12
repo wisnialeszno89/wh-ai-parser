@@ -90,10 +90,10 @@ def execute_prepared(prepared, scene, loop, description):
     return True
 
 
-def verify_exclusion(scene, key):
+def verify_exclusion(scene, key, *, desired_checked=True):
     observed = matches(scene, kind="checkbox",
                        automation_id=DOCUMENT_PRICE_AUTOMATION_IDS[key])
-    return len(observed) == 1 and (observed[0].metadata or {}).get("uia_checked") is True
+    return len(observed) == 1 and (observed[0].metadata or {}).get("uia_checked") is desired_checked
 
 
 def customer_selected(scene, name=None):
@@ -114,7 +114,7 @@ def handle_customer_lookup(scene):
     )
     return select_exact_customer_result(scene, CUSTOMER)
 
-def progressive_customer_selection(loop, initial_scene, name):
+def progressive_customer_selection(loop, initial_scene, name, *, require_result_click=False):
     """Type in short chunks, observing BEFORE the final name is entered.
 
     DevExpress suggestions can disappear after a full exact-name typeahead.
@@ -151,7 +151,7 @@ def progressive_customer_selection(loop, initial_scene, name):
         if stage_of(current) != "document_properties":
             return False, "CUSTOMER_SEARCH_STAGE_CHANGED"
         print("CUSTOMER_SEARCH_CHECKPOINT =", index + 1, "/", len(parts))
-        if customer_selected(current, name):
+        if not require_result_click and customer_selected(current, name):
             return True, "CUSTOMER_VERIFIED_AFTER_TYPED_CHUNK"
         matched, reason = select_exact_customer_result(current, name)
         print("CUSTOMER_NATIVE_RESULT =", reason)
@@ -196,8 +196,8 @@ def customer_typing_chunks(name):
 
 
 
-def toggle_price_once(scene, key):
-    prepared = prepare_price_exclusion(scene, key)
+def toggle_price_once(scene, key, *, desired_checked=True):
+    prepared = prepare_price_exclusion(scene, key, desired_checked=desired_checked)
     if prepared.status is WindowHubFormActionStatus.ALREADY_SATISFIED:
         print("PREFERENCE =", key, "ALREADY_SET")
         return True
@@ -234,8 +234,8 @@ def toggle_price_once(scene, key):
     native = found[0]
     try:
         pattern = native.iface_toggle
-        if pattern is None or int(pattern.CurrentToggleState) != 0:
-            print("STOP = no reliable unchecked TogglePattern")
+        if pattern is None or int(pattern.CurrentToggleState) != int(not desired_checked):
+            print("STOP = pricing state changed or TogglePattern unavailable")
             return False
         pattern.Toggle()
     except Exception as exc:
@@ -323,7 +323,44 @@ def advance_known_wizard(scene, *, expected_stage):
         return False
 
 
-def mission(loop, max_actions):
+def open_new_position(scene):
+    """Open the position wizard only through a uniquely verified native control."""
+    approved = ("Nowa pozycja", "Dodaj nową pozycję", "Dodawanie nowej pozycji")
+    candidates = [e for e in scene.elements
+                  if e.kind == "button"
+                  and (e.label or "").strip().casefold() in {
+                      label.casefold() for label in approved
+                  }
+                  and (e.metadata or {}).get("uia_visible") is True
+                  and (e.metadata or {}).get("uia_enabled") is True]
+    print("NEW_POSITION_NATIVE_CANDIDATES =", len(candidates))
+    if len(candidates) != 1:
+        print("STOP = new position control not uniquely exposed")
+        return False
+    try:
+        wrapper = resolve_native_wrapper(
+            scene, label=candidates[0].label,
+            automation_id=(candidates[0].metadata or {}).get("automation_id"),
+            allowed_stages=("offer_document",),
+        )
+        try:
+            invocation = wrapper.iface_invoke
+        except Exception:
+            invocation = None
+        if invocation is None:
+            wrapper.click_input()
+        else:
+            invocation.Invoke()
+    except Exception as exc:
+        print("STOP = new position activation", type(exc).__name__)
+        return False
+    return True
+
+
+def mission(loop, max_actions, *, document_only=False):
+    price_states = tuple((key, True) for key in EXCLUSIONS)
+    if document_only:
+        price_states += (("exclude_construction_price", False),)
     actions = 0
     visited = []
     verified_customer_hwnd = None
@@ -336,6 +373,9 @@ def mission(loop, max_actions):
         print("GOAL =", CUSTOMER, TARGET)
         if stage is None:
             print("STOP = WindowHub not foreground")
+            return 4
+        if document_only and stage != "document_properties":
+            print("STOP = open WindowHub document properties before running this scenario")
             return 4
         if stage in ("start", "offer_document") and actions == 0:
             print("REASON = New offer must be opened before customer selection")
@@ -355,34 +395,7 @@ def mission(loop, max_actions):
 
         if stage == "offer_document" and actions > 0:
             print("REASON = Document properties confirmed; add a new window position")
-            approved = ("Nowa pozycja", "Dodaj nową pozycję", "Dodawanie nowej pozycji")
-            candidates = [e for e in scene.elements
-                          if e.kind == "button"
-                          and (e.label or "").strip().casefold() in {
-                              label.casefold() for label in approved
-                          }
-                          and (e.metadata or {}).get("uia_visible") is True
-                          and (e.metadata or {}).get("uia_enabled") is True]
-            print("NEW_POSITION_NATIVE_CANDIDATES =", len(candidates))
-            if len(candidates) != 1:
-                print("STOP = new position control not uniquely exposed")
-                return 6
-            try:
-                wrapper = resolve_native_wrapper(
-                    scene, label=candidates[0].label,
-                    automation_id=(candidates[0].metadata or {}).get("automation_id"),
-                    allowed_stages=("offer_document",),
-                )
-                try:
-                    invocation = wrapper.iface_invoke
-                except Exception:
-                    invocation = None
-                if invocation is None:
-                    wrapper.click_input()
-                else:
-                    invocation.Invoke()
-            except Exception as exc:
-                print("STOP = new position activation", type(exc).__name__)
+            if not open_new_position(scene):
                 return 6
             actions += 1
             if observe_step(loop, "position") is None:
@@ -400,7 +413,7 @@ def mission(loop, max_actions):
                 # The suggestion can be visible only while a PREFIX is
                 # being typed. Inspect the UI after every short chunk.
                 found, reason = progressive_customer_selection(
-                    loop, scene, CUSTOMER
+                    loop, scene, CUSTOMER, require_result_click=document_only
                 )
                 print("CUSTOMER_PROGRESSIVE_SELECTION =", reason)
                 if found:
@@ -411,33 +424,39 @@ def mission(loop, max_actions):
                 print("NO_BLIND_RETRY = True")
                 return 6
             print("CUSTOMER_SELECTED_VERIFIED = True")
-            for key in EXCLUSIONS:
+            for key, desired_checked in price_states:
                 current = inspect(loop)
                 if stage_of(current) != "document_properties":
                     print("STOP = pricing stage changed")
                     return 6
-                if verify_exclusion(current, key):
+                if verify_exclusion(current, key, desired_checked=desired_checked):
                     print("PREFERENCE =", key, "ALREADY_SET")
                     continue
-                print("REASON = enable", key)
-                if not toggle_price_once(current, key):
+                print("REASON = set", key, "checked =", desired_checked)
+                if not toggle_price_once(current, key, desired_checked=desired_checked):
                     print("STOP = PREFERENCE_ACTION_UNVERIFIED", key)
                     return 6
                 actions += 1
                 fresh = inspect(loop)
-                if not verify_exclusion(fresh, key):
+                if not verify_exclusion(fresh, key, desired_checked=desired_checked):
                     print("STOP = PREFERENCE_POSTCONDITION_MISSING", key)
                     return 6
                 print("PREFERENCE =", key, "VERIFIED")
-            # Three price exclusions requested, not the older fourth
-            # 'without construction price'. Confirm ONLY exact customer and
-            # exactly these three settings as independently reobserved.
             final = inspect(loop)
-            if not (customer_selected(final) or (
+            selected = customer_selected(final)
+            same_dialog = (
                 verified_customer_hwnd is not None
                 and verified_customer_hwnd == final.observation.metadata.get("window_handle")
-            )) or not all(
-                verify_exclusion(final, key) for key in EXCLUSIONS
+            )
+            if not selected and same_dialog:
+                if document_only:
+                    from app.agent.offers.windowhub_customer_commit_verification import verify_clicked_customer_commit
+                    selected = verify_clicked_customer_commit(final, CUSTOMER).status == "verified"
+                else:
+                    selected = True
+            if stage_of(final) != "document_properties" or not selected or not all(
+                verify_exclusion(final, key, desired_checked=desired_checked)
+                for key, desired_checked in price_states
             ):
                 print("STOP = DOCUMENT_POSTCONDITIONS_MISSING")
                 return 6
@@ -445,7 +464,7 @@ def mission(loop, max_actions):
             if len(buttons) != 1:
                 print("STOP = DOCUMENT_OK_NOT_UNIQUE", len(buttons))
                 return 6
-            print("REASON = Top Trans and three requested price exclusions verified")
+            print("REASON = exact customer and requested price states verified")
             try:
                 button = resolve_native_wrapper(
                     final, label="OK",
@@ -463,6 +482,17 @@ def mission(loop, max_actions):
                 print("STOP = DOCUMENT_CONFIRMATION_FAILED", type(exc).__name__)
                 return 6
             actions += 1
+            if document_only:
+                for attempt in range(4):
+                    next_stage = stage_of(inspect(loop))
+                    print("POST_DOCUMENT_STAGE =", next_stage)
+                    if next_stage in {"offer_document", "position"}:
+                        print("WINDOWHUB_DOCUMENT_RESULT=confirmed")
+                        return 0
+                    if attempt < 3:
+                        time.sleep(0.25)
+                print("STOP = document confirmation not verified")
+                return 6
             changed = inspect(loop)
             print("POST_DOCUMENT_STAGE =", stage_of(changed))
             if stage_of(changed) == "document_properties":
@@ -668,6 +698,7 @@ def main(argv=None):
     parser = argparse.ArgumentParser()
     parser.add_argument("--execute-live", action="store_true")
     parser.add_argument("--max-actions", type=int, default=16)
+    parser.add_argument("--document-only", action="store_true", help="Set exact customer and price options in the open document properties, confirm OK and stop")
     parser.add_argument("--customer-name", default="Top Trans",
                         help="Exact existing customer name extracted from a verified order")
     args = parser.parse_args(argv)
@@ -678,7 +709,7 @@ def main(argv=None):
         return 2
     CUSTOMER = args.customer_name.strip()
     print("=== WINDOWHUB EXISTING CUSTOMER SINGLE WINDOW MISSION ===")
-    print("MISSION =", CUSTOMER, TARGET)
+    print("MISSION =", CUSTOMER, "document properties only" if args.document_only else TARGET)
     print("DECISION_SOURCE = deterministic_verified_policy")
     print("MODEL_REQUESTS = 0")
     print("FINAL_SAVE = disabled")
@@ -699,7 +730,7 @@ def main(argv=None):
         print("STOP =", reason)
         return 4
     try:
-        return mission(create_windows_desktop_agent_control_loop(), args.max_actions)
+        return mission(create_windows_desktop_agent_control_loop(), args.max_actions, document_only=args.document_only)
     except Exception as exc:
         print("STOP = UNHANDLED", type(exc).__name__, str(exc)[:160])
         return 7

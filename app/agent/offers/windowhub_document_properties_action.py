@@ -27,9 +27,9 @@ _UIA_SOURCES = frozenset({"windows_ui_automation", "windowhub_ui_automation"})
 
 
 def prepare_price_exclusion(
-    scene: ScreenScene, field_name: str
+    scene: ScreenScene, field_name: str, *, desired_checked: bool = True
 ) -> PreparedWindowHubFormAction:
-    """Prepare exactly one unchecked checkbox for a verified click."""
+    """Prepare one verified change to a known checkbox state."""
 
     def blocked(reason):
         return PreparedWindowHubFormAction(
@@ -40,6 +40,8 @@ def prepare_price_exclusion(
 
     if not isinstance(scene, ScreenScene):
         raise TypeError("windowhub_price_scene_required")
+    if type(desired_checked) is not bool:
+        raise TypeError("windowhub_price_boolean_required")
     label = DOCUMENT_PRICE_EXCLUSIONS.get(field_name)
     expected_id = DOCUMENT_PRICE_AUTOMATION_IDS.get(field_name)
     if label is None or expected_id is None:
@@ -76,14 +78,14 @@ def prepare_price_exclusion(
         return blocked("Pricing checkbox has no unique UIA RuntimeId.")
 
     checked = metadata.get("uia_checked")
-    if checked is True:
+    if checked is desired_checked:
         return PreparedWindowHubFormAction(
             field_name=field_name,
             status=WindowHubFormActionStatus.ALREADY_SATISFIED,
-            reason=f"Pricing exclusion {field_name} is already enabled.",
+            reason=f"Pricing exclusion {field_name} already matches the requested state.",
             runtime_id=runtime_id,
         )
-    if checked is not False:
+    if type(checked) is not bool:
         return blocked("Checkbox TogglePattern state unknown; do not toggle.")
 
     target = SemanticTargetQuery(
@@ -91,26 +93,26 @@ def prepare_price_exclusion(
         label=element.label,
         automation_id=metadata.get("automation_id"),
         uia_runtime_id=runtime_id,
-        description=f"Enable the verified {field_name} pricing exclusion",
+        description=f"Set the verified {field_name} pricing exclusion",
     )
     action = AgentAction(
         name="click_screen_element",
-        description=f"Enable the currently unchecked {field_name} pricing exclusion.",
+        description=f"Set {field_name} to checked={desired_checked}.",
         target=target,
         requires_environment_observation=True,
     )
     expected = ExpectedOutcome(
-        description=f"{field_name} checkbox is checked.",
+        description=f"{field_name} checkbox has checked={desired_checked}.",
         expected_element_label=element.label,
         expected_element_state_name="uia_checked",
-        expected_element_state_value=True,
+        expected_element_state_value=desired_checked,
         expected_element_uia_runtime_id=runtime_id,
         expected_element_automation_id=metadata.get("automation_id"),
     )
     return PreparedWindowHubFormAction(
         field_name=field_name,
         status=WindowHubFormActionStatus.READY,
-        reason="Checkbox has unique UIA evidence and is confirmed unchecked.",
+        reason="Checkbox has unique UIA evidence and its state differs from the request.",
         action=action,
         expected_outcome=expected,
         runtime_id=runtime_id,
@@ -120,7 +122,7 @@ def prepare_price_exclusion(
 def prepare_document_confirmation(
     scene: ScreenScene, goal
 ) -> PreparedWindowHubFormAction:
-    """Confirm only when the observed client and four exclusions are proven."""
+    """Confirm only when the observed client and requested price states are proven."""
     from app.agent.offers.windowhub_new_offer_mission import (
         NewWindowOfferGoal, NewWindowOfferMissionPlanner, OfferDecision,
     )
@@ -171,7 +173,9 @@ def prepare_document_confirmation(
     return PreparedWindowHubFormAction(
         field_name="confirm_document",
         status=WindowHubFormActionStatus.READY,
-        reason="Client and four exclusions verified; unique OK is ready.",
+        reason="Client and requested price states verified; unique OK is ready.",
+        required_price_states=goal.price_states,
+        required_customer_name=goal.customer_name,
         action=AgentAction(
             name="click_screen_element",
             description="Confirm the validated new offer document properties.",

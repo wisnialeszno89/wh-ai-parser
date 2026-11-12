@@ -3,7 +3,7 @@ import base64,io,json,hashlib
 from uuid import uuid4
 from dataclasses import dataclass
 from PIL import ImageChops
-from .contract import validate_request,validate_response
+from .contract import validate_action,validate_request,validate_response
 
 @dataclass
 class VisualFrame:
@@ -31,7 +31,7 @@ def action_memory(action):
     if 'text' in fields:fields['text']=fields['text'][:80]
     return json.dumps(fields,ensure_ascii=False,separators=(',',':'))[:240]
 
-def run_visual_task(driver,reasoner,goal,*,execute=False,max_steps=12,verify=None,trace=None):
+def run_visual_task(driver,reasoner,goal,*,execute=False,max_steps=12,verify=None,trace=None,observe=None,local_action=None):
     if type(max_steps) is not int or not 1<=max_steps<=30:raise ValueError('visual_step_budget')
     task_id='visual-'+uuid4().hex
     history=[];repeats={};model_calls=0;input_actions=0;input_attempts=0;tool_failures=0
@@ -45,7 +45,21 @@ def run_visual_task(driver,reasoner,goal,*,execute=False,max_steps=12,verify=Non
             change=image_change(old_frame.image,frame.image) if same_view else 1.0
             print(f'VISUAL_CHANGED_PIXEL_RATIO={change:.6f}')
             no_visible_change=same_view and change<.0005
-            history.append({'action':old_action['kind'],'status':action_memory(old_action)+'; '+('No substantial image change detected (small focus/caret changes may be missed). Repeating a click will not type text. Choose a different action or ask_user.' if no_visible_change else 'Image changed; inspect CURRENT screenshot to verify the actual effect. Change alone is not goal completion.')})
+            if old_action['kind']=='inspect':
+                status = (
+                    'Screenshot is cropped. Coordinates are relative to the current image. '
+                    'Use inspect with null bounds to return to the full window before working outside this crop.'
+                    if old_action['x'] is not None else 'Full-window screenshot requested.'
+                )
+            elif no_visible_change:
+                status = (
+                    'No substantial image change detected (small focus/caret changes may be missed). '
+                    'If the input is focused, type instead of clicking it again. '
+                    'If cropped, return to the full window with inspect and null bounds.'
+                )
+            else:
+                status = 'Image changed; inspect CURRENT screenshot to verify the actual effect. Change alone is not goal completion.'
+            history.append({'action':old_action['kind'],'status':action_memory(old_action)+'; '+status})
             if old_action['kind']=='click' and no_visible_change:
                 ineffective_clicks+=1
                 last_ineffective_click=(frame.token,frame.image.size,old_action['x'],old_action['y'])
@@ -53,13 +67,23 @@ def run_visual_task(driver,reasoner,goal,*,execute=False,max_steps=12,verify=Non
                 ineffective_clicks=0;last_ineffective_click=None
             if ineffective_clicks>=3:
                 print('VISUAL_RESULT=clicks_without_visible_effect');return 'review'
-        request={'version':'visual-1','task_id':task_id,'turn':turn,'goal':goal,'screen':frame.screen(),'feedback':history[-6:]}
-        validate_request(request)
-        response=reasoner.reason(request);model_calls+=1
-        validate_response(response,request)
-        action=response['action'];kind=action['kind']
+        action = local_action(frame) if local_action else None
+        source = 'local' if action is not None else 'model'
+        if action is None:
+            observation = observe(frame) if observe else None
+            feedback = history[-6:]
+            if observation:
+                feedback = history[-5:] + [{'action':'observe','status':observation}]
+            request={'version':'visual-1','task_id':task_id,'turn':turn,'goal':goal,'screen':frame.screen(),'feedback':feedback}
+            validate_request(request)
+            response=reasoner.reason(request);model_calls+=1
+            validate_response(response,request)
+            action=response['action']
+        else:
+            validate_action(action, frame.image.width, frame.image.height)
+        kind=action['kind']
         if trace:trace(turn,frame,action)
-        print(f'VISUAL_TURN={turn} ACTION={kind} MODEL_CALLS={model_calls} INPUT_ACTIONS={input_actions} INPUT_ATTEMPTS={input_attempts}')
+        print(f'VISUAL_TURN={turn} ACTION={kind} MODEL_CALLS={model_calls} INPUT_ACTIONS={input_actions} INPUT_ATTEMPTS={input_attempts} SOURCE={source}')
         if kind=='click':print(f"VISUAL_CLICK_IMAGE_POINT=({action['x']},{action['y']})")
         if kind=='key':print('VISUAL_KEY='+action['key'])
         if kind=='ask_user':
@@ -94,17 +118,21 @@ def run_visual_task(driver,reasoner,goal,*,execute=False,max_steps=12,verify=Non
             print('VISUAL_CLICK_BLOCKED=revisited_visual_state')
             if blocked_revisits>=2:return 'review'
             continue
-        # Compare screenshot and intended action. A repeat without changed
-        # evidence requests a different strategy, not another blind dispatch.
+        # Only dispatch attempts reserve a signature. A stale screenshot
+        # has sent no input and must not prevent a fresh retry.
         signature=(hashlib.sha256(frame.image.tobytes()).hexdigest(),json.dumps({k:v for k,v in action.items() if k!='reason'},sort_keys=True))
-        repeats[signature]=repeats.get(signature,0)+1
-        if repeats[signature]>1 and kind not in {'inspect','wait'}:
+        if kind not in {'inspect','wait'} and signature in repeats:
+            repeats[signature]+=1
             history.append({'action':kind,'status':'Identical action on unchanged image blocked. Choose another strategy or ask_user.'})
+            print('VISUAL_ACTION_BLOCKED=duplicate_attempt')
             if repeats[signature]>=3:return 'review'
             continue
         if not driver.is_fresh(frame,action):
-            history.append({'action':kind,'status':'Screen or active window changed while planning; no input executed. Reassess the next screenshot.'})
+            print('VISUAL_ACTION_BLOCKED=stale_frame')
+            history.append({'action':kind,'status':action_memory(action)+'; Screen or active window changed while planning. No input was attempted. Reassess the next screenshot.'})
             continue
+        if kind not in {'inspect','wait'}:
+            repeats[signature]=1
         if kind not in {'inspect','wait'}:input_attempts+=1
         try:
             driver.perform(frame,action)

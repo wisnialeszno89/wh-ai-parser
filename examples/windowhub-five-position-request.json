@@ -1,0 +1,39 @@
+{
+  "positions": [
+    {
+      "position": "01", "kind": "tilt_turn_window", "quantity": 2,
+      "width_mm": 1000, "height_mm": 1010, "opening": "DKL",
+      "color_pair": "mahoń/białe", "glazing_panes": 2,
+      "single_sash_confirmed": true, "test_assumptions": ["single_sash_confirmed"],
+      "source_text": "2szt dkl 1000x1010"
+    },
+    {
+      "position": "02", "kind": "double_sash_fixed", "quantity": 1,
+      "width_mm": 1510, "height_mm": 1400, "mullion": "fixed",
+      "left_opening": "DKL", "right_opening": "DKR", "split_from_left_mm": 755,
+      "color_pair": "mahoń/białe", "glazing_panes": 2,
+      "source_text": "1 szt dkr 1510x1400 dkl/dkr mit festem Pfosten"
+    },
+    {
+      "position": "03", "kind": "stulp_window", "quantity": 1,
+      "width_mm": 1200, "height_mm": 1000, "mullion": "movable",
+      "active_side": "left", "left_opening": "DKL", "split_from_left_mm": 600,
+      "color_pair": "mahoń/białe", "glazing_panes": 2,
+      "source_text": "1x stulpprofil 1200x1000"
+    },
+    {
+      "position": "04", "kind": "entrance_door", "quantity": 1,
+      "width_mm": 1000, "height_mm": 2000, "opening": "DL",
+      "swing": "inward", "infill": "solid_panel", "test_assumptions": ["swing", "infill"],
+      "source_text": "1x drzwi 1000x2000 DL"
+    },
+    {
+      "position": "05", "kind": "balcony_window", "quantity": 1,
+      "width_mm": 1010, "height_mm": 2100, "opening": "DKR",
+      "color": "biały", "glazing_panes": 2,
+      "single_sash_confirmed": true, "swing": "inward", "threshold": "standard",
+      "test_assumptions": ["single_sash_confirmed", "swing", "threshold"],
+      "source_text": "1x biale okno balkonowe 1010x2100 dkr"
+    }
+  ]
+}

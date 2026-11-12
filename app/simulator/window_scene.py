@@ -9,6 +9,13 @@ class SceneElement:
     kind: str
     parent_id: str | None = None
     side: str | None = None
+    opening: str | None = None
+    direction: str | None = None
+    inversion_checked: bool | None = None
+    offset_from_left_mm: int | None = None
+    panes: int | None = None
+    swing: str | None = None
+    threshold: str | None = None
 
 
 @dataclass
@@ -44,6 +51,12 @@ class WindowScene:
                     "kind": item.kind,
                     "parent_id": item.parent_id,
                     "side": item.side,
+                    **({"opening": item.opening, "direction": item.direction} if item.opening is not None else {}),
+                    **({"inversion_checked": item.inversion_checked} if item.inversion_checked is not None else {}),
+                    **({"offset_from_left_mm": item.offset_from_left_mm} if item.offset_from_left_mm is not None else {}),
+                    **({"panes": item.panes} if item.panes is not None else {}),
+                    **({"swing": item.swing} if item.swing is not None else {}),
+                    **({"threshold": item.threshold} if item.threshold is not None else {}),
                 }
                 for item in self.elements
             ],

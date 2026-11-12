@@ -1,0 +1,17 @@
+{
+  "profile": "Okna PVC Premium Line (Salamander)",
+  "positions": [
+    {
+      "window_type": "Okno dwuskrzydłowe",
+      "quantity": 3,
+      "width_mm": 1230,
+      "height_mm": 1780
+    },
+    {
+      "window_type": "Okno stałe",
+      "quantity": 2,
+      "width_mm": 1500,
+      "height_mm": 1400
+    }
+  ]
+}

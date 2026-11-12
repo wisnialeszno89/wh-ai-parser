@@ -33,11 +33,15 @@ def literal_keys(text):
     return ''.join({'{':'{{}','}':'{}}','+':'{+}','^':'{^}','%':'{%}','~':'{~}','(':'{(}',')':'{)}'}.get(c,c) for c in text)
 
 class WindowsVisualDriver:
-    def __init__(self,title,pid,*,allow_enter=False):
+    def __init__(self,title,pid,*,allow_enter=False,replace_focused_text=None):
         from pywinauto import Desktop
         from ctypes import wintypes
         self.user32=ctypes.WinDLL('user32',use_last_error=True)
         self.user32.GetForegroundWindow.restype=wintypes.HWND
+        self.user32.GetClientRect.argtypes=[wintypes.HWND,ctypes.POINTER(wintypes.RECT)]
+        self.user32.GetClientRect.restype=wintypes.BOOL
+        self.user32.ClientToScreen.argtypes=[wintypes.HWND,ctypes.POINTER(wintypes.POINT)]
+        self.user32.ClientToScreen.restype=wintypes.BOOL
         self.user32.WindowFromPoint.argtypes=[wintypes.POINT]
         self.user32.WindowFromPoint.restype=wintypes.HWND
         self.user32.GetWindowThreadProcessId.argtypes=[wintypes.HWND,ctypes.POINTER(wintypes.DWORD)]
@@ -46,8 +50,16 @@ class WindowsVisualDriver:
                     if w.window_text()==title and w.element_info.process_id==pid and w.is_visible()]
         if len(candidates)!=1:raise RuntimeError('visual_scope_not_unique')
         self.window=candidates[0];self.hwnd=int(self.window.handle);self.pid=pid;self.view=None;self.allow_enter=allow_enter
+        self.replace_focused_text=replace_focused_text
         self.window.set_focus()
         if int(self.user32.GetForegroundWindow() or 0)!=self.hwnd:raise RuntimeError('visual_focus_denied')
+
+    def focus(self):
+        from ctypes import wintypes
+        actual=wintypes.DWORD()
+        self.user32.GetWindowThreadProcessId(self.hwnd,ctypes.byref(actual))
+        if actual.value!=self.pid:raise RuntimeError('visual_scope_changed')
+        self.window.set_focus();self._check()
 
     def _check(self):
         from ctypes import wintypes
@@ -56,9 +68,55 @@ class WindowsVisualDriver:
         if actual.value!=self.pid or int(self.user32.GetForegroundWindow() or 0)!=self.hwnd:
             raise RuntimeError('visual_scope_or_foreground_changed')
 
+    def describe_controls(self,frame):
+        from pywinauto import Application
+        result=[]
+        with physical_coordinates():
+            self._check();root=Application(backend='uia').connect(handle=self.hwnd,timeout=2).window(handle=self.hwnd)
+            l,t,r,b=frame.token.window_box;vl,vt,vr,vb=frame.token.view_box
+            for kind in ('Button','TabItem','MenuItem','ListItem'):
+                for item in root.descendants(control_type=kind)[:100]:
+                    if len(result)>=80:return result
+                    if not item.is_visible() or not item.is_enabled() or item.element_info.process_id!=self.pid:continue
+                    name=(item.element_info.name or '').strip()[:120]
+                    box=item.rectangle();x=(box.left+box.right)//2;y=(box.top+box.bottom)//2
+                    if not name or not l+vl<=x<l+vr or not t+vt<=y<t+vb:continue
+                    point={'name':name,'x':int((x-l-vl)*frame.image.width/(vr-vl)),'y':int((y-t-vt)*frame.image.height/(vb-vt))}
+                    if point not in result:result.append(point)
+        return result
+
+    def assert_unobscured(self):
+        import win32gui,win32process
+        with physical_coordinates():
+            self._check();l,t,r,b=self._client_box();other=win32gui.GetWindow(self.hwnd,3);seen=set()
+            while other and other not in seen:
+                seen.add(other)
+                if win32gui.IsWindowVisible(other) and not win32gui.IsIconic(other):
+                    pid=win32process.GetWindowThreadProcessId(other)[1]
+                    if pid!=self.pid:
+                        a,c,d,e=win32gui.GetWindowRect(other)
+                        if max(l,a)<min(r,d) and max(t,c)<min(b,e):raise RuntimeError('visual_window_obscured')
+                other=win32gui.GetWindow(other,3)
+
+    def park_pointer(self):
+        from pywinauto import mouse
+        with physical_coordinates():
+            self._check();l,t,r,b=self._client_box();x=(l+r)//2;y=t+(b-t)*3//4
+            self._owned_point(x,y);mouse.move(coords=(x,y))
+
+    def _client_box(self):
+        from ctypes import wintypes
+        rect=wintypes.RECT()
+        origin=wintypes.POINT()
+        if not self.user32.GetClientRect(self.hwnd,ctypes.byref(rect)):
+            raise RuntimeError('visual_client_rect_unavailable')
+        if not self.user32.ClientToScreen(self.hwnd,ctypes.byref(origin)):
+            raise RuntimeError('visual_client_origin_unavailable')
+        return origin.x,origin.y,origin.x+rect.right,origin.y+rect.bottom
+
     def capture(self):
         with physical_coordinates():
-            self._check();r=self.window.rectangle();box=(int(r.left),int(r.top),int(r.right),int(r.bottom))
+            self._check();box=self._client_box()
             width,height=box[2]-box[0],box[3]-box[1]
             if width<=0 or height<=0:raise RuntimeError('visual_window_geometry_invalid')
             view=self.view or (0,0,width,height)
@@ -87,6 +145,13 @@ class WindowsVisualDriver:
         if hit:self.user32.GetWindowThreadProcessId(hit,ctypes.byref(actual))
         if not hit or actual.value!=self.pid:raise RuntimeError('visual_point_not_owned_by_scope')
 
+    def _type_text(self, text, send_keys):
+        if self.replace_focused_text and self.replace_focused_text():
+            self._check()
+            send_keys('^a', vk_packet=False, pause=.05)
+            self._check()
+        send_keys(literal_keys(text), with_spaces=True, pause=.03)
+
     def perform(self,frame,action):
         self._check();kind=action['kind']
         from pywinauto import mouse
@@ -96,9 +161,20 @@ class WindowsVisualDriver:
                 x,y=model_to_window(frame,action['x'],action['y']);l,t,_,_=frame.token.window_box
                 self._owned_point(l+x,t+y)
                 mouse.click(coords=(l+x,t+y))
-            elif kind=='type_text':send_keys(literal_keys(action['text']),with_spaces=True,pause=.03)
+            elif kind=='drag':
+                points=[model_to_window(frame,p['x'],p['y']) for p in action['points']]
+                l,t,_,_=frame.token.window_box
+                points=[(l+x,t+y) for x,y in points]
+                for x,y in points:self._owned_point(x,y)
+                self._check();mouse.press(coords=points[0]);last=points[0]
+                try:
+                    for x,y in points[1:]:
+                        self._check();self._owned_point(x,y);mouse.move(coords=(x,y));last=(x,y);time.sleep(.1)
+                finally:mouse.release(coords=last)
+            elif kind=='type_text':
+                self._type_text(action['text'], send_keys)
             elif kind=='key':
-                keys={'CTRL+A':'^a','BACKSPACE':'{BACKSPACE}','HOME':'{HOME}','END':'{END}','TAB':'{TAB}','ESC':'{ESC}','ENTER':'{ENTER}'}
+                keys={'CTRL+A':'^a','BACKSPACE':'{BACKSPACE}','HOME':'{HOME}','END':'{END}','TAB':'{TAB}','ESC':'{ESC}','ENTER':'{ENTER}','CTRL+S':'^s','CTRL+Z':'^z','CTRL+Y':'^y','DELETE':'{DELETE}','SHIFT+TAB':'+{TAB}','LEFT':'{LEFT}','RIGHT':'{RIGHT}','UP':'{UP}','DOWN':'{DOWN}'}
                 if action['key']=='ENTER' and not self.allow_enter:raise ValueError('visual_enter_not_authorized')
                 send_keys(keys[action['key']],vk_packet=False,pause=.05)
             elif kind=='scroll':
