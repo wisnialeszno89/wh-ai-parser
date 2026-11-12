@@ -37,7 +37,7 @@ def folder_name(value):
     return value
 
 
-CAPABILITIES = ['create_window_table', 'update_window_width', 'append_window_rows', 'edit_window_rows', 'open_window_table', 'copy_window_table', 'aggregate_window_tables']
+CAPABILITIES = ['save_offer_specification', 'create_window_table', 'update_window_width', 'append_window_rows', 'edit_window_rows', 'open_window_table', 'copy_window_table', 'aggregate_window_tables']
 
 
 def file_name(value):
@@ -75,7 +75,16 @@ def validate_task(task):
     if not isinstance(task, dict):
         raise ValueError('Nieprawidłowe zadanie.')
     kind = task.get('kind')
-    if kind == 'aggregate_window_tables':
+    if kind == 'save_offer_specification':
+        if set(task) != {'kind', 'folder', 'file_name', 'content'}:
+            raise ValueError('Nieprawidłowe pola specyfikacji.')
+        if task['folder'] is not None:
+            folder_name(task['folder'])
+        file_name(task['file_name'])
+        content = task['content']
+        if not isinstance(content, str) or not content.strip() or len(content) > 40000 or any(ord(c) < 32 and c not in '\r\n\t' for c in content):
+            raise ValueError('Nieprawidłowy tekst specyfikacji.')
+    elif kind == 'aggregate_window_tables':
         if set(task) != {'kind', 'sources', 'folder', 'file_name', 'open_result'} or type(task['open_result']) is not bool:
             raise ValueError('Nieprawidłowe zadanie raportu.')
         folder_name(task['folder'])
@@ -297,6 +306,44 @@ class TableExecutor:
             raise ValueError('Plik znajduje się poza obszarem pracy.')
         return path
 
+    def specification_path(self, folder, filename):
+        if folder is not None and folder.casefold() != 'navimind-praca':
+            return self.safe_path(folder, filename)
+        path = self.root / file_name(filename)
+        for candidate in (self.root, path):
+            if candidate.is_symlink() or (hasattr(candidate, 'is_junction') and candidate.is_junction()):
+                raise ValueError('Specyfikacja nie może używać dowiązań.')
+        if path.resolve().parent != self.root.resolve():
+            raise ValueError('Plik znajduje się poza obszarem pracy.')
+        return path
+
+    def save_specification(self, task, expected, trace):
+        if expected is not None:
+            raise ValueError('Nowa specyfikacja nie wymaga wersji tabeli.')
+        if hasattr(self.writer, 'assert_clean'):
+            self.writer.assert_clean()
+        target = self.specification_path(task['folder'], task['file_name'])
+        for suffix in range(1000):
+            name = task['file_name'] if suffix == 0 else Path(task['file_name']).stem[:50] + f'-{suffix}.txt'
+            candidate = self.specification_path(task['folder'], name)
+            if not candidate.exists():
+                target = candidate
+                break
+        else:
+            raise ValueError('Brak wolnej nazwy dla specyfikacji.')
+        target.parent.mkdir(parents=True, exist_ok=True)
+        self.specification_path(task['folder'], target.name)
+        text = task['content'].replace('\r\n', '\n').replace('\r', '\n').rstrip('\n') + '\n'
+        # Reserve the destination exclusively; never replace an existing document.
+        with target.open('x', encoding='utf-8', newline='') as stream:
+            stream.write(text)
+        actual = target.read_text(encoding='utf-8')
+        if actual != text:
+            raise RuntimeError('Ponowny odczyt specyfikacji różni się od planu.')
+        return {'status': 'verified', 'file': str(target),
+                'message': 'Zapisano nowy dokument. Ponowny odczyt potwierdził cały tekst; istniejące pliki zachowano.',
+                'specification': {'content': actual, 'readback_verified': True, 'sha256': revision(actual)}}
+
     def catalog(self):
         tables = []
         if self.root.is_dir():
@@ -460,6 +507,11 @@ class TableExecutor:
                 trace.mkdir(parents=True)
                 result = self.aggregate_report(task, body['expectedRevision'], trace)
                 return result
+            if kind == 'save_offer_specification':
+                trace = self.root / '.traces' / job_id
+                trace.mkdir(parents=True)
+                result = self.save_specification(task, body['expectedRevision'], trace)
+                return result
             previous = None
             if kind == 'create_window_table':
                 if body['expectedRevision'] is not None:
@@ -598,7 +650,7 @@ def handler_for(executor, token, port=PORT, origins=None):
                 if self.headers.get('Transfer-Encoding') or self.headers.get('Content-Type', '').split(';')[0] != 'application/json':
                     raise ValueError('Wymagany JSON.')
                 size = int(self.headers.get('Content-Length', '0'))
-                if not 0 < size <= 32768:
+                if not 0 < size <= 256 * 1024:
                     raise ValueError('Nieprawidłowy rozmiar zadania.')
                 self.connection.settimeout(10)
                 body = json.loads(self.rfile.read(size))

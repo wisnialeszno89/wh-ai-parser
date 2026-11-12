@@ -276,3 +276,74 @@ def test_native_start_and_observe_are_paired_and_opt_in(tmp_path):
     assert '200 OK' in request(e,path='/native/observe')
     for kwargs in [{'token':'wrong'},{'origin':'https://evil.example'},{'host':'evil.example:43127'}]:
         assert '403 Forbidden' in request(e,method='POST',path='/native/start',body={},**kwargs)
+
+
+def specification_job(job_id='specification-job-1234'):
+    # Synthetic order: not a copy of customer source documents.
+    return {'id': job_id, 'expectedRevision': None, 'task': {
+        'kind': 'save_offer_specification', 'folder': None,
+        'file_name': 'Specyfikacja testowa.txt',
+        'content': 'Szkic do weryfikacji\nPoz. A: 970 × 2090 mm, szt. 2, DL.\n'
+                   'Kolor obustronny: KOD-TEST-701605. Trzy szyby, Ug 0,6.\n'
+                   'Wyposażenie: 3 zawiasy, zamek automatyczny, elektrozaczep, pochwyt 1600 mm.\n'
+                   'Opcjonalna listwa transportowa 30 mm, poza wysokością produktu.\n'
+                   'Poz. B: 1190 × 2490 mm, szt. 1, DL; naświetle 350 mm.\n'
+                   'Nie ustalono ceny; wymagana weryfikacja handlowca.\n'}}
+
+
+def test_specification_preserves_entire_text_in_workspace_root_without_changing_table(tmp_path):
+    executor = TableExecutor(tmp_path, Writer())
+    table = executor.execute(job())
+    before = executor.current()
+    request = specification_job()
+    result = executor.execute(request)
+    assert result['status'] == 'verified'
+    assert Path(result['file']).parent == tmp_path
+    assert result['specification']['content'] == request['task']['content']
+    assert Path(result['file']).read_text(encoding='utf-8') == request['task']['content']
+    assert result['specification']['readback_verified'] is True
+    assert len(result['specification']['sha256']) == 64
+    assert executor.current() == before
+    assert executor.execute(request) == result
+    assert Path(table['file']).exists()
+    again = executor.execute(specification_job('specification-job-5678'))
+    assert again['status'] == 'verified'
+    assert again['file'] != result['file']
+    assert Path(result['file']).read_text(encoding='utf-8') == request['task']['content']
+
+
+def test_specification_root_alias_and_unsafe_paths(tmp_path):
+    executor = TableExecutor(tmp_path, Writer())
+    request = specification_job()
+    request['task']['folder'] = 'NaviMind-Praca'
+    result = executor.execute(request)
+    assert Path(result['file']).parent == tmp_path
+    for bad in ('../escape', 'C:\\outside', '.'):
+        request['task']['folder'] = bad
+        with pytest.raises(ValueError):
+            validate_task(request['task'])
+    request['task']['folder'] = None
+    request['task']['content'] = 'bad\x00text'
+    with pytest.raises(ValueError):
+        validate_task(request['task'])
+
+
+def test_specification_rejects_symlink_destination(tmp_path):
+    outside = tmp_path.parent / 'outside-spec-test.txt'
+    outside.write_text('preserve', encoding='utf-8')
+    (tmp_path / 'Specyfikacja testowa.txt').symlink_to(outside)
+    result = TableExecutor(tmp_path, Writer()).execute(specification_job())
+    assert result['status'] == 'review'
+    assert outside.read_text(encoding='utf-8') == 'preserve'
+
+
+def test_specification_corrupt_readback_never_claims_verified(tmp_path, monkeypatch):
+    executor = TableExecutor(tmp_path, Writer())
+    original = Path.read_text
+    def corrupt(path, *args, **kwargs):
+        value = original(path, *args, **kwargs)
+        return value.replace('elektrozaczep', 'missing') if path.name == 'Specyfikacja testowa.txt' else value
+    monkeypatch.setattr(Path, 'read_text', corrupt)
+    result = executor.execute(specification_job())
+    assert result['status'] == 'review'
+    assert 'specification' not in result
