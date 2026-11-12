@@ -64,7 +64,7 @@ COLLECT = """els => {
   if(!r.width || !r.height || r.bottom<0 || r.top>innerHeight || style.visibility==='hidden' || style.display==='none' || el.type==='hidden') return null;
   const labelled=clip((el.getAttribute('aria-labelledby')||'').split(' ').map(id=>document.getElementById(id)?.innerText||'').join(' '),180);
   const name=clip(el.getAttribute('aria-label') || labelled || Array.from(el.labels||[]).map(l=>l.innerText).join(' ') || el.innerText || el.getAttribute('placeholder') || el.title || el.name,180);
-  return {index,tag:el.tagName.toLowerCase(),role:el.getAttribute('role')||'',type:el.type||'',name,href:el.tagName==='A'?el.href:'',disabled:!!el.disabled || el.getAttribute('aria-disabled')==='true',checked:!!el.checked,
+  return {index,tag:el.tagName.toLowerCase(),role:el.getAttribute('role')||'',type:el.type||'',name,href:el.tagName==='A'?el.href:'',disabled:!!el.disabled || el.getAttribute('aria-disabled')==='true',checked:!!el.checked,submits_form:el.type==='submit' && !!el.form,
    autocomplete:el.autocomplete||'',context:clip(el.closest('form,[role="dialog"]')?.innerText,300),
    value:('value' in el)?String(el.value):null,
    options:el.tagName==='SELECT'?Array.from(el.options).slice(0,30).map(o=>({label:clip(o.label,100),value:o.value})):undefined};
@@ -184,8 +184,12 @@ class BrowserController:
             if handle.input_value() != task['value']:
                 raise ValueError('Nie potwierdzono wybranej opcji.')
             return 'Wybrano opcję i sprawdzono wartość pola.'
-        if meta['tag'] in {'input', 'textarea', 'select'} or meta['type'] in {'submit', 'reset'} or SENSITIVE.search(label):
-            raise ValueError('Ten przycisk wymaga ręcznej obsługi: zatwierdzanie formularzy, płatności, zwrotów, wysyłania i usuwania pozostaje użytkownikowi.')
+        if meta['tag'] in {'input', 'textarea', 'select'}:
+            raise ValueError('Element „' + meta['name'] + '” jest polem formularza. Użyj wypełnienia lub wyboru opcji zamiast kliknięcia w celu fokusu.')
+        submits = meta['type'] == 'submit' and meta.get('submits_form') is not False
+        if submits or meta['type'] == 'reset' or SENSITIVE.search(label):
+            raise ValueError('Element „' + meta['name'] + '” wymaga ręcznej obsługi. ' +
+                             ('Przycisk jest powiązany z wysłaniem formularza.' if submits else 'Wykryto operację chronioną lub reset formularza.'))
         if meta['href']:
             self._url(meta['href'])
             if urlsplit(meta['href']).hostname != urlsplit(self.page.url).hostname:

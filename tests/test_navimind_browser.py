@@ -143,3 +143,23 @@ def test_export_rejects_paths_and_changed_view(tmp_path):
     view=agent.observe()
     result=agent.execute(dict(id='save-changed-view-0001',task=dict(kind='browser_save_snapshot'),expectedRevision=view['revision']))
     assert result['code']=='STALE_PAGE' and not list(tmp_path.rglob('*.png'))
+
+
+def test_submit_type_without_form_is_a_normal_configuration_button():
+    page = Page()
+    page.controls = [control('1-flg. Dreh-Kipp', type='submit', submits_form=False)]
+    agent = BrowserController(page)
+    view = agent.observe()
+    assert view['controls'][0]['submits_form'] is False
+    result = agent.execute(dict(id='outside-form-button-01', task=dict(kind='browser_click', ref=view['controls'][0]['ref']), expectedRevision=view['revision']))
+    assert result['status'] == 'verified' and page.clicks == 1
+
+
+def test_real_form_submission_remains_blocked_and_names_target():
+    page = Page()
+    page.controls = [control('Konfiguruj', type='submit', submits_form=True)]
+    agent = BrowserController(page)
+    view = agent.observe()
+    result = agent.execute(dict(id='inside-form-button-001', task=dict(kind='browser_click', ref=view['controls'][0]['ref']), expectedRevision=view['revision']))
+    assert result['status'] == 'review' and page.clicks == 0
+    assert 'Konfiguruj' in result['message'] and 'formularza' in result['message']
