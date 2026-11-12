@@ -16,10 +16,11 @@ KEYS={'CTRL+S','CTRL+Z','CTRL+Y','CTRL+A','BACKSPACE','DELETE','ESC','ENTER','TA
 def validate_native(task,width,height):
     if not isinstance(task,dict):raise ValueError('Nieprawidlowy krok aplikacji.')
     kind=task.get('kind')
-    fields={'native_click':{'kind','x','y'},'native_drag':{'kind','points'},'native_text':{'kind','text'},'native_key':{'kind','key'},'native_scroll':{'kind','direction','amount'},'native_wait':{'kind','amount'},'native_finish':{'kind'}}
+    fields={'native_target':{'kind','ref'},'native_click':{'kind','x','y'},'native_drag':{'kind','points'},'native_text':{'kind','text'},'native_key':{'kind','key'},'native_scroll':{'kind','direction','amount'},'native_wait':{'kind','amount'},'native_finish':{'kind'}}
     if not isinstance(kind,str) or kind not in fields or set(task)!=fields[kind]:raise ValueError('Nieobslugiwany krok aplikacji.')
     def point(p):
         if not isinstance(p,dict) or set(p)!={'x','y'} or type(p['x']) is not int or type(p['y']) is not int or not 0<=p['x']<width or not 0<=p['y']<height:raise ValueError('Punkt poza aktualnym obrazem okna.')
+    if kind=='native_target' and (not isinstance(task['ref'],str) or not re.fullmatch(r'e[0-9a-f]{16}',task['ref'])):raise ValueError('Nieprawidlowy element okna.')
     if kind=='native_click':point({'x':task['x'],'y':task['y']})
     if kind=='native_drag':
         if not isinstance(task['points'],list) or not 2<=len(task['points'])<=24:raise ValueError('Przeciagniecie wymaga 2–24 punktow.')
@@ -42,7 +43,7 @@ class NativeController:
     def __init__(self,driver,path,results=None):
         self.driver,self.path=driver,Path(path)
         self.resolved=self.path.resolve();self.results=results if results is not None else {}
-        self.frame=None;self.snapshot=None;self.baseline=None;self.lock=threading.Lock();self.started=False;self.session=None
+        self.frame=None;self.snapshot=None;self.baseline=None;self.lock=threading.Lock();self.started=False;self.session=None;self.targets={}
     def _check_document(self):
         if self.path.is_symlink() or self.path.resolve()!=self.resolved:raise ValueError('Plik sesji zmienil polozenie.')
         if self.path.stem.casefold() not in self.driver.window.window_text().casefold():raise ValueError('Paint otworzyl inny dokument. Wroc do pliku sesji NaviMind.')
@@ -55,8 +56,13 @@ class NativeController:
         screen=frame.screen()
         if len(screen['image_data_url'])>2800000:raise ValueError('Obraz okna jest zbyt duzy do analizy.')
         revision=hashlib.sha256(frame.image.tobytes()+repr(frame.token).encode()).hexdigest()
-        self.frame=frame
-        self.snapshot={'revision':revision,'image':screen['image_data_url'],'width':frame.image.width,'height':frame.image.height,'title':self.driver.window.window_text()[:200],'scope':'owned_paint_window'}
+        self.frame=frame;self.targets={};controls=[]
+        if hasattr(self.driver,'describe_controls'):
+            try:
+                for target in self.driver.describe_controls(frame):
+                    ref='e'+secrets.token_hex(8);self.targets[ref]=target;controls.append({'ref':ref,**target})
+            except Exception:controls=[];self.targets={}
+        self.snapshot={'revision':revision,'image':screen['image_data_url'],'width':frame.image.width,'height':frame.image.height,'title':self.driver.window.window_text()[:200],'scope':'owned_paint_window','controls':controls}
         return self.snapshot
     def start(self,body):
         if body!={}:raise ValueError('Nieprawidlowy poczatek zadania.')
@@ -79,8 +85,11 @@ class NativeController:
             result={'status':'review','message':'Krok rozpoczęto. Nie ponawiaj automatycznie.'};self.results[body['id']]=(fingerprint,result)
             try:
                 self._check_document();frame=self.frame;kind=task['kind']
-                action={'native_click':'click','native_drag':'drag','native_text':'type_text','native_key':'key','native_scroll':'scroll','native_wait':'wait','native_finish':'key'}[kind]
+                action={'native_target':'click','native_click':'click','native_drag':'drag','native_text':'type_text','native_key':'key','native_scroll':'scroll','native_wait':'wait','native_finish':'key'}[kind]
                 args={k:v for k,v in task.items() if k!='kind'}
+                if kind=='native_target':
+                    if task['ref'] not in self.targets:raise ValueError('Element nie pochodzi z aktualnego widoku.')
+                    target=self.targets[task['ref']];args={'x':target['x'],'y':target['y']}
                 if kind=='native_finish':args={'key':'CTRL+S'}
                 operation={'kind':action,**args}
                 if body['expectedRevision']!=self.snapshot['revision'] or not self.driver.is_fresh(frame,operation):

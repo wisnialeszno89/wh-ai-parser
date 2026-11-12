@@ -92,3 +92,12 @@ def test_window_occlusion_guard_blocks_unrelated_overlay(monkeypatch):
 def test_new_command_invalidates_inflight_old_session_without_dispatch(tmp_path):
     a,d=setup(tmp_path);old=job(a,dict(kind='native_click',x=12,y=12));a.start({})
     result=a.execute(old);assert result['code']=='SESSION_CHANGED' and not d.calls
+
+
+def test_named_control_is_resolved_locally_from_the_current_frame(tmp_path):
+    path=tmp_path/'owned.png';Image.new('RGB',(100,80),'white').save(path);d=Driver(path)
+    d.describe_controls=lambda frame:[{'name':'Linia','x':35,'y':22}]
+    a=NativeController(d,path);a.start({});ref=a.snapshot['controls'][0]['ref']
+    r=a.execute(job(a,dict(kind='native_target',ref=ref)))
+    assert r['status']=='verified' and d.calls[0]=={'kind':'click','x':35,'y':22}
+    invalid=job(a,dict(kind='native_target',ref='e'+'f'*16),id='unknown-target-12345');assert a.execute(invalid)['status']=='review'

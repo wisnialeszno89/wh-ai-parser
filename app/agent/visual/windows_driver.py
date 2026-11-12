@@ -68,6 +68,23 @@ class WindowsVisualDriver:
         if actual.value!=self.pid or int(self.user32.GetForegroundWindow() or 0)!=self.hwnd:
             raise RuntimeError('visual_scope_or_foreground_changed')
 
+    def describe_controls(self,frame):
+        from pywinauto import Application
+        result=[]
+        with physical_coordinates():
+            self._check();root=Application(backend='uia').connect(handle=self.hwnd,timeout=2).window(handle=self.hwnd)
+            l,t,r,b=frame.token.window_box;vl,vt,vr,vb=frame.token.view_box
+            for kind in ('Button','TabItem','MenuItem','ListItem'):
+                for item in root.descendants(control_type=kind)[:100]:
+                    if len(result)>=80:return result
+                    if not item.is_visible() or not item.is_enabled() or item.element_info.process_id!=self.pid:continue
+                    name=(item.element_info.name or '').strip()[:120]
+                    box=item.rectangle();x=(box.left+box.right)//2;y=(box.top+box.bottom)//2
+                    if not name or not l+vl<=x<l+vr or not t+vt<=y<t+vb:continue
+                    point={'name':name,'x':int((x-l-vl)*frame.image.width/(vr-vl)),'y':int((y-t-vt)*frame.image.height/(vb-vt))}
+                    if point not in result:result.append(point)
+        return result
+
     def assert_unobscured(self):
         import win32gui,win32process
         with physical_coordinates():
