@@ -170,6 +170,11 @@ def run_goal(goal, loop, *, max_actions=8, stop_at_position=False):
             print("STOP: New position wizard could not be verified.")
             return 6
 
+        if decision.decision is OfferDecision.WAIT_USER_LOGIN:
+            print("OFFER_ACCESS=waiting_for_user_login")
+            print(decision.reason)
+            return 4
+
         if decision.decision is OfferDecision.OPEN_NEW_OFFER:
             prepared = prepare_new_offer_from_start(scene)
         elif decision.decision is OfferDecision.OPEN_CUSTOMER_LOOKUP:

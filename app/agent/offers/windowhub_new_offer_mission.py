@@ -21,6 +21,7 @@ from app.agent.offers.windowhub_position_mission import WindowPositionRequest
 
 
 class OfferDecision(str, Enum):
+    WAIT_USER_LOGIN = "wait_user_login"
     OPEN_NEW_OFFER = "open_new_offer"
     SELECT_TEST_CUSTOMER = "select_test_customer"
     OPEN_NEW_CUSTOMER = "open_new_customer"
@@ -122,11 +123,30 @@ class NewWindowOfferMissionPlanner:
         if process_name != "okna.exe":
             return OfferInstruction(
                 OfferDecision.STOP_WRONG_ENVIRONMENT,
-                "Foreground application is not WindowHub; locate and activate it first.",
+                "Otwórz WindowHub i przełącz jego okno na pierwszy plan. Jeśli program wymaga logowania, zaloguj się w nim, a potem wznów zadanie.",
                 "other_application",
             )
 
         title = scene.observation.state.active_window_title or ""
+        # Check access before resolving an offer action. Never inspect field values
+        # to identify login; only the title and visible native control labels.
+        login_titles = {"logowanie", "logowanie do programu", "logowanie do windowhub",
+                        "windowhub - logowanie", "windowhub logowanie", "login", "anmeldung"}
+        password_labels = {"haslo", "haslo:", "password", "password:", "passwort", "passwort:"}
+        login_visible = normalize_uia_text(title) in login_titles or any(
+            (element.metadata or {}).get("source") in {"windowhub_ui_automation", "windows_ui_automation"}
+            and (element.metadata or {}).get("uia_visible") is True
+            and (normalize_uia_text(element.label or "") in password_labels
+                 or (element.metadata or {}).get("uia_is_password") is True)
+            for element in scene.elements
+        )
+        if login_visible:
+            return OfferInstruction(
+                OfferDecision.WAIT_USER_LOGIN,
+                "Zaloguj się bezpośrednio w WindowHub. Nie wpisuj hasła na czacie. "
+                "Po zalogowaniu wznów zadanie; agent ponownie odczyta bieżący etap oferty.",
+                "login",
+            )
         snapshot = self.form_map.inspect(scene)
         if snapshot is not None:
             if snapshot.step is WindowHubFormStep.POSITION:
