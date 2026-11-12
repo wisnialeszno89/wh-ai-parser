@@ -230,6 +230,8 @@ class DesktopWithBrowser:
         browser.results = self.results
         self.root = tables.root
 
+    def __getattr__(self,name):return getattr(self.tables,name)
+
     def status(self):
         return {**self.tables.status(), 'browser': {'available': not self.browser.page.is_closed(), 'scope': 'owned_chromium_tab'}}
 

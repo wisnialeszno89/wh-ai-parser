@@ -262,3 +262,17 @@ def test_browser_observation_requires_pairing_and_an_enabled_browser(tmp_path):
         response = request(browser, path='/browser/observe', **kwargs)
         assert '403 Forbidden' in response and 'synthetic browser page' not in response
     assert '204 No Content' in request(browser, method='OPTIONS', path='/browser/observe', extra='Access-Control-Request-Method: GET\r\nAccess-Control-Request-Headers: authorization\r\n')
+
+
+def test_native_start_and_observe_are_paired_and_opt_in(tmp_path):
+    base=TableExecutor(tmp_path,Writer())
+    assert '409 Conflict' in request(base,method='POST',path='/native/start',body={})
+    class Native:
+        results={}
+        def native_start(self,body):assert body=={};return {'scope':'owned_paint_window'}
+        def native_observe(self):return {'scope':'owned_paint_window'}
+    e=Native()
+    assert '200 OK' in request(e,method='POST',path='/native/start',body={})
+    assert '200 OK' in request(e,path='/native/observe')
+    for kwargs in [{'token':'wrong'},{'origin':'https://evil.example'},{'host':'evil.example:43127'}]:
+        assert '403 Forbidden' in request(e,method='POST',path='/native/start',body={},**kwargs)

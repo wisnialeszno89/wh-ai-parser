@@ -149,6 +149,8 @@ class DesktopWithPaint:
         self.tables,self.launcher=tables,launcher
         self.results=tables.results;self.root=tables.root
         self.lock=threading.Lock()
+    def __getattr__(self,name):return getattr(self.tables,name)
+
     def status(self):
         status=self.tables.status()
         return {**status,'capabilities':[*status['capabilities'],'draw_window_in_paint'],'paint':{'available':True,'method':'render_png_open_paint'}}

@@ -550,7 +550,7 @@ def handler_for(executor, token, port=PORT, origins=None):
 
         def do_OPTIONS(self):
             headers = {h.strip().lower() for h in self.headers.get('Access-Control-Request-Headers', '').split(',') if h.strip()}
-            if not self.trusted() or (self.path not in {'/status', '/execute', '/browser/observe'} and not re.fullmatch(r'/result/[a-zA-Z0-9-]{16,80}', self.path)) or not headers <= {'authorization', 'content-type'} or self.headers.get('Access-Control-Request-Method') not in {'GET', 'POST'}:
+            if not self.trusted() or (self.path not in {'/status', '/execute', '/browser/observe', '/native/start', '/native/observe'} and not re.fullmatch(r'/result/[a-zA-Z0-9-]{16,80}', self.path)) or not headers <= {'authorization', 'content-type'} or self.headers.get('Access-Control-Request-Method') not in {'GET', 'POST'}:
                 return self.send_json(403, {'error': 'ORIGIN_DENIED'})
             self.send_response(204)
             self.send_header('Access-Control-Allow-Origin', self.headers['Origin'])
@@ -571,6 +571,10 @@ def handler_for(executor, token, port=PORT, origins=None):
                 job_id = self.path.removeprefix('/result/')
                 cached = executor.results.get(job_id)
                 return self.send_json(200, cached[1]) if cached else self.send_json(404, {'status': 'review', 'message': 'Nie znaleziono wyniku w tej sesji wykonawcy. Sprawdź plik i okno PowerShell; zadania nie ponowiono.'})
+            if self.path == '/native/observe':
+                if not hasattr(executor,'native_observe'):return self.send_json(409,{'message':'Uruchom z --native-paint.'})
+                try:return self.send_json(200,executor.native_observe())
+                except Exception:return self.send_json(409,{'message':'Nie potwierdzono wybranego okna. Wroc do Painta sesji.'})
             if self.path == '/browser/observe':
                 if not hasattr(executor, 'browser_observe'):
                     return self.send_json(409, {'status': 'review', 'message': 'Uruchom wykonawcę z --browser, aby połączyć przeglądarkę.'})
@@ -588,7 +592,7 @@ def handler_for(executor, token, port=PORT, origins=None):
         def do_POST(self):
             if not self.authorized():
                 return self.send_json(403, {'error': 'PAIRING_REQUIRED'})
-            if self.path != '/execute':
+            if self.path not in {'/execute','/native/start'}:
                 return self.send_json(404, {'error': 'NOT_FOUND'})
             try:
                 if self.headers.get('Transfer-Encoding') or self.headers.get('Content-Type', '').split(';')[0] != 'application/json':
@@ -598,7 +602,11 @@ def handler_for(executor, token, port=PORT, origins=None):
                     raise ValueError('Nieprawidłowy rozmiar zadania.')
                 self.connection.settimeout(10)
                 body = json.loads(self.rfile.read(size))
-                result = executor.execute(body)
+                if self.path=='/native/start':
+                    if not hasattr(executor,'native_start'):return self.send_json(409,{'message':'Uruchom z --native-paint.'})
+                    result=executor.native_start(body)
+                else:
+                    result = executor.execute(body)
                 self.send_json(200, result)
             except (ValueError, UnicodeError) as exc:
                 self.send_json(400, {'status': 'review', 'message': str(exc)})
@@ -617,6 +625,7 @@ def desktop_path():
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--execute-live', action='store_true')
+    parser.add_argument('--native-paint', action='store_true', help='Pilot sterowania nowym oknem Painta na podstawie obrazu.')
     parser.add_argument('--paint', action='store_true', help='Twórz schematy PNG i otwieraj je w nowym oknie Painta Windows 10.')
     parser.add_argument('--browser', action='store_true', help='Otwórz osobne okno Chromium sterowane przez NaviMind.')
     args = parser.parse_args()
@@ -644,6 +653,21 @@ def main():
         except ImportError:
             from navimind_paint import DesktopWithPaint, PaintLauncher
         executor = DesktopWithPaint(executor, PaintLauncher())
+    try:
+        from .navimind_system import DesktopWithDiagnostics
+    except ImportError:
+        from navimind_system import DesktopWithDiagnostics
+    executor = DesktopWithDiagnostics(executor)
+    if args.native_paint:
+        try:
+            try:
+                from .navimind_native import DesktopWithNative, start_native_paint
+            except ImportError:
+                from navimind_native import DesktopWithNative, start_native_paint
+            executor = DesktopWithNative(executor,start_native_paint(executor.root))
+        except Exception as exc:
+            print('NATIVE_START=review ' + str(exc)[:500],flush=True)
+            return 6
     browser_runtime = browser_context = None
     if args.browser:
         try:
@@ -667,6 +691,8 @@ def main():
         print('DESKTOP_BRIDGE=port_busy Zamknij poprzednie okno wykonawcy i ponów.')
         return 6
     print('DESKTOP_BRIDGE=ready', flush=True)
+    if args.native_paint:
+        print('NATIVE=ready Nowy Paint sesji. Wybierz tryb Aplikacja w NaviMind.',flush=True)
     if args.paint:
         print('PAINT=ready Schemat PNG i nowe okno Painta Windows 10.', flush=True)
     if args.browser:

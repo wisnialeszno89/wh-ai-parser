@@ -54,12 +54,38 @@ class WindowsVisualDriver:
         self.window.set_focus()
         if int(self.user32.GetForegroundWindow() or 0)!=self.hwnd:raise RuntimeError('visual_focus_denied')
 
+    def focus(self):
+        from ctypes import wintypes
+        actual=wintypes.DWORD()
+        self.user32.GetWindowThreadProcessId(self.hwnd,ctypes.byref(actual))
+        if actual.value!=self.pid:raise RuntimeError('visual_scope_changed')
+        self.window.set_focus();self._check()
+
     def _check(self):
         from ctypes import wintypes
         actual=wintypes.DWORD()
         self.user32.GetWindowThreadProcessId(self.hwnd,ctypes.byref(actual))
         if actual.value!=self.pid or int(self.user32.GetForegroundWindow() or 0)!=self.hwnd:
             raise RuntimeError('visual_scope_or_foreground_changed')
+
+    def assert_unobscured(self):
+        import win32gui,win32process
+        with physical_coordinates():
+            self._check();l,t,r,b=self._client_box();other=win32gui.GetWindow(self.hwnd,3);seen=set()
+            while other and other not in seen:
+                seen.add(other)
+                if win32gui.IsWindowVisible(other) and not win32gui.IsIconic(other):
+                    pid=win32process.GetWindowThreadProcessId(other)[1]
+                    if pid!=self.pid:
+                        a,c,d,e=win32gui.GetWindowRect(other)
+                        if max(l,a)<min(r,d) and max(t,c)<min(b,e):raise RuntimeError('visual_window_obscured')
+                other=win32gui.GetWindow(other,3)
+
+    def park_pointer(self):
+        from pywinauto import mouse
+        with physical_coordinates():
+            self._check();l,t,r,b=self._client_box();x=(l+r)//2;y=t+(b-t)*3//4
+            self._owned_point(x,y);mouse.move(coords=(x,y))
 
     def _client_box(self):
         from ctypes import wintypes
@@ -118,10 +144,20 @@ class WindowsVisualDriver:
                 x,y=model_to_window(frame,action['x'],action['y']);l,t,_,_=frame.token.window_box
                 self._owned_point(l+x,t+y)
                 mouse.click(coords=(l+x,t+y))
+            elif kind=='drag':
+                points=[model_to_window(frame,p['x'],p['y']) for p in action['points']]
+                l,t,_,_=frame.token.window_box
+                points=[(l+x,t+y) for x,y in points]
+                for x,y in points:self._owned_point(x,y)
+                self._check();mouse.press(coords=points[0]);last=points[0]
+                try:
+                    for x,y in points[1:]:
+                        self._check();self._owned_point(x,y);mouse.move(coords=(x,y));last=(x,y);time.sleep(.1)
+                finally:mouse.release(coords=last)
             elif kind=='type_text':
                 self._type_text(action['text'], send_keys)
             elif kind=='key':
-                keys={'CTRL+A':'^a','BACKSPACE':'{BACKSPACE}','HOME':'{HOME}','END':'{END}','TAB':'{TAB}','ESC':'{ESC}','ENTER':'{ENTER}'}
+                keys={'CTRL+A':'^a','BACKSPACE':'{BACKSPACE}','HOME':'{HOME}','END':'{END}','TAB':'{TAB}','ESC':'{ESC}','ENTER':'{ENTER}','CTRL+S':'^s','CTRL+Z':'^z','CTRL+Y':'^y','DELETE':'{DELETE}','SHIFT+TAB':'+{TAB}','LEFT':'{LEFT}','RIGHT':'{RIGHT}','UP':'{UP}','DOWN':'{DOWN}'}
                 if action['key']=='ENTER' and not self.allow_enter:raise ValueError('visual_enter_not_authorized')
                 send_keys(keys[action['key']],vk_packet=False,pause=.05)
             elif kind=='scroll':
