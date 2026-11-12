@@ -115,16 +115,29 @@ def test_fill_resolves_new_rows_and_detects_a_reset(monkeypatch, reset_first_row
     monkeypatch.setattr(pagen, "_rows", lambda page: rows)
     page.get_by_role.return_value.is_visible.return_value = False
 
+    profile = MagicMock()
+    profile.count.return_value = 1
+    profile.evaluate.return_value = [{"label": example_order()["profile"], "value": "profile-17", "disabled": False}]
+    profile.input_value.return_value = "profile-17"
+    original_get_by_role = page.get_by_role.return_value
+    page.get_by_role.side_effect = lambda role, **kwargs: profile if kwargs.get("name") == "Wybierz profil okien" else original_get_by_role
+
     def make_row():
         fields = {label: MagicMock() for label, _ in pagen._NUMBER_FIELDS}
         row = MagicMock()
         type_field = row.get_by_role.return_value
 
-        def select_type(label):
-            type_field.input_value.return_value = label
+        type_field.count.return_value = 1
+        type_field.evaluate.return_value = [
+            {"label": "Okno dwuskrzydłowe", "value": "double-41", "disabled": False},
+            {"label": "Okno stałe", "value": "fixed-22", "disabled": False},
+        ]
+        def select_type(value):
+            type_field.input_value.return_value = value
 
         type_field.select_option.side_effect = select_type
         for control in fields.values():
+            control.count.return_value = 1
             control.fill.side_effect = (
                 lambda value, control=control: setattr(control.input_value, "return_value", value)
             )
@@ -148,7 +161,7 @@ def test_fill_resolves_new_rows_and_detects_a_reset(monkeypatch, reset_first_row
             replacement_field["Szerokość [mm]"].input_value.return_value = ""
         active_rows[:] = [replacement, second]
 
-    page.get_by_role.return_value.click.side_effect = add_row
+    original_get_by_role.click.side_effect = add_row
     order = pagen.PagenOrder.from_dict(example_order())
 
     if reset_first_row:
@@ -156,6 +169,9 @@ def test_fill_resolves_new_rows_and_detects_a_reset(monkeypatch, reset_first_row
             pagen.fill_pagen_order(page, order)
         second.get_by_role.return_value.select_option.assert_not_called()
     else:
-        pagen.fill_pagen_order(page, order)
+        report = pagen.fill_pagen_order(page, order)
+        assert report["status"] == "form_verified" and report["submitted"] is False
+        assert report["profile"]["observed_value"] == "profile-17"
+        assert report["positions"][1]["observed"]["window_type_value"] == "fixed-22"
         second_field["Szerokość [mm]"].fill.assert_called_once_with("1500")
         replacement_field["Szerokość [mm]"].input_value.assert_called()

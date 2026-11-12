@@ -9,6 +9,7 @@ from email.parser import BytesParser
 from urllib.parse import parse_qs, urlsplit
 
 from app.agent.offers.windowhub_position_mission import WindowPositionRequest
+from app.agent.offers.catalog_control_binding import bind_catalog_choice
 
 PAGEN_URL = "https://pagen.pl/pl/konfigurator-wyceny-okien"
 _ADD_LABEL = "Dodaj kolejne okno"
@@ -102,20 +103,53 @@ def _field(row, label):
     return row.get_by_role("spinbutton", name=label, exact=True)
 
 
-def _verify_rows(page, positions: tuple[PagenPosition, ...]) -> None:
+_READ_OPTIONS = """el => Array.from(el.options).map(o => ({
+    label: o.label, value: o.value,
+    disabled: !!o.disabled || !!o.closest('optgroup[disabled]')
+}))"""
+
+
+def _select_observed(control, requested):
+    if control.count() != 1 or not control.is_visible() or not control.is_enabled():
+        raise ValueError("Kontrolka wyboru nie jest jednoznaczna, widoczna i dostępna.")
+    options = control.evaluate(_READ_OPTIONS)
+    binding = bind_catalog_choice(requested, options)
+    if binding.status != "bound":
+        raise ValueError(f"{requested}: {binding.reason}")
+    # Re-read before input: a changing catalog invalidates the prepared choice.
+    if control.evaluate(_READ_OPTIONS) != options or not control.is_enabled():
+        raise ValueError("Katalog zmienił się przed wyborem. Odczytaj formularz ponownie.")
+    control.select_option(value=binding.value)
+    if control.input_value() != binding.value:
+        raise ValueError("Odczyt kontrolki nie potwierdził wybranej opcji.")
+    return {"requested": requested, "observed_label": binding.label, "observed_value": binding.value}
+
+
+def _verify_rows(page, positions: tuple[PagenPosition, ...]) -> list[dict]:
     rows = _rows(page)
+    verified = []
     for index, position in enumerate(positions):
         row = rows.nth(index)
-        expected = [position.window_type]
-        actual = [row.get_by_role("combobox").input_value()]
+        type_control = row.get_by_role("combobox")
+        binding = bind_catalog_choice(position.window_type, type_control.evaluate(_READ_OPTIONS))
+        if binding.status != "bound":
+            raise ValueError(f"Pozycja {index + 1}: katalog nie potwierdza typu okna.")
+        expected = [binding.value]
+        actual = [type_control.input_value()]
         for label, attribute in _NUMBER_FIELDS:
             expected.append(str(getattr(position.dimensions, attribute)))
             actual.append(_field(row, label).input_value())
         if actual != expected:
             raise ValueError(f"Pozycja {index + 1} różni się od zlecenia. Odczytano {actual!r}, oczekiwano {expected!r}.")
+        verified.append({"position": index + 1,
+                         "requested": {"window_type": position.window_type,
+                                       **{attribute: getattr(position.dimensions, attribute) for _, attribute in _NUMBER_FIELDS}},
+                         "observed": {"window_type_label": binding.label, "window_type_value": actual[0],
+                                      **{attribute: int(actual[number + 1]) for number, (_, attribute) in enumerate(_NUMBER_FIELDS)}}})
+    return verified
 
 
-def fill_pagen_order(page, order: PagenOrder) -> None:
+def fill_pagen_order(page, order: PagenOrder) -> dict:
     """Fill a fresh isolated page. Only the add-row AJAX POST may leave it."""
     from playwright.sync_api import expect
 
@@ -129,7 +163,8 @@ def fill_pagen_order(page, order: PagenOrder) -> None:
         reject.click()
 
     profile = page.get_by_role("combobox", name="Wybierz profil okien", exact=True)
-    profile.select_option(label=order.profile)
+    profile_evidence = _select_observed(profile, order.profile)
+    position_evidence = []
     rows = _rows(page)
     expect(rows).to_have_count(1)
     add = page.get_by_role("button", name=_ADD_LABEL, exact=True)
@@ -139,10 +174,28 @@ def fill_pagen_order(page, order: PagenOrder) -> None:
             expect(rows).to_have_count(index + 1)
             _verify_rows(page, order.positions[:index])
         row = rows.nth(index)
-        row.get_by_role("combobox").select_option(label=position.window_type)
+        type_evidence = _select_observed(row.get_by_role("combobox"), position.window_type)
         for label, attribute in _NUMBER_FIELDS:
-            _field(row, label).fill(str(getattr(position.dimensions, attribute)))
+            control = _field(row, label)
+            if control.count() != 1 or not control.is_visible() or not control.is_enabled():
+                raise ValueError(f"Pozycja {index + 1}: pole {label} jest niedostępne lub niejednoznaczne.")
+            desired = str(getattr(position.dimensions, attribute))
+            control.fill(desired)
+            if control.input_value() != desired:
+                raise ValueError(f"Pozycja {index + 1}: nie potwierdzono pola {label}.")
+        position_evidence.append({"position": index + 1, "type": type_evidence,
+                                  **{attribute: getattr(position.dimensions, attribute) for _, attribute in _NUMBER_FIELDS}})
 
     expect(rows).to_have_count(len(order.positions))
-    expect(profile).to_have_value(order.profile)
-    _verify_rows(page, order.positions)
+    expect(profile).to_have_value(profile_evidence["observed_value"])
+    readback = _verify_rows(page, order.positions)
+
+    # Catalog and all prior rows are verified again after the last edit.
+    final_profile = bind_catalog_choice(order.profile, profile.evaluate(_READ_OPTIONS))
+    if final_profile.status != "bound" or profile.input_value() != final_profile.value:
+        raise ValueError("Profil zmienił się przed końcowym odczytem.")
+    return {"status": "form_verified", "evidence": "browser_dom_readback",
+            "url": PAGEN_URL, "profile": profile_evidence, "positions": readback,
+            "selection_trace": position_evidence,
+            "submitted": False, "wh_offer_created": False,
+            "sales_review_required": True}
