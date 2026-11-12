@@ -98,3 +98,48 @@ class BrowserTests(unittest.TestCase):
             with self.subTest(url=url),self.assertRaises(ValueError):public_url(url)
 
 if __name__=='__main__':unittest.main()
+
+
+def test_saved_browser_view_is_local_read_back_and_idempotent(tmp_path):
+    from io import BytesIO
+    from PIL import Image
+    page = Page()
+    stream = BytesIO()
+    Image.new('RGB', (100, 80), 'white').save(stream, format='PNG')
+    captures = []
+    def screenshot(**kwargs):
+        captures.append(kwargs)
+        return stream.getvalue()
+    page.screenshot = screenshot
+    agent = BrowserController(page)
+    agent.export_root = tmp_path
+    view = agent.observe()
+    body = dict(id='save-view-test-000001', task=dict(kind='browser_save_snapshot'), expectedRevision=view['revision'])
+    result = agent.execute(body)
+    assert result['status'] == 'verified'
+    saved = result['browser_export']
+    assert Path(saved['image_file']).is_file()
+    report = json.loads(Path(saved['report_file']).read_text(encoding='utf-8'))
+    assert report['url'] == 'https://example.org/orders'
+    assert report['price_verified'] is False and report['goal_verified'] is False
+    assert 'private-token' not in json.dumps(report)
+    assert agent.execute(body) == result and len(captures) == 1
+    assert page.clicks == 0 and page.fills == 0
+
+
+def test_export_rejects_paths_and_changed_view(tmp_path):
+    import pytest
+    with pytest.raises(ValueError):
+        validate_browser_task(dict(kind='browser_save_snapshot', path='C:/Windows/test.png'))
+    from io import BytesIO
+    from PIL import Image
+    stream=BytesIO();Image.new('RGB',(10,10),'white').save(stream,format='PNG')
+    page=Page()
+    def screenshot(**kwargs):
+        page.text='Changed during capture'
+        return stream.getvalue()
+    page.screenshot=screenshot
+    agent=BrowserController(page);agent.export_root=tmp_path
+    view=agent.observe()
+    result=agent.execute(dict(id='save-changed-view-0001',task=dict(kind='browser_save_snapshot'),expectedRevision=view['revision']))
+    assert result['code']=='STALE_PAGE' and not list(tmp_path.rglob('*.png'))

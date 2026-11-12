@@ -42,7 +42,7 @@ def validate_browser_task(task):
     if not isinstance(task, dict):
         raise ValueError('Nieprawidłowy krok przeglądarki.')
     kind = task.get('kind')
-    fields = {'browser_navigate': {'kind', 'url'}, 'browser_click': {'kind', 'ref'}, 'browser_fill': {'kind', 'ref', 'text'}, 'browser_select': {'kind', 'ref', 'value'}, 'browser_scroll': {'kind', 'direction'}, 'browser_back': {'kind'}}
+    fields = {'browser_navigate': {'kind', 'url'}, 'browser_click': {'kind', 'ref'}, 'browser_fill': {'kind', 'ref', 'text'}, 'browser_select': {'kind', 'ref', 'value'}, 'browser_scroll': {'kind', 'direction'}, 'browser_back': {'kind'}, 'browser_save_snapshot': {'kind'}}
     if kind not in fields or set(task) != fields[kind]:
         raise ValueError('Nieobsługiwany krok przeglądarki.')
     if 'url' in task:
@@ -82,6 +82,7 @@ class BrowserController:
         self.page = page
         self.results = results if results is not None else {}
         self.test_mode = test_mode
+        self.export_root = None
         self.lock = threading.Lock()
         self.refs = {}
         self.latest = None
@@ -193,6 +194,44 @@ class BrowserController:
         self.page.wait_for_timeout(350)
         return 'Kliknięto wskazany element i odczytano stronę po kroku. Oceń efekt w nowym widoku.'
 
+    def _save_snapshot(self):
+        if self.export_root is None:
+            raise ValueError('Zapis wymaga wykonawcy połączonego z obszarem NaviMind-Praca. Zaktualizuj i uruchom wykonawcę ponownie.')
+        import io
+        from PIL import Image
+        root = Path(self.export_root)
+        folder = root / 'Wyniki-kreatora'
+        def linked(path):
+            return path.is_symlink() or (hasattr(path, 'is_junction') and path.is_junction())
+        if linked(root) or linked(folder):
+            raise ValueError('Folder zapisu nie może być dowiązaniem.')
+        before = self._capture()
+        png = self.page.screenshot(type='png', full_page=False, animations='disabled')
+        if not isinstance(png, bytes) or len(png) > 15000000:
+            raise ValueError('Nie potwierdzono zrzutu widoku.')
+        with Image.open(io.BytesIO(png)) as image:
+            if image.format != 'PNG':
+                raise ValueError('Nieprawidłowy format zrzutu.')
+            image.verify()
+        after = self._capture()
+        if before['revision'] != after['revision']:
+            raise StalePage('Widok zmienił się podczas zapisu. Nie zapisano wyniku.')
+        folder.mkdir(parents=True, exist_ok=True)
+        destination = folder / ('wynik-' + secrets.token_hex(8))
+        destination.mkdir()
+        image_path, report_path = destination / 'podglad.png', destination / 'odczyt.json'
+        report = {'status': 'snapshot_saved', 'url': after['url'], 'title': after['title'],
+                  'page_text': after['text'], 'source_revision': after['revision'],
+                  'screenshot_scope': 'viewport', 'field_values_included': False,
+                  'goal_verified': False, 'price_verified': False,
+                  'note': 'Zapis widoku strony. Nie potwierdza zgodności całej oferty ani wyceny.'}
+        image_path.write_bytes(png)
+        report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+        if image_path.read_bytes() != png or json.loads(report_path.read_text(encoding='utf-8')) != report:
+            raise ValueError('Odczyt zapisanych plików różni się od wyniku.')
+        return {'image_file': str(image_path), 'report_file': str(report_path),
+                'goal_verified': False, 'price_verified': False, 'screenshot_scope': 'viewport'}
+
     def execute(self, body):
         if not isinstance(body, dict) or set(body) != {'id', 'task', 'expectedRevision'} or not isinstance(body['id'], str) or not re.fullmatch(r'[a-zA-Z0-9-]{16,80}', body['id']):
             raise ValueError('Nieprawidłowe zadanie przeglądarki.')
@@ -211,10 +250,14 @@ class BrowserController:
             try:
                 if not self.latest or body['expectedRevision'] != self.latest['revision'] or self._capture()['revision'] != body['expectedRevision']:
                     raise StalePage('Strona zmieniła się od przygotowania kroku. Odczytaj ją ponownie.')
-                message = self._act(task)
+                saved = self._save_snapshot() if task['kind'] == 'browser_save_snapshot' else None
+                message = ('Zapisano i odczytano z dysku zrzut aktualnego widoku i raport strony. Zgodność konfiguracji i ceny wymaga osobnego sprawdzenia.'
+                           if saved else self._act(task))
                 self.sequence += 1
                 snapshot = self.observe()
                 result = {'status': 'verified', 'message': message, 'browser': snapshot}
+                if saved:
+                    result['browser_export'] = saved
             except Exception as exc:
                 # Page text, credentials and request URLs are not persisted to trace files.
                 message = str(exc)[:600] if isinstance(exc, ValueError) else 'Nie potwierdzono kroku przeglądarki. Sprawdź widoczne okno; zadania nie ponowiono. (' + type(exc).__name__ + ')'
@@ -229,6 +272,7 @@ class DesktopWithBrowser:
         self.results = tables.results
         browser.results = self.results
         self.root = tables.root
+        browser.export_root = self.root
 
     def __getattr__(self,name):return getattr(self.tables,name)
 
