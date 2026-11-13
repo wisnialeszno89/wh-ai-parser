@@ -8,6 +8,7 @@
 <button type="button" id="preview">Pokaż podgląd</button><div id="summary" role="status"></div></section>
 <script>
 let customer='';const byId=id=>document.getElementById(id);
+for(const id of ['width','height','color','opening'])for(const event of ['input','change'])byId(id).addEventListener(event,()=>{byId('summary').textContent='';});
 byId('search').addEventListener('input',()=>{const list=byId('customers');list.replaceChildren();for(const name of ['Top Trans S.A.','Top Trans','Baupartner'])if(byId('search').value&&name.toLowerCase().includes(byId('search').value.toLowerCase())){const b=document.createElement('button');b.type='button';b.textContent=name;b.onclick=()=>{customer=name;byId('chosen').textContent='Wybrany klient: '+name;list.replaceChildren();byId('summary').textContent='';};list.append(b);}});
 byId('preview').onclick=()=>{const w=Number(byId('width').value),h=Number(byId('height').value),color=byId('color').value,opening=byId('opening').value;byId('summary').textContent=customer&&w>=100&&w<=10000&&h>=100&&h<=10000&&color&&opening?`PODGLĄD GOTOWY\nKlient: ${customer}\nSzerokość: ${w} mm\nWysokość: ${h} mm\nKolor: ${color}\nOkucie: ${opening}`:'Uzupełnij klienta, wymiary, kolor i okucie.';};
 </script></html>

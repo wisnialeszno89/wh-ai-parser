@@ -9,6 +9,9 @@ on:
       - 'requirements-window-offer-lab.txt'
       - 'tools/check_window_offer_pipeline.py'
       - 'tools/test_window_offer_pipeline.ps1'
+      - 'tools/navimind_browser.py'
+      - 'tools/navimind_browser_lab.html'
+      - 'tools/test_navimind_browser_live.py'
       - 'tests/test_window_offer*.py'
       - 'tests/test_task_document_completeness.py'
       - '.github/workflows/window-offer-lab.yml'
@@ -35,3 +38,9 @@ jobs:
           name: window-offer-lab-windows
           path: ${{ runner.temp }}/window-offer-lab
           if-no-files-found: ignore
+      - name: Install Chromium for the browser continuation regression
+        shell: powershell
+        run: .\.venv-offer-lab\Scripts\python.exe -m playwright install chromium
+      - name: Verify correction after preview and scrolling in actual Chromium
+        shell: powershell
+        run: .\.venv-offer-lab\Scripts\python.exe .\tools\test_navimind_browser_live.py --execute-live --headless

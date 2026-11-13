@@ -61,7 +61,10 @@ COLLECT = """els => {
  const clip = (s,n) => String(s || '').replace(/\\s+/g,' ').trim().slice(0,n);
  const controls = els.map((el,index) => {
   const r=el.getBoundingClientRect(), style=getComputedStyle(el);
-  if(!r.width || !r.height || r.bottom<0 || r.top>innerHeight || style.visibility==='hidden' || style.display==='none' || el.type==='hidden') return null;
+  // Rendered fields outside the viewport remain actionable by Playwright.
+  // Excluding them made a second command lose
+  // access to earlier fields after the preview moved the viewport down.
+  if(!r.width || !r.height || style.visibility==='hidden' || style.display==='none' || el.type==='hidden') return null;
   const labelled=clip((el.getAttribute('aria-labelledby')||'').split(' ').map(id=>document.getElementById(id)?.innerText||'').join(' '),180);
   const name=clip(el.getAttribute('aria-label') || labelled || Array.from(el.labels||[]).map(l=>l.innerText).join(' ') || el.innerText || el.getAttribute('placeholder') || el.title || el.name,180);
   return {index,tag:el.tagName.toLowerCase(),role:el.getAttribute('role')||'',type:el.type||'',name,href:el.tagName==='A'?el.href:'',disabled:!!el.disabled || el.getAttribute('aria-disabled')==='true',checked:!!el.checked,submits_form:el.type==='submit' && !!el.form,
