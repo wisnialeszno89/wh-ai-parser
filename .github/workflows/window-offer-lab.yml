@@ -12,6 +12,9 @@ on:
       - 'tools/navimind_browser.py'
       - 'tools/navimind_browser_lab.html'
       - 'tools/test_navimind_browser_live.py'
+      - 'tools/test_navimind_browser_suite.py'
+      - 'tools/test_navimind_regression.ps1'
+      - 'tests/test_navimind_browser.py'
       - 'tests/test_window_offer*.py'
       - 'tests/test_task_document_completeness.py'
       - '.github/workflows/window-offer-lab.yml'
@@ -28,9 +31,9 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
-      - name: Test the actual Windows PowerShell entry point
+      - name: Test the unified Windows PowerShell regression entry point
         shell: powershell
-        run: .\tools\test_window_offer_pipeline.ps1 -InstallDependencies -OutputDirectory "$env:RUNNER_TEMP\window-offer-lab"
+        run: .\tools\test_navimind_regression.ps1 -InstallDependencies -Headless -OutputDirectory "$env:RUNNER_TEMP\window-offer-lab"
       - name: Preserve the synthetic local report
         uses: actions/upload-artifact@v4
         if: always()
@@ -38,9 +41,3 @@ jobs:
           name: window-offer-lab-windows
           path: ${{ runner.temp }}/window-offer-lab
           if-no-files-found: ignore
-      - name: Install Chromium for the browser continuation regression
-        shell: powershell
-        run: .\.venv-offer-lab\Scripts\python.exe -m playwright install chromium
-      - name: Verify correction after preview and scrolling in actual Chromium
-        shell: powershell
-        run: .\.venv-offer-lab\Scripts\python.exe .\tools\test_navimind_browser_live.py --execute-live --headless
