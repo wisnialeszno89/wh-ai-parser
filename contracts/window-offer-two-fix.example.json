@@ -1,0 +1,90 @@
+{
+  "schema_version": "window-offer/1",
+  "source": {
+    "kind": "text",
+    "sha256": "4c6192aa30b08704dc916bc156b6cff66127f81d6dfc40aad640b29310894b45",
+    "pages": null
+  },
+  "positions": [
+    {
+      "id": "1",
+      "source_id": "1",
+      "source_page": null,
+      "quantity": 2,
+      "kind": "window",
+      "width_mm": 1230,
+      "height_mm": 1478,
+      "transport_extension_mm": null,
+      "opening": "FIX",
+      "color_inside": "white",
+      "color_outside": "white",
+      "glazing_panes": null,
+      "ug": null,
+      "profile_reference": "Okna PVC Premium Line (Salamander)",
+      "requirements": [],
+      "evidence": [
+        {
+          "page": null,
+          "description": "Pos. 1: Fenster FIX, 2 Stk., 1230 x 1478 mm, Weiss/weiss. Profil: Okna PVC Premium Line (Salamander)."
+        }
+      ],
+      "ambiguities": [],
+      "field_status": {
+        "quantity": "reported",
+        "kind": "reported",
+        "width_mm": "reported",
+        "height_mm": "reported",
+        "transport_extension_mm": "missing",
+        "opening": "reported",
+        "color_inside": "reported",
+        "color_outside": "reported",
+        "glazing_panes": "missing",
+        "ug": "missing",
+        "profile_reference": "reported"
+      }
+    },
+    {
+      "id": "2",
+      "source_id": "2",
+      "source_page": null,
+      "quantity": 1,
+      "kind": "window",
+      "width_mm": 1100,
+      "height_mm": 950,
+      "transport_extension_mm": null,
+      "opening": "FIX",
+      "color_inside": "white",
+      "color_outside": "white",
+      "glazing_panes": null,
+      "ug": null,
+      "profile_reference": "Okna PVC Premium Line (Salamander)",
+      "requirements": [],
+      "evidence": [
+        {
+          "page": null,
+          "description": "Pos. 2: Fenster FIX, 1 Stk., 1100 x 950 mm, Weiss/weiss. Profil: Okna PVC Premium Line (Salamander)."
+        }
+      ],
+      "ambiguities": [],
+      "field_status": {
+        "quantity": "reported",
+        "kind": "reported",
+        "width_mm": "reported",
+        "height_mm": "reported",
+        "transport_extension_mm": "missing",
+        "opening": "reported",
+        "color_inside": "reported",
+        "color_outside": "reported",
+        "glazing_panes": "missing",
+        "ug": "missing",
+        "profile_reference": "reported"
+      }
+    }
+  ],
+  "notes": [],
+  "audit_issues": [],
+  "corrections": [],
+  "requires_clarification": false,
+  "sales_review_required": true,
+  "executed": false
+}
