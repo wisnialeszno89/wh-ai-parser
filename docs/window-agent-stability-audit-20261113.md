@@ -107,3 +107,50 @@ sprawdzał wartości mm według etykiet; niczego nie zamówiono ani nie wycenion
 
 Nie rozszerzać teraz zakresu o płatności, licencje i kosmetykę strony.
 Priorytetem pozostaje zgodność danych i powtarzalna realizacja oferty okiennej.
+
+## Kontynuacja: wspólna specyfikacja i modelowe zapytania PL/DE
+
+Dodano wspólny kontrakt `window-offer/1` oraz bezpośrednie wejście
+`run_pagen_order.py --specification-file`. Opis i ograniczenia:
+[window-offer-specification-v1.md](window-offer-specification-v1.md).
+Identyczny schemat i przykład są w obu repozytoriach. Eksporter TypeScript
+rzeczywiście zapisał JSON, który odczytał Python bez przepisywania pól;
+prosta pozycja FIX została przygotowana jako `ready_for_form`.
+Jest to test syntetycznej specyfikacji, bez GUI i bez ceny.
+
+Po kontynuacji: 136 testów NaviMind, 134 testy wykonawcy/importu/katalogu
+przeszły. TypeScript i lokalny build przeszły, pakiet PDF ma potwierdzony render.
+Modelowe testy lokalnego builda są jawnie pomijane bez konfiguracji Vercel.
+
+Vercel, commit NaviMind `f609643d`, wdrożenie
+`navimind-qv34lhtl7-adams-projects-080d3918.vercel.app`:
+log potwierdził `ENQUIRY_LIVE_EVAL=verified CASES=3 POSITIONS=6` i
+`PDF_PACKAGED_RENDER=verified`, kontrola PDF wykorzystała udany cache.
+Pierwszy build nowej implementacji (`75838ff6`) wykonał również świeży test PDF:
+`PDF_LIVE_EVAL=verified MODEL=gpt-6.1-terra POSITIONS=2 SOURCE_AND_CORRECTION=verified`.
+
+Rzeczywiste wywołania modelu na trzech wygenerowanych tekstach sprawdziły:
+numerację i kompletność sześciu pozycji, ilości, wymiary z cm/mm, rodzaj produktu,
+konwencję R/L zależną od produktu, zachowanie jawnego DKR przy drzwiach,
+kolory po stronach, profil odniesienia, elektrozaczep tylko we wskazanej pozycji
+oraz niejednoznaczną ilość i nieprzypisaną parę kolorów. To niewielki zestaw
+regresyjny modelu, nie miara skuteczności na całym rynku ani skanach klientów.
+Nie zmienia wyniku 2/8 starszego lokalnego parsera regułowego; dodaje osobny,
+modelowy tor ekstrakcji zamiast rozszerzać ten parser o kolejne kruche wzorce.
+
+Reguła potwierdzona przez Adama: samo R/L przy oknie → DKR/DKL, przy drzwiach
+→ DR/DL. Jawne oznaczenia otwierania są zachowywane. Reguła ma testy i nie
+ustala automatycznie widoku ani kierunku do środka/na zewnątrz.
+
+Most do PAGEN przepuszcza teraz tylko zakres, który da się przekazać bez
+utraty wymagań (proste FIX, dokładny profil, wymiary/ilości, biały dwustronny).
+Nieobsługiwane szczegóły i uwagi blokują całe zlecenie; wcześniejszy adapter
+ustrukturyzowanego JSON/CSV nadal istnieje. Następny krok to jawny model
+skrzydeł, podziału, słupka, perspektywy i okuć, a potem mapowanie do katalogu.
+
+Kontrola automatyczna odrzuciła utworzenie linku udostępniającego chroniony
+podgląd, a następnie także dostęp do niego przeglądarką. Test interfejsu
+(checkbox trybu i pobranie JSON) pozostaje niewykonany. Nie zmieniono ochrony
+wdrożenia. Wszystkie opisane nowe testy live to testy serwera podczas builda,
+nie kliknięcia w interfejsie ani pełne wykonanie w konfiguratorze/WH.
+Zmiany pozostają w PR #190 i NaviMind #33; bez scalenia na produkcję.
