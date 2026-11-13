@@ -37,14 +37,20 @@ def run_suite(headless=True):
                     agent = BrowserController(page)
 
                     def step(kind, name, **fields):
-                        before = agent.observe()
-                        matches = [c for c in before['controls'] if c['name'] == name]
-                        if len(matches) != 1:
-                            raise RuntimeError('TARGET_NOT_UNIQUE ' + name)
-                        result = agent.execute({'id': secrets.token_hex(16), 'task': {'kind': kind, 'ref': matches[0]['ref'], **fields}, 'expectedRevision': before['revision']})
-                        if result['status'] != 'verified':
-                            raise RuntimeError('EXECUTION_NOT_VERIFIED ' + name)
-                        return result['browser']
+                        for attempt in range(3):
+                            before = agent.observe()
+                            matches = [c for c in before['controls'] if c['name'] == name]
+                            if len(matches) != 1:
+                                raise RuntimeError('TARGET_NOT_UNIQUE ' + name)
+                            result = agent.execute({'id': secrets.token_hex(16), 'task': {'kind': kind, 'ref': matches[0]['ref'], **fields}, 'expectedRevision': before['revision']})
+                            # Match the frontend: reobserve at most twice only when
+                            # STALE_PAGE guarantees the action did not start.
+                            if result.get('code') == 'STALE_PAGE' and attempt < 2:
+                                print('BROWSER_EXECUTOR_REOBSERVE TARGET='+name)
+                                continue
+                            if result['status'] != 'verified':
+                                raise RuntimeError('EXECUTION_NOT_VERIFIED '+name+' '+result.get('code','')+' '+result['message'])
+                            return result['browser']
 
                     def current():
                         return {'customer': page.locator('#chosen').inner_text().removeprefix('Wybrany klient: ') if page.locator('#chosen').inner_text().startswith('Wybrany klient: ') else '',
