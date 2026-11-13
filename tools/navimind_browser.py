@@ -257,12 +257,23 @@ class BrowserController:
             try:
                 if not self.latest or body['expectedRevision'] != self.latest['revision'] or self._capture()['revision'] != body['expectedRevision']:
                     raise StalePage('Strona zmieniła się od przygotowania kroku. Odczytaj ją ponownie.')
+                input_meta = self.refs.get(task.get('ref'), (None, None))[1] if task['kind'] in {'browser_fill', 'browser_select'} else None
+                identity = {key: input_meta[key] for key in ('name', 'tag', 'type')} if input_meta else None
                 saved = self._save_snapshot() if task['kind'] == 'browser_save_snapshot' else None
                 message = ('Zapisano i odczytano z dysku zrzut aktualnego widoku i raport strony. Zgodność konfiguracji i ceny wymaga osobnego sprawdzenia.'
                            if saved else self._act(task))
                 self.sequence += 1
                 snapshot = self.observe()
                 result = {'status': 'verified', 'message': message, 'browser': snapshot}
+                if identity:
+                    matches = [meta for _, meta in self.refs.values() if all(meta[key] == value for key, value in identity.items())]
+                    if len(matches) == 1:
+                        desired = task.get('text') if task['kind'] == 'browser_fill' else task.get('value')
+                        if matches[0].get('value') != desired:
+                            # The action already ran: do not use STALE_PAGE, whose
+                            # contract permits an automatic retry before execution.
+                            raise ValueError('Pole zmieniło się podczas kontroli wyniku. Nie potwierdzam wpisu; odczytaj aktualny stan.')
+                        result['verified_input_revision'] = snapshot['revision']
                 if saved:
                     result['browser_export'] = saved
             except Exception as exc:
