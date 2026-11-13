@@ -31,9 +31,9 @@ try {
     if ($InstallDependencies) {
         if (-not (Test-Path -LiteralPath $labPython)) {
             if ($Python) {
-                $bootstrap = (Get-Command $Python -CommandType Application -ErrorAction Stop).Source
+                $bootstrap = (Get-Command $Python -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
             } else {
-                $candidate = Get-Command python -CommandType Application -ErrorAction SilentlyContinue
+                $candidate = Get-Command python -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
                 if (-not $candidate) { throw 'Python was not found. Pass -Python with the path to python.exe.' }
                 $bootstrap = $candidate.Source
             }
