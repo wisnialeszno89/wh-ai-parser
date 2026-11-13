@@ -14,7 +14,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from app.agent.intake.pagen_order import read_pagen_order
-from app.agent.offers.pagen_configurator import fill_pagen_order, inspect_pagen_catalog
+from app.agent.offers.pagen_configurator import PagenOrder, fill_pagen_order, inspect_pagen_catalog
 
 
 def choose_catalog_options(catalog, read=input):
@@ -34,7 +34,9 @@ def choose_catalog_options(catalog, read=input):
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--order-file", type=Path, help="UTF-8 CSV (separator ;) or JSON.")
+    source = parser.add_mutually_exclusive_group()
+    source.add_argument("--order-file", type=Path, help="UTF-8 CSV (separator ;) or JSON.")
+    source.add_argument("--specification-file", type=Path, help="Shared window-offer/1 exported from NaviMind text/PDF reading.")
     parser.add_argument("--execute-live", action="store_true", help="Open PAGEN and fill the public form.")
     parser.add_argument("--headed", action="store_true", help="Show the Chromium window.")
     parser.add_argument("--keep-open", action="store_true", help="Wait for Enter before closing the visible test window.")
@@ -45,8 +47,10 @@ def main(argv=None) -> int:
     parser.add_argument("--glazing", help="Exact glazing option label; applies to the whole form.")
     parser.add_argument("--save-order", type=Path, help="Save the resolved specification as JSON for automatic reuse.")
     args = parser.parse_args(argv)
-    if not args.order_file and not args.inspect_catalog:
-        parser.error("Podaj --order-file albo --inspect-catalog")
+    if not args.order_file and not args.specification_file and not args.inspect_catalog:
+        parser.error("Podaj --order-file, --specification-file albo --inspect-catalog")
+    if args.specification_file and (args.inspect_catalog or args.choose_options or args.color is not None or args.glazing is not None):
+        parser.error("Nie nadpisuj pól wspólnej specyfikacji flagami; popraw źródłowe zapytanie/specyfikację.")
     if args.inspect_catalog and (args.color is not None or args.glazing is not None or args.choose_options):
         parser.error("Odczyt katalogu nie łączy się z wyborem koloru/szyby")
     if args.choose_options and (args.color is not None or args.glazing is not None):
@@ -58,8 +62,17 @@ def main(argv=None) -> int:
     if args.keep_open and not args.headed:
         parser.error("--keep-open requires --headed")
 
+    specification_plan = None
     try:
         order = read_pagen_order(args.order_file) if args.order_file else None
+        if args.specification_file:
+            from app.agent.intake.window_offer_specification import read_offer_specification, prepare_pagen_specification
+            specification_plan = prepare_pagen_specification(read_offer_specification(args.specification_file))
+            if specification_plan['status'] != 'ready_for_form':
+                print('PAGEN_RESULT=specification_review')
+                print(json.dumps(specification_plan, ensure_ascii=False, indent=2))
+                return 6
+            order = PagenOrder.from_dict(specification_plan['order'])
         overrides = {key: getattr(args, key) for key in ("color", "glazing") if getattr(args, key) is not None}
         if any(not value.strip() for value in overrides.values()):
             raise ValueError("Nazwa opcji nie może być pusta.")
@@ -79,6 +92,9 @@ def main(argv=None) -> int:
             except OSError as exc:
                 print(f"PAGEN_RESULT=review\n{exc}", file=sys.stderr)
                 return 6
+        if specification_plan:
+            print('PAGEN_SPECIFICATION=prepared')
+            print(json.dumps(specification_plan, ensure_ascii=False, indent=2))
         print(f"PAGEN_RESULT=order_validated\nPAGEN_POSITIONS={len(order.positions)}")
         return 0
 
@@ -111,6 +127,9 @@ def main(argv=None) -> int:
                             args.save_order.write_text(json.dumps(order.to_dict(), ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
                             print("PAGEN_ORDER=saved PATH=" + str(args.save_order), flush=True)
                         report = fill_pagen_order(page, order)
+                        if specification_plan:
+                            report['specification'] = {key: specification_plan[key] for key in (
+                                'source_sha256', 'specification_sha256', 'source_positions', 'scope')}
                     if args.output:
                         args.output.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
                     marker = "PAGEN_CATALOG=observed" if args.inspect_catalog else "PAGEN_READBACK=verified"

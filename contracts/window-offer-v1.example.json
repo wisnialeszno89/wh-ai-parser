@@ -1,0 +1,53 @@
+{
+  "schema_version": "window-offer/1",
+  "source": {
+    "kind": "text",
+    "sha256": "b0c8a5480ca1ccac99b20dcfbf35704bbf72a1b00cf6ba19744b651381f229ba",
+    "pages": null
+  },
+  "positions": [
+    {
+      "id": "1",
+      "source_id": "1",
+      "source_page": null,
+      "quantity": 2,
+      "kind": "window",
+      "width_mm": 1230,
+      "height_mm": 1478,
+      "transport_extension_mm": null,
+      "opening": "FIX",
+      "color_inside": "white",
+      "color_outside": "white",
+      "glazing_panes": null,
+      "ug": null,
+      "profile_reference": "Okna PVC Premium Line (Salamander)",
+      "requirements": [],
+      "evidence": [
+        {
+          "page": null,
+          "description": "Fenster 2 Stk. 1230x1478 mm FIX\nOkna PVC Premium Line (Salamander)\nWeiss/weiss"
+        }
+      ],
+      "ambiguities": [],
+      "field_status": {
+        "quantity": "reported",
+        "kind": "reported",
+        "width_mm": "reported",
+        "height_mm": "reported",
+        "transport_extension_mm": "missing",
+        "opening": "reported",
+        "color_inside": "reported",
+        "color_outside": "reported",
+        "glazing_panes": "missing",
+        "ug": "missing",
+        "profile_reference": "reported"
+      }
+    }
+  ],
+  "notes": [],
+  "audit_issues": [],
+  "corrections": [],
+  "requires_clarification": false,
+  "sales_review_required": true,
+  "executed": false
+}
