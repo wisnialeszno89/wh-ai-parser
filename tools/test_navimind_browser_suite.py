@@ -49,7 +49,7 @@ def run_suite(headless=True):
                                 print('BROWSER_EXECUTOR_REOBSERVE TARGET='+name)
                                 continue
                             if result['status'] != 'verified':
-                                raise RuntimeError('EXECUTION_NOT_VERIFIED '+name+' '+result.get('code','')+' '+result['message'])
+                                raise RuntimeError('EXECUTION_NOT_VERIFIED '+name+' '+result.get('code','')+' '+result['message']+' REQUESTED='+str(fields.get('value',''))+' OPTIONS='+str(matches[0].get('options',[])))
                             return result['browser']
 
                     def current():
