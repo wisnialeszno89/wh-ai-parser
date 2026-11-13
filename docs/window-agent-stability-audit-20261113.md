@@ -38,6 +38,16 @@ Modelowy czytnik PDF w NaviMind jest innym torem. Dotychczasowe błędy na
 rzeczywistym skanie i sama poprawność schematu nie pozwalają uznać go za stabilny.
 Nie wykonano w tym audycie nowego pomiaru modelu na dokumentach klientów.
 
+Podgląd poprawki NaviMind na Vercel osiągnął READY:
+`navimind-hi6ay53gw-adams-projects-080d3918.vercel.app` (commit `bcdaeb5d`).
+Log potwierdził `PDF_PACKAGED_RENDER=verified` i rzeczywisty
+`PDF_LIVE_EVAL=verified MODEL=gpt-6.1-terra POSITIONS=2 SOURCE_AND_CORRECTION=verified`.
+Test używa wygenerowanego PDF, sprawdza podstawowe pola dwóch pozycji i korektę
+wymiaru tylko wskazanej pozycji. Wynik nadal miał `review: true`; test nie
+wymaga zgodności swobodnych opisów wyposażenia. To częściowy pomiar modelu,
+nie dowód pełnego rozumienia skanów. GET czytnika na podglądzie zwrócił 200 i ready.
+Poprawki pozostają w PR, nie zostały scalone do produkcji.
+
 ## Test internetowy
 
 W publicznym PAGEN sprawdzono ręcznie sterowaną automatyzacją przeglądarki:
