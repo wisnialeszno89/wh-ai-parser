@@ -28,7 +28,7 @@ try {
         & $labPython -m playwright install chromium
         if ($LASTEXITCODE -ne 0) { throw 'Chromium installation failed.' }
     }
-    & $labPython -m pytest tests/test_navimind_browser.py -q
+    & $labPython -m pytest tests/test_navimind_browser.py tests/test_browser_regression_pack.py -q
     if ($LASTEXITCODE -ne 0) { throw 'Browser executor contracts failed.' }
     $browserArguments = @('tools/test_navimind_browser_suite.py','--execute-live','--report-directory',$OutputDirectory)
     if ($Headless) { $browserArguments += '--headless' }

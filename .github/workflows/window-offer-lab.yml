@@ -15,6 +15,8 @@ on:
       - 'tools/test_navimind_browser_suite.py'
       - 'tools/test_navimind_regression.ps1'
       - 'tests/test_navimind_browser.py'
+      - 'tests/test_browser_regression_pack.py'
+      - '.gitattributes'
       - 'tests/test_window_offer*.py'
       - 'tests/test_task_document_completeness.py'
       - '.github/workflows/window-offer-lab.yml'
