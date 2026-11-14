@@ -1,0 +1,78 @@
+{
+  "schema_version": "window-offer/2",
+  "source": {
+    "kind": "text",
+    "sha256": "b0c8a5480ca1ccac99b20dcfbf35704bbf72a1b00cf6ba19744b651381f229ba",
+    "pages": null
+  },
+  "positions": [
+    {
+      "id": "1",
+      "source_id": "1",
+      "source_page": null,
+      "quantity": 4,
+      "kind": "window",
+      "width_mm": 1230,
+      "height_mm": 1478,
+      "transport_extension_mm": null,
+      "opening": "DKR",
+      "color_inside": "white",
+      "color_outside": "antracyt",
+      "glazing_panes": null,
+      "ug": null,
+      "profile_reference": "Okna PVC Premium Line (Salamander)",
+      "requirements": [],
+      "evidence": [
+        {
+          "page": null,
+          "description": "Fenster 2 Stk. 1230x1478 mm FIX\nOkna PVC Premium Line (Salamander)\nWeiss/weiss"
+        }
+      ],
+      "ambiguities": [],
+      "field_status": {
+        "quantity": "corrected",
+        "kind": "reported",
+        "width_mm": "reported",
+        "height_mm": "reported",
+        "transport_extension_mm": "missing",
+        "opening": "corrected",
+        "color_inside": "reported",
+        "color_outside": "corrected",
+        "glazing_panes": "missing",
+        "ug": "missing",
+        "profile_reference": "reported"
+      }
+    }
+  ],
+  "notes": [],
+  "audit_issues": [],
+  "corrections": [
+    {
+      "position_id": "1",
+      "source_id": "1",
+      "field": "quantity",
+      "before": 2,
+      "value": 4,
+      "quote": "Pozycja 1: ilość 4 szt."
+    },
+    {
+      "position_id": "1",
+      "source_id": "1",
+      "field": "color_outside",
+      "before": "white",
+      "value": "antracyt",
+      "quote": "Pozycja 1: kolor na zewnątrz antracyt."
+    },
+    {
+      "position_id": "1",
+      "source_id": "1",
+      "field": "opening",
+      "before": "FIX",
+      "value": "DKR",
+      "quote": "Pozycja 1: otwieranie DKR."
+    }
+  ],
+  "requires_clarification": false,
+  "sales_review_required": true,
+  "executed": false
+}
