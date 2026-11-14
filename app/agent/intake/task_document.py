@@ -9,6 +9,8 @@ from pathlib import Path
 
 
 def read_task_document(path: Path, *, max_file_bytes: int = 12_000_000, max_chars: int = 12_000) -> str:
+    if type(max_chars) is not int or max_chars < 1:
+        raise ValueError("task_document_invalid_char_limit")
     if not isinstance(path, Path):
         raise TypeError("task_document_path_required")
     if not path.is_file() or path.stat().st_size > max_file_bytes:
@@ -32,4 +34,6 @@ def read_task_document(path: Path, *, max_file_bytes: int = 12_000_000, max_char
     content = content.strip()
     if not content:
         raise ValueError("task_document_empty")
-    return content[:max_chars]
+    if len(content) > max_chars:
+        raise ValueError("task_document_text_too_large_split_request")
+    return content

@@ -19,7 +19,6 @@ from app.agent.reasoning.navimind_task_reasoner_v2 import (NaviMindTaskReasonerV
 from app.agent.runtime.computer_use_v2_action_session import ComputerUseV2ActionSession
 from app.agent.runtime.windowhub_goal_v2_coordinator import execute_v2_step, enforce_v2_live_policy
 from app.agent.runtime.windowhub_window_activation import activate_windowhub_workflow_window
-from app.agent.runtime.windows_desktop_agent_control_loop import create_windows_desktop_agent_control_loop
 
 
 def parse_args(argv=None):
@@ -308,6 +307,7 @@ def main(argv=None):
     if args.mode != "inspect":
         print("NOTICE: goal and semantic scene are transmitted to configured NaviMind.")
     try:
+        from app.agent.runtime.windows_desktop_agent_control_loop import create_windows_desktop_agent_control_loop
         return run_goal(
             create_windows_desktop_agent_control_loop(),
             goal=goal, reasoner=reasoner, mode=args.mode,

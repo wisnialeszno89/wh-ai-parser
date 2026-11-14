@@ -61,7 +61,10 @@ COLLECT = """els => {
  const clip = (s,n) => String(s || '').replace(/\\s+/g,' ').trim().slice(0,n);
  const controls = els.map((el,index) => {
   const r=el.getBoundingClientRect(), style=getComputedStyle(el);
-  if(!r.width || !r.height || r.bottom<0 || r.top>innerHeight || style.visibility==='hidden' || style.display==='none' || el.type==='hidden') return null;
+  // Rendered fields outside the viewport remain actionable by Playwright.
+  // Excluding them made a second command lose
+  // access to earlier fields after the preview moved the viewport down.
+  if(!r.width || !r.height || style.visibility==='hidden' || style.display==='none' || el.type==='hidden') return null;
   const labelled=clip((el.getAttribute('aria-labelledby')||'').split(' ').map(id=>document.getElementById(id)?.innerText||'').join(' '),180);
   const name=clip(el.getAttribute('aria-label') || labelled || Array.from(el.labels||[]).map(l=>l.innerText).join(' ') || el.innerText || el.getAttribute('placeholder') || el.title || el.name,180);
   return {index,tag:el.tagName.toLowerCase(),role:el.getAttribute('role')||'',type:el.type||'',name,href:el.tagName==='A'?el.href:'',disabled:!!el.disabled || el.getAttribute('aria-disabled')==='true',checked:!!el.checked,submits_form:el.type==='submit' && !!el.form,
@@ -254,12 +257,23 @@ class BrowserController:
             try:
                 if not self.latest or body['expectedRevision'] != self.latest['revision'] or self._capture()['revision'] != body['expectedRevision']:
                     raise StalePage('Strona zmieniła się od przygotowania kroku. Odczytaj ją ponownie.')
+                input_meta = self.refs.get(task.get('ref'), (None, None))[1] if task['kind'] in {'browser_fill', 'browser_select'} else None
+                identity = {key: input_meta[key] for key in ('name', 'tag', 'type')} if input_meta else None
                 saved = self._save_snapshot() if task['kind'] == 'browser_save_snapshot' else None
                 message = ('Zapisano i odczytano z dysku zrzut aktualnego widoku i raport strony. Zgodność konfiguracji i ceny wymaga osobnego sprawdzenia.'
                            if saved else self._act(task))
                 self.sequence += 1
                 snapshot = self.observe()
                 result = {'status': 'verified', 'message': message, 'browser': snapshot}
+                if identity:
+                    matches = [meta for _, meta in self.refs.values() if all(meta[key] == value for key, value in identity.items())]
+                    if len(matches) == 1:
+                        desired = task.get('text') if task['kind'] == 'browser_fill' else task.get('value')
+                        if matches[0].get('value') != desired:
+                            # The action already ran: do not use STALE_PAGE, whose
+                            # contract permits an automatic retry before execution.
+                            raise ValueError('Pole zmieniło się podczas kontroli wyniku. Nie potwierdzam wpisu; odczytaj aktualny stan.')
+                        result['verified_input_revision'] = snapshot['revision']
                 if saved:
                     result['browser_export'] = saved
             except Exception as exc:

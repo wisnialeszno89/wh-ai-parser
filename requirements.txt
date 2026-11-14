@@ -9,3 +9,5 @@ pywinauto
 pyautogui
 mss
 pytesseract
+
+jsonschema>=4.26,<5

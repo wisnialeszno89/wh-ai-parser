@@ -68,6 +68,26 @@ class BrowserTests(unittest.TestCase):
         s=self.agent.observe();r=self.agent.execute(self.job(s,dict(kind='browser_fill',ref=s['controls'][1]['ref'],text='1100')))
         self.assertEqual(r['status'],'verified');self.assertEqual(self.page.controls[1]['value'],'1100')
         self.assertNotIn('1100',json.dumps(r['browser']))
+        self.assertEqual(r['verified_input_revision'],r['browser']['revision'])
+    def test_field_change_between_readback_and_snapshot_is_not_verified_or_retried(self):
+        original = self.page.evaluate
+        def reverting(script, handles):
+            if self.page.fills:
+                self.page.controls[1]['value'] = '999'
+            return original(script, handles)
+        self.page.evaluate = reverting
+        snapshot = self.agent.observe()
+        result = self.agent.execute(self.job(snapshot,dict(kind='browser_fill',ref=snapshot['controls'][1]['ref'],text='1100')))
+        self.assertEqual(result['status'],'review')
+        self.assertEqual(result['code'],'BROWSER_REVIEW')
+        self.assertNotIn('verified_input_revision',result)
+        self.assertEqual(self.page.fills,1)
+    def test_ambiguous_field_names_do_not_receive_a_current_view_input_proof(self):
+        self.page.controls = [control('Wymiar','input','number',''),control('Wymiar','input','number','')]
+        snapshot = self.agent.observe()
+        result = self.agent.execute(self.job(snapshot,dict(kind='browser_fill',ref=snapshot['controls'][0]['ref'],text='1100')))
+        self.assertEqual(result['status'],'verified')
+        self.assertNotIn('verified_input_revision',result)
     def test_sensitive_controls_and_submit_never_click(self):
         for item in [control('Refund'),control('Potwierdź zwrot'),control('Zwykły formularz',type='submit'),control('Usuń pozycję'),control('Payout')]:
             with self.subTest(name=item['name']):

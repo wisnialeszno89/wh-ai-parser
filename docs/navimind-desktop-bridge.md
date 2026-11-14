@@ -104,3 +104,27 @@ Uruchomienie wszystkich adapterów: `python tools/run_navimind_desktop_bridge.py
 Aktualny wykonawca zgłasza `inspect_computer`. W trybie **Praca na komputerze** zleć: `Sprawdź wersję Windows, ilość i dostępność RAM oraz wolne miejsce na dysku systemowym. Zapisz raport.` Wynik JSON trafia do nowego pliku w folderze Diagnostyka. Czat pokazuje fakty, na których można oprzeć dalszą rozmowę. Odczyt obejmuje system i architekturę, logiczne CPU, RAM, dysk systemowy i dostępność bibliotek wykonawcy. Nie pobiera nazw kont, hosta, sieci, procesów, kluczy ani środowiska. Nie zmienia ustawień. Nie mierzy użycia CPU, SMART ani malware, więc sam raport nie dowodzi przyczyny problemu. Planista ma oddzielać fakty od hipotez i brakujących pomiarów.
 
 Odczyt obrazu jest uzupełniany o maksymalnie 80 nazwanych przycisków, kart i pozycji menu/list z UI Automation Windows. Ich wartości pól nie są pobierane. Model może wskazać krótkotrwały ref, a kontroler wybiera lokalnie odczytany środek elementu. Przy braku dostępnych nazw pozostaje odczyt obrazu. Nowe polecenie tworzy lokalny identyfikator sesji; stary krok z innej karty czatu nie jest wykonywany po rozpoczęciu nowej sesji. Identyfikator ten nie trafia do modelu.
+
+
+## Korekta po podglądzie i przewinięciu
+
+Lista kontrolek obejmuje do 80 wyrenderowanych elementów bieżącej strony, także
+pola poza aktualnym obszarem ekranu. Ukryte elementy nadal są pomijane; wartości
+pól, hasła i kontekst formularza pozostają lokalne. Wcześniejszy filtr viewportu
+mógł ukryć szerokość po przewinięciu do podglądu, mimo że pole nadal istniało.
+To poprawka odczytu wykonawcy, nie gwarancja poprawnej decyzji modelu w każdym
+kolejnym poleceniu.
+
+Laboratorium unieważnia poprzedni podgląd po edycji wymiaru, koloru lub okucia.
+Nowy podgląd musi być wywołany ponownie. Test Chromium obejmuje pierwszy przebieg
+1100×1000, przewinięcie i korektę samej szerokości do 1230; sprawdza zachowanie
+Top Trans, wysokości 1000, antracytu i DKR, także bezpośrednio w polach.
+
+```powershell
+& .\.venv-offer-lab\Scripts\python.exe .\tools\test_navimind_browser_live.py --execute-live
+```
+
+Oczekiwany wynik: `BROWSER_CORRECTION_RESULT=verified`. Test używa zadanych
+akcji, bez modelu AI i bez kont klientów. Po aktualizacji zamknij wykonawcę
+Ctrl+C, uruchom ponownie i sparuj nowy kod, aby przetestować tę samą korektę
+z polecenia w Workspace. Przełącznik `--headless` służy regresji w CI.

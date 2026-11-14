@@ -1,0 +1,218 @@
+{
+  "version": "navimind-browser-regression/1",
+  "synthetic": true,
+  "scenarios": [
+    {
+      "id": "correction_chain",
+      "seed": null,
+      "phases": [
+        {
+          "id": "initial",
+          "message": "Wybierz dokładnie Top Trans. Ustaw szerokość 1100 mm, wysokość 1000 mm, kolor antracyt i otwieranie DKR. Pokaż podgląd. Nie wysyłaj zapytania.",
+          "expected": {
+            "customer": "Top Trans",
+            "width": "1100",
+            "height": "1000",
+            "color": "antracyt",
+            "opening": "DKR"
+          },
+          "allowed_write_fields": [
+            "customer",
+            "width",
+            "height",
+            "color",
+            "opening"
+          ],
+          "terminal_decisions": [
+            "done"
+          ],
+          "probe": null
+        },
+        {
+          "id": "width_only",
+          "message": "Zmień wyłącznie szerokość na 1230 mm. Zachowaj pozostałe ustawienia i pokaż ponownie podgląd.",
+          "expected": {
+            "customer": "Top Trans",
+            "width": "1230",
+            "height": "1000",
+            "color": "antracyt",
+            "opening": "DKR"
+          },
+          "allowed_write_fields": [
+            "width"
+          ],
+          "terminal_decisions": [
+            "done"
+          ],
+          "probe": null
+        },
+        {
+          "id": "height_and_color",
+          "message": "Zmień wyłącznie wysokość na 1050 mm oraz kolor na biały. Zachowaj klienta, szerokość i otwieranie. Pokaż ponownie podgląd.",
+          "expected": {
+            "customer": "Top Trans",
+            "width": "1230",
+            "height": "1050",
+            "color": "bialy",
+            "opening": "DKR"
+          },
+          "allowed_write_fields": [
+            "height",
+            "color"
+          ],
+          "terminal_decisions": [
+            "done"
+          ],
+          "probe": null
+        },
+        {
+          "id": "opening_in_german",
+          "message": "Ändere ausschließlich die Öffnungsart auf DKL. Alle anderen Einstellungen beibehalten und die Vorschau erneut anzeigen. Nichts absenden.",
+          "expected": {
+            "customer": "Top Trans",
+            "width": "1230",
+            "height": "1050",
+            "color": "bialy",
+            "opening": "DKL"
+          },
+          "allowed_write_fields": [
+            "opening"
+          ],
+          "terminal_decisions": [
+            "done"
+          ],
+          "probe": null
+        }
+      ]
+    },
+    {
+      "id": "german_cm_exact_customer",
+      "seed": null,
+      "phases": [
+        {
+          "id": "german_initial",
+          "message": "Wähle genau Top Trans S.A. aus. Breite 120 cm, Höhe 90 cm, Außenfarbe Mahagoni, Öffnungsart DKL. Zeige die Vorschau. Die Anfrage nicht absenden.",
+          "expected": {
+            "customer": "Top Trans S.A.",
+            "width": "1200",
+            "height": "900",
+            "color": "mahon",
+            "opening": "DKL"
+          },
+          "allowed_write_fields": [
+            "customer",
+            "width",
+            "height",
+            "color",
+            "opening"
+          ],
+          "terminal_decisions": [
+            "done"
+          ],
+          "probe": null
+        }
+      ]
+    },
+    {
+      "id": "switch_customer_only",
+      "seed": {
+        "customer": "Top Trans",
+        "width": "1100",
+        "height": "1000",
+        "color": "antracyt",
+        "opening": "DKR"
+      },
+      "phases": [
+        {
+          "id": "switch_customer",
+          "message": "Zmień wyłącznie klienta na dokładnie Top Trans S.A. Zachowaj wymiary, kolor i otwieranie. Pokaż ponownie podgląd.",
+          "expected": {
+            "customer": "Top Trans S.A.",
+            "width": "1100",
+            "height": "1000",
+            "color": "antracyt",
+            "opening": "DKR"
+          },
+          "allowed_write_fields": [
+            "customer"
+          ],
+          "terminal_decisions": [
+            "done"
+          ],
+          "probe": null
+        }
+      ]
+    },
+    {
+      "id": "ambiguous_customer",
+      "seed": null,
+      "phases": [
+        {
+          "id": "ambiguous",
+          "message": "Wybierz klienta Top, ustaw 1100 na 1000 mm, antracyt, DKR i pokaż podgląd. Nie wysyłaj.",
+          "expected": null,
+          "allowed_write_fields": [
+            "width",
+            "height",
+            "color",
+            "opening"
+          ],
+          "terminal_decisions": [
+            "clarify"
+          ],
+          "probe": "ambiguous_customer",
+          "required_reply_terms": [
+            "Top Trans",
+            "S.A."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "missing_height",
+      "seed": null,
+      "phases": [
+        {
+          "id": "missing_height",
+          "message": "Wybierz dokładnie Top Trans. Szerokość 1100 mm, kolor antracyt, otwieranie DKR. Pokaż podgląd. Nie wysyłaj zapytania.",
+          "expected": null,
+          "allowed_write_fields": [
+            "customer",
+            "width",
+            "color",
+            "opening"
+          ],
+          "terminal_decisions": [
+            "clarify"
+          ],
+          "probe": "missing_height",
+          "reply_pattern": "wysoko|höhe"
+        }
+      ]
+    },
+    {
+      "id": "unavailable_color",
+      "seed": {
+        "customer": "Top Trans",
+        "width": "1100",
+        "height": "1000",
+        "color": "antracyt",
+        "opening": "DKR"
+      },
+      "phases": [
+        {
+          "id": "unavailable_color",
+          "message": "Zmień wyłącznie kolor na zielony. Zachowaj pozostałe ustawienia i pokaż nowy podgląd. Nie wybieraj koloru zastępczego.",
+          "expected": null,
+          "allowed_write_fields": [],
+          "terminal_decisions": [
+            "clarify",
+            "review"
+          ],
+          "probe": "unavailable_color",
+          "reply_pattern": "zielon|grün|green"
+        }
+      ]
+    }
+  ]
+}

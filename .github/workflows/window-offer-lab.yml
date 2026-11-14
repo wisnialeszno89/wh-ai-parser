@@ -1,0 +1,45 @@
+name: Window Offer Lab on Windows
+on:
+  pull_request:
+    paths:
+      - 'app/agent/intake/**'
+      - 'app/agent/offers/pagen_configurator.py'
+      - 'app/agent/offers/catalog_control_binding.py'
+      - 'contracts/**'
+      - 'requirements-window-offer-lab.txt'
+      - 'tools/check_window_offer_pipeline.py'
+      - 'tools/test_window_offer_pipeline.ps1'
+      - 'tools/navimind_browser.py'
+      - 'tools/navimind_browser_lab.html'
+      - 'tools/test_navimind_browser_live.py'
+      - 'tools/test_navimind_browser_suite.py'
+      - 'tools/test_navimind_regression.ps1'
+      - 'tests/test_navimind_browser.py'
+      - 'tests/test_browser_regression_pack.py'
+      - '.gitattributes'
+      - 'tests/test_window_offer*.py'
+      - 'tests/test_task_document_completeness.py'
+      - '.github/workflows/window-offer-lab.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  offline-offer-lab:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Test the unified Windows PowerShell regression entry point
+        shell: powershell
+        run: .\tools\test_navimind_regression.ps1 -InstallDependencies -Headless -OutputDirectory "$env:RUNNER_TEMP\window-offer-lab"
+      - name: Preserve the synthetic local report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: window-offer-lab-windows
+          path: ${{ runner.temp }}/window-offer-lab
+          if-no-files-found: ignore

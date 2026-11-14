@@ -25,6 +25,7 @@ jobs:
           pip install -r requirements.txt
 
       - name: Run knowledge and NaviMind bridge tests
+        shell: bash
         run: |
           pytest -q \
             tests/test_knowledge_context.py \

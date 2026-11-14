@@ -16,3 +16,5 @@ generated_offers/
 tree.txt
 .pytest_cache/
 .mypy_cache/
+.venv-offer-lab/
+.artifacts/
