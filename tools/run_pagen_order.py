@@ -36,7 +36,7 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     source = parser.add_mutually_exclusive_group()
     source.add_argument("--order-file", type=Path, help="UTF-8 CSV (separator ;) or JSON.")
-    source.add_argument("--specification-file", type=Path, help="Shared window-offer/1 exported from NaviMind text/PDF reading.")
+    source.add_argument("--specification-file", type=Path, help="Shared window-offer/1 or /2 exported from NaviMind text/PDF reading.")
     parser.add_argument("--execute-live", action="store_true", help="Open PAGEN and fill the public form.")
     parser.add_argument("--headed", action="store_true", help="Show the Chromium window.")
     parser.add_argument("--keep-open", action="store_true", help="Wait for Enter before closing the visible test window.")

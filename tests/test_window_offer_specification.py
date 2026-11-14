@@ -87,3 +87,39 @@ def test_cli_reads_shared_specification_directly_and_blocks_lossy_overrides(tmp_
 def test_duplicate_json_keys_cannot_hide_a_requirement(tmp_path):
     file=tmp_path/'duplicated.json';file.write_text('{"executed":true,"executed":false}',encoding='utf-8')
     with pytest.raises(ValueError,match='DUPLICATE_SPECIFICATION_KEY'):read_offer_specification(file)
+
+
+def test_v2_commercial_fields_are_validated_without_losing_source_and_v1_stays_readable():
+    spec=json.loads((CONTRACTS/'window-offer-v2.example.json').read_text(encoding='utf-8'))
+    assert validate_offer_specification(spec)==spec
+    assert validate_offer_specification(example())['schema_version']=='window-offer/1'
+    result=prepare_pagen_specification(spec)
+    assert result['status']=='review' and result['order'] is None
+    assert any(i['field']=='opening' for i in result['issues'])
+    assert any(i['field']=='color' for i in result['issues'])
+    assert not result['submitted'] and not result['wh_offer_created']
+
+
+def test_v2_quantity_correction_can_reach_the_existing_fixed_window_adapter():
+    spec=example();spec['schema_version']='window-offer/2'
+    spec['positions'][0]['quantity']=4;spec['positions'][0]['field_status']['quantity']='corrected'
+    spec['corrections']=[dict(position_id='1',source_id='1',field='quantity',before=2,value=4,quote='Pozycja 1: ilość 4 szt.')]
+    result=prepare_pagen_specification(spec)
+    assert result['status']=='ready_for_form'
+    assert result['order']['positions'][0]['quantity']==4
+    assert result['source_sha256']==spec['source']['sha256']
+    spec['schema_version']='window-offer/1'
+    with pytest.raises(ValueError):validate_offer_specification(spec)
+
+
+@pytest.mark.parametrize('mutate',[
+    lambda s:s['corrections'][0].update(value='4'),
+    lambda s:s['corrections'][0].update(before='two'),
+    lambda s:s['corrections'][1].update(value=7016),
+    lambda s:s['corrections'][2].update(value='RIGHT'),
+    lambda s:s['corrections'][0].update(field='profile_reference'),
+    lambda s:s.update(schema_version=[]),
+])
+def test_v2_rejects_wrong_field_types_and_unknown_versions(mutate):
+    spec=json.loads((CONTRACTS/'window-offer-v2.example.json').read_text(encoding='utf-8'));mutate(spec)
+    with pytest.raises(ValueError):validate_offer_specification(spec)

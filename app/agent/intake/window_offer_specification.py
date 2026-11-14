@@ -13,11 +13,15 @@ from app.agent.offers.pagen_configurator import PagenOrder
 CONTRACTS = Path(__file__).resolve().parents[3] / 'contracts'
 SCHEMA = json.loads((CONTRACTS / 'window-offer-v1.schema.json').read_text(encoding='utf-8'))
 VALIDATOR = Draft202012Validator(SCHEMA)
+SCHEMA_V2 = json.loads((CONTRACTS / 'window-offer-v2.schema.json').read_text(encoding='utf-8'))
+VALIDATOR_V2 = Draft202012Validator(SCHEMA_V2)
 FIELDS = tuple(SCHEMA['properties']['positions']['items']['properties']['field_status']['properties'])
 
 
 def validate_offer_specification(value):
-    if not VALIDATOR.is_valid(value):
+    version = value.get('schema_version') if isinstance(value, dict) else None
+    validator = {'window-offer/1': VALIDATOR, 'window-offer/2': VALIDATOR_V2}.get(version) if isinstance(version, str) else None
+    if validator is None or not validator.is_valid(value):
         raise ValueError('INVALID_OFFER_SPECIFICATION')
     spec = deepcopy(value)
     ids = {p['id'] for p in spec['positions']}
