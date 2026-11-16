@@ -66,3 +66,22 @@ Real read-only observation: 21 offline checks passed; WindowHub focused the `Okn
 - Unit checks: `tests/test_goal_affordance_ranking.py` and `tests/test_windowhub_goal_specific_knowledge.py`.
 
 Current limitations: ranking != understanding of which MDI panel/dialog is active; that requires structural UIA provenance and stronger action-specific business outcomes. Never choose `Edytuj` solely by text: it may be the print-template editor. V2 `think` requires a configured reasoning endpoint. Do not run unverified `--mode execute` on production records.
+
+
+## Active panel understanding, 2026-11-16
+
+Latest user evidence: `17 passed`, WindowHub process exists, one visible titled window with an unfamiliar title, and V2 read-only inspect returned EXIT_CODE=3 before any perception.
+
+New `app/agent/runtime/active_panel_context.py` infers:
+- the one UIA `tabitem` explicitly reporting `uia_selected=True`;
+- the UIA control reporting `uia_focused=True`;
+- named parent containers from the UIA ancestor chain (panel, group, tab, window);
+- the closest container(s) shared with the focused control, as a better indicator of active pane context.
+
+These indicators now adjust the order of *already authorized* affordances in `ComputerUseV2ActionSession`. Model-facing `panel_model_context` contains only recognized generic panel category names, never arbitrary customer/project panel titles or private native IDs. Selection/focus are not authorizations and are not inferred from visibility alone. Action ranking is not a business-task completion signal.
+
+New read-only recovery: in V2 `--mode inspect` only, an unknown WindowHub title can still be inspected if `Okna.exe` is already foreground, or the runtime can focus exactly one visible, non-minimized `Okna.exe` top-level window regardless of title. This **does not** enable unknown-title think/execute actions. More than one candidate fails safely.
+
+Unit tests: `python -m pytest tests/test_active_panel_context.py tests/test_goal_affordance_ranking.py tests/test_windowhub_goal_specific_knowledge.py tests/test_goal_progress_memory.py -q`.
+
+The new code is committed to the integration branch; local offline tests and a live unknown WindowHub screen observation have NOT yet been run by the user. If the runtime cannot expose selected/focused UIA states or ancestry, it will report low-confidence panel context instead of making a confident claim. Next architectural task: confirm correct hierarchy in the user's application and create contextual local skill activation after field-specific readback and human supervision.
