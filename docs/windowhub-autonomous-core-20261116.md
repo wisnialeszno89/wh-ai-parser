@@ -184,3 +184,19 @@ User live acceptance:
 Next phase is one-step V2 **think** with the goal "Add a window position to the currently open offer, without creating a new offer". The runner now gates the chosen action through the local policy (unique UIA, MDI owner, no unsanctioned persistence) and postcondition schema before returning THINK_LOCAL_POLICY=PASS. A safe Dodaj action must expect the exact Dodawanie nowej pozycji wizard; an unrelated navigation or unsound postcondition must not be mistaken for success. No desktop action is performed in think mode. Remote V2 think calls still transmit the task and semantic scene to the configured endpoint; avoid real sensitive customer data unless appropriately authorized.
 
 After think acceptance, the first supervised execute should be limited to a disposable/test offer and must independently re-observe the selected document and UIA identity immediately before clicking. It must not save or send business documents autonomously.
+
+
+## Local V2 connection issue — 2026-11-16
+
+User's V2 think test: 16/16 offline tests passed, but there was no model call because the local client had no NAVIMIND_AGENT_V2_URL and NAVIMIND_AGENT_V2_SECRET (nor V1 equivalents). EXIT_CODE=5 was a local configuration failure, not a WindowHub/MDI or model decision failure.
+
+Verified against connected infrastructure on 2026-11-16:
+- NaviMind PR #26 was **merged** to main on November 4; earlier diagnostics wrongly suggested it still needed merging. Both the runner and setup diagnostics now avoid that stale claim.
+- Vercel navimind production deployment status READY, git main revision 7bf8c4f2616830b3d3f20c3d2f17a1db2e69f51b.
+- Production Vercel environment has an existing NAVIMIND_AGENT_SECRET key; no decrypted value was retrieved.
+- The TypeScript server exposes V2 on POST /api/agent/task, same route as V1 with payload protocol version 2.
+- Project also advertises Vercel SSO/deployment protection. HTTP clients may require a separate allowed Vercel authentication path even with application x-navimind-agent-secret; never disable production protection just for a test.
+
+Added tools/run_navimind_v2_think_secure.ps1: temporary local V2 endpoint setting, masked secret prompt, presence-only diagnostics and a single --mode think run. It restores environment variables and does not save secret to disk. Obtain the matching production NAVIMIND_AGENT_SECRET only through an authorized Vercel dashboard/session; never send it to chat or GitHub. No model call or live browser request has been executed by the GitHub editing connector.
+
+Acceptance: V2 test must report REASONER_DECISION, PROPOSED_ACTION, THINK_LOCAL_POLICY and THINK_ONLY. If HTTP 401/403 or non-JSON is returned, separately diagnose Vercel Deployment Protection and application auth without changing protections or disclosing credentials.
