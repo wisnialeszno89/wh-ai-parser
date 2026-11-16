@@ -72,3 +72,20 @@ Run:
 ```powershell
 python -m pytest tests/test_windowhub_new_offer_action.py tests/test_windowhub_navigation_verification.py tests/test_windowhub_document_core.py tests/test_windowhub_sales_offer_live.py tests/test_windowhub_catalog_memory.py tests/test_windowhub_catalog_handoff.py -q
 ```
+
+
+## Native dimension replacement — regression 2026-11-16
+
+Observed live: Position wizard reached `Wielkość okna` but legacy generic `WRITE` issued Ctrl+A and `1500` twice (the generic control loop automatically retried after a postcondition failure). The desired first width was not verified; default dimensions 1000×1000 had been present. The screenshot log does not prove whether the underlying cause was append, focus, or commit semantics, therefore do not assert one cause.
+
+The unified mission now delegates width/height edits to `app/agent/runtime/windowhub_dimension_replace.py`. It:
+- reads the actual current value from exactly mapped `width_1`/`height_1`;
+- skips a field already equal to the requested dimensions;
+- blocks if current value is unreadable;
+- freshly rebinds one native UIA Edit by automation ID, runtime ID and exact bounds, confirming foreground `Okna.exe`;
+- compares native ValuePattern value with the fresh semantic observation, checks editability, then calls **SetValue** once to replace the complete existing value;
+- performs up to three *readback observations* to handle UIA propagation without a second input;
+- stops instead of retrying input or appending if postcondition cannot be proved.
+
+Run regression: `python -m pytest tests/test_windowhub_dimension_replace.py -q`.
+Resume a verified wizard in interactive mode with the normal unified mission, without creating a new offer. A requested 1500x1400 change does not touch extra width/height slots 2–5 (skos geometry).
