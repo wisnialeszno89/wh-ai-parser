@@ -36,3 +36,21 @@ E. Teach mode should learn successful causal action patterns and test them in a 
 F. Instrument end-to-end benchmark on real WindowHub for three tasks: edit current dimensions with defaults already set; resume a wizard at basic parameters; create a new draft with optional customer and request final salesperson approval.
 
 No live tests executed by GitHub connector. No Vercel change.
+
+
+## 2026-11-16: Discovery, recovery and timed operator help
+
+Live read-only V2 inspect returned `Expected one unambiguous WindowHub workflow window; found 0`. This is before any reasoning or field writing. It may mean WindowHub is closed, minimized without top-level visible title, or has changed window titles. We must not guess which. `app/agent/runtime/windowhub_discovery_diagnostics.py` now reports only process/window class counts and a recovery category, without titles, customer data or HWND. The V2 runner calls this upon failed focus. `python -m app.agent.runtime.windowhub_discovery_diagnostics` can also be run alone, read-only.
+
+`app/agent/runtime/goal_task_supervisor.py` provides:
+- A dependency-aware `TaskLedger` with pending/verified/skipped/blocked states.
+- An optional independent task can be skipped when unresolved, but required tasks and all downstream dependents are blocked.
+- Minimal local JSONL audit records (task key, reason, outcome) through `append_unresolved_issues`. No customer details or screenshots.
+- A nonblocking Windows `msvcrt` console prompt which returns after 60 seconds by default. A scripted test reader is supported for deterministic tests.
+- The ledger does **not** yet automatically parse arbitrary natural language into dependency graphs or orchestrate skips in a live business mission. Failing to establish dependency should conservatively stop.
+
+The V2 runner now has `--interactive-handoff --handoff-timeout 60` in execute mode. When model confidence is insufficient, it asks the salesperson and on consent restores WindowHub focus and reobserves. After a rejected/unverified step, the model receives a bounded failure record and can propose a different method; identical action on unchanged observed state is blocked. All cycles are limited by `--max-actions`. Do not confuse demonstration/consent with proof that the application business state matches the user's request.
+
+Tests: `python -m pytest tests/test_goal_progress_memory.py tests/test_goal_task_supervisor.py tests/test_goal_v2_handoff.py tests/test_windowhub_dimension_replace.py -q`.
+
+Tested on GitHub only by code review; local Pytest and live WindowHub must still run. V2 live execution requires the configured NaviMind V2 endpoint. It should not be enabled merely to diagnose a missing window.
