@@ -99,3 +99,20 @@ Changes:
 - Added offline tests for focus ambiguity, goal relevance, scrolling penalty, contextual skill labeling, and rejection of print-template controls.
 
 No model call or real WindowHub click was performed during development. Next acceptance: run the read-only inspection against the existing offer, review `GOAL_CANDIDATE` scores, and only then try `--mode think` if NaviMind V2 is configured, with no desktop actions.
+
+
+## MDI ambiguity hardening — offer OFR/4680-, 2026-11-16
+
+User's latest read-only trace: 20 offline tests passed; WindowHub was successfully activated, but the scene showed 3 instances of `Dodaj`, 3 open offer tabs `OFR/4670-`, `OFR/4678-`, `OFR/4680-`, and 10 focus flags. A selected tab is not, by itself, evidence that every visible toolbar control belongs to that tab. Direct goal relevance was 1, largely a desktop-window label; `Notatka` and `Dodaj` shared a high panel bonus, with `Notatka` first.
+
+New `app/agent/runtime/active_document_scope.py`:
+- Requires **one verified selected** WindowHub document tab using `uia_tab_scope=document` and `uia_selected=True`.
+- Associates `Dodaj` with that tab only when the provider's independent, structurally proved `document_scope` matches the selected tab and every same-name candidate has known scope.
+- If a button's scope is unknown, or two buttons target the active document, refuses to call any of them a unique active-document action.
+- Reports number of `Dodaj` buttons, active-scoped buttons and unknown-scoped buttons, without exposing customer data or claiming a click.
+
+`windowhub_semantic_world.py` now uses this strict scope when assigning the semantic meaning `Dodaj nową pozycję okna do oferty`, rather than relying on exactly one `Dodaj` in the entire UIA tree. The V2 local action broker **excludes unverified per-document `Dodaj` candidates** in the offer-document stage. The selected document's toolbar is not invented; if the accessibility tree cannot prove ownership, the agent needs a new observation or explicit teaching evidence. The general ranking now prioritizes direct semantic goal matches over panel-focus coincidences. Read-only inspect reports scope diagnostics and does not treat desktop-window titles as matching business actions.
+
+Offline tests added/updated: `tests/test_active_document_scope.py`, `tests/test_windowhub_offer_semantic_skill.py`, `tests/test_goal_affordance_ranking.py`. No local pytest or live WindowHub action was executed by the GitHub editing connector. It is possible that all three `Dodaj` controls report unknown scope in the real app; this is a truthful discovery blocker, not a reason to click the first.
+
+Use read-only inspection first. Next evidence-based engineering step, only if necessary, is to identify the selected MDI child panel through native parent or owner handles and UIA container ancestry (not only matching labels) and verify it with a human demonstration. Do not mark navigation or business completion without fresh runtime readback.
