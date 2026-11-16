@@ -523,6 +523,14 @@ class ComputerUseV2ActionSession:
             if verb == "click":
                 if not self._is_clickable_target(element):
                     continue
+                # A per-document toolbar can appear once per *open* MDI
+                # document, all in the same UIA tree. Never expose an
+                # ambiguous "Dodaj" as a model action on an offer document.
+                title = (scene.observation.state.active_window_title or "").casefold()
+                if title.startswith("okna - ofr/") and raw_label == "dodaj":
+                    from app.agent.runtime.active_document_scope import unique_active_document_control
+                    if element is not unique_active_document_control(scene, label="Dodaj"):
+                        continue
             elif not self._is_editable_uia_target(element):
                 continue
 
