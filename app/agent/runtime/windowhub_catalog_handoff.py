@@ -17,6 +17,7 @@ def current_catalog_value(scene, field_name):
 
 def teach_and_resume(loop, *, field, key, stage, meaning, ask=input):
     from tools.run_windowhub_top_trans_single_window_mission import inspect
+    from app.agent.runtime.windowhub_window_activation import activate_windowhub_workflow_window
     print("TEACH_MODE=available")
     print("TEACH_INSTRUCTION=Choose the exact required catalog option manually.")
     try:
@@ -24,6 +25,10 @@ def teach_and_resume(loop, *, field, key, stage, meaning, ask=input):
     except (EOFError, KeyboardInterrupt):
         return None
     if ready.strip().casefold() != "gotowe":
+        return None
+    focused, reason = activate_windowhub_workflow_window()
+    print("TEACH_REFOCUS=" + reason)
+    if not focused:
         return None
     scene = inspect(loop)
     if stage_of(scene) != stage:
@@ -48,6 +53,10 @@ def teach_and_resume(loop, *, field, key, stage, meaning, ask=input):
         return None
     if resume.strip().casefold() not in ("tak", "t"):
         print("TEACH_RESUME_DECLINED=True")
+        return None
+    focused, reason = activate_windowhub_workflow_window()
+    print("TEACH_RESUME_REFOCUS=" + reason)
+    if not focused:
         return None
     fresh = inspect(loop)
     if stage_of(fresh) != stage or current_catalog_value(fresh, field) != value:
