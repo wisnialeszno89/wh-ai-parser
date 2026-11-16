@@ -47,6 +47,6 @@ def test_single_candidate_still_requires_structural_validation():
     )
     assert result.status == "candidate_for_structural_validation"
     assert result.scope_candidates == (
-        "unresolved", "matching_mdi_ancestor", "unresolved"
+        "other_mdi_ancestor", "matching_mdi_ancestor", "other_mdi_ancestor"
     )
     # Not equivalent to verified UIA-document scope or permission to click.
