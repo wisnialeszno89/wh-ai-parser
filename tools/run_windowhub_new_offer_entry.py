@@ -81,7 +81,16 @@ def main(argv=None):
     action_verified = verified_action(result)
     print("NEW_OFFER_EXECUTOR_VERIFIED=" + str(action_verified))
     if after_stage != "document_properties" or not action_verified:
-        print("STOP: New document properties were not observed; no second click.")
+        execution_loop = getattr(result, "last_execution_result", None)
+        attempt = getattr(execution_loop, "last_attempt", None)
+        execution = getattr(attempt, "execution_result", None)
+        verification = getattr(attempt, "verification_result", None)
+        metadata = getattr(execution, "metadata", None) or {}
+        print("NEW_OFFER_EXECUTED=" + str(metadata.get("executed")))
+        print("NEW_OFFER_EXECUTION_PATH=" + str(metadata.get("execution_path")))
+        print("NEW_OFFER_EXECUTION_MESSAGE=" + str(getattr(execution, "message", None)))
+        print("NEW_OFFER_VERIFICATION_REASON=" + str(getattr(verification, "reason", None)))
+        print("STOP: New document properties were not verified; no second click.")
         return 6
     print("NEW_OFFER_ENTRY_VERIFIED=True")
     print("STOP: Next step is customer selection; no customer data edited.")
