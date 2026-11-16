@@ -36,8 +36,17 @@ GLAZING_LABELS = {
 
 
 def catalog_options_for(*, outside: str, inside: str, glazing_panes: int):
+    from app.agent.learning.windowhub_catalog_memory import read_skill, skill_key
+    color_field, color_key = skill_key(outside=outside, inside=inside)
+    glazing_field, glazing_key = skill_key(glazing_panes=glazing_panes)
     colors = COLOR_COMBINATIONS.get((outside.casefold().strip(), inside.casefold().strip()), ())
     glazing = GLAZING_LABELS.get(glazing_panes, ())
+    learned_color = read_skill(color_field, color_key)
+    learned_glazing = read_skill(glazing_field, glazing_key)
+    if learned_color and learned_color.casefold() not in {x.casefold() for x in colors}:
+        colors = tuple(colors) + (learned_color,)
+    if learned_glazing and learned_glazing.casefold() not in {x.casefold() for x in glazing}:
+        glazing = tuple(glazing) + (learned_glazing,)
     return colors, glazing
 
 
@@ -72,7 +81,7 @@ def dimensions_match(scene, *, width: int, height: int) -> bool:
 
 def continue_to_construction(loop, *, width: int, height: int,
                              color_outside: str, color_inside: str,
-                             glazing_panes: int) -> int:
+                             glazing_panes: int, interactive_handoff: bool = False, ask=input) -> int:
     from tools.run_windowhub_top_trans_single_window_mission import (
         inspect, observe_step, advance_known_wizard, select_catalog_option_once,
     )
@@ -100,15 +109,29 @@ def continue_to_construction(loop, *, width: int, height: int,
             print("STOP: No exact approved two-sided color mapping.")
             return 4
         if not exact_selected(scene, "profile_color", colors):
-            if not select_catalog_option_once(
+            selected = bool(colors) and select_catalog_option_once(
                 scene, field_name="profile_color", approved_options=colors,
-            ):
-                print("STOP: Exact outside/inside catalog color not found or ambiguous.")
-                return 4
-            scene = inspect(loop)
-            if not exact_selected(scene, "profile_color", colors):
-                print("STOP: Selected profile color could not be read back.")
-                return 6
+            )
+            if selected:
+                scene = inspect(loop)
+                if not exact_selected(scene, "profile_color", colors):
+                    print("STOP: Selected color could not be read back.")
+                    return 6
+            else:
+                if not interactive_handoff:
+                    print("STOP: Exact two-sided color unavailable.")
+                    return 4
+                from app.agent.learning.windowhub_catalog_memory import skill_key
+                from app.agent.runtime.windowhub_catalog_handoff import teach_and_resume
+                field, key = skill_key(outside=color_outside, inside=color_inside)
+                scene = teach_and_resume(
+                    loop, field=field, key=key, stage="basic_parameters",
+                    meaning=f"zewnątrz {color_outside}, wewnątrz {color_inside}",
+                    ask=ask,
+                )
+                if scene is None:
+                    print("STOP: Color teach/resume not verified.")
+                    return 4
         print("PROFILE_COLOR_BOTH_SIDES_VERIFIED=True")
         if not advance_known_wizard(scene, expected_stage="glazing"):
             print("STOP: Glazing wizard entry unavailable.")
@@ -124,15 +147,28 @@ def continue_to_construction(loop, *, width: int, height: int,
             print("STOP: Unsupported glazing pane count.")
             return 4
         if not exact_selected(scene, "glazing_package", glazing):
-            if not select_catalog_option_once(
+            selected = bool(glazing) and select_catalog_option_once(
                 scene, field_name="glazing_package", approved_options=glazing,
-            ):
-                print("STOP: Exact glazing catalog option not found or ambiguous.")
-                return 4
-            scene = inspect(loop)
-            if not exact_selected(scene, "glazing_package", glazing):
-                print("STOP: Glazing value could not be read back.")
-                return 6
+            )
+            if selected:
+                scene = inspect(loop)
+                if not exact_selected(scene, "glazing_package", glazing):
+                    print("STOP: Glazing could not be read back.")
+                    return 6
+            else:
+                if not interactive_handoff:
+                    print("STOP: Exact glazing option unavailable.")
+                    return 4
+                from app.agent.learning.windowhub_catalog_memory import skill_key
+                from app.agent.runtime.windowhub_catalog_handoff import teach_and_resume
+                field, key = skill_key(glazing_panes=glazing_panes)
+                scene = teach_and_resume(
+                    loop, field=field, key=key, stage="glazing",
+                    meaning=f"pakiet {glazing_panes}-szybowy", ask=ask,
+                )
+                if scene is None:
+                    print("STOP: Glazing teach/resume not verified.")
+                    return 4
         print("GLAZING_PACKAGE_VERIFIED=True")
         if not advance_known_wizard(scene, expected_stage="hardware"):
             print("STOP: Hardware wizard entry unavailable.")
