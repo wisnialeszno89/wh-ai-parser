@@ -104,6 +104,51 @@ def action_panel_priority(element, context: PanelContext, *, goal: str = "") -> 
     return bonus
 
 
+_SAFE_AREA_TERMS = {
+    "start1": "start",
+    "wielkosc okna": "dimensions",
+    "parametry szklenia": "glazing",
+    "konstrukcja": "construction",
+    "modyfikator": "construction_editor",
+    "szablony wydrukow": "print_templates",
+    "wydruki": "print_templates",
+    "podglad wydruku": "print_preview",
+    "wlasciwosci dokumentu": "document_properties",
+}
+
+
+def _safe_area(label: str) -> str | None:
+    from app.agent.runtime.goal_affordance_ranking import normalize_words
+    joined = " ".join(sorted(normalize_words(label)))
+    for phrase, category in _SAFE_AREA_TERMS.items():
+        if joined == " ".join(sorted(normalize_words(phrase))):
+            return category
+    return None
+
+
+def panel_model_context(scene) -> dict:
+    """Model-facing categorization without arbitrary customer/project titles."""
+    ctx = observe_panel_context(scene)
+    return {
+        "source": "local_uia_structure",
+        "verification": "observed_not_authorizing",
+        "selected_areas": sorted({
+            tag for name in ctx.selected_tabs
+            if (tag := _safe_area(name)) is not None
+        }),
+        "visible_area_categories": sorted({
+            tag for name in ctx.panel_labels
+            if (tag := _safe_area(name)) is not None
+        }),
+        "focused_widget_present": bool(ctx.focused_labels),
+        "active_area_confidence": (
+            "selected_tab" if len(ctx.selected_tabs) == 1
+            else "focused_control" if ctx.focused_labels
+            else "unknown"
+        ),
+    }
+
+
 def safe_panel_diagnostics(scene) -> dict:
     context = observe_panel_context(scene)
     # Avoid printing raw labels: panels can be named after customer projects.
