@@ -479,7 +479,7 @@ class RobotGUIExecutor(ActionExecutor):
             ),
             "navigate_start1": (
                 "click_screen_element",
-                "button",
+                "tabitem",
                 "Start1",
                 None,
             ),
