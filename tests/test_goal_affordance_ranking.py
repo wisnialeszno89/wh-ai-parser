@@ -69,3 +69,58 @@ def test_normalization_of_polish_diacritics():
     ) > relevance_score(
         "ustaw szerokość", label="Zestaw nagłówek/stopka"
     )
+
+
+def test_scrolling_controls_are_not_prioritized_above_business_controls():
+    from app.agent.runtime.goal_affordance_ranking import affordance_relevance
+    class M:
+        def resolve(self, ref, *, task_id, world_revision):
+            from types import SimpleNamespace
+            return SimpleNamespace(label={
+                "scroll": "Strona w prawo",
+                "new": "Dodaj",
+                "size": "Szerokość całego okna",
+            }[ref], metadata={})
+    values = [
+        {"entity_ref": "scroll", "name": "click", "description": "Click the visible control"},
+        {"entity_ref": "new", "name": "click", "description": "Click the visible control"},
+        {"entity_ref": "size", "name": "write_text", "description": "Enter width"},
+    ]
+    ordered = order_observed_affordances(
+        values, goal="Zmień szerokość okna", reference_map=M(),
+        task_id="test", world_revision=1,
+    )
+    assert ordered[0]["entity_ref"] == "size"
+    assert ordered[-1]["entity_ref"] == "scroll"
+    check = affordance_relevance(
+        values[0], goal="Zmień szerokość okna", reference_map=M(),
+        task_id="test", world_revision=1,
+    )
+    assert check["direct"] == 0
+    assert check["score"] < 0
+
+
+def test_actual_panel_bonus_cannot_invent_relevance_label():
+    from app.agent.runtime.goal_affordance_ranking import affordance_relevance
+    from types import SimpleNamespace
+    class M:
+        def resolve(self, ref, *, task_id, world_revision):
+            return SimpleNamespace(
+                kind="button", label="Notatka", metadata={
+                    "source": "windows_ui_automation", "uia_visible": True,
+                    "uia_focused": True, "uia_ancestor_context": (),
+                }
+            )
+    from app.agent.runtime.active_panel_context import PanelContext
+    ctx = PanelContext(
+        status="focus_observed_no_unique_selected_tab",
+        selected_tabs=(), focused_labels=("Notatka",),
+        panel_labels=(), contextual_controls=0, all_controls=1
+    )
+    ranked = affordance_relevance(
+        {"entity_ref": "any", "name": "click"},
+        goal="Zmień wymiary okna", reference_map=M(),
+        task_id="t", world_revision=1, panel_context=ctx,
+    )
+    assert ranked["direct"] == 0
+    assert ranked["context"] > 0
