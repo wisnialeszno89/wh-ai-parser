@@ -165,3 +165,110 @@ def inspect_native_mdi_button_ancestry(scene, *, desktop=None, limit=8) -> dict:
         "with_ambiguous_mdi_ancestor": sum(v for k, v in counts.items() if k > 1),
         "buttons": details,
     }
+
+
+def _document_from_native_chain(wrapper) -> str | None:
+    """Recognize WindowHub document child Window -> MDIClient structure."""
+    import re
+    current = wrapper
+    for _ in range(16):
+        try:
+            parent = current.parent()
+            if parent is None:
+                return None
+            info = parent.element_info
+            role = str(getattr(info, "control_type", "") or "").casefold()
+            title = str(getattr(info, "name", "") or "").strip()
+            native = int(getattr(info, "handle", 0) or 0)
+            if (role == "window" and native > 0
+                    and re.fullmatch(r"OFR/\d+-", title, flags=re.IGNORECASE)):
+                host = parent.parent()
+                host_info = host.element_info
+                if (str(getattr(host_info, "class_name", "") or "").casefold()
+                        == "mdiclient"
+                        and int(getattr(host_info, "handle", 0) or 0) > 0):
+                    return title
+            current = parent
+        except (AttributeError, ValueError, TypeError, OSError):
+            return None
+    return None
+
+
+def enrich_native_mdi_document_scope(scene, *, desktop=None):
+    """Attach verified owner to duplicate toolbar controls only if all scoped.
+
+    Read-only. Unknown/duplicate/cross-document evidence never authorizes
+    a candidate. Re-run on every observation rather than caching a position.
+    """
+    from dataclasses import replace
+    from app.agent.runtime.active_document_scope import selected_document_tab
+    from app.agent.runtime.active_panel_context import panel_lineage
+    import os
+
+    title = (scene.observation.state.active_window_title or "").strip()
+    app = (scene.observation.state.active_application or "").replace("\\", "/").rsplit("/", 1)[-1].casefold()
+    if app != "okna.exe" or not title.casefold().startswith("okna - ofr/"):
+        return scene
+    selected, _ = selected_document_tab(scene)
+    if not selected or not native_title_matches(selected, title[len("Okna - "):]):
+        return scene
+    if os.name != "nt" and desktop is None:
+        return scene
+    controls = [
+        e for e in scene.elements
+        if e.kind == "button"
+        and (e.label or "").strip().casefold() == "dodaj"
+        and (e.metadata or {}).get("source") in {
+            "windows_ui_automation", "windowhub_ui_automation"
+        }
+        and (e.metadata or {}).get("uia_visible") is True
+        and (e.metadata or {}).get("uia_enabled") is True
+        and not any("szablon" in name.casefold() or "wydruk" in name.casefold()
+                    for name in panel_lineage(e))
+    ]
+    if not controls or len(controls) > 8:
+        return scene
+    hwnd = scene.observation.metadata.get("window_handle")
+    if isinstance(hwnd, bool) or not isinstance(hwnd, int) or hwnd <= 0:
+        return scene
+    try:
+        if desktop is None:
+            from pywinauto import Desktop
+            desktop = Desktop(backend="uia")
+        from app.agent.perception.windowhub_ui_automation_provider import WindowHubUIAutomationProvider
+        descendants = desktop.window(handle=hwnd).wrapper_object().descendants()
+        mapping = {}
+        for control in descendants[:6000]:
+            rid = WindowHubUIAutomationProvider._runtime_id(control)
+            if isinstance(rid, str) and rid:
+                mapping.setdefault(rid, []).append(control)
+        scoped = {}
+        for element in controls:
+            rid = (element.metadata or {}).get("uia_runtime_id")
+            wrappers = mapping.get(rid, [])
+            if len(wrappers) != 1:
+                return scene
+            owner = _document_from_native_chain(wrappers[0])
+            if not owner:
+                return scene
+            scoped[id(element)] = owner
+        if sum(native_title_matches(selected, owner) for owner in scoped.values()) != 1:
+            return scene
+        if any(
+            (e.metadata or {}).get("document_scope") not in (None, scoped[id(e)])
+            for e in controls
+        ):
+            return scene
+        return replace(
+            scene,
+            elements=tuple(
+                replace(e, metadata={
+                    **(e.metadata or {}),
+                    "document_scope": scoped[id(e)],
+                    "document_scope_source": "verified_native_mdi_child",
+                }) if id(e) in scoped else e
+                for e in scene.elements
+            ),
+        )
+    except Exception:
+        return scene
