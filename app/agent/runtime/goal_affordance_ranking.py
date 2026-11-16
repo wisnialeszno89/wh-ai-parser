@@ -55,13 +55,14 @@ def relevance_score(goal: str, *, label: str, description: str = "") -> int:
 
 
 def order_observed_affordances(affordances, *, goal: str, reference_map,
-                               task_id: str, world_revision: int):
+                               task_id: str, world_revision: int, panel_context=None):
     scored = []
     for index, affordance in enumerate(affordances):
         if not isinstance(affordance, Mapping):
             scored.append((0, index, affordance))
             continue
         label = ""
+        panel_bonus = 0
         ref = affordance.get("entity_ref")
         if isinstance(ref, str):
             try:
@@ -72,12 +73,15 @@ def order_observed_affordances(affordances, *, goal: str, reference_map,
                     (element.metadata or {}).get("semantic_label")
                     or element.label or ""
                 )
+                if panel_context is not None:
+                    from app.agent.runtime.active_panel_context import action_panel_priority
+                    panel_bonus = action_panel_priority(element, panel_context, goal=goal)
             except (KeyError, ValueError):
                 pass
         score = relevance_score(
             goal, label=str(label),
             description=str(affordance.get("description", "")),
         )
-        scored.append((-score, index, affordance))
+        scored.append((-(score + panel_bonus), index, affordance))
     scored.sort(key=lambda item: (item[0], item[1]))
     return [item[2] for item in scored]
