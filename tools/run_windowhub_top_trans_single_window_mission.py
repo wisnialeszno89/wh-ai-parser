@@ -208,7 +208,17 @@ def toggle_price_once(scene, key, *, desired_checked=True):
     # changes only the one observed field. Verify via fresh UIA observation.
     from pywinauto import Desktop
     hwnd = scene.observation.metadata.get("window_handle")
-    if not isinstance(hwnd, int):
+    if not isinstance(hwnd, int) or hwnd <= 0:
+        return False
+    # A batch may reuse the original semantic scene, but each native toggle
+    # must still be on the same live foreground document before acting.
+    import ctypes
+    from ctypes import wintypes
+    win = ctypes.WinDLL("user32", use_last_error=True)
+    win.GetForegroundWindow.argtypes = []
+    win.GetForegroundWindow.restype = wintypes.HWND
+    if int(win.GetForegroundWindow() or 0) != hwnd:
+        print("STOP = price document lost foreground")
         return False
     found = []
     target = matches(scene, kind="checkbox",
