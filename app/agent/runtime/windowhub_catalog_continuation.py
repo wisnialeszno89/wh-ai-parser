@@ -43,10 +43,12 @@ def catalog_options_for(*, outside: str, inside: str, glazing_panes: int):
     glazing = GLAZING_LABELS.get(glazing_panes, ())
     learned_color = read_skill(color_field, color_key)
     learned_glazing = read_skill(glazing_field, glazing_key)
-    if learned_color and learned_color.casefold() not in {x.casefold() for x in colors}:
-        colors = tuple(colors) + (learned_color,)
-    if learned_glazing and learned_glazing.casefold() not in {x.casefold() for x in glazing}:
-        glazing = tuple(glazing) + (learned_glazing,)
+    # Previously taught exact catalog values take priority over generic
+    # synonyms: otherwise multiple whitelist hits might become ambiguous.
+    if learned_color:
+        colors = (learned_color,)
+    if learned_glazing:
+        glazing = (learned_glazing,)
     return colors, glazing
 
 
