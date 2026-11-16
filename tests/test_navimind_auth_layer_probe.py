@@ -50,3 +50,28 @@ def test_probe_uses_empty_invalid_contract_and_matching_header():
     )
     assert status == 400
     assert category == "navimind_auth_accepted_contract_validation_reached"
+
+
+def test_probe_sends_optional_vercel_auth_header_without_printing(monkeypatch):
+    monkeypatch.setenv("NAVIMIND_VERCEL_PROTECTION_BYPASS", "vercel-test-value")
+    class Response:
+        status = 400
+        headers = {"Content-Type": "application/json"}
+        def read(self, n):
+            return b'{"error":"INVALID_AGENT_TASK_V2"}'[:n]
+        def __enter__(self):
+            return self
+        def __exit__(self, *args):
+            pass
+    def opener(req, timeout):
+        assert req.get_header("X-vercel-protection-bypass") == "vercel-test-value"
+        assert req.get_header("X-navimind-agent-secret") == "application-secret"
+        return Response()
+    status, layer = probe(
+        url="https://navimind.app/api/agent/task",
+        secret="application-secret",
+        opener=opener,
+    )
+    assert (status, layer) == (
+        400, "navimind_auth_accepted_contract_validation_reached"
+    )
