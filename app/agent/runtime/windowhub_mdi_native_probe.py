@@ -31,22 +31,34 @@ def native_title_matches(selected_name: str, title: str) -> bool:
 
 def classify_native_candidates(*, selected_document: str | None,
                                candidate_ancestor_titles: tuple[tuple[str, ...], ...]) -> MdiProbe:
+    import re
     matched = []
+    scope_status = []
     unknown = 0
     for titles in candidate_ancestor_titles:
         matching = sum(native_title_matches(selected_document or "", title) for title in titles)
         matched.append(matching)
-        if matching != 1:
+        distinct_doc_names = {
+            title.strip().casefold() for title in titles
+            if isinstance(title, str)
+            and re.fullmatch(r"ofr/\\d+-", title.strip().casefold())
+        }
+        if matching == 1 and len(distinct_doc_names) == 1:
+            scope_status.append("matching_mdi_ancestor")
+        elif matching == 0 and len(distinct_doc_names) == 1:
+            scope_status.append("other_mdi_ancestor")
+        else:
+            scope_status.append("unresolved")
             unknown += 1
     safe = (
         bool(selected_document)
         and unknown == 0
-        and sum(value == 1 for value in matched) == 1
+        and scope_status.count("matching_mdi_ancestor") == 1
     )
     return MdiProbe(
         observed_buttons=len(candidate_ancestor_titles),
         selected_document_verified=bool(selected_document),
-        scope_candidates=tuple("matching_mdi_ancestor" if x == 1 else "unresolved" for x in matched),
+        scope_candidates=tuple(scope_status),
         native_caption_matches=tuple(matched),
         native_distinct_roots=0,
         unknown_buttons=unknown,
