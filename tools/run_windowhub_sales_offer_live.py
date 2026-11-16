@@ -27,6 +27,8 @@ def parse_args(argv=None):
     p.add_argument("--color-outside", default="antracyt")
     p.add_argument("--glazing-panes", type=int, default=2)
     p.add_argument("--execute-live", action="store_true")
+    p.add_argument("--interactive-handoff", action="store_true",
+                   help="Ask for explicit salesperson confirmation of opaque customer value, then permission to resume")
     return p.parse_args(argv)
 
 
@@ -91,6 +93,7 @@ def main(argv=None):
     doc = run_document_core(
         customer_name=args.customer_name,
         fresh_document=fresh_document,
+        interactive_handoff=args.interactive_handoff,
     )
     print("DOCUMENT_SETUP_CODE=" + str(doc))
     if doc != 0:
