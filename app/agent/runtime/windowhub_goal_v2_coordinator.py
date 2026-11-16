@@ -54,6 +54,17 @@ def verified_v2_outcome(resolved, *, baseline_scene=None) -> ExpectedOutcome:
         if not isinstance(target, SemanticTargetQuery):
             raise ValueError("v2_click_requires_uia_identity")
         if kind == "scene_changed":
+            offer_title = (
+                (baseline_scene.observation.state.active_window_title or "")
+                if baseline_scene is not None else ""
+            )
+            if (target.label.strip().casefold() == "dodaj"
+                    and offer_title.casefold().startswith("okna - ofr/")):
+                return ExpectedOutcome(
+                    description="The active document Add action opened the new-position wizard.",
+                    expected_window_title="Dodawanie nowej pozycji",
+                    **common,
+                )
             return ExpectedOutcome(
                 description="The semantic WindowHub scene changed after click.",
                 require_scene_change=True,
