@@ -477,6 +477,12 @@ class RobotGUIExecutor(ActionExecutor):
                 "NOWA OFERTA",
                 None,
             ),
+            "navigate_start1": (
+                "click_screen_element",
+                "button",
+                "Start1",
+                None,
+            ),
             "exclude_construction_price": (
                 "click_screen_element", "checkbox", "Bez ceny konstrukcji", None,
             ),
@@ -514,13 +520,15 @@ class RobotGUIExecutor(ActionExecutor):
             return False
 
         expected_action, expected_role, expected_label, expected_id = expected
-        if field_name == "start_new_offer":
+        if field_name in {"start_new_offer", "navigate_start1"}:
             # The native tile may have a provider-defined AutomationId; bind
             # that identity from the observed scene instead of guessing it.
             candidate_label = scope.get("label")
             if (
                 not isinstance(candidate_label, str)
-                or " ".join(candidate_label.split()).casefold() != "nowa oferta"
+                or " ".join(candidate_label.split()).casefold() != (
+                    "nowa oferta" if field_name == "start_new_offer" else "start1"
+                )
             ):
                 return False
             expected_label = candidate_label
@@ -581,7 +589,7 @@ class RobotGUIExecutor(ActionExecutor):
             if field_name in {"width_1", "height_1"}
             else "Dodawanie nowej pozycji"
         )
-        if field_name == "start_new_offer":
+        if field_name in {"start_new_offer", "navigate_start1"}:
             # The New Offer tile remains in the UIA tree on an open offer.
             # Bind this one action to the exact observed workspace title,
             # allowing Start1 or a document without allowing arbitrary dialogs.
@@ -589,8 +597,12 @@ class RobotGUIExecutor(ActionExecutor):
             if (
                 not isinstance(authorized_title, str)
                 or not (
-                    authorized_title == "Okna - Start1"
-                    or authorized_title.casefold().startswith("okna - ofr/")
+                    (field_name == "start_new_offer" and (
+                        authorized_title == "Okna - Start1"
+                        or authorized_title.casefold().startswith("okna - ofr/")
+                    ))
+                    or (field_name == "navigate_start1" and
+                        authorized_title.casefold().startswith("okna - ofr/"))
                 )
                 or title != authorized_title
             ):
