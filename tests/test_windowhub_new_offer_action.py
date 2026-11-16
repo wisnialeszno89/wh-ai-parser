@@ -70,3 +70,28 @@ def test_start_action_rejects_wrong_environment():
     assert prepare_new_offer_from_start(
         _scene(_tile(), title="Wielkość okna")
     ).status is WindowHubFormActionStatus.BLOCKED
+
+
+def test_workspace_new_offer_allowed_from_existing_offer():
+    from app.agent.offers.windowhub_new_offer_action import prepare_new_offer_from_workspace
+    prepared = prepare_new_offer_from_workspace(
+        _scene(_tile(), title="Okna - OFR/4669-")
+    )
+    assert prepared.status is WindowHubFormActionStatus.READY
+    assert prepared.expected_outcome.expected_window_title == "Właściwości dokumentu"
+
+
+def test_legacy_start_action_stays_start_only():
+    assert prepare_new_offer_from_start(
+        _scene(_tile(), title="Okna - OFR/4669-")
+    ).status is WindowHubFormActionStatus.BLOCKED
+
+
+def test_workspace_new_offer_rejects_ambiguous_or_wrong_stage():
+    from app.agent.offers.windowhub_new_offer_action import prepare_new_offer_from_workspace
+    assert prepare_new_offer_from_workspace(
+        _scene(_tile(), _tile(runtime="other"), title="Okna - OFR/4669-")
+    ).status is WindowHubFormActionStatus.BLOCKED
+    assert prepare_new_offer_from_workspace(
+        _scene(_tile(), title="Wielkość okna")
+    ).status is WindowHubFormActionStatus.BLOCKED
