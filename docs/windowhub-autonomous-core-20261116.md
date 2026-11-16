@@ -161,3 +161,12 @@ Implementation now:
 - This is a scoped generic skill based on observed structural evidence and goal semantics. It does not require a fixed Start1->offer->position sequence; beginning a new offer remains separate.
 
 The native promotion has not been validated live in WindowHub yet. First use \`--mode inspect\` to check MDI_DODAJ_SAFE_TARGET=True and that the proposed semantic Dodaj refers to the current offer. Only then use remote model think / carefully supervised execution.
+
+
+Final execution hardening (same day): the action executor itself now requests a completely fresh foreground observation for an intended document Dodaj click, re-enriches MDI ownership on that newly observed scene, and applies normal local action policy before dispatch. A human switching documents between V2 planning and click is therefore detected. Unit tests in tests/test_windowhub_add_fresh_scope.py cover this boundary. The goal loop's earlier observation is only a proposal, never final click authority.
+
+Acceptance before enabling a live click:
+1. Run offline tests for native ownership, semantic scoping and final action verification.
+2. In the same open offers, --mode inspect must show MDI_DODAJ_SAFE_TARGET=True and MDI_DODAJ_ACTIVE_SCOPED=1.
+3. --mode think can be tried separately, without desktop input, only after the NaviMind V2 reasoning endpoint is configured.
+4. Live execution should remain supervised, with no save/send/order; first accepted result is the named Dodawanie nowej pozycji wizard and no unexpected document mutation.
