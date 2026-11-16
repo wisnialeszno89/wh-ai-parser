@@ -118,3 +118,16 @@ def test_unknown_window_recovery_requires_one_visible_unminimized_candidate():
     assert unique_observable_window([(52, False, False)]) is None
     assert unique_observable_window([(0, True, False)]) is None
     assert unique_observable_window([(True, True, False)]) is None
+
+
+def test_focused_panel_prioritizes_sibling_control_not_other_panel():
+    focused = element("Wybierz", focused=True, ancestors=(
+        ("pane", "x", "Konstrukcja"),
+    ))
+    sibling = element("Edytuj", ancestors=(("pane", "x", "Konstrukcja"),))
+    unrelated = element("Edytuj", ancestors=(("pane", "x", "Szablony wydruków"),))
+    context = observe_panel_context(N(elements=(focused, sibling, unrelated)))
+    assert context.focused_containers == ("Konstrukcja",)
+    assert action_panel_priority(sibling, context, goal="edytuj") > action_panel_priority(
+        unrelated, context, goal="edytuj"
+    )
