@@ -123,3 +123,44 @@ def test_existing_offer_execution_scope_uses_actual_document_title():
     assert RobotGUIExecutor._matches_windowhub_form_action_scope(
         prepared.action, _scene(_tile(), title="Właściwości dokumentu"), scope
     ) is False
+
+
+def test_start1_tab_can_be_prepared_from_offer_document():
+    from app.agent.offers.windowhub_new_offer_action import prepare_start1_navigation_from_offer
+    scene = _scene(_tile(runtime="tab-id", label="Start1"), title="Okna - OFR/4670-")
+    prepared = prepare_start1_navigation_from_offer(scene)
+    assert prepared.status is WindowHubFormActionStatus.READY
+    assert prepared.expected_outcome.expected_window_title == "Okna - Start1"
+
+    class Loop:
+        context = None
+        def run(self, *, plan, context):
+            self.context = context
+            return None
+
+    loop = Loop()
+    WindowHubOfferFormActionExecutor.execute_prepared(
+        prepared, scene, loop, request_message="Switch to Start1"
+    )
+    scope = loop.context.get_value("_windowhub_form_action_scope")
+    assert scope["field_name"] == "navigate_start1"
+    assert scope["window_title"] == "Okna - OFR/4670-"
+    assert RobotGUIExecutor._matches_windowhub_form_action_scope(
+        prepared.action, scene, scope
+    ) is True
+    assert RobotGUIExecutor._matches_windowhub_form_action_scope(
+        prepared.action,
+        _scene(_tile(runtime="tab-id", label="Start1"), title="Okna - OFR/9999-"),
+        scope
+    ) is False
+
+
+def test_start1_tab_rejects_wrong_screen_and_duplicates():
+    from app.agent.offers.windowhub_new_offer_action import prepare_start1_navigation_from_offer
+    tab = _tile(runtime="tab-id", label="Start1")
+    assert prepare_start1_navigation_from_offer(
+        _scene(tab, title="Okna - Start1")
+    ).status is WindowHubFormActionStatus.BLOCKED
+    assert prepare_start1_navigation_from_offer(
+        _scene(tab, _tile(runtime="other", label="Start1"), title="Okna - OFR/4670-")
+    ).status is WindowHubFormActionStatus.BLOCKED
