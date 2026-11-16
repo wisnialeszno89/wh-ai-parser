@@ -27,6 +27,8 @@ def parse_args(argv=None):
     parser.add_argument("--goal", help="Free-form Polish or German instruction")
     parser.add_argument("--task-file", type=Path, help="Client request (.txt/.md/.pdf)")
     parser.add_argument("--mode", choices=("inspect", "think", "execute"), default="inspect")
+    parser.add_argument("--probe-mdi", action="store_true",
+                        help="Read-only native UIA ancestry of duplicate per-offer toolbar controls")
     parser.add_argument("--reuse-shared-navimind-endpoint", action="store_true", help="Use existing V1 connection for V2 only AFTER NaviMind PR #26 is deployed")
     parser.add_argument("--demo", type=Path)
     parser.add_argument("--max-actions", type=int, default=6)
@@ -417,6 +419,9 @@ def main(argv=None):
     if not goal.strip() or len(goal) > 16000:
         print("STOP: --goal or --task-file required; empty or oversized request.")
         return 2
+    if args.probe_mdi and args.mode != "inspect":
+        print("STOP: --probe-mdi is read-only and requires --mode inspect.")
+        return 2
     if args.customer_lookup_skill and (
         args.mode != "execute" or not isinstance(args.customer_name, str)
         or not args.customer_name.strip() or len(args.customer_name.strip()) > 100
@@ -512,6 +517,32 @@ def main(argv=None):
         print("DEMO_MODIFIER_VERIFIED=" + str(report["modifier_observed"]))
     if args.mode != "inspect":
         print("NOTICE: goal and semantic scene are transmitted to configured NaviMind.")
+    if args.probe_mdi:
+        from app.agent.runtime.windows_desktop_agent_control_loop import (
+            create_windows_desktop_agent_control_loop,
+        )
+        from app.agent.runtime.windowhub_mdi_native_probe import inspect_native_mdi_button_ancestry
+        scene = enrich_windowhub_scene(
+            create_windows_desktop_agent_control_loop().observe_scene()
+        )
+        if stage_of(scene) != "offer_document":
+            print("MDI_PROBE=not_offer_document")
+            return 4
+        report = inspect_native_mdi_button_ancestry(scene)
+        print("MDI_PROBE_STATUS=" + report.get("status", "unknown"))
+        print("MDI_PROBE_SELECTED=" + report.get("selected_tab_status", "unknown"))
+        print("MDI_PROBE_BUTTONS=" + str(report.get("observed_dodaj", 0)))
+        print("MDI_PROBE_UIA_UNIQUE=" + str(report.get("uia_matched_uniquely", 0)))
+        print("MDI_PROBE_NATIVE_EXACT_MATCH=" + str(report.get("with_exact_mdi_ancestor", 0)))
+        print("MDI_PROBE_NO_NATIVE_MATCH=" + str(report.get("with_no_mdi_ancestor", 0)))
+        print("MDI_PROBE_NATIVE_AMBIGUOUS=" + str(report.get("with_ambiguous_mdi_ancestor", 0)))
+        for index, item in enumerate(report.get("buttons", ())):
+            print("MDI_PROBE_BUTTON_" + str(index) + "_UIA_MATCH=" + str(item["uia_match_count"]))
+            print("MDI_PROBE_BUTTON_" + str(index) + "_NATIVE_PARENTS=" + str(item["native_ancestor_windows"]))
+            print("MDI_PROBE_BUTTON_" + str(index) + "_MDI_CAPTION_MATCH=" + str(item["mdi_title_match_count"]))
+            print("MDI_PROBE_BUTTON_" + str(index) + "_STRUCTURE=" + repr(item["structural_chain"][:8]))
+        print("MDI_PROBE_ACTIONS_EXECUTED=False")
+        return 0
     try:
         from app.agent.runtime.windows_desktop_agent_control_loop import create_windows_desktop_agent_control_loop
         return run_goal(
