@@ -98,6 +98,17 @@ def request_human_resume(loop, *, timeout_seconds=60):
         timeout_seconds=timeout_seconds,
     )
     if response is None:
+        from app.agent.runtime.goal_task_supervisor import (
+            TaskItem, TaskLedger, append_unresolved_issues,
+        )
+        # No business subtask graph exists yet, so fail closed rather than
+        # assume the current user request may be safely skipped.
+        ledger = TaskLedger({"active_goal": TaskItem("active_goal", required=True)})
+        ledger.unresolved("active_goal", reason="operator_timeout_dependency_unresolved")
+        try:
+            print("HANDOFF_AUDIT_RECORDS=" + str(append_unresolved_issues(ledger)))
+        except OSError:
+            print("HANDOFF_AUDIT_RECORDS=unavailable")
         print("HANDOFF_RESULT=timeout")
         print("HANDOFF_UNRESOLVED=requires_goal_dependency_review")
         return False
