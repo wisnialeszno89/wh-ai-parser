@@ -112,6 +112,36 @@ class TaskLedger:
         return "in_progress"
 
 
+def append_unresolved_issues(ledger: TaskLedger, *, path=None) -> int:
+    """Persist minimal local evidence of skipped/blocked tasks.
+
+    No customer details, raw screen content, control values or user prompts.
+    Call after a task transition; not automatically on every observation.
+    """
+    from pathlib import Path
+    import json
+    file = Path(path) if path is not None else (
+        Path.home() / ".windowhub_agent" / "unresolved_tasks.jsonl"
+    )
+    file.parent.mkdir(parents=True, exist_ok=True)
+    rows = [
+        {
+            "schema": 1,
+            "task": issue.task,
+            "reason": issue.reason,
+            "outcome": issue.outcome,
+        }
+        for issue in ledger.issues
+    ]
+    if not rows:
+        return 0
+    # Caller retains the ledger's single responsibility for deduplication.
+    with file.open("a", encoding="utf-8") as stream:
+        for row in rows:
+            stream.write(json.dumps(row, ensure_ascii=False) + "\\n")
+    return len(rows)
+
+
 def timed_salesperson_prompt(question: str, *, timeout_seconds: float = 60.0,
                              reader: Callable | None = None) -> str | None:
     """Console prompt that returns None after bounded wait.
