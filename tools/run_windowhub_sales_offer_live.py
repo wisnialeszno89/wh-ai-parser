@@ -102,10 +102,10 @@ def main(argv=None):
         ):
             print("MISSION_RESUME=declined")
             return 4
-        current_stage = current_stage(
+        observed_after_handoff = current_stage(
             create_windows_desktop_agent_control_loop().observe_scene()
         )
-        if current_stage != stage_before:
+        if observed_after_handoff != stage_before:
             print("MISSION_RESUME=stage_changed")
             return 4
         print("MISSION_RESUME=human_approved_existing_wizard")
