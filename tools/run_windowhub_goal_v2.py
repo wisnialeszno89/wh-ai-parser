@@ -143,6 +143,13 @@ def run_goal(loop, *, goal, reasoner, mode, max_actions, experience=(),
         if stage is None:
             print("STOP: WindowHub must be the foreground application.")
             return 4
+        from app.agent.runtime.active_panel_context import safe_panel_diagnostics
+        panel_state = safe_panel_diagnostics(scene)
+        print("PANEL_CONTEXT=" + str(panel_state["context_status"]))
+        print("PANEL_SELECTED_TABS=" + str(panel_state["selected_tab_count"]))
+        print("PANEL_FOCUSED_CONTROLS=" + str(panel_state["focused_control_count"]))
+        print("PANEL_NAMED_CONTAINERS=" + str(panel_state["named_container_count"]))
+        print("PANEL_SCOPED_CONTROLS=" + str(panel_state["controls_with_ancestry"]))
         world_state = progress.observe(scene, stage=stage)
         print("WORLD_STAGE=" + str(world_state["stage"]))
         print("WORLD_CHANGED=" + str(world_state["world_changed_since_last"]))
@@ -385,7 +392,16 @@ def main(argv=None):
         print("WINDOWHUB_AUTO_DISCOVERY=" + info)
         if not focused:
             print_discovery_diagnostics()
-            return 3
+            # Inspection may still continue if the *actual current foreground*
+            # belongs to Okna.exe. Do not activate an unknown title, and do
+            # not extend this fallback to model thinking or live execution.
+            from app.agent.runtime.windowhub_foreground_inspection import (
+                inspect_current_windowhub_foreground,
+            )
+            if not inspect_current_windowhub_foreground():
+                return 3
+            print("WINDOWHUB_UNMAPPED_FOREGROUND=READ_ONLY_OBSERVATION")
+
     if args.mode == "execute":
         if not args.execute_live or any(
             os.getenv(k) != "1" for k in ("WH_REAL_WINDOWHUB", "COMPUTER_USE_LIVE")
