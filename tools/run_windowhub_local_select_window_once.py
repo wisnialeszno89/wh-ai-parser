@@ -60,6 +60,7 @@ def run(live=False):
         field_name="item_type_window",
         handling=WindowHubPlanHandling.RADIO_SELECTION,
         desired_value=True,
+        source="explicit_local_operator_goal",
     )
     prepared = WindowHubOfferFormActionPlanner().prepare_entry(scene, entry)
     print("PREPARED_STATUS=" + prepared.status.value)
