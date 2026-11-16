@@ -33,13 +33,13 @@ def test_probe_uses_empty_invalid_contract_and_matching_header():
         status = 400
         headers = {"Content-Type": "application/json"}
         def read(self, n):
-            return b'{"error":"INVALID_AGENT_TASK"}'[:n]
+            return b'{"error":"INVALID_AGENT_TASK_V2"}'[:n]
         def __enter__(self):
             return self
         def __exit__(self, *args):
             pass
     def opener(req, timeout):
-        assert req.data == b"{}"
+        assert req.data == b'{"version":"2"}'
         assert req.get_header("X-navimind-agent-secret") == "secret-test"
         assert timeout <= 20
         return Response()
