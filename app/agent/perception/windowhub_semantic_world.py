@@ -56,43 +56,23 @@ def enrich_windowhub_scene(scene: ScreenScene) -> ScreenScene:
                 label = WIZARD_MEANINGS.get(field.field_name)
                 if label and field.is_unique and field.enabled is True:
                     aliases[id(field.element)] = label
-    # A verified offer-document skill identifies the single toolbar
-    # "Dodaj" as the entry to adding a position. Attach its business meaning
-    # only when there is one eligible UIA button and it is not located in
-    # a print-template panel. No interaction or new action is created here.
+    # Scope the meaning of Dodaj by the selected MDI document, not by a
+    # global count of identically named controls from other open offers.
     if title.startswith("okna - ofr/"):
-        from app.agent.runtime.active_panel_context import panel_lineage
-        from app.agent.runtime.goal_affordance_ranking import normalize_words
-        eligible = [
-            e for e in scene.elements
+        from app.agent.runtime.active_document_scope import unique_active_document_control
+        element = unique_active_document_control(scene, label="Dodaj")
+        if element is not None:
+            meta = element.metadata or {}
+            runtime_id = meta.get("uia_runtime_id")
             if (
-                e.kind == "button"
-                and (e.label or "").strip().casefold() == "dodaj"
-                and (e.metadata or {}).get("source") in {
-                    "windows_ui_automation", "windowhub_ui_automation"
-                }
-                and (e.metadata or {}).get("uia_visible") is True
-                and (e.metadata or {}).get("uia_enabled") is True
-                and isinstance((e.metadata or {}).get("uia_runtime_id"), str)
-                and bool((e.metadata or {}).get("uia_runtime_id"))
-                and not any(
-                    any(
-                        word.startswith(("wydruk", "szablon"))
-                        for word in normalize_words(parent)
-                    )
-                    for parent in panel_lineage(e)
-                )
-            )
-        ]
-        if len(eligible) == 1:
-            element = eligible[0]
-            runtime_id = (element.metadata or {}).get("uia_runtime_id")
-            if sum(
-                1 for item in scene.elements
-                if (item.metadata or {}).get("source") in {
-                    "windows_ui_automation", "windowhub_ui_automation"
-                } and (item.metadata or {}).get("uia_runtime_id") == runtime_id
-            ) == 1:
+                isinstance(runtime_id, str) and runtime_id.strip()
+                and sum(
+                    1 for item in scene.elements
+                    if (item.metadata or {}).get("source") in {
+                        "windows_ui_automation", "windowhub_ui_automation"
+                    } and (item.metadata or {}).get("uia_runtime_id") == runtime_id
+                ) == 1
+            ):
                 aliases[id(element)] = "Dodaj nową pozycję okna do oferty"
     if not aliases:
         return scene
