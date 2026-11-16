@@ -57,3 +57,75 @@ def test_resumed_document_can_configure_prices_without_retyping_customer(monkeyp
     assert result == 6
     assert calls == list(PRICE_TARGETS)
     assert all(flags[key] is wanted for key, wanted in PRICE_TARGETS)
+
+
+def test_manual_customer_approval_resumes_only_with_exact_name_and_consent(monkeypatch):
+    from app.agent.runtime import windowhub_document_core as core
+    from app.agent.runtime import windowhub_window_activation as activation
+    from app.agent.runtime import windows_desktop_agent_control_loop as control
+    from tools import run_windowhub_top_trans_single_window_mission as legacy
+    from tools import run_windowhub_new_offer_native_invoke_once as native
+
+    class FakeState:
+        active_application = "Okna.exe"
+        active_window_title = "Właściwości dokumentu"
+
+    class FakeScene:
+        class Observation:
+            state = FakeState()
+        observation = Observation()
+
+    scene = FakeScene()
+    calls = []
+    monkeypatch.setattr(activation, "activate_windowhub_workflow_window", lambda: (True, "ok"))
+    monkeypatch.setattr(control, "create_windows_desktop_agent_control_loop", lambda: object())
+    monkeypatch.setattr(legacy, "inspect", lambda loop: scene)
+    monkeypatch.setattr(legacy, "customer_selected", lambda s, name: False)
+    monkeypatch.setattr(legacy, "verify_exclusion", lambda *args, **kwargs: True)
+    monkeypatch.setattr(legacy, "matches", lambda *args, **kwargs: [object()])
+
+    def invoke():
+        calls.append("OK")
+        FakeState.active_window_title = "Okna - OFR/99-"
+
+    class Wrapper:
+        class Invoke:
+            def Invoke(self):
+                invoke()
+        iface_invoke = Invoke()
+    monkeypatch.setattr(native, "resolve_native_wrapper", lambda *args, **kwargs: Wrapper())
+
+    prompts = iter(["Limi Fensterbau", "tak"])
+    result = core.run_document_core(
+        customer_name="Limi Fensterbau",
+        fresh_document=False,
+        interactive_handoff=True,
+        ask=lambda prompt: next(prompts),
+    )
+    assert result == 0
+    assert calls == ["OK"]
+
+
+def test_customer_handoff_denial_leaves_dialog_open(monkeypatch):
+    from app.agent.runtime import windowhub_document_core as core
+    from app.agent.runtime import windowhub_window_activation as activation
+    from app.agent.runtime import windows_desktop_agent_control_loop as control
+    from tools import run_windowhub_top_trans_single_window_mission as legacy
+
+    scene = type("Scene", (), {"observation": type("Observation", (), {
+        "state": type("State", (), {
+            "active_application": "Okna.exe",
+            "active_window_title": "Właściwości dokumentu",
+        })(),
+    })()})()
+    monkeypatch.setattr(activation, "activate_windowhub_workflow_window", lambda: (True, "ok"))
+    monkeypatch.setattr(control, "create_windows_desktop_agent_control_loop", lambda: object())
+    monkeypatch.setattr(legacy, "inspect", lambda loop: scene)
+    monkeypatch.setattr(legacy, "customer_selected", lambda s, name: False)
+    monkeypatch.setattr(legacy, "verify_exclusion", lambda *args, **kwargs: True)
+    monkeypatch.setattr(legacy, "matches",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("OK must not be clicked")))
+    assert core.run_document_core(
+        customer_name="Limi Fensterbau", fresh_document=False,
+        interactive_handoff=True, ask=lambda prompt: "nie",
+    ) == 6
