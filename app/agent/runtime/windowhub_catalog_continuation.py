@@ -199,6 +199,11 @@ def continue_to_construction(loop, *, width: int, height: int,
             return 4
         if ready.strip().casefold() != "gotowe":
             return 4
+        from app.agent.runtime.windowhub_window_activation import activate_windowhub_workflow_window
+        focused, info = activate_windowhub_workflow_window()
+        print("HARDWARE_TEACH_REFOCUS=" + info)
+        if not focused:
+            return 4
         fresh = inspect(loop)
         if stage_of(fresh) != "modifier":
             print("STOP: Construction editor not observed after teaching.")
@@ -208,6 +213,11 @@ def continue_to_construction(loop, *, width: int, height: int,
         except (EOFError, KeyboardInterrupt):
             return 4
         if consent.strip().casefold() not in {"tak", "t"}:
+            return 4
+        focused, info = activate_windowhub_workflow_window()
+        print("HARDWARE_RESUME_REFOCUS=" + info)
+        if not focused or stage_of(inspect(loop)) != "modifier":
+            print("HARDWARE_RESUME_STAGE_LOST=True")
             return 4
         # The observed transition can be recorded by the existing teach
         # recorder, but is not yet treated as proof of a specific button.
