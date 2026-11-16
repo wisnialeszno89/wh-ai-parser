@@ -115,7 +115,8 @@ def test_actual_panel_bonus_cannot_invent_relevance_label():
     ctx = PanelContext(
         status="focus_observed_no_unique_selected_tab",
         selected_tabs=(), focused_labels=("Notatka",),
-        panel_labels=(), contextual_controls=0, all_controls=1
+        panel_labels=(), contextual_controls=0, all_controls=1,
+        focused_marker_count=1,
     )
     ranked = affordance_relevance(
         {"entity_ref": "any", "name": "click"},
