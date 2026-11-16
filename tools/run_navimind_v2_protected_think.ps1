@@ -12,7 +12,7 @@ if ([string]::IsNullOrWhiteSpace($env:NAVIMIND_AGENT_V2_SECRET)) {
     throw 'Missing NAVIMIND_AGENT_V2_SECRET. Generate or load valid NaviMind V2 test credential first.'
 }
 if ([string]::IsNullOrWhiteSpace($env:NAVIMIND_AGENT_V2_URL)) {
-    $env:NAVIMIND_AGENT_V2_URL = 'https://navimind.app/api/agent/task'
+    $env:NAVIMIND_AGENT_V2_URL = 'https://www.navimind.app/api/agent/task'
 }
 
 $hadBypass = [Environment]::GetEnvironmentVariable(
