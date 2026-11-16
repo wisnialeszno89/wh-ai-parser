@@ -11,7 +11,7 @@ from app.agent.perception.semantic_target_query import SemanticTargetQuery
 from app.agent.verification.expected_outcome import ExpectedOutcome
 
 
-def prepare_new_offer_from_start(scene: ScreenScene) -> PreparedWindowHubFormAction:
+def prepare_new_offer_from_workspace(scene: ScreenScene) -> PreparedWindowHubFormAction:
     def blocked(reason):
         return PreparedWindowHubFormAction(
             field_name="start_new_offer",
@@ -26,8 +26,8 @@ def prepare_new_offer_from_start(scene: ScreenScene) -> PreparedWindowHubFormAct
     title = getattr(state, "active_window_title", "") or ""
     if app.replace("\\", "/").rsplit("/", 1)[-1].casefold() != "okna.exe":
         return blocked("WindowHub is not the active process.")
-    if title != "Okna - Start1":
-        return blocked("WindowHub start workspace must be active.")
+    if title != "Okna - Start1" and not title.casefold().startswith("okna - ofr/"):
+        return blocked("WindowHub Start1 or offer document workspace must be active.")
 
     candidates = [
         element for element in scene.elements
@@ -80,3 +80,18 @@ def prepare_new_offer_from_start(scene: ScreenScene) -> PreparedWindowHubFormAct
         ),
         runtime_id=runtime_id,
     )
+
+
+def prepare_new_offer_from_start(scene: ScreenScene) -> PreparedWindowHubFormAction:
+    """Legacy public entry: preserve strict Start1-only semantics."""
+    if not isinstance(scene, ScreenScene):
+        raise TypeError("new_offer_start_scene_required")
+    title = getattr(scene.observation.state, "active_window_title", "") or ""
+    if title != "Okna - Start1":
+        from app.agent.offers.windowhub_offer_form_action import PreparedWindowHubFormAction, WindowHubFormActionStatus
+        return PreparedWindowHubFormAction(
+            field_name="start_new_offer",
+            status=WindowHubFormActionStatus.BLOCKED,
+            reason="WindowHub start workspace must be active.",
+        )
+    return prepare_new_offer_from_workspace(scene)
