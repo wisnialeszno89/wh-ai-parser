@@ -22,3 +22,39 @@ Integration branch: `integration/windowhub-live-acceptance-20261116`, created fr
 - No claims of E2E completion from offline tests, browser fixtures, or synthetic flows.
 
 The NaviMind Vercel frontend is maintained in the separate `navimind` repository. A Vercel READY deployment does not establish local Windows/WindowHub execution.
+
+## Salesperson-style adaptive offer contract
+
+The new pure policy module `app/agent/offers/windowhub_salesperson_policy.py`
+and tests `tests/test_windowhub_salesperson_policy.py` are included on this branch.
+They are **not yet wired into the live WindowHub executor**. Their scope is
+business defaults, safe routing recommendations, per-position state and report
+contract; they do not click, write or save.
+
+- Locate the running `Okna.exe` from Windows, observe a fresh scene and classify
+  the active stage before choosing any action. Login is always operator-owned.
+- If on Start1, create a new offer. If already in document properties, verify
+  customer and document settings. When an offer/editor is open, continue only
+  after establishing that it is the authorized offer; otherwise protect the
+  unrelated document. Unknown screens require further observation rather than
+  fabricated clicks.
+- No specified profile color means white inside and out. A missing glass package
+  means two panes. When an opening direction is not provided, the agent may
+  propose one only using verified construction context and catalog capability;
+  the proposal is recorded as an assumption. Never present a guess as a
+  customer requirement.
+- Process a multi-position request sequentially. Each position can become
+  `complete`, `partial`, or `blocked`. Partial status requires readback of
+  dimensions **and** an actual verified incomplete position placeholder. If
+  WindowHub does not permit such a placeholder, report `blocked` and
+  continue if a safe way to navigate to the next position exists.
+- A saved draft is *not* verified merely because a click succeeded. Explicit
+  permission, save and fresh readback are required. Never silently change the
+  client's requested specifications.
+- End-of-run report lists positions, assumptions, missing properties, and
+  whether customer and saved draft were verified.
+
+Offline policy test: `python -m unittest tests.test_windowhub_salesperson_policy -v`.
+Before live integration, compare local-only `adaptive_goal_runtime.py` and
+`verified_goal_loop.py` against the integration branch in a separate worktree.
+Do not overwrite local changes or claim tests prove actual WH operation.
