@@ -78,8 +78,9 @@ def main(argv=None):
     after = loop.observe_scene()
     after_stage = stage_of(after)
     print("NEW_OFFER_POST_STAGE=" + str(after_stage))
-    print("NEW_OFFER_EXECUTOR_VERIFIED=" + str(verified_action(result)))
-    if after_stage != "document_properties":
+    action_verified = verified_action(result)
+    print("NEW_OFFER_EXECUTOR_VERIFIED=" + str(action_verified))
+    if after_stage != "document_properties" or not action_verified:
         print("STOP: New document properties were not observed; no second click.")
         return 6
     print("NEW_OFFER_ENTRY_VERIFIED=True")
