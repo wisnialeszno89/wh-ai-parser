@@ -85,3 +85,17 @@ New read-only recovery: in V2 `--mode inspect` only, an unknown WindowHub title 
 Unit tests: `python -m pytest tests/test_active_panel_context.py tests/test_goal_affordance_ranking.py tests/test_windowhub_goal_specific_knowledge.py tests/test_goal_progress_memory.py -q`.
 
 The new code is committed to the integration branch; local offline tests and a live unknown WindowHub screen observation have NOT yet been run by the user. If the runtime cannot expose selected/focused UIA states or ancestry, it will report low-confidence panel context instead of making a confident claim. Next architectural task: confirm correct hierarchy in the user's application and create contextual local skill activation after field-specific readback and human supervision.
+
+
+## 2026-11-16: Active focus ambiguity and contextual skill choice
+
+Live evidence from user's `OFR/4680-`: 19 offline tests passed; one selected tab, **six** apparent UIA-focused controls, 137 ancestry-scoped controls; 64 action capabilities, only one direct goal-relevant target. Earlier ranking prominently exposed note/scroll controls rather than a verified window-construction entry.
+
+Changes:
+- `active_panel_context.py` distinguishes a genuinely unique focused control from 2+ ambiguous UIA focus markers; ambiguous focus no longer gives an action priority boost or claims a known active area. Selected tab and contextual hierarchy remain independent evidence.
+- `goal_affordance_ranking.py` decomposes direct label relevance and panel evidence. Generic scrolling/table navigation receives a low rank unless the request explicitly mentions it. Generated affordance descriptions never independently certify semantic meaning.
+- `run_windowhub_goal_v2.py --mode inspect` now emits the five best candidates with separate `DIRECT`, `PANEL` and `TOTAL` scores, as well as the total number of direct matches and panel-context matches. This is read-only explanation, **not** a decision to click.
+- `windowhub_semantic_world.py` attaches the established business meaning `Dodaj nową pozycję okna do oferty` only to a unique, active, UIA-enabled `Dodaj` button on an existing `Okna - OFR/...` document, excluding controls in recognizable print-template ancestry. Native labels and identifiers remain local and unchanged for execution. This capability is a candidate, not proof that a new position was created.
+- Added offline tests for focus ambiguity, goal relevance, scrolling penalty, contextual skill labeling, and rejection of print-template controls.
+
+No model call or real WindowHub click was performed during development. Next acceptance: run the read-only inspection against the existing offer, review `GOAL_CANDIDATE` scores, and only then try `--mode think` if NaviMind V2 is configured, with no desktop actions.
