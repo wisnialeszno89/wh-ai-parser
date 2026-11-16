@@ -85,7 +85,7 @@ def main(argv=None):
             print("MISSION_RESULT=blocked_before_document")
             return entry
         fresh_document = True
-    elif stage_before in {"position", "dimensions", "basic_parameters", "glazing"}:
+    elif stage_before in {"position", "dimensions", "basic_parameters", "glazing", "hardware", "modifier"}:
         # No new document on resume. Human confirms that this existing wizard
         # belongs to the requested customer and has valid document properties.
         if not args.interactive_handoff:
@@ -150,7 +150,7 @@ def main(argv=None):
             return 6
         stage = stage_of(current)
         print("POSITION_ENTRY_CONFIRMED=" + str(stage))
-    elif stage not in {"position", "dimensions", "basic_parameters", "glazing"}:
+    elif stage not in {"position", "dimensions", "basic_parameters", "glazing", "hardware", "modifier"}:
         print("POSITION_RESULT=unsupported_stage")
         return 4
 
