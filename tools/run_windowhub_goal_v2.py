@@ -241,12 +241,33 @@ def run_goal(loop, *, goal, reasoner, mode, max_actions, experience=(),
         allowed, progress_reason = progress.allow_action(action.action, scene, stage=stage)
         print("PROGRESS_ACTION_POLICY=" + progress_reason)
         if not allowed:
-            print("STOP: identical action on unchanged screen would be a blind repeat.")
-            return 6
+            print("RECOVERY=blocked_identical_action_on_unchanged_world")
+            feedback.append({
+                "source": "local_recovery",
+                "verified": False,
+                "blocked_action": action.action.name,
+                "reason": "same_action_same_world_choose_different_method",
+                "stage": stage,
+            })
+            # Ask the model for a different, currently available capability.
+            # This still consumes the finite action budget and performs no UI
+            # input in the blocked cycle.
+            continue
         try:
             execute_v2_step(loop, scene, action, approved_persistent=approved_persistent)
         except (ValueError, RuntimeError) as exc:
-            print("STOP: local guard or verification: " + str(exc))
+            print("ACTION_OUTCOME=blocked_or_unverified")
+            feedback.append({
+                "source": "local_recovery",
+                "verified": False,
+                "failed_action": action.action.name,
+                "reason": type(exc).__name__,
+                "stage": stage,
+                "next_step": "reobserve_and_choose_an_evidence_based_alternative",
+            })
+            # One failed UI operation is not yet enough to assume nothing
+            # changed: the following cycle will re-observe the desktop.
+            # Never send the identical action twice on unchanged evidence.
             if (mode == "execute" and interactive_handoff
                     and request_human_resume(loop, timeout_seconds=handoff_timeout)):
                 feedback.append({
@@ -254,8 +275,7 @@ def run_goal(loop, *, goal, reasoner, mode, max_actions, experience=(),
                     "result": "human_updated_screen_and_approved_resume",
                     "verified": False,
                 })
-                continue
-            return 6
+            continue
         print("ACTION_VERIFIED=" + action.action.name)
         after = loop.observe_scene()
         feedback.append({
