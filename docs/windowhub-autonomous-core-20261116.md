@@ -170,3 +170,17 @@ Acceptance before enabling a live click:
 2. In the same open offers, --mode inspect must show MDI_DODAJ_SAFE_TARGET=True and MDI_DODAJ_ACTIVE_SCOPED=1.
 3. --mode think can be tried separately, without desktop input, only after the NaviMind V2 reasoning endpoint is configured.
 4. Live execution should remain supervised, with no save/send/order; first accepted result is the named Dodawanie nowej pozycji wizard and no unexpected document mutation.
+
+
+## 2026-11-16: Native owner identification accepted; model think gate
+
+User live acceptance:
+- 24/24 tests passed.
+- Active document OFR/4678-, two visible Dodaj buttons; exactly one was proven in active MDI scope.
+- MDI_DODAJ_ACTIVE_SCOPED=1, MDI_DODAJ_UNRESOLVED=0, MDI_DODAJ_SAFE_TARGET=True.
+- Correct Add candidate DIRECT=40, PANEL=22, TOTAL=184 versus note TOTAL=22.
+- Observed only: no reasoning model called, no mouse or keyboard input executed.
+
+Next phase is one-step V2 **think** with the goal "Add a window position to the currently open offer, without creating a new offer". The runner now gates the chosen action through the local policy (unique UIA, MDI owner, no unsanctioned persistence) and postcondition schema before returning THINK_LOCAL_POLICY=PASS. A safe Dodaj action must expect the exact Dodawanie nowej pozycji wizard; an unrelated navigation or unsound postcondition must not be mistaken for success. No desktop action is performed in think mode. Remote V2 think calls still transmit the task and semantic scene to the configured endpoint; avoid real sensitive customer data unless appropriately authorized.
+
+After think acceptance, the first supervised execute should be limited to a disposable/test offer and must independently re-observe the selected document and UIA identity immediately before clicking. It must not save or send business documents autonomously.
