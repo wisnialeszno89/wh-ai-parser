@@ -22,7 +22,7 @@ Set-Clipboard -Value $secret
 Remove-Variable secret -ErrorAction SilentlyContinue
 
 Write-Host ''
-Write-Host 'Tymczasowy klucz został wygenerowany i skopiowany do schowka.' -ForegroundColor Green
+Write-Host 'Tymczasowy klucz zostal wygenerowany i skopiowany do schowka.' -ForegroundColor Green
 Write-Host 'Dodaj na Vercel 3 oddzielne zmienne w Production:'
 Write-Host 'NAVIMIND_AGENT_TEST_SECRET = [WKLEJ ZE SCHOWKA CTRL+V]'
 Write-Host ('NAVIMIND_AGENT_TEST_ISSUED_AT = ' + $now.ToString('yyyy-MM-ddTHH:mm:ssZ'))
