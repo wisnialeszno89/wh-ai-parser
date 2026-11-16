@@ -325,7 +325,10 @@ def advance_known_wizard(scene, *, expected_stage):
 
 def open_new_position(scene):
     """Open the position wizard only through a uniquely verified native control."""
-    approved = ("Nowa pozycja", "Dodaj nową pozycję", "Dodawanie nowej pozycji")
+    # WindowHub's verified offer-document toolbar exposes 'Dodaj' as the
+    # new-position entry. Require exactly one matching enabled visible UIA
+    # button, native re-resolution, and a fresh wizard-stage readback.
+    approved = ("Nowa pozycja", "Dodaj nową pozycję", "Dodawanie nowej pozycji", "Dodaj")
     candidates = [e for e in scene.elements
                   if e.kind == "button"
                   and (e.label or "").strip().casefold() in {
