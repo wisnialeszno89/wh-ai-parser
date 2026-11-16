@@ -125,9 +125,20 @@ def test_existing_offer_execution_scope_uses_actual_document_title():
     ) is False
 
 
+
+
+def _tab(runtime="start1-tab", *, selected=False):
+    original = _tile(runtime=runtime, role="tabitem", label="Start1")
+    from dataclasses import replace
+    return replace(original, metadata={
+        **original.metadata,
+        "uia_selected": selected,
+    })
+
+
 def test_start1_tab_can_be_prepared_from_offer_document():
     from app.agent.offers.windowhub_new_offer_action import prepare_start1_navigation_from_offer
-    scene = _scene(_tile(runtime="tab-id", label="Start1"), title="Okna - OFR/4670-")
+    scene = _scene(_tab(runtime="tab-id"), title="Okna - OFR/4670-")
     prepared = prepare_start1_navigation_from_offer(scene)
     assert prepared.status is WindowHubFormActionStatus.READY
     assert prepared.expected_outcome.expected_window_title == "Okna - Start1"
@@ -150,17 +161,33 @@ def test_start1_tab_can_be_prepared_from_offer_document():
     ) is True
     assert RobotGUIExecutor._matches_windowhub_form_action_scope(
         prepared.action,
-        _scene(_tile(runtime="tab-id", label="Start1"), title="Okna - OFR/9999-"),
+        _scene(_tab(runtime="tab-id"), title="Okna - OFR/9999-"),
         scope
     ) is False
 
 
 def test_start1_tab_rejects_wrong_screen_and_duplicates():
     from app.agent.offers.windowhub_new_offer_action import prepare_start1_navigation_from_offer
-    tab = _tile(runtime="tab-id", label="Start1")
+    tab = _tab(runtime="tab-id")
     assert prepare_start1_navigation_from_offer(
         _scene(tab, title="Okna - Start1")
     ).status is WindowHubFormActionStatus.BLOCKED
     assert prepare_start1_navigation_from_offer(
-        _scene(tab, _tile(runtime="other", label="Start1"), title="Okna - OFR/4670-")
+        _scene(tab, _tab(runtime="other"), title="Okna - OFR/4670-")
+    ).status is WindowHubFormActionStatus.BLOCKED
+
+
+def test_start1_requires_real_unselected_tabitem():
+    from app.agent.offers.windowhub_new_offer_action import prepare_start1_navigation_from_offer
+    scene_title = "Okna - OFR/4670-"
+    assert prepare_start1_navigation_from_offer(
+        _scene(_tile(runtime="wrong-role", role="button", label="Start1"), title=scene_title)
+    ).status is WindowHubFormActionStatus.BLOCKED
+    assert prepare_start1_navigation_from_offer(
+        _scene(_tab(selected=True), title=scene_title)
+    ).status is WindowHubFormActionStatus.BLOCKED
+    from dataclasses import replace
+    tab = _tab()
+    assert prepare_start1_navigation_from_offer(
+        _scene(replace(tab, metadata={**tab.metadata, "uia_selected": None}), title=scene_title)
     ).status is WindowHubFormActionStatus.BLOCKED
