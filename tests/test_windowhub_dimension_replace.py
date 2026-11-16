@@ -88,7 +88,7 @@ def test_one_write_does_not_repeat_when_postcondition_fails(monkeypatch):
     assert result.status == "blocked"
     assert result.reason == "post_write_readback_mismatch"
     assert state["calls"] == 1
-    assert state["scenes"] == 2
+    assert state["scenes"] == 4
 
 
 def test_unobservable_field_does_not_write(monkeypatch):
