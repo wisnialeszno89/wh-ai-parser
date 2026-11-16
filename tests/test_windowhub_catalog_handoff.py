@@ -5,7 +5,9 @@ from app.agent.runtime.windowhub_catalog_continuation import catalog_options_for
 from app.agent.runtime.windowhub_catalog_handoff import teach_and_resume
 
 
-def test_default_catalog_options_are_exact_and_two_sided():
+def test_default_catalog_options_are_exact_and_two_sided(monkeypatch, tmp_path):
+    from app.agent.learning import windowhub_catalog_memory as memory
+    monkeypatch.setattr(memory, "default_skill_file", lambda: tmp_path / "no_skills.json")
     colors, glazing = catalog_options_for(
         outside="antracyt", inside="biały", glazing_panes=2
     )
