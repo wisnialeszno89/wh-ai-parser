@@ -93,16 +93,22 @@ def run_mission(request, loop, *, max_actions=4):
             ):
                 print(f"STOP: next offer stage unsupported: {next_goal.reason}")
                 return 4
-            prepared = WindowHubOfferFormActionPlanner().prepare_entry(
-                scene,
-                WindowHubPlannedField(
-                    field_name=next_goal.field_name,
-                    desired_value=next_goal.desired_value,
-                    source="NewWindowOfferGoal.position",
-                    handling=WindowHubPlanHandling.DIRECT_VALUE,
-                    note="Verified overall window dimension; skos fields untouched.",
-                ),
-            )
+            # A dimension edit is usually prepopulated (1000x1000).
+            # Use one native UIA ValuePattern SetValue replacement and fresh
+            # readback, avoiding the generic runner's duplicated Ctrl+A WRITE.
+            from app.agent.runtime.windowhub_dimension_replace import replace_dimension_once
+            field = next_goal.field_name
+            desired = next_goal.desired_value
+            print(f"ACTION {actions + 1}: {field} REPLACE_NATIVE")
+            outcome = replace_dimension_once(loop, field_name=field, desired=desired)
+            print(f"DIMENSION_REPLACE_STATUS={outcome.status}")
+            print(f"DIMENSION_REPLACE_REASON={outcome.reason}")
+            print(f"DIMENSION_REPLACE_AFTER={outcome.observed_value!r}")
+            if outcome.status != "verified":
+                print("STOP: Native dimension replacement not verified; no second write.")
+                return 6
+            actions += 1
+            continue
         else:
             if not instruction.executable:
                 print("STOP: no authorized action for this stage.")
