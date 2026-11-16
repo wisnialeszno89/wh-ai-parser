@@ -28,8 +28,21 @@ def action(value="1500"):
 
 def test_detects_field_value_change_without_exposing_value():
     before, after = scene("1000"), scene("1500")
-    assert compact_state(before) != compact_state(after)
-    assert "1000" not in repr(compact_state(before))
+    before_state = compact_state(before)
+    after_state = compact_state(after)
+    assert before_state != after_state
+    # AutomationId "1000" is a legitimate control identifier, not the
+    # customer's value. Check the value slot, not the entire signature.
+    before_control = before_state[2][0]
+    after_control = after_state[2][0]
+    assert before_control[1] == "1000"
+    before_value_fingerprint = before_control[2][0]
+    after_value_fingerprint = after_control[2][0]
+    assert isinstance(before_value_fingerprint, str)
+    assert len(before_value_fingerprint) == 12
+    assert before_value_fingerprint != "1000"
+    assert after_value_fingerprint != "1500"
+    assert before_value_fingerprint != after_value_fingerprint
     memory = ProgressMemory()
     first = memory.observe(before, stage="dimensions")
     assert first["world_changed_since_last"] is None
