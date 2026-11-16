@@ -397,6 +397,7 @@ class ComputerUseV2ActionSession:
             snapshot,
             task_id=task_id,
             world_revision=world_revision,
+            goal=goal,
         )
 
         contract = AgentTaskV2Contract(
@@ -443,12 +444,21 @@ class ComputerUseV2ActionSession:
         *,
         task_id: str,
         world_revision: int,
+        goal: str = "",
     ) -> tuple[list[dict[str, object]], dict[str, _LocalActionBinding]]:
         capabilities: list[dict[str, object]] = []
         bindings: dict[str, _LocalActionBinding] = {}
         resolver = self._target_resolver_factory()
 
-        for affordance in snapshot.payload.get("affordances", []):
+        from app.agent.runtime.goal_affordance_ranking import order_observed_affordances
+        ordered = order_observed_affordances(
+            snapshot.payload.get("affordances", []),
+            goal=goal,
+            reference_map=snapshot.reference_map,
+            task_id=task_id,
+            world_revision=world_revision,
+        )
+        for affordance in ordered:
             if len(capabilities) >= (
                 MAX_V2_ACTION_CAPABILITIES
                 - len(SAFE_KEY_SEQUENCES)
