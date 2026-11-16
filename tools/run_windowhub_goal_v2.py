@@ -198,6 +198,24 @@ def run_goal(loop, *, goal, reasoner, mode, max_actions, experience=(),
         actions = prepared.request_payload["capabilities"]["actions"]
         print(f"CYCLE={revision+1} STAGE={stage} ACTION_CAPABILITIES={len(actions)}")
         if mode == "inspect":
+            from app.agent.runtime.goal_affordance_ranking import relevance_score
+            entity_labels = {
+                item.get("ref"): str(item.get("label") or "")
+                for item in prepared.request_payload["world"]["entities"]
+            }
+            ranked_hits = [
+                (item, relevance_score(
+                    goal, label=entity_labels.get(item.get("target_ref"), "")
+                ))
+                for item in actions
+                if item.get("target_ref") is not None
+            ]
+            positive = sum(score > 0 for _, score in ranked_hits)
+            print("GOAL_RELEVANT_ACTIONS=" + str(positive))
+            if positive == 0:
+                print("GOAL_CONTEXT=NO_DIRECT_SEMANTIC_MATCH_INSPECT_NAVIGATION_BEFORE_ACTION")
+            else:
+                print("GOAL_CONTEXT=RELATED_CONTROLS_PRESENT_BUT_ACTION_UNVERIFIED")
             # Show the agent's *actual* current knowledge of the two critical
             # size fields, never generic customer or document text.
             if stage == "dimensions":
