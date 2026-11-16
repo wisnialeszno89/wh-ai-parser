@@ -143,8 +143,11 @@ def run_goal(loop, *, goal, reasoner, mode, max_actions, experience=(),
         if stage is None:
             print("STOP: WindowHub must be the foreground application.")
             return 4
-        from app.agent.runtime.active_panel_context import safe_panel_diagnostics
+        from app.agent.runtime.active_panel_context import (
+            safe_panel_diagnostics, panel_model_context,
+        )
         panel_state = safe_panel_diagnostics(scene)
+        feedback.append(panel_model_context(scene))
         print("PANEL_CONTEXT=" + str(panel_state["context_status"]))
         print("PANEL_SELECTED_TABS=" + str(panel_state["selected_tab_count"]))
         print("PANEL_FOCUSED_CONTROLS=" + str(panel_state["focused_control_count"]))
@@ -398,7 +401,7 @@ def main(argv=None):
             from app.agent.runtime.windowhub_foreground_inspection import (
                 inspect_current_windowhub_foreground,
             )
-            if not inspect_current_windowhub_foreground():
+            if args.mode != "inspect" or not inspect_current_windowhub_foreground():
                 return 3
             print("WINDOWHUB_UNMAPPED_FOREGROUND=READ_ONLY_OBSERVATION")
 
