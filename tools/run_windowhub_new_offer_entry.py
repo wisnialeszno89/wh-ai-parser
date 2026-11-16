@@ -101,8 +101,13 @@ def main(argv=None):
             scene = loop.observe_scene()
             stage = stage_of(scene)
             print("START1_TAB_POST_STAGE=" + str(stage))
+            from app.agent.runtime.windowhub_navigation_verification import verified_navigation_transition
+            tab_ok = verified_navigation_transition(
+                tab_result, scene, expected_stage="start"
+            )
             print("START1_TAB_EXECUTOR_VERIFIED=" + str(verified_action(tab_result)))
-            if stage != "start" or not verified_action(tab_result):
+            print("START1_FRESH_READBACK_VERIFIED=" + str(tab_ok))
+            if not tab_ok:
                 print("STOP: Start1 tab navigation not verified; no New Offer click.")
                 return 6
 
@@ -131,7 +136,12 @@ def main(argv=None):
     print("NEW_OFFER_POST_STAGE=" + str(after_stage))
     action_verified = verified_action(result)
     print("NEW_OFFER_EXECUTOR_VERIFIED=" + str(action_verified))
-    if after_stage != "document_properties" or not action_verified:
+    from app.agent.runtime.windowhub_navigation_verification import verified_navigation_transition
+    stage_verified = verified_navigation_transition(
+        result, after, expected_stage="document_properties"
+    )
+    print("NEW_OFFER_FRESH_READBACK_VERIFIED=" + str(stage_verified))
+    if not stage_verified:
         execution_loop = getattr(result, "last_execution_result", None)
         attempt = getattr(execution_loop, "last_attempt", None)
         execution = getattr(attempt, "execution_result", None)
