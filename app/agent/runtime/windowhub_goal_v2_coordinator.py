@@ -167,6 +167,20 @@ def enforce_v2_live_policy(scene, resolved, *, approved_persistent=False) -> Non
 
 def execute_v2_step(loop, scene, resolved, *, approved_persistent=False):
     """Run exactly one model-proposed, locally checked action with verification."""
+    action_target = resolved.action.target
+    if (
+        resolved.action.name == "click_screen_element"
+        and isinstance(action_target, SemanticTargetQuery)
+        and (action_target.label or "").strip().casefold() == "dodaj"
+        and (scene.observation.state.active_window_title or "").casefold().startswith("okna - ofr/")
+    ):
+        # A salesperson can change the active offer between planning and
+        # clicking. Re-observe the actual foreground desktop and re-check
+        # exact native runtime identity and MDI ownership, failing closed.
+        scene = loop.observe_scene()
+        if (scene.observation.state.active_window_title or "").casefold().startswith("okna - ofr/"):
+            from app.agent.runtime.windowhub_mdi_native_probe import enrich_native_mdi_document_scope
+            scene = enrich_native_mdi_document_scope(scene)
     enforce_v2_live_policy(scene, resolved, approved_persistent=approved_persistent)
     expected = verified_v2_outcome(resolved, baseline_scene=scene)
     action: AgentAction = resolved.action
