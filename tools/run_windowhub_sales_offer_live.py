@@ -148,6 +148,8 @@ def main(argv=None):
         if current is None:
             print("POSITION_RESULT=wizard_not_verified")
             return 6
+        stage = stage_of(current)
+        print("POSITION_ENTRY_CONFIRMED=" + str(stage))
     elif stage not in {"position", "dimensions", "basic_parameters", "glazing"}:
         print("POSITION_RESULT=unsupported_stage")
         return 4
