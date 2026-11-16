@@ -524,14 +524,14 @@ def main(argv=None):
             load_dotenv()
             print("V1_NAVIMIND_URL_CONFIGURED=" + str(bool(os.getenv("NAVIMIND_AGENT_URL", "").strip())))
             print("V2_NAVIMIND_URL_CONFIGURED=False")
-            print("NAVI_V2_DEPLOYMENT_REQUIRED=Yes: NaviMind PR #26 must be merged and deployed before V2 reasoning.")
+            print("NAVI_V2_DEPLOYMENT_STATUS=check_server_separately")
             print("NAVI_V2_ROUTE=/api/agent/task (shared URL, protocol version is in JSON body)")
-            print("ACTION=After V2 deployment, set NAVIMIND_AGENT_V2_URL and NAVIMIND_AGENT_V2_SECRET in local .env.")
+            print("ACTION=Configure NAVIMIND_AGENT_V2_URL and matching NAVIMIND_AGENT_V2_SECRET locally; never commit secrets.")
             print("SECURITY=Do not paste secrets or production customer payloads into logs.")
         return 5
     if args.reuse_shared_navimind_endpoint and args.mode != "inspect":
         print("NAVIMIND_ENDPOINT=shared /api/agent/task (V2 payload)")
-        print("REQUIREMENT=NaviMind PR #26 must be deployed. V1-only server will reject V2.")
+        print("REQUIREMENT=Target server must support protocol version 2; check server deployment independently.")
     if args.demo:
         report = read_demonstration_report(args.demo)
         print("DEMO_RECORDED_EVENTS=" + str(report["record_count"]))
