@@ -50,3 +50,25 @@ Validation:
 ```powershell
 python -m pytest tests/test_windowhub_new_offer_action.py tests/test_windowhub_navigation_verification.py tests/test_windowhub_document_core.py tests/test_windowhub_sales_offer_live.py tests/test_windowhub_catalog_memory.py tests/test_windowhub_catalog_handoff.py -q
 ```
+
+
+## Interactive mission command (current continuation)
+
+```powershell
+python tools/run_windowhub_sales_offer_live.py --customer-name "Limi Fensterbau" --quantity 1 --width 1500 --height 1400 --color-outside "antracyt" --color-inside "biały" --glazing-panes 2 --interactive-handoff --execute-live
+```
+
+- When in Document Properties, do not create duplicate new offer.
+- The customer form remains opaque to UIA until either a native exact selected-value readback or an explicit human confirmation is available. The interactive handoff requests the exact full company name and separate resume approval. Human approval is not mislabeled as native evidence.
+- **Focus restoration is part of every interactive handoff.** The terminal takes foreground during input. Agent must reactivate the existing WindowHub process before inspecting customer, catalog or hardware states.
+- After validating 4 pricing flags and exact customer, OK is invoked once through unique native identity, followed by stage readback.
+- The goal runner then invokes the verified `Dodaj` toolbar, position and dimension skills, and attempts exact two-sided color and glazing catalog options.
+- At unavailable catalog options, user may demonstrate and approve recording an exact UIA readback label. With explicit resume permission, the same running process continues; future runs read the local skill memory.
+- At the hardware wizard, human may demonstrate the move to the `Modyfikator` editor, then agent verifies the editor stage and asks whether to resume. This is **not** automated hardware configuration or a completed offer. The final offer is never saved.
+- Screenshots are batched only for independent pricing fields, with per-toggle native live checks and a single post-batch full UIA readback. Do not batch dependent stages or customer selection.
+- This code is committed, but its updated offline suite and live WindowHub flow are awaiting execution on the user's machine.
+
+Run:
+```powershell
+python -m pytest tests/test_windowhub_new_offer_action.py tests/test_windowhub_navigation_verification.py tests/test_windowhub_document_core.py tests/test_windowhub_sales_offer_live.py tests/test_windowhub_catalog_memory.py tests/test_windowhub_catalog_handoff.py -q
+```
