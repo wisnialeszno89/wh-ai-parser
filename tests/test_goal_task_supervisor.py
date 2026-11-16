@@ -85,3 +85,20 @@ def test_discovery_diagnosis_without_guessing_window_titles():
     assert suggest_recovery({
         "processes": 1, "visible_titled_windows": 2, "wizard": 1, "document": 1,
     }) == "multiple_workflow_windows_need_context"
+
+
+def test_unresolved_task_log_is_local_jsonl_without_business_data(tmp_path):
+    import json
+    from app.agent.runtime.goal_task_supervisor import append_unresolved_issues
+    ledger = TaskLedger({
+        "width": TaskItem("width"),
+        "optional_sill": TaskItem("optional_sill", required=False),
+    })
+    assert append_unresolved_issues(ledger, path=tmp_path / "issues.jsonl") == 0
+    ledger.unresolved("optional_sill", reason="operator_timeout")
+    output = tmp_path / "issues.jsonl"
+    assert append_unresolved_issues(ledger, path=output) == 1
+    records = [json.loads(line) for line in output.read_text(encoding="utf-8").splitlines()]
+    assert records == [
+        {"schema": 1, "task": "optional_sill", "reason": "operator_timeout", "outcome": "skipped"}
+    ]
