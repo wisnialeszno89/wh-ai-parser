@@ -95,3 +95,31 @@ def test_workspace_new_offer_rejects_ambiguous_or_wrong_stage():
     assert prepare_new_offer_from_workspace(
         _scene(_tile(), title="Wielkość okna")
     ).status is WindowHubFormActionStatus.BLOCKED
+
+
+def test_existing_offer_execution_scope_uses_actual_document_title():
+    from app.agent.offers.windowhub_new_offer_action import prepare_new_offer_from_workspace
+    prepared = prepare_new_offer_from_workspace(
+        _scene(_tile(), title="Okna - OFR/4670-")
+    )
+    class Loop:
+        context = None
+        def run(self, *, plan, context):
+            self.context = context
+            return None
+    loop = Loop()
+    source = _scene(_tile(), title="Okna - OFR/4670-")
+    WindowHubOfferFormActionExecutor.execute_prepared(
+        prepared, source, loop, request_message="Open a separate new unsaved offer"
+    )
+    scope = loop.context.get_value("_windowhub_form_action_scope")
+    assert scope["window_title"] == "Okna - OFR/4670-"
+    assert RobotGUIExecutor._matches_windowhub_form_action_scope(
+        prepared.action, source, scope
+    ) is True
+    assert RobotGUIExecutor._matches_windowhub_form_action_scope(
+        prepared.action, _scene(_tile(), title="Okna - OFR/OTHER"), scope
+    ) is False
+    assert RobotGUIExecutor._matches_windowhub_form_action_scope(
+        prepared.action, _scene(_tile(), title="Właściwości dokumentu"), scope
+    ) is False
