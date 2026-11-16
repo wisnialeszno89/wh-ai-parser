@@ -95,3 +95,72 @@ def prepare_new_offer_from_start(scene: ScreenScene) -> PreparedWindowHubFormAct
             reason="WindowHub start workspace must be active.",
         )
     return prepare_new_offer_from_workspace(scene)
+
+
+def prepare_start1_navigation_from_offer(scene: ScreenScene) -> PreparedWindowHubFormAction:
+    """Navigate by the visible Start1 workspace tab, with exact UIA identity.
+
+    This action does not close or save a document. Caller must verify that
+    Start1 actually became the foreground stage before taking another action.
+    """
+    if not isinstance(scene, ScreenScene):
+        raise TypeError("start1_navigation_scene_required")
+    state = scene.observation.state
+    app = (state.active_application or "").replace("\\", "/").rsplit("/", 1)[-1].casefold()
+    title = state.active_window_title or ""
+    def blocked(reason):
+        return PreparedWindowHubFormAction(
+            field_name="navigate_start1",
+            status=WindowHubFormActionStatus.BLOCKED,
+            reason=reason,
+        )
+    if app != "okna.exe" or not title.casefold().startswith("okna - ofr/"):
+        return blocked("Start1 navigation requires a currently active offer document.")
+    controls = [
+        e for e in scene.elements
+        if e.kind == "button"
+        and normalize_uia_text(e.label or "") == "start1"
+        and (e.metadata or {}).get("source") in {
+            "windows_ui_automation", "windowhub_ui_automation",
+        }
+        and (e.metadata or {}).get("uia_visible") is True
+        and (e.metadata or {}).get("uia_enabled") is True
+    ]
+    if len(controls) != 1:
+        return blocked(f"Expected one visible Start1 tab, found {len(controls)}.")
+    element = controls[0]
+    meta = element.metadata or {}
+    runtime_id = meta.get("uia_runtime_id")
+    if not isinstance(runtime_id, str) or not runtime_id.strip():
+        return blocked("Start1 tab runtime identity missing.")
+    if sum(
+        1 for e in scene.elements
+        if (e.metadata or {}).get("source") in {
+            "windows_ui_automation", "windowhub_ui_automation"
+        } and (e.metadata or {}).get("uia_runtime_id") == runtime_id
+    ) != 1:
+        return blocked("Start1 tab runtime identity is not unique.")
+    target = SemanticTargetQuery(
+        role="button",
+        label=element.label,
+        automation_id=meta.get("automation_id"),
+        uia_runtime_id=runtime_id,
+        description="Switch to WindowHub Start1 without closing existing offer",
+    )
+    return PreparedWindowHubFormAction(
+        field_name="navigate_start1",
+        status=WindowHubFormActionStatus.READY,
+        reason="Unique Start1 workspace tab recognized.",
+        action=AgentAction(
+            name="click_screen_element",
+            description="Switch to Start1 workspace; keep offer document open.",
+            target=target,
+            requires_environment_observation=True,
+        ),
+        expected_outcome=ExpectedOutcome(
+            description="Start1 workspace is active after clicking tab.",
+            expected_active_application="Okna.exe",
+            expected_window_title="Okna - Start1",
+        ),
+        runtime_id=runtime_id,
+    )
