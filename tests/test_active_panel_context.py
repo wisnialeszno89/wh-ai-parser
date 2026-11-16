@@ -107,3 +107,14 @@ def test_unmapped_area_does_not_transmit_any_raw_label():
     projected = panel_model_context(scene)
     assert projected["selected_areas"] == []
     assert "ABC" not in repr(projected)
+
+
+def test_unknown_window_recovery_requires_one_visible_unminimized_candidate():
+    from app.agent.runtime.windowhub_foreground_inspection import unique_observable_window
+    assert unique_observable_window([(52, True, False)]) == 52
+    assert unique_observable_window([]) is None
+    assert unique_observable_window([(52, True, False), (53, True, False)]) is None
+    assert unique_observable_window([(52, True, True)]) is None
+    assert unique_observable_window([(52, False, False)]) is None
+    assert unique_observable_window([(0, True, False)]) is None
+    assert unique_observable_window([(True, True, False)]) is None
