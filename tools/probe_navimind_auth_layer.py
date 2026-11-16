@@ -52,13 +52,19 @@ def probe(*, url: str, secret: str, opener=urlopen) -> tuple[int, str]:
         raise ValueError("invalid_endpoint")
     if not isinstance(secret, str) or not secret.strip():
         raise ValueError("missing_secret")
+    headers = {
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+        "x-navimind-agent-secret": secret,
+    }
+    # The Vercel protection token must be authorized separately on Vercel.
+    # Never log it; do not confuse it with the NaviMind application secret.
+    bypass = os.getenv("NAVIMIND_VERCEL_PROTECTION_BYPASS", "").strip()
+    if bypass:
+        headers["x-vercel-protection-bypass"] = bypass
     request = Request(
         url, data=b'{"version":"2"}',
-        headers={
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-            "x-navimind-agent-secret": secret,
-        },
+        headers=headers,
         method="POST",
     )
     try:
