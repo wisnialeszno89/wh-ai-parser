@@ -85,21 +85,49 @@ def main(argv=None):
             print("MISSION_RESULT=blocked_before_document")
             return entry
         fresh_document = True
+    elif stage_before in {"position", "dimensions", "basic_parameters", "glazing"}:
+        # No new document on resume. Human confirms that this existing wizard
+        # belongs to the requested customer and has valid document properties.
+        if not args.interactive_handoff:
+            print("MISSION_RESULT=existing_wizard_requires_explicit_resume")
+            return 4
+        try:
+            client = input("Potwierdź klienta otwartej oferty (wpisz dokładną nazwę): ")
+            resume = input("Kontynuować z tego miejsca według wytycznych? [tak/N]: ")
+        except (EOFError, KeyboardInterrupt):
+            return 4
+        if (
+            client.strip().casefold() != args.customer_name.strip().casefold()
+            or resume.strip().casefold() not in {"tak", "t"}
+        ):
+            print("MISSION_RESUME=declined")
+            return 4
+        current_stage = current_stage(
+            create_windows_desktop_agent_control_loop().observe_scene()
+        )
+        if current_stage != stage_before:
+            print("MISSION_RESUME=stage_changed")
+            return 4
+        print("MISSION_RESUME=human_approved_existing_wizard")
+        fresh_document = False
     else:
         print("MISSION_RESULT=unsupported_existing_stage_no_destructive_navigation")
         return 4
 
-    from app.agent.runtime.windowhub_document_core import run_document_core
-    doc = run_document_core(
-        customer_name=args.customer_name,
-        fresh_document=fresh_document,
-        interactive_handoff=args.interactive_handoff,
-    )
-    print("DOCUMENT_SETUP_CODE=" + str(doc))
-    if doc != 0:
-        print("MISSION_RESULT=document_not_fully_verified")
-        return doc
-    print("DOCUMENT_SETUP_VERIFIED=True")
+    if stage_before in {"document_properties", "start", "offer_document"}:
+        from app.agent.runtime.windowhub_document_core import run_document_core
+        doc = run_document_core(
+            customer_name=args.customer_name,
+            fresh_document=fresh_document,
+            interactive_handoff=args.interactive_handoff,
+        )
+        print("DOCUMENT_SETUP_CODE=" + str(doc))
+        if doc != 0:
+            print("MISSION_RESULT=document_not_fully_verified")
+            return doc
+        print("DOCUMENT_SETUP_VERIFIED=True")
+    else:
+        print("DOCUMENT_SETUP_VERIFIED=human_approved_preexisting_wizard")
 
     from app.agent.learning.windowhub_demonstration import stage_of
     from app.agent.runtime.windows_desktop_agent_control_loop import (
@@ -120,24 +148,27 @@ def main(argv=None):
         if current is None:
             print("POSITION_RESULT=wizard_not_verified")
             return 6
-    elif stage != "position":
+    elif stage not in {"position", "dimensions", "basic_parameters", "glazing"}:
         print("POSITION_RESULT=unsupported_stage")
         return 4
 
-    from app.agent.offers.windowhub_position_mission import WindowPositionRequest
-    from tools.live_windowhub_position_mission import run_mission
-    pos = run_mission(
-        WindowPositionRequest(
-            quantity=args.quantity, width_mm=args.width, height_mm=args.height,
-            glazing=str(item.glazing_panes),
-        ),
-        loop,
-    )
-    print("DIMENSIONS_RESULT_CODE=" + str(pos))
-    if pos != 0:
-        print("MISSION_RESULT=partial_dimensions_unverified")
-        return pos
-    print("DIMENSIONS_VERIFIED=True")
+    if stage in {"position", "dimensions"}:
+        from app.agent.offers.windowhub_position_mission import WindowPositionRequest
+        from tools.live_windowhub_position_mission import run_mission
+        pos = run_mission(
+            WindowPositionRequest(
+                quantity=args.quantity, width_mm=args.width, height_mm=args.height,
+                glazing=str(item.glazing_panes),
+            ),
+            loop,
+        )
+        print("DIMENSIONS_RESULT_CODE=" + str(pos))
+        if pos != 0:
+            print("MISSION_RESULT=partial_dimensions_unverified")
+            return pos
+        print("DIMENSIONS_VERIFIED=True")
+    else:
+        print("DIMENSIONS_VERIFIED=previous_stage_human_approved")
     from app.agent.runtime.windowhub_catalog_continuation import continue_to_construction
     catalog = continue_to_construction(
         loop,
