@@ -41,7 +41,7 @@ def classify_native_candidates(*, selected_document: str | None,
         distinct_doc_names = {
             title.strip().casefold() for title in titles
             if isinstance(title, str)
-            and re.fullmatch(r"ofr/\\d+-", title.strip().casefold())
+            and re.fullmatch(r"ofr/\d+-", title.strip().casefold())
         }
         if matching == 1 and len(distinct_doc_names) == 1:
             scope_status.append("matching_mdi_ancestor")
