@@ -32,7 +32,7 @@ def parse_args(argv=None):
     parser.add_argument("--show-window-title", action="store_true", help="Print current native title locally for unknown stages; may contain business details")
     parser.add_argument("--execute-live", action="store_true")
     parser.add_argument("--activate-window", action="store_true",
-                        help="Explicitly focus an existing unique WindowHub window before inspect/think; does not type or click")
+                        help="Require authorized WindowHub focus; with both desktop flags, discovery is automatic even without this option")
     parser.add_argument("--approve-persistent", action="store_true")
     parser.add_argument("--customer-name", help="Existing client name to find by progressive native/OCR lookup")
     parser.add_argument("--customer-lookup-skill", action="store_true",
@@ -239,13 +239,18 @@ def main(argv=None):
     ):
         print("STOP: customer lookup skill requires execute mode and a valid --customer-name.")
         return 2
-    if args.activate_window and args.mode != "execute":
-        # Opt-in focus transfer is separate from any model or GUI action.
-        if any(os.getenv(k) != "1" for k in ("WH_REAL_WINDOWHUB", "COMPUTER_USE_LIVE")):
-            print("STOP: --activate-window needs both explicit desktop authorization flags.")
-            return 2
+    desktop_authorized = all(
+        os.getenv(k) == "1" for k in ("WH_REAL_WINDOWHUB", "COMPUTER_USE_LIVE")
+    )
+    if args.activate_window and not desktop_authorized:
+        print("STOP: --activate-window needs both explicit desktop authorization flags.")
+        return 2
+    if args.mode != "execute" and desktop_authorized:
+        # With desktop access already authorized, the agent locates and focuses
+        # the existing WindowHub window even when PowerShell is foreground.
+        # Focus transfer is the only desktop mutation in inspect mode.
         focused, info = activate_windowhub_workflow_window()
-        print("WINDOWHUB_ACTIVATION=" + info)
+        print("WINDOWHUB_AUTO_DISCOVERY=" + info)
         if not focused:
             return 3
     if args.mode == "execute":
