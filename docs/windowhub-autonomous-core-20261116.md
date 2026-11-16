@@ -137,3 +137,12 @@ python tools/run_windowhub_goal_v2.py --mode inspect --probe-mdi --goal "Zbadaj 
 ```
 
 Current implementation not yet verified in local Windows runtime; no live interactions were made through GitHub connector.
+
+
+## Follow-up 2026-11-16: corrected native probe regression and user intent
+
+The first offline native probe run returned 13 passed and 1 failed: the implementation correctly identified other, exact known MDI ancestors as `other_mdi_ancestor`, but the test still expected `unresolved`. Corrected assertion in `tests/test_windowhub_mdi_native_probe.py`; no runtime proof implied.
+
+User clarification: When a document is open, the active document's `Dodaj` adds a position; a new offer can be created from Start1. This is application semantic knowledge, not a mandate to click a particular screen coordinate. `windowhub_training_context.py` now makes the reasoning model distinguish **create new offer**, **add position to current offer**, and **modify existing construction**; avoid unnecessary context switches. Ownership of `Dodaj` still must be established via active document and native/UIA hierarchy before any model execution. Tests cover this distinction.
+
+Continue with a read-only `--probe-mdi` run on the actual multi-document workspace. Its outputs are diagnostics only and do not promote actions automatically.
