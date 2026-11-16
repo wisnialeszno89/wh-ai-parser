@@ -76,7 +76,10 @@ def enrich_windowhub_scene(scene: ScreenScene) -> ScreenScene:
                 and isinstance((e.metadata or {}).get("uia_runtime_id"), str)
                 and bool((e.metadata or {}).get("uia_runtime_id"))
                 and not any(
-                    {"wydruk", "szablon"} & normalize_words(parent)
+                    any(
+                        word.startswith(("wydruk", "szablon"))
+                        for word in normalize_words(parent)
+                    )
                     for parent in panel_lineage(e)
                 )
             )
