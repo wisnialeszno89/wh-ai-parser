@@ -19,6 +19,7 @@ from app.agent.reasoning.navimind_task_reasoner_v2 import (NaviMindTaskReasonerV
 from app.agent.runtime.computer_use_v2_action_session import ComputerUseV2ActionSession
 from app.agent.runtime.windowhub_goal_v2_coordinator import execute_v2_step, enforce_v2_live_policy
 from app.agent.runtime.windowhub_window_activation import activate_windowhub_workflow_window
+from app.agent.runtime.windowhub_discovery_diagnostics import print_discovery_diagnostics
 
 
 def parse_args(argv=None):
@@ -284,6 +285,7 @@ def main(argv=None):
         focused, info = activate_windowhub_workflow_window()
         print("WINDOWHUB_AUTO_DISCOVERY=" + info)
         if not focused:
+            print_discovery_diagnostics()
             return 3
     if args.mode == "execute":
         if not args.execute_live or any(
@@ -294,6 +296,7 @@ def main(argv=None):
         ok, info = activate_windowhub_workflow_window()
         print("WINDOWHUB_ACTIVATION=" + info)
         if not ok:
+            print_discovery_diagnostics()
             return 3
     try:
         experience = read_demonstration_experience(args.demo) if args.demo else ()
