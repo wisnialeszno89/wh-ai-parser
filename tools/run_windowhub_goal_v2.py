@@ -153,6 +153,16 @@ def run_goal(loop, *, goal, reasoner, mode, max_actions, experience=(),
         print("PANEL_FOCUSED_CONTROLS=" + str(panel_state["focused_control_count"]))
         print("PANEL_NAMED_CONTAINERS=" + str(panel_state["named_container_count"]))
         print("PANEL_SCOPED_CONTROLS=" + str(panel_state["controls_with_ancestry"]))
+        if stage == "offer_document":
+            from app.agent.runtime.active_document_scope import (
+                duplicate_document_action_status,
+            )
+            add_scope = duplicate_document_action_status(scene, label="Dodaj")
+            print("MDI_DOCUMENT_TAB_STATUS=" + add_scope["selected_document_status"])
+            print("MDI_DODAJ_BUTTONS=" + str(add_scope["observed"]))
+            print("MDI_DODAJ_ACTIVE_SCOPED=" + str(add_scope["active_scope_proven"]))
+            print("MDI_DODAJ_UNRESOLVED=" + str(add_scope["unresolved_scope"]))
+            print("MDI_DODAJ_SAFE_TARGET=" + str(add_scope["safe_unique_active_target"]))
         world_state = progress.observe(scene, stage=stage)
         print("WORLD_STAGE=" + str(world_state["stage"]))
         print("WORLD_CHANGED=" + str(world_state["world_changed_since_last"]))
@@ -222,6 +232,10 @@ def run_goal(loop, *, goal, reasoner, mode, max_actions, experience=(),
                         target, task_id=task_id, world_revision=revision + 1
                     )
                 except (ValueError, KeyError):
+                    continue
+                if (element.metadata or {}).get("source") == "windows_desktop_window":
+                    # Other top-level windows are navigation context, not
+                    # a business-control goal match.
                     continue
                 ranking = affordance_relevance(
                     {
