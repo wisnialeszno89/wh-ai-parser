@@ -45,9 +45,9 @@ def evaluate_navimind_setup(values: dict[str, str], *, env_file_present: bool = 
     shared = status(v1)
     dedicated = status(v2)
     if shared.startswith("format_valid") and shared_secret:
-        next_action = "deploy_navimind_v2_then_use_existing_shared_endpoint"
+        next_action = "verify_server_v2_then_use_existing_shared_endpoint"
     elif dedicated.startswith("format_valid") and v2_secret:
-        next_action = "deploy_navimind_v2_then_use_dedicated_config"
+        next_action = "verify_server_v2_then_use_dedicated_config"
     elif not v1 and not v2:
         next_action = "configure_navimind_deployment_origin_and_auth_in_local_env"
     elif not shared_secret and not v2_secret:
@@ -81,7 +81,7 @@ def main() -> int:
     for key, value in data.items():
         print(f"{key}={value}")
     print("PROTOCOL_V2_ENDPOINT=/api/agent/task")
-    print("DEPLOY_REQUIRED=NaviMind PR #26 must be merged and deployed before remote V2 reasoning.")
+    print("V2_DEPLOYMENT_STATUS=verify_server_separately")
     print("SECRET_POLICY=Never paste secrets, keys, tokens or .env file contents into chat.")
     return 0
 
