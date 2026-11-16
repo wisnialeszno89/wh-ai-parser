@@ -145,6 +145,7 @@ def main(argv=None):
         color_outside=item.color_outside,
         color_inside=item.color_inside,
         glazing_panes=item.glazing_panes,
+        interactive_handoff=args.interactive_handoff,
     )
     print("CATALOG_CONTINUATION_CODE=" + str(catalog))
     print("PENDING_OPENING_AND_SASH_BUILD=requires_verified_editor_controls")
