@@ -97,7 +97,9 @@ def affordance_relevance(affordance, *, goal: str, reference_map,
         description_score = min(2, relevance_score(
             goal, label="", description=str(affordance.get("description", ""))
         ))
-    score = direct + panel_bonus + description_score
+    # Semantic relevance must outweigh incidental focus/selected-tab signals.
+    # The same generic panel can contain unrelated tools and templates.
+    score = 4 * direct + panel_bonus + description_score
     if _navigation_noise(str(label)) and not direct:
         score -= 25
     return {"score": score, "direct": direct, "context": panel_bonus, "label": str(label)}
