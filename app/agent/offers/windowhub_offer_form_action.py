@@ -410,7 +410,7 @@ class WindowHubOfferFormActionExecutor:
                 if prepared.field_name in {"new_customer_name", "confirm_new_customer"}
                 else "Właściwości dokumentu"
                 if prepared.field_name.startswith("exclude_") or prepared.field_name in {"confirm_document", "open_customer_lookup", "defer_document_properties", "new_customer_add"}
-                else "Okna - Start1"
+                else (scene.observation.state.active_window_title or "")
                 if prepared.field_name == "start_new_offer"
                 else "Wielkość okna"
                 if prepared.field_name in {"width_1", "height_1"}
