@@ -53,7 +53,7 @@ def probe(*, url: str, secret: str, opener=urlopen) -> tuple[int, str]:
     if not isinstance(secret, str) or not secret.strip():
         raise ValueError("missing_secret")
     request = Request(
-        url, data=b"{}",
+        url, data=b'{"version":"2"}',
         headers={
             "Content-Type": "application/json",
             "Accept": "application/json",
