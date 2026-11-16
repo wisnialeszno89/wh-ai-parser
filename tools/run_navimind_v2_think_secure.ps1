@@ -53,6 +53,13 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'DIAGNOSIS FAILED' }
 
     Write-Host ''
+    Write-Host '=== DIAGNOSTYKA WARSTWY UWIERZYTELNIANIA ==='
+    python tools/probe_navimind_auth_layer.py
+    if ($LASTEXITCODE -ne 0) {
+        throw 'Uwierzytelnianie nie przeszlo testu. Patrz NAVIMIND_AUTH_LAYER; tryb THINK nie zostal uruchomiony.'
+    }
+
+    Write-Host ''
     Write-Host '=== V2 THINK - ZERO KLIKNIĘĆ ==='
     python tools/run_windowhub_goal_v2.py --goal $Goal --mode think
     $exitCode = $LASTEXITCODE
