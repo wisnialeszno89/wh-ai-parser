@@ -140,7 +140,10 @@ def run_goal(loop, *, goal, reasoner, mode, max_actions, experience=(),
     feedback = list(experience)
     customer_lookup_attempted = False
     for revision in range(max_actions if mode == "execute" else 1):
-        scene = enrich_windowhub_scene(loop.observe_scene())
+        from app.agent.runtime.windowhub_mdi_native_probe import enrich_native_mdi_document_scope
+        scene = enrich_windowhub_scene(
+            enrich_native_mdi_document_scope(loop.observe_scene())
+        )
         stage = stage_of(scene)
         if stage is None:
             print("STOP: WindowHub must be the foreground application.")
