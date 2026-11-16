@@ -80,3 +80,30 @@ def test_unknown_foreground_title_is_read_only_and_scoped_to_process():
     assert inspect_current_windowhub_foreground(capture=lambda: ("Okna.exe", True))
     assert not inspect_current_windowhub_foreground(capture=lambda: ("Explorer.exe", True))
     assert not inspect_current_windowhub_foreground(capture=lambda: ("Okna.exe", False))
+
+
+def test_model_context_identifies_generic_area_but_hides_project_names():
+    from app.agent.runtime.active_panel_context import panel_model_context
+    active = element("Edytuj", ancestors=(
+        ("pane", "x", "Szablony wydruków"),
+        ("window", "x", "Oferta: Tajna Spółka"),
+    ))
+    tab = element("Szablony wydruków", kind="tabitem", selected=True)
+    scene = N(elements=(active, tab))
+    projected = panel_model_context(scene)
+    assert projected["selected_areas"] == ["print_templates"]
+    assert "print_templates" in projected["visible_area_categories"]
+    assert "Tajna" not in repr(projected)
+    assert projected["verification"] == "observed_not_authorizing"
+
+
+def test_unmapped_area_does_not_transmit_any_raw_label():
+    from app.agent.runtime.active_panel_context import panel_model_context
+    scene = N(elements=(element(
+        "Dane umowy klienta ABC",
+        kind="tabitem",
+        selected=True,
+    ),))
+    projected = panel_model_context(scene)
+    assert projected["selected_areas"] == []
+    assert "ABC" not in repr(projected)
