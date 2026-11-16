@@ -10,7 +10,15 @@ def test_handoff_timeout_does_not_resume(monkeypatch):
         supervisor, "timed_salesperson_prompt",
         lambda *a, **kw: None,
     )
+    recorded = []
+    monkeypatch.setattr(
+        supervisor, "append_unresolved_issues",
+        lambda ledger: (recorded.extend(ledger.issues), len(ledger.issues))[1],
+    )
     assert runner.request_human_resume(object(), timeout_seconds=60) is False
+    assert len(recorded) == 1
+    assert recorded[0].task == "active_goal"
+    assert recorded[0].reason == "operator_timeout_dependency_unresolved"
 
 
 def test_handoff_approval_requires_windowhub_refocus_and_readback(monkeypatch):
