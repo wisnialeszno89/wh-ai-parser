@@ -25,7 +25,9 @@ def document_readiness(*, customer_verified: bool, flags_verified: bool) -> str:
     return "ready"
 
 
-def run_document_core(*, customer_name: str, fresh_document: bool) -> int:
+def run_document_core(*, customer_name: str, fresh_document: bool,
+                      interactive_handoff: bool = False,
+                      ask=input) -> int:
     """Configure document, then confirm only after full evidence.
 
     When resuming an open dialog, never retype a previously clicked customer
@@ -67,26 +69,33 @@ def run_document_core(*, customer_name: str, fresh_document: bool) -> int:
         print("CUSTOMER_LOOKUP_STATUS=already_open_no_blind_reselection")
         print("CUSTOMER_COMMIT_STATUS=unverified")
 
-    # Pricing is independently observable even if the legacy lookup cannot
-    # expose selected customer data. Safe to configure; not safe to confirm.
+    # Four checkboxes share one stable dialog. Inspect the entire form once,
+    # invoke each *freshly rebound native* UIA TogglePattern only if required,
+    # and capture one new scene at the end. Individual native toggles still
+    # validate current state, identity and foreground before changing it.
+    # On any mismatch, stop; never blindly retry.
+    pricing_scene = inspect(loop)
+    if stage_of(pricing_scene) != "document_properties":
+        print("DOCUMENT_PRICE_STAGE_LOST=before_batch")
+        return 6
+    changed = []
     for key, desired in PRICE_TARGETS:
-        scene = inspect(loop)
-        if stage_of(scene) != "document_properties":
-            print("DOCUMENT_PRICE_STAGE_LOST=" + key)
-            return 6
-        if verify_exclusion(scene, key, desired_checked=desired):
+        if verify_exclusion(pricing_scene, key, desired_checked=desired):
             print("DOCUMENT_PRICE_" + key + "=verified_already")
             continue
-        if not toggle_price_once(scene, key, desired_checked=desired):
+        if not toggle_price_once(pricing_scene, key, desired_checked=desired):
             print("DOCUMENT_PRICE_" + key + "=change_failed")
             return 6
-        after = inspect(loop)
-        if not verify_exclusion(after, key, desired_checked=desired):
-            print("DOCUMENT_PRICE_" + key + "=readback_failed")
-            return 6
-        print("DOCUMENT_PRICE_" + key + "=verified_updated")
+        changed.append(key)
 
     final = inspect(loop)
+    for key in changed:
+        if verify_exclusion(final, key, desired_checked=dict(PRICE_TARGETS)[key]):
+            print("DOCUMENT_PRICE_" + key + "=verified_updated")
+        else:
+            print("DOCUMENT_PRICE_" + key + "=readback_failed")
+            return 6
+    print("DOCUMENT_PRICE_BATCH_SCREENSHOTS=2")
     flags_ok = stage_of(final) == "document_properties" and all(
         verify_exclusion(final, key, desired_checked=desired)
         for key, desired in PRICE_TARGETS
@@ -100,6 +109,40 @@ def run_document_core(*, customer_name: str, fresh_document: bool) -> int:
     print("DOCUMENT_PRICE_FLAGS_VERIFIED=" + str(flags_ok))
     print("DOCUMENT_CUSTOMER_VERIFIED=" + str(verified_customer))
     print("DOCUMENT_READINESS=" + readiness)
+    if readiness == "customer_unverified" and interactive_handoff:
+        # This is a human approval, not a machine verification. Keep the
+        # identity explicit and require a *second* opt-in to continue.
+        print("HANDOFF_REASON=WindowHub lookup hides the committed value")
+        print("HANDOFF_INSTRUCTION=Check the selected customer on the live WindowHub form.")
+        try:
+            confirmed = ask(
+                "Potwierdź nazwę wybranego klienta, wpisując dokładnie '"
+                + customer_name + "' (Enter = odmowa): "
+            )
+        except (EOFError, KeyboardInterrupt):
+            print("HANDOFF_DECLINED=True")
+            return 6
+        if confirmed.strip().casefold() == customer_name.strip().casefold():
+            print("CUSTOMER_VERIFICATION_SOURCE=human_explicit_confirmation")
+            try:
+                resume = ask("Kontynuować pracę z aktualnego miejsca według wytycznych? [tak/N]: ")
+            except (EOFError, KeyboardInterrupt):
+                print("HANDOFF_DECLINED=True")
+                return 6
+            if resume.strip().casefold() in {"tak", "t"}:
+                # Re-observe to defend against handoff-time UI changes.
+                final = inspect(loop)
+                if stage_of(final) != "document_properties" or not all(
+                    verify_exclusion(final, key, desired_checked=desired)
+                    for key, desired in PRICE_TARGETS
+                ):
+                    print("HANDOFF_REVALIDATION_FAILED=True")
+                    return 6
+                verified_customer = True
+                readiness = "ready"
+                print("HANDOFF_RESUME_APPROVED=True")
+        if readiness != "ready":
+            print("HANDOFF_DECLINED=True")
     if readiness != "ready":
         print("DOCUMENT_REMAINS_OPEN=True")
         print("NO_UNVERIFIED_OK_CLICK=True")
