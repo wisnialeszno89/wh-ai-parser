@@ -16,8 +16,14 @@ if ($Endpoint -notmatch '^https://[^/?#]+/api/agent/task$') {
 }
 $oldUrl = [Environment]::GetEnvironmentVariable('NAVIMIND_AGENT_V2_URL', 'Process')
 $oldSecret = [Environment]::GetEnvironmentVariable('NAVIMIND_AGENT_V2_SECRET', 'Process')
+$oldWhAuth = [Environment]::GetEnvironmentVariable('WH_REAL_WINDOWHUB', 'Process')
+$oldDesktopAuth = [Environment]::GetEnvironmentVariable('COMPUTER_USE_LIVE', 'Process')
 $promptedSecret = $false
 try {
+    # Explicit opt-in to focusing an existing WindowHub window only.
+    # --mode think never executes desktop actions.
+    $env:WH_REAL_WINDOWHUB = '1'
+    $env:COMPUTER_USE_LIVE = '1'
     $env:NAVIMIND_AGENT_V2_URL = $Endpoint
     if ([string]::IsNullOrWhiteSpace($oldSecret)) {
         Write-Host 'Wpisz sekret NAVIMIND_AGENT_SECRET z Vercel. Nie udostepniaj go na czacie.'
@@ -64,5 +70,15 @@ finally {
     }
     else {
         $env:NAVIMIND_AGENT_V2_URL = $oldUrl
+    }
+    if ($null -eq $oldWhAuth) {
+        Remove-Item Env:WH_REAL_WINDOWHUB -ErrorAction SilentlyContinue
+    } else {
+        $env:WH_REAL_WINDOWHUB = $oldWhAuth
+    }
+    if ($null -eq $oldDesktopAuth) {
+        Remove-Item Env:COMPUTER_USE_LIVE -ErrorAction SilentlyContinue
+    } else {
+        $env:COMPUTER_USE_LIVE = $oldDesktopAuth
     }
 }
