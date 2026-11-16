@@ -102,6 +102,10 @@ def main(argv=None):
         ):
             print("MISSION_RESUME=declined")
             return 4
+        focused, refocus_info = activate_windowhub_workflow_window()
+        print("MISSION_RESUME_REFOCUS=" + refocus_info)
+        if not focused:
+            return 4
         observed_after_handoff = current_stage(
             create_windows_desktop_agent_control_loop().observe_scene()
         )
