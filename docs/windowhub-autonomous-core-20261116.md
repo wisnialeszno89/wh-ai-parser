@@ -54,3 +54,15 @@ The V2 runner now has `--interactive-handoff --handoff-timeout 60` in execute mo
 Tests: `python -m pytest tests/test_goal_progress_memory.py tests/test_goal_task_supervisor.py tests/test_goal_v2_handoff.py tests/test_windowhub_dimension_replace.py -q`.
 
 Tested on GitHub only by code review; local Pytest and live WindowHub must still run. V2 live execution requires the configured NaviMind V2 endpoint. It should not be enabled merely to diagnose a missing window.
+
+## 2026-11-16: Goal relevance and print-template interference
+
+Real read-only observation: 21 offline checks passed; WindowHub focused the `Okna - OFR/4678-` offer document, but its 64 available UI capabilities were dominated by print template labels, `Otwórz` and `Edytuj`. A visible control is not evidence that it belongs to the user's immediate task; we must not interpret a print-template editor as a window-construction editor.
+
+- `app/agent/runtime/goal_affordance_ranking.py`: general natural-language relevance score (Polish diacritics, semantic labels, tiny domain synonym vocabulary), stable ordering of *existing* allowed affordances. Does not invent targets, execute clicks or certify an outcome.
+- `ComputerUseV2ActionSession.prepare_cycle` now prioritizes task-relevant affordances before the strict V2 action budget can truncate the list. Unrelated controls are not treated as nonexistent: they remain discoverable subject to the cap.
+- `windowhub_skill_knowledge` no longer hardcodes “create a new offer”. The live user's request is authoritative. Added guidance to distinguish print templates from construction and to avoid customer/new-offer detours for independent edits.
+- `run_windowhub_goal_v2.py --mode inspect` prints `GOAL_RELEVANT_ACTIONS` and `GOAL_CONTEXT`, plus existing observation. Zero direct semantic overlap is a **diagnostic**, not proof that the task is impossible (navigation might still be required).
+- Unit checks: `tests/test_goal_affordance_ranking.py` and `tests/test_windowhub_goal_specific_knowledge.py`.
+
+Current limitations: ranking != understanding of which MDI panel/dialog is active; that requires structural UIA provenance and stronger action-specific business outcomes. Never choose `Edytuj` solely by text: it may be the print-template editor. V2 `think` requires a configured reasoning endpoint. Do not run unverified `--mode execute` on production records.
