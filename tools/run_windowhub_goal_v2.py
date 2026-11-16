@@ -322,6 +322,28 @@ def run_goal(loop, *, goal, reasoner, mode, max_actions, experience=(),
             return 5
         print("PROPOSED_ACTION=" + action.action.name + " TARGET=" + str(getattr(action.action.target, "label", None)))
         if mode == "think":
+            # A model-selected capability is only a proposal. The same
+            # deterministic local policy and postcondition contract used for
+            # execution must accept it before we call it an eligible plan.
+            from app.agent.runtime.windowhub_goal_v2_coordinator import (
+                enforce_v2_live_policy, verified_v2_outcome,
+            )
+            try:
+                enforce_v2_live_policy(
+                    scene, action,
+                    approved_persistent=approved_persistent,
+                )
+                expectation = verified_v2_outcome(
+                    action, baseline_scene=scene,
+                )
+            except (ValueError, RuntimeError) as exc:
+                print("THINK_LOCAL_POLICY=BLOCKED")
+                print("THINK_BLOCK_REASON=" + type(exc).__name__ + ":" + str(exc)[:120])
+                print("THINK_ONLY: nothing executed.")
+                return 4
+            print("THINK_LOCAL_POLICY=PASS")
+            print("THINK_EXPECTED_WINDOW=" + str(expectation.expected_window_title))
+            print("THINK_EXPECTED_SCENE_CHANGE=" + str(expectation.require_scene_change))
             print("THINK_ONLY: nothing executed.")
             return 0
         allowed, progress_reason = progress.allow_action(action.action, scene, stage=stage)
