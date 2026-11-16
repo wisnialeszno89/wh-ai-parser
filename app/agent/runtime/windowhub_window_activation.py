@@ -125,17 +125,31 @@ def activate_windowhub_wizard(*, wait_seconds: float = 2.0, include_workspace: b
         callback = callback_type(inspect)
         user32.EnumWindows(callback, 0)
         if include_workspace:
-            # Prefer a unique active wizard/document dialog over the main window.
-            dialogs = [
-                item for item in candidates
-                if item[1] in _ALLOWED_TITLES or item[1] in {"Właściwości dokumentu", "Zakładanie nowego klienta"}
+            # Preserve the specific WindowHub stage when it already has focus;
+            # a background Start1 must not override an open offer document.
+            foreground_hwnd = user32.GetForegroundWindow()
+            foreground_match = [
+                item for item in candidates if item[0] == foreground_hwnd
             ]
-            if dialogs:
-                candidates = dialogs
+            if len(foreground_match) == 1:
+                candidates = foreground_match
             else:
-                start = [item for item in candidates if item[1].startswith("Okna - Start1")]
-                documents = [item for item in candidates if item[1].startswith("Okna - OFR/")]
-                candidates = start if start else documents
+                dialogs = [
+                    item for item in candidates
+                    if item[1] in _ALLOWED_TITLES
+                    or item[1] in {"Właściwości dokumentu", "Zakładanie nowego klienta"}
+                ]
+                documents = [
+                    item for item in candidates
+                    if item[1].startswith("Okna - OFR/")
+                ]
+                start = [
+                    item for item in candidates
+                    if item[1].startswith("Okna - Start1")
+                ]
+                # A document outranks Start1, provided it is unique. Multiple
+                # candidate dialogs/documents remain ambiguous and fail closed.
+                candidates = dialogs or documents or start
         if len(candidates) != 1:
             return False, f"Expected one unambiguous WindowHub workflow window; found {len(candidates)}"
 
