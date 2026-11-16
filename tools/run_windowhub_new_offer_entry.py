@@ -69,15 +69,42 @@ def main(argv=None):
             return 0
         focused_start, start_reason = activate_windowhub_start_workspace()
         print("START1_ACTIVATION=" + start_reason)
-        if not focused_start:
-            print("STOP: Could not safely activate Start1; no click attempted.")
-            return 3
-        scene = loop.observe_scene()
-        stage = stage_of(scene)
-        print("START1_READBACK_STAGE=" + str(stage))
-        if stage != "start":
-            print("STOP: Start1 stage not verified after activation.")
-            return 4
+        if focused_start:
+            scene = loop.observe_scene()
+            stage = stage_of(scene)
+            print("START1_READBACK_STAGE=" + str(stage))
+            if stage != "start":
+                print("STOP: Start1 stage not verified after activation.")
+                return 4
+        else:
+            # MDI WindowHub may expose Start1 as a tab inside the offer frame
+            # rather than a separate top-level window. One observed, scoped
+            # tab click is safer than clicking a background New Offer icon.
+            print("START1_ROUTE=VERIFIED_TAB_FALLBACK")
+            scene = loop.observe_scene()
+            if stage_of(scene) != "offer_document":
+                print("STOP: Offer stage changed; cannot click Start1 tab safely.")
+                return 4
+            from app.agent.offers.windowhub_new_offer_action import (
+                prepare_start1_navigation_from_offer,
+            )
+            tab = prepare_start1_navigation_from_offer(scene)
+            print("START1_TAB_PREPARATION=" + tab.status.value)
+            print("START1_TAB_REASON=" + tab.reason)
+            if tab.status is not WindowHubFormActionStatus.READY:
+                return 4
+            from tools.live_windowhub_position_mission import verified_action
+            tab_result = WindowHubOfferFormActionExecutor.execute_prepared(
+                tab, scene, loop,
+                request_message="Switch to Start1 tab only. Keep all documents open.",
+            )
+            scene = loop.observe_scene()
+            stage = stage_of(scene)
+            print("START1_TAB_POST_STAGE=" + str(stage))
+            print("START1_TAB_EXECUTOR_VERIFIED=" + str(verified_action(tab_result)))
+            if stage != "start" or not verified_action(tab_result):
+                print("STOP: Start1 tab navigation not verified; no New Offer click.")
+                return 6
 
     if stage != "start":
         print("STOP: Existing wizard or unknown stage; do not discard progress.")
