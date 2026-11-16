@@ -52,6 +52,7 @@ class PanelContext:
     panel_labels: tuple[str, ...]
     contextual_controls: int
     all_controls: int
+    focused_containers: tuple[str, ...] = ()
 
 
 def observe_panel_context(scene) -> PanelContext:
@@ -74,6 +75,11 @@ def observe_panel_context(scene) -> PanelContext:
     )
     panel_labels = tuple(k for k, _ in counts.most_common(8))
     scoped = sum(bool(panel_lineage(e)) for e in controls)
+    focused_containers = tuple(dict.fromkeys(
+        name for e in controls
+        if (e.metadata or {}).get("uia_focused") is True
+        for name in panel_lineage(e)
+    ))[:8]
     if not controls:
         status = "no_accessible_controls"
     elif len(selected) == 1:
@@ -84,7 +90,10 @@ def observe_panel_context(scene) -> PanelContext:
         status = "group_structure_observed_without_active_marker"
     else:
         status = "unscoped_controls_only"
-    return PanelContext(status, selected, focused, panel_labels, scoped, len(controls))
+    return PanelContext(
+        status, selected, focused, panel_labels, scoped, len(controls),
+        focused_containers,
+    )
 
 
 def action_panel_priority(element, context: PanelContext, *, goal: str = "") -> int:
@@ -99,6 +108,10 @@ def action_panel_priority(element, context: PanelContext, *, goal: str = "") -> 
         bonus += 7
     if len(context.selected_tabs) == 1 and context.selected_tabs[0] in lineage:
         bonus += 12
+    if context.focused_containers and any(
+        parent in context.focused_containers for parent in lineage
+    ):
+        bonus += 8
     # Never equate an unrelated selected tab with a label from a different
     # UIA tree or infer that a panel is active from its mere visibility.
     return bonus
@@ -141,6 +154,10 @@ def panel_model_context(scene) -> dict:
             if (tag := _safe_area(name)) is not None
         }),
         "focused_widget_present": bool(ctx.focused_labels),
+        "focused_area_categories": sorted({
+            tag for name in ctx.focused_containers
+            if (tag := _safe_area(name)) is not None
+        }),
         "active_area_confidence": (
             "selected_tab" if len(ctx.selected_tabs) == 1
             else "focused_control" if ctx.focused_labels
