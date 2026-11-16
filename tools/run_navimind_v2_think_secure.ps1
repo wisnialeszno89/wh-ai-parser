@@ -5,7 +5,7 @@ The secret is prompted in masked form and never saved by this script.
 #>
 param(
     [string]$Goal = 'Dodaj nowa pozycje okienna do aktualnie otwartej oferty. Nie tworz nowej oferty, nie zapisuj i nie wysylaj.',
-    [string]$Endpoint = 'https://navimind.app/api/agent/task'
+    [string]$Endpoint = 'https://www.navimind.app/api/agent/task'
 )
 
 $ErrorActionPreference = 'Stop'
