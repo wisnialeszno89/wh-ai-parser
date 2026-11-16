@@ -131,3 +131,26 @@ def test_focused_panel_prioritizes_sibling_control_not_other_panel():
     assert action_panel_priority(sibling, context, goal="edytuj") > action_panel_priority(
         unrelated, context, goal="edytuj"
     )
+
+
+def test_ambiguous_multiple_uia_focus_markers_do_not_drive_action_priority():
+    focused1 = element("Notatka", focused=True, ancestors=(
+        ("pane", "p", "Notatki"),
+    ))
+    focused2 = element("Przewiń", focused=True, ancestors=(
+        ("pane", "p", "Szablony wydruków"),
+    ))
+    candidate = element("Edytuj", ancestors=(
+        ("pane", "p", "Szablony wydruków"),
+    ))
+    scene = N(elements=(focused1, focused2, candidate))
+    ctx = observe_panel_context(scene)
+    assert ctx.status == "ambiguous_focus_not_used"
+    assert ctx.focused_marker_count == 2
+    assert ctx.focused_containers == ()
+    assert action_panel_priority(candidate, ctx, goal="zmień wymiary") == 0
+    from app.agent.runtime.active_panel_context import panel_model_context
+    projected = panel_model_context(scene)
+    assert projected["focus_ambiguous"] is True
+    assert projected["focused_widget_present"] is False
+    assert projected["active_area_confidence"] == "unknown"
