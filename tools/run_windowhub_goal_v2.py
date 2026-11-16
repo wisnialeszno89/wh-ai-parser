@@ -400,9 +400,15 @@ def main(argv=None):
             # not extend this fallback to model thinking or live execution.
             from app.agent.runtime.windowhub_foreground_inspection import (
                 inspect_current_windowhub_foreground,
+                activate_unique_windowhub_for_inspection,
             )
-            if args.mode != "inspect" or not inspect_current_windowhub_foreground():
+            if args.mode != "inspect":
                 return 3
+            if not inspect_current_windowhub_foreground():
+                recovered, diagnostic = activate_unique_windowhub_for_inspection()
+                print("WINDOWHUB_INSPECT_RECOVERY=" + diagnostic)
+                if not recovered:
+                    return 3
             print("WINDOWHUB_UNMAPPED_FOREGROUND=READ_ONLY_OBSERVATION")
 
     if args.mode == "execute":
