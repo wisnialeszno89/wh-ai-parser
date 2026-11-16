@@ -181,11 +181,43 @@ def continue_to_construction(loop, *, width: int, height: int,
             return 6
         stage = "hardware"
 
-    if stage in {"hardware", "modifier"}:
-        print("CONSTRUCTION_STAGE_REACHED=" + stage)
-        print("STATUS=hardware_or_editor_reached_no_unverified_finish")
-        # The frame/sash layout and finishing actions are not yet approved
-        # by native evidence; reaching hardware alone isn't a completed offer.
+    if stage == "hardware":
+        print("WIZARD_STAGE_REACHED=hardware")
+        print("MODIFIER_REACHED=False")
+        # Hardware and opening direction are catalog-dependent. We cannot
+        # safely assume that Finish creates a valid configured sash.
+        if not interactive_handoff:
+            print("STOP: Hardware configuration needs a verified skill.")
+            return 4
+        print("TEACH_MODE=hardware_to_modifier")
+        try:
+            ready = ask(
+                "Skonfiguruj okucia i przejdź ręcznie do edytora budowy okna; "
+                "potem wpisz 'gotowe' (inne = przerwij): "
+            )
+        except (EOFError, KeyboardInterrupt):
+            return 4
+        if ready.strip().casefold() != "gotowe":
+            return 4
+        fresh = inspect(loop)
+        if stage_of(fresh) != "modifier":
+            print("STOP: Construction editor not observed after teaching.")
+            return 4
+        try:
+            consent = ask("Kontynuować pracę w edytorze od tego miejsca? [tak/N]: ")
+        except (EOFError, KeyboardInterrupt):
+            return 4
+        if consent.strip().casefold() not in {"tak", "t"}:
+            return 4
+        # The observed transition can be recorded by the existing teach
+        # recorder, but is not yet treated as proof of a specific button.
+        print("HARDWARE_HANDOFF_VERIFIED=modifier")
+        print("MODIFIER_REACHED=True")
+        return 0
+
+    if stage == "modifier":
+        print("MODIFIER_REACHED=True")
+        print("DRAFT_SAVED_VERIFIED=False")
         return 0
 
     print("STOP: Unsupported catalog stage " + str(stage))
