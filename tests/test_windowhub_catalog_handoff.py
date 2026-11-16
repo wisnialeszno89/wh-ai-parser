@@ -19,6 +19,8 @@ def test_default_catalog_options_are_exact_and_two_sided(monkeypatch, tmp_path):
 def test_taught_catalog_handoff_continues_only_after_approval(monkeypatch):
     from tools import run_windowhub_top_trans_single_window_mission as legacy
     from app.agent.runtime import windowhub_catalog_handoff as handoff
+    from app.agent.runtime import windowhub_window_activation as activation
+    monkeypatch.setattr(activation, "activate_windowhub_workflow_window", lambda: (True, "mock_refocus"))
     labels = ["gotowe", "tak", "nie", "tak"]
     scene = N(observation=N(state=N(
         active_application="Okna.exe", active_window_title="Podstawowe parametry okna"
@@ -56,6 +58,8 @@ def test_taught_catalog_handoff_requires_resume_permission(monkeypatch):
 def test_hardware_handoff_requires_editor_readback_and_resume(monkeypatch):
     from app.agent.runtime.windowhub_catalog_continuation import continue_to_construction
     from tools import run_windowhub_top_trans_single_window_mission as legacy
+    from app.agent.runtime import windowhub_window_activation as activation
+    monkeypatch.setattr(activation, "activate_windowhub_workflow_window", lambda: (True, "mock_refocus"))
 
     hardware = N(observation=N(state=N(
         active_application="Okna.exe", active_window_title="Parametry okuć"
@@ -63,7 +67,7 @@ def test_hardware_handoff_requires_editor_readback_and_resume(monkeypatch):
     modifier = N(observation=N(state=N(
         active_application="Okna.exe", active_window_title="Modyfikator"
     )))
-    visited = [hardware, modifier]
+    visited = [hardware, modifier, modifier]
     monkeypatch.setattr(legacy, "inspect", lambda loop: visited.pop(0))
     answers = iter(["gotowe", "tak"])
     assert continue_to_construction(
