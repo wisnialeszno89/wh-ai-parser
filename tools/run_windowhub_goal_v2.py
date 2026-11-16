@@ -152,6 +152,15 @@ def run_goal(loop, *, goal, reasoner, mode, max_actions, experience=(),
         actions = prepared.request_payload["capabilities"]["actions"]
         print(f"CYCLE={revision+1} STAGE={stage} ACTION_CAPABILITIES={len(actions)}")
         if mode == "inspect":
+            # Show the agent's *actual* current knowledge of the two critical
+            # size fields, never generic customer or document text.
+            if stage == "dimensions":
+                from app.agent.runtime.windowhub_dimension_replace import current_dimension
+                for field in ("width_1", "height_1"):
+                    observed = current_dimension(scene, field)
+                    print("CURRENT_DIMENSION_" + field.upper() + "=" + (
+                        repr(observed) if observed is not None else "UNOBSERVABLE"
+                    ))
             entities = {e["ref"]: e for e in prepared.request_payload["world"]["entities"]}
             for item in actions[:24]:
                 target = entities.get(item["target_ref"]) if item["target_ref"] else None
