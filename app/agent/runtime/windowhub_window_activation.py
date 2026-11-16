@@ -67,7 +67,7 @@ def _focus_existing_window(user32, hwnd) -> bool:
             user32.AttachThreadInput(current_thread, thread_id, False)
 
 
-def activate_windowhub_wizard(*, wait_seconds: float = 2.0, include_workspace: bool = False) -> tuple[bool, str]:
+def activate_windowhub_wizard(*, wait_seconds: float = 2.0, include_workspace: bool = False, prefer_start: bool = False) -> tuple[bool, str]:
     """Focus one existing visible Okna.exe wizard, or fail closed."""
     if os.name != "nt":
         return False, "Windows required"
@@ -124,7 +124,14 @@ def activate_windowhub_wizard(*, wait_seconds: float = 2.0, include_workspace: b
 
         callback = callback_type(inspect)
         user32.EnumWindows(callback, 0)
-        if include_workspace:
+        if include_workspace and prefer_start:
+            # Use the real Start1 workspace, not a background tile from an offer.
+            # No document is closed or modified during this selection.
+            candidates = [
+                item for item in candidates
+                if item[1].strip().casefold() == "okna - start1"
+            ]
+        elif include_workspace:
             # Preserve the specific WindowHub stage when it already has focus;
             # a background Start1 must not override an open offer document.
             foreground_hwnd = user32.GetForegroundWindow()
@@ -238,3 +245,12 @@ def activate_unique_windowhub_offer_document(*, wait_seconds: float = 3.0) -> tu
         return False, "WindowHub offer document did not gain foreground focus"
     except Exception as exc:
         return False, f"Offer activation unavailable: {type(exc).__name__}"
+
+
+def activate_windowhub_start_workspace(*, wait_seconds: float = 3.0) -> tuple[bool, str]:
+    """Focus exactly one visible Start1 workspace owned by Okna.exe."""
+    return activate_windowhub_wizard(
+        wait_seconds=wait_seconds,
+        include_workspace=True,
+        prefer_start=True,
+    )
