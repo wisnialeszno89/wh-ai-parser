@@ -116,3 +116,24 @@ New `app/agent/runtime/active_document_scope.py`:
 Offline tests added/updated: `tests/test_active_document_scope.py`, `tests/test_windowhub_offer_semantic_skill.py`, `tests/test_goal_affordance_ranking.py`. No local pytest or live WindowHub action was executed by the GitHub editing connector. It is possible that all three `Dodaj` controls report unknown scope in the real app; this is a truthful discovery blocker, not a reason to click the first.
 
 Use read-only inspection first. Next evidence-based engineering step, only if necessary, is to identify the selected MDI child panel through native parent or owner handles and UIA container ancestry (not only matching labels) and verify it with a human demonstration. Do not mark navigation or business completion without fresh runtime readback.
+
+
+## Native MDI ancestor read-only diagnostic — OFR/4680- (2026-11-16)
+
+Confirmed user live log: 27/27 offline tests passed; one selected document tab, 3 `Dodaj` buttons, **0** document-scoped and **3** unresolved. The new strict action broker correctly removed these unsafe `Dodaj` actions. No model request and no click took place.
+
+New file `app/agent/runtime/windowhub_mdi_native_probe.py` and CLI `--mode inspect --probe-mdi`:
+- Rebind each observed `Dodaj` by its exact UIA runtime identity against the existing `Okna.exe` window.
+- Walk bounded native/UIA parent elements without activating another window or clicking.
+- Report per-control exact ancestor title matches against the *verified selected document tab*, number of distinct native parents, and anonymized class/role chain. No HWND or raw customer titles logged.
+- A title match alone is a **diagnostic candidate**, not proof of ownership or permission to execute. `unique_active_document_control` and the V2 execution broker continue refusing unverified `Dodaj` actions.
+- If MDI content subtree ancestry does not reveal the selected offer, the next step is to inspect the containing native Win32 MDI child via structural HWND relationship and selected-MDI-child state, retaining exact identity and pre/post verification.
+
+Tests: `python -m pytest tests/test_windowhub_mdi_native_probe.py tests/test_active_document_scope.py tests/test_windowhub_offer_semantic_skill.py -q`.
+
+Read-only user command:
+```powershell
+python tools/run_windowhub_goal_v2.py --mode inspect --probe-mdi --goal "Zbadaj do której aktywnej oferty należą widoczne przyciski Dodaj. Bez klikania."
+```
+
+Current implementation not yet verified in local Windows runtime; no live interactions were made through GitHub connector.
