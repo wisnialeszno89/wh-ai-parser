@@ -112,6 +112,8 @@ def main(argv=None):
         metadata = getattr(execution, "metadata", None) or {}
         print("NEW_OFFER_EXECUTED=" + str(metadata.get("executed")))
         print("NEW_OFFER_EXECUTION_PATH=" + str(metadata.get("execution_path")))
+        print("NEW_OFFER_CLICK_POINT=" + str(metadata.get("point")))
+        print("NEW_OFFER_SCREEN_ORIGIN=" + str(metadata.get("screen_origin")))
         print("NEW_OFFER_EXECUTION_MESSAGE=" + str(getattr(execution, "message", None)))
         print("NEW_OFFER_VERIFICATION_REASON=" + str(getattr(verification, "reason", None)))
         print("STOP: New document properties were not verified; no second click.")
