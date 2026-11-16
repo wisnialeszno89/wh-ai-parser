@@ -43,6 +43,8 @@ def test_taught_catalog_handoff_continues_only_after_approval(monkeypatch):
 def test_taught_catalog_handoff_requires_resume_permission(monkeypatch):
     from tools import run_windowhub_top_trans_single_window_mission as legacy
     from app.agent.runtime import windowhub_catalog_handoff as handoff
+    from app.agent.runtime import windowhub_window_activation as activation
+    monkeypatch.setattr(activation, "activate_windowhub_workflow_window", lambda: (True, "mock_refocus"))
     scene = N(observation=N(state=N(
         active_application="Okna.exe", active_window_title="Parametry szklenia"
     )))
