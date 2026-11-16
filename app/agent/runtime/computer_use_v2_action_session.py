@@ -451,12 +451,14 @@ class ComputerUseV2ActionSession:
         resolver = self._target_resolver_factory()
 
         from app.agent.runtime.goal_affordance_ranking import order_observed_affordances
+        from app.agent.runtime.active_panel_context import observe_panel_context
         ordered = order_observed_affordances(
             snapshot.payload.get("affordances", []),
             goal=goal,
             reference_map=snapshot.reference_map,
             task_id=task_id,
             world_revision=world_revision,
+            panel_context=observe_panel_context(scene),
         )
         for affordance in ordered:
             if len(capabilities) >= (
