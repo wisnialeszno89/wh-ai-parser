@@ -581,12 +581,23 @@ class RobotGUIExecutor(ActionExecutor):
             if field_name in {"width_1", "height_1"}
             else "Dodawanie nowej pozycji"
         )
-        if (
-            process_name.casefold() != "okna.exe"
-            or title.strip().casefold() != expected_title.casefold()
-            or scope.get("application") != "Okna.exe"
-            or scope.get("window_title") != expected_title
-        ):
+        if field_name == "start_new_offer":
+            # The New Offer tile remains in the UIA tree on an open offer.
+            # Bind this one action to the exact observed workspace title,
+            # allowing Start1 or a document without allowing arbitrary dialogs.
+            authorized_title = scope.get("window_title")
+            if (
+                not isinstance(authorized_title, str)
+                or not (
+                    authorized_title == "Okna - Start1"
+                    or authorized_title.casefold().startswith("okna - ofr/")
+                )
+                or title != authorized_title
+            ):
+                return False
+        elif title.strip().casefold() != expected_title.casefold() or scope.get("window_title") != expected_title:
+            return False
+        if process_name.casefold() != "okna.exe" or scope.get("application") != "Okna.exe":
             return False
 
         if (
