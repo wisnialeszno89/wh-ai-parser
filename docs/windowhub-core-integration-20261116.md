@@ -34,3 +34,19 @@ The user's original worktree has valuable **uncommitted** `app/agent/runtime/ada
 `python -m pytest tests/test_windowhub_new_offer_action.py tests/test_windowhub_navigation_verification.py tests/test_windowhub_sales_offer_live.py tests/test_windowhub_document_core.py -q`
 
 Offline test success proves safety policies/branch wiring, not successful live execution. In actual WindowHub, confirm individual stage transitions, selected customer identity, the four price flags, `Dodaj`, position dimensions and catalog options through readback.
+
+
+## Incremental autonomy, teaching and screenshot policy
+
+- New unified invocation supports `--interactive-handoff` (explicit opt-in). When the DevExpress lookup hides the selected customer value, the agent configures all four observable price switches and requests **exact customer-name confirmation**, then asks whether to **continue from the current stage**. This is recorded as `human_explicit_confirmation` rather than falsely claiming a native UIA customer readback. On refusal, it does not click OK.
+- Batch policy: the four independent document-price checkboxes are inspected from one semantic UIA scene. Each change binds a fresh native control and checks live foreground plus TogglePattern state, then one full semantic observation verifies all four desired values together. Do **not** apply this to navigation, destructive actions, client search, or changing dependent catalog menus. Failure stops the batch; no blind retry.
+- The main entry can resume from an already open position, dimensions, basic-parameters or glazing wizard only after explicit confirmation of the customer and permission to resume; it checks stage again after the handoff. If the current scene is document properties, it resumes that dialog without creating a duplicate new offer.
+- After verified 1500×1400 dimensions, `windowhub_catalog_continuation` uses existing exact native Next/ComboBox skills for the basic-parameters and glazing screens, reading back state after each selection. The known `antracyt outside / biały inside` options are *two-sided*, not an unrestricted `antracyt` match. If WindowHub exposes a different exact label, fail closed and offer teach mode.
+- `windowhub_catalog_handoff`: user can select an exact catalog item manually, choose whether to record the observed label in local `~/.windowhub_agent/verified_catalog_skills.json`, then explicitly approve resuming. The agent re-observes the stage/value. This is a verified expert demonstration, **not** proof that the agent autonomously operated that catalog option; next autonomous selection must still be validated.
+- `hardware` is a verified wizard stage but **not** synonymous with a completed frame/sash construction editor. Do not claim offer completion, save, or final WindowHub calculation.
+- No Vercel deployment or production sync. No automatic background desktop watcher; prompts appear during an actively running `--interactive-handoff` mission only.
+
+Validation:
+```powershell
+python -m pytest tests/test_windowhub_new_offer_action.py tests/test_windowhub_navigation_verification.py tests/test_windowhub_document_core.py tests/test_windowhub_sales_offer_live.py tests/test_windowhub_catalog_memory.py tests/test_windowhub_catalog_handoff.py -q
+```
