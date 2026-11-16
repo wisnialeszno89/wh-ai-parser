@@ -118,7 +118,7 @@ def prepare_start1_navigation_from_offer(scene: ScreenScene) -> PreparedWindowHu
         return blocked("Start1 navigation requires a currently active offer document.")
     controls = [
         e for e in scene.elements
-        if e.kind == "button"
+        if e.kind == "tabitem"
         and normalize_uia_text(e.label or "") == "start1"
         and (e.metadata or {}).get("source") in {
             "windows_ui_automation", "windowhub_ui_automation",
@@ -127,9 +127,15 @@ def prepare_start1_navigation_from_offer(scene: ScreenScene) -> PreparedWindowHu
         and (e.metadata or {}).get("uia_enabled") is True
     ]
     if len(controls) != 1:
-        return blocked(f"Expected one visible Start1 tab, found {len(controls)}.")
+        return blocked(f"Expected one visible Start1 tabitem, found {len(controls)}.")
     element = controls[0]
     meta = element.metadata or {}
+    if meta.get("uia_control_type") != "tabitem":
+        return blocked("Start1 UIA control role is not tabitem.")
+    if meta.get("uia_selected") is not False:
+        return blocked("Start1 tab selection state must be explicitly false.")
+    if element.width <= 0 or element.height <= 0:
+        return blocked("Start1 tab bounds are invalid.")
     runtime_id = meta.get("uia_runtime_id")
     if not isinstance(runtime_id, str) or not runtime_id.strip():
         return blocked("Start1 tab runtime identity missing.")
@@ -141,7 +147,7 @@ def prepare_start1_navigation_from_offer(scene: ScreenScene) -> PreparedWindowHu
     ) != 1:
         return blocked("Start1 tab runtime identity is not unique.")
     target = SemanticTargetQuery(
-        role="button",
+        role="tabitem",
         label=element.label,
         automation_id=meta.get("automation_id"),
         uia_runtime_id=runtime_id,
