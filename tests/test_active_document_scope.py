@@ -3,7 +3,40 @@ from app.agent.runtime.active_document_scope import (
     selected_document_tab, duplicate_document_action_status,
     unique_active_document_control,
 )
-from tests.test_windowhub_offer_semantic_skill import scene, button, selected_tab
+from app.agent.environment.environment_observation import EnvironmentObservation
+from app.agent.environment.environment_state import EnvironmentState
+from app.agent.perception.screen_scene import ScreenScene
+from app.agent.perception.screen_element import ScreenElement
+
+
+def scene(*elements):
+    return ScreenScene(
+        observation=EnvironmentObservation(
+            state=EnvironmentState(active_application="Okna.exe", active_window_title="Okna - OFR/4680-")
+        ),
+        elements=tuple(elements),
+    )
+
+
+def button(runtime, *, scope=None, ancestors=()):
+    return ScreenElement(
+        kind="button", label="Dodaj", x=10, y=20, width=40, height=20,
+        metadata={
+            "source": "windows_ui_automation", "uia_visible": True,
+            "uia_enabled": True, "uia_runtime_id": runtime,
+            "document_scope": scope, "uia_ancestor_context": ancestors,
+        },
+    )
+
+
+def selected_tab(label="OFR/4680-"):
+    return ScreenElement(
+        kind="tabitem", label=label, x=10, y=5, width=70, height=20,
+        metadata={
+            "source": "windows_ui_automation", "uia_visible": True,
+            "uia_tab_scope": "document", "uia_selected": True,
+        },
+    )
 
 
 def test_selected_mdi_tab_does_not_prove_unscoped_toolbar_buttons():
