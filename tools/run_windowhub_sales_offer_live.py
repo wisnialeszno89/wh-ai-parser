@@ -58,20 +58,40 @@ def main(argv=None):
         print("STOP: Windows and explicit desktop authorization required.")
         return 2
 
-    from tools.run_windowhub_new_offer_entry import main as enter_new_offer
-    entry = enter_new_offer(["--execute-live"])
-    print("NEW_OFFER_ENTRY_CODE=" + str(entry))
-    if entry != 0:
-        print("MISSION_RESULT=blocked_before_document")
-        return entry
+    from app.agent.learning.windowhub_demonstration import stage_of as current_stage
+    from app.agent.runtime.windowhub_window_activation import (
+        activate_windowhub_workflow_window,
+    )
+    from app.agent.runtime.windows_desktop_agent_control_loop import (
+        create_windows_desktop_agent_control_loop,
+    )
+    active, info = activate_windowhub_workflow_window()
+    print("WINDOWHUB_CORE_ACTIVATION=" + info)
+    if not active:
+        return 3
+    stage_before = current_stage(create_windows_desktop_agent_control_loop().observe_scene())
+    print("MISSION_ENTRY_STAGE=" + str(stage_before))
+    if stage_before == "document_properties":
+        # Resume work rather than create a duplicate offer on every retry.
+        print("MISSION_RESUME=existing_document_properties")
+        fresh_document = False
+    elif stage_before in {"start", "offer_document"}:
+        from tools.run_windowhub_new_offer_entry import main as enter_new_offer
+        entry = enter_new_offer(["--execute-live"])
+        print("NEW_OFFER_ENTRY_CODE=" + str(entry))
+        if entry != 0:
+            print("MISSION_RESULT=blocked_before_document")
+            return entry
+        fresh_document = True
+    else:
+        print("MISSION_RESULT=unsupported_existing_stage_no_destructive_navigation")
+        return 4
 
-    # The document-only legacy skill checks the exact customer, all four
-    # price flags and readback before confirming the dialog. Its hardcoded
-    # position catalog targets are NOT used in document-only mode.
-    from tools.run_windowhub_top_trans_single_window_mission import main as document_mission
-    doc = document_mission([
-        "--execute-live", "--document-only", "--customer-name", args.customer_name,
-    ])
+    from app.agent.runtime.windowhub_document_core import run_document_core
+    doc = run_document_core(
+        customer_name=args.customer_name,
+        fresh_document=fresh_document,
+    )
     print("DOCUMENT_SETUP_CODE=" + str(doc))
     if doc != 0:
         print("MISSION_RESULT=document_not_fully_verified")
