@@ -146,3 +146,18 @@ The first offline native probe run returned 13 passed and 1 failed: the implemen
 User clarification: When a document is open, the active document's `Dodaj` adds a position; a new offer can be created from Start1. This is application semantic knowledge, not a mandate to click a particular screen coordinate. `windowhub_training_context.py` now makes the reasoning model distinguish **create new offer**, **add position to current offer**, and **modify existing construction**; avoid unnecessary context switches. Ownership of `Dodaj` still must be established via active document and native/UIA hierarchy before any model execution. Tests cover this distinction.
 
 Continue with a read-only `--probe-mdi` run on the actual multi-document workspace. Its outputs are diagnostics only and do not promote actions automatically.
+
+
+## 2026-11-16: native MDI scope promoted to revalidated local skill
+
+The user verified 16/16 offline tests passed and the native read-only probe on the active OFR/4678- document revealed two uniquely resolved Dodaj UIA controls. Exactly one native parent window name matched the selected document tab; each had a 5-HWND ancestry including an Afx control bar, an Afx MDI child window and an MDIClient parent. No actions executed.
+
+Implementation now:
+- \`enrich_native_mdi_document_scope(scene)\` rebinds each observed eligible Dodaj by exact UIA runtime ID, finds a native Window child named OFR/<number>- with direct parent MDIClient and a valid HWND, rejects unknown and repeated UIA targets, verifies the selected MDI document equals active Okna.exe window title, and rejects unless exactly one button is associated with the selected document and all other Dodaj controls have known owners. It never clicks.
+- NaviMind V2 read-only and live cycles recompute native MDI evidence from the newest scene before semantic interpretation. \`unique_active_document_control\` now can identify the one scoped control and expose its business meaning without relying on button order.
+- Immediately before the model's click is executed, \`enforce_v2_live_policy\` recomputes the native MDI proof and compares the original runtime ID. If the selected document or control ownership changed, action is blocked.
+- After a verified Dodaj click, the required postcondition is the specific WindowHub \`Dodawanie nowej pozycji\` wizard, not an arbitrary screenshot difference.
+- \`tests/test_windowhub_native_document_enrichment.py\` and \`tests/test_windowhub_add_position_outcome.py\` simulate owner assignment and refusal cases.
+- This is a scoped generic skill based on observed structural evidence and goal semantics. It does not require a fixed Start1->offer->position sequence; beginning a new offer remains separate.
+
+The native promotion has not been validated live in WindowHub yet. First use \`--mode inspect\` to check MDI_DODAJ_SAFE_TARGET=True and that the proposed semantic Dodaj refers to the current offer. Only then use remote model think / carefully supervised execution.
