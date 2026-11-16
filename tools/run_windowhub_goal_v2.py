@@ -38,6 +38,10 @@ def parse_args(argv=None):
     parser.add_argument("--customer-name", help="Existing client name to find by progressive native/OCR lookup")
     parser.add_argument("--customer-lookup-skill", action="store_true",
                         help="Allow one locally verified customer lookup before model decisions (execute mode only)")
+    parser.add_argument("--interactive-handoff", action="store_true",
+                        help="Ask salesperson for guidance with a bounded timeout, then observe and resume")
+    parser.add_argument("--handoff-timeout", type=int, default=60,
+                        help="Seconds for an answer, 1-300 (default 60)")
     return parser.parse_args(argv)
 
 
@@ -83,9 +87,39 @@ def audit_start_action_read_only(prepared, scene):
     print("START_NEW_OFFER_CHECK=V2 protocol and local UIA identity only; no click, no model request")
 
 
+
+
+def request_human_resume(loop, *, timeout_seconds=60):
+    """Ask once, time out, then resume only after fresh WindowHub observation."""
+    from app.agent.runtime.goal_task_supervisor import timed_salesperson_prompt
+    response = timed_salesperson_prompt(
+        "Agent potrzebuje wskazowki. Pokaz lub popraw cos w WindowHub, "
+        "nastepnie wpisz 'tak', aby kontynuowal.",
+        timeout_seconds=timeout_seconds,
+    )
+    if response is None:
+        print("HANDOFF_RESULT=timeout")
+        print("HANDOFF_UNRESOLVED=requires_goal_dependency_review")
+        return False
+    if response.strip().casefold() not in {"tak", "t"}:
+        print("HANDOFF_RESULT=declined")
+        return False
+    focused, info = activate_windowhub_workflow_window()
+    print("HANDOFF_REFOCUS=" + info)
+    if not focused:
+        print("HANDOFF_RESULT=environment_unavailable")
+        return False
+    new_scene = loop.observe_scene()
+    if stage_of(new_scene) is None:
+        print("HANDOFF_RESULT=no_verified_windowhub_scene")
+        return False
+    print("HANDOFF_RESULT=accepted_reobserved")
+    return True
+
 def run_goal(loop, *, goal, reasoner, mode, max_actions, experience=(),
              approved_persistent=False, show_window_title=False,
-             customer_lookup_name=None):
+             customer_lookup_name=None, interactive_handoff=False,
+             handoff_timeout=60):
     session = ComputerUseV2ActionSession()
     from app.agent.runtime.goal_progress_memory import ProgressMemory
     progress = ProgressMemory()
@@ -186,6 +220,14 @@ def run_goal(loop, *, goal, reasoner, mode, max_actions, experience=(),
             return 4
         if response["decision"] != "act" or response["confidence"] < .80:
             print("STOP: reasoner cannot yet choose a confident executable action.")
+            if (mode == "execute" and interactive_handoff
+                    and request_human_resume(loop, timeout_seconds=handoff_timeout)):
+                feedback.append({
+                    "source": "salesperson_guidance",
+                    "result": "human_updated_screen_and_approved_resume",
+                    "verified": False,
+                })
+                continue
             return 4
         try:
             action = prepared.resolve_action_decision(response)
@@ -205,6 +247,14 @@ def run_goal(loop, *, goal, reasoner, mode, max_actions, experience=(),
             execute_v2_step(loop, scene, action, approved_persistent=approved_persistent)
         except (ValueError, RuntimeError) as exc:
             print("STOP: local guard or verification: " + str(exc))
+            if (mode == "execute" and interactive_handoff
+                    and request_human_resume(loop, timeout_seconds=handoff_timeout)):
+                feedback.append({
+                    "source": "salesperson_guidance",
+                    "result": "human_updated_screen_and_approved_resume",
+                    "verified": False,
+                })
+                continue
             return 6
         print("ACTION_VERIFIED=" + action.action.name)
         after = loop.observe_scene()
@@ -252,7 +302,7 @@ def shared_endpoint_v2_config() -> NaviMindTaskReasonerV2Config:
 
 def main(argv=None):
     args = parse_args(argv)
-    if os.name != "nt" or not 1 <= args.max_actions <= 20:
+    if os.name != "nt" or not 1 <= args.max_actions <= 20 or not 1 <= args.handoff_timeout <= 300:
         return 2
     try:
         file_text = read_task_document(args.task_file) if args.task_file else ""
@@ -356,6 +406,8 @@ def main(argv=None):
             show_window_title=args.show_window_title,
             customer_lookup_name=(args.customer_name.strip()
                                   if args.customer_lookup_skill else None),
+            interactive_handoff=args.interactive_handoff,
+            handoff_timeout=args.handoff_timeout,
         )
     except Exception as exc:
         print("STOP: " + type(exc).__name__ + ": " + str(exc)[:200])
