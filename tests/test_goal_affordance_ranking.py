@@ -125,3 +125,30 @@ def test_actual_panel_bonus_cannot_invent_relevance_label():
     )
     assert ranked["direct"] == 0
     assert ranked["context"] > 0
+
+
+def test_direct_goal_match_outweighs_unrelated_focus_context():
+    from app.agent.runtime.goal_affordance_ranking import affordance_relevance
+    from app.agent.runtime.active_panel_context import PanelContext
+    from types import SimpleNamespace as NS
+    class M:
+        def resolve(self, ref, *, task_id, world_revision):
+            if ref == "width":
+                return NS(label="Szerokość okna", metadata={})
+            return NS(label="Notatka", metadata={
+                "source": "windows_ui_automation",
+                "uia_visible": True,
+                "uia_focused": True,
+            })
+    context = PanelContext(
+        status="selected_tab_observed",
+        selected_tabs=("Notatka",),
+        focused_labels=("Notatka",), panel_labels=(),
+        contextual_controls=0, all_controls=2, focused_marker_count=1,
+    )
+    kwargs = dict(goal="Zmień szerokość okna", reference_map=M(),
+                  task_id="t", world_revision=1, panel_context=context)
+    width = affordance_relevance({"entity_ref": "width"}, **kwargs)
+    note = affordance_relevance({"entity_ref": "note"}, **kwargs)
+    assert width["direct"] > 0
+    assert width["score"] > note["score"]
