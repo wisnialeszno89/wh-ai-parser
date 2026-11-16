@@ -130,6 +130,23 @@ def enforce_v2_live_policy(scene, resolved, *, approved_persistent=False) -> Non
         raise ValueError("v2_target_no_longer_uniquely_observed")
     element = matched[0]
     meta = element.metadata or {}
+    if (
+        action.name == "click_screen_element"
+        and title.startswith("okna - ofr/")
+        and (element.label or "").strip().casefold() == "dodaj"
+    ):
+        # Refresh owner proof just before execution, not merely when the
+        # capability was offered to the remote reasoner. Never trust a
+        # previously observed MDI association after the selected tab moves.
+        from app.agent.runtime.windowhub_mdi_native_probe import enrich_native_mdi_document_scope
+        from app.agent.runtime.active_document_scope import unique_active_document_control
+        native_scene = enrich_native_mdi_document_scope(scene)
+        scoped_target = unique_active_document_control(native_scene, label="Dodaj")
+        if scoped_target is None or (
+            (scoped_target.metadata or {}).get("uia_runtime_id")
+            != target.uia_runtime_id
+        ):
+            raise ValueError("v2_mdi_document_owner_unverified_at_execution")
     if (element.label or "").strip().casefold() in _GENERIC_LABELS and not meta.get("semantic_label"):
         raise ValueError("v2_generic_control_meaning_unknown")
     if action.name == "write_text" and element.kind != "edit":
