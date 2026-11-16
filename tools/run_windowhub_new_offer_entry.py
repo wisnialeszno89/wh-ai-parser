@@ -1,0 +1,91 @@
+"""Find WindowHub and (optionally) open a fresh unsaved offer safely.
+
+Default mode inspects only. --execute-live may click exactly one verified
+'NOWA OFERTA' control and requires fresh document-properties readback.
+It never edits or saves an existing offer.
+"""
+from __future__ import annotations
+
+import argparse
+import os
+from pathlib import Path
+import sys
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from app.agent.learning.windowhub_demonstration import stage_of
+from app.agent.offers.windowhub_new_offer_action import prepare_new_offer_from_workspace
+from app.agent.offers.windowhub_offer_form_action import (
+    WindowHubFormActionStatus, WindowHubOfferFormActionExecutor,
+)
+from app.agent.runtime.windowhub_window_activation import activate_windowhub_workflow_window
+
+
+def parse_args(argv=None):
+    parser = argparse.ArgumentParser(
+        description="Find WindowHub and prepare or open a new unsaved offer"
+    )
+    parser.add_argument("--execute-live", action="store_true",
+                        help="Actually click one verified New Offer control")
+    return parser.parse_args(argv)
+
+
+def main(argv=None):
+    args = parse_args(argv)
+    if os.name != "nt":
+        print("STOP: Windows is required.")
+        return 2
+    if any(os.environ.get(k) != "1" for k in ("WH_REAL_WINDOWHUB", "COMPUTER_USE_LIVE")):
+        print("STOP: Desktop authorization required.")
+        return 2
+    focused, reason = activate_windowhub_workflow_window()
+    print("WINDOWHUB_AUTO_DISCOVERY=" + reason)
+    if not focused:
+        return 3
+
+    from app.agent.runtime.windows_desktop_agent_control_loop import (
+        create_windows_desktop_agent_control_loop,
+    )
+    loop = create_windows_desktop_agent_control_loop()
+    scene = loop.observe_scene()
+    stage = stage_of(scene)
+    print("OFFER_ENTRY_STAGE=" + str(stage))
+    if stage == "document_properties":
+        print("OFFER_ENTRY=DOCUMENT_PROPERTIES_ALREADY_OPEN")
+        print("NO_ACTION: Existing document properties need verified ownership and customer.")
+        return 0
+    if stage not in {"start", "offer_document"}:
+        print("STOP: Existing wizard or unknown stage; do not discard progress.")
+        return 4
+
+    prepared = prepare_new_offer_from_workspace(scene)
+    print("NEW_OFFER_PREPARATION=" + prepared.status.value)
+    print("NEW_OFFER_REASON=" + prepared.reason)
+    if prepared.status is not WindowHubFormActionStatus.READY:
+        return 4
+    if not args.execute_live:
+        print("INSPECT_ONLY: New Offer control uniquely detected, no click performed.")
+        return 0
+
+    # A real click is allowed only if the single observed control stays valid.
+    from tools.live_windowhub_position_mission import verified_action
+    result = WindowHubOfferFormActionExecutor.execute_prepared(
+        prepared, scene, loop,
+        request_message="Open one new unsaved WindowHub offer; do not edit, save or close existing documents.",
+    )
+    after = loop.observe_scene()
+    after_stage = stage_of(after)
+    print("NEW_OFFER_POST_STAGE=" + str(after_stage))
+    print("NEW_OFFER_EXECUTOR_VERIFIED=" + str(verified_action(result)))
+    if after_stage != "document_properties":
+        print("STOP: New document properties were not observed; no second click.")
+        return 6
+    print("NEW_OFFER_ENTRY_VERIFIED=True")
+    print("STOP: Next step is customer selection; no customer data edited.")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
