@@ -133,6 +133,12 @@ class NaviMindTaskReasonerV2:
         if self.config.secret:
             headers["x-navimind-agent-secret"] = self.config.secret
 
+        # Optional Vercel Deployment Protection authorization. This does not
+        # replace NaviMind's own independent application secret.
+        vercel_bypass = os.getenv("NAVIMIND_VERCEL_PROTECTION_BYPASS", "").strip()
+        if vercel_bypass:
+            headers["x-vercel-protection-bypass"] = vercel_bypass
+
         http_request = Request(
             self.config.url,
             data=body,
