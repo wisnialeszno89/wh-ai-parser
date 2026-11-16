@@ -53,6 +53,7 @@ class PanelContext:
     contextual_controls: int
     all_controls: int
     focused_containers: tuple[str, ...] = ()
+    focused_marker_count: int = 0
 
 
 def observe_panel_context(scene) -> PanelContext:
@@ -66,26 +67,31 @@ def observe_panel_context(scene) -> PanelContext:
         if e.kind == "tabitem" and (e.metadata or {}).get("uia_selected") is True
         and _clean(e.label)
     ))[:8]
+    focus_markers = [
+        e for e in controls if (e.metadata or {}).get("uia_focused") is True
+    ]
     focused = tuple(dict.fromkeys(
-        _clean(e.label) for e in controls
-        if (e.metadata or {}).get("uia_focused") is True and _clean(e.label)
+        _clean(e.label) for e in focus_markers if _clean(e.label)
     ))[:8]
     counts = Counter(
         label for e in controls for label in panel_lineage(e)
     )
     panel_labels = tuple(k for k, _ in counts.most_common(8))
     scoped = sum(bool(panel_lineage(e)) for e in controls)
+    # Multiple UIA elements reporting focus can be a descendant/ancestor
+    # artifact or a stale accessibility snapshot. Never rank all as active.
     focused_containers = tuple(dict.fromkeys(
-        name for e in controls
-        if (e.metadata or {}).get("uia_focused") is True
+        name for e in focus_markers
         for name in panel_lineage(e)
-    ))[:8]
+    ))[:8] if len(focus_markers) == 1 else ()
     if not controls:
         status = "no_accessible_controls"
     elif len(selected) == 1:
         status = "selected_tab_observed"
-    elif focused:
+    elif len(focus_markers) == 1:
         status = "focus_observed_no_unique_selected_tab"
+    elif len(focus_markers) > 1:
+        status = "ambiguous_focus_not_used"
     elif panel_labels:
         status = "group_structure_observed_without_active_marker"
     else:
@@ -93,6 +99,7 @@ def observe_panel_context(scene) -> PanelContext:
     return PanelContext(
         status, selected, focused, panel_labels, scoped, len(controls),
         focused_containers,
+        len(focus_markers),
     )
 
 
@@ -104,7 +111,8 @@ def action_panel_priority(element, context: PanelContext, *, goal: str = "") -> 
         return 0
     lineage = panel_lineage(element)
     bonus = max((relevance_score(goal, label=name) for name in lineage), default=0)
-    if (meta.get("uia_focused") is True):
+    if (meta.get("uia_focused") is True
+            and context.focused_marker_count == 1):
         bonus += 7
     if len(context.selected_tabs) == 1 and context.selected_tabs[0] in lineage:
         bonus += 12
@@ -153,14 +161,15 @@ def panel_model_context(scene) -> dict:
             tag for name in ctx.panel_labels
             if (tag := _safe_area(name)) is not None
         }),
-        "focused_widget_present": bool(ctx.focused_labels),
+        "focused_widget_present": ctx.focused_marker_count == 1,
+        "focus_ambiguous": ctx.focused_marker_count > 1,
         "focused_area_categories": sorted({
             tag for name in ctx.focused_containers
             if (tag := _safe_area(name)) is not None
         }),
         "active_area_confidence": (
             "selected_tab" if len(ctx.selected_tabs) == 1
-            else "focused_control" if ctx.focused_labels
+            else "focused_control" if ctx.focused_marker_count == 1
             else "unknown"
         ),
     }
@@ -172,7 +181,7 @@ def safe_panel_diagnostics(scene) -> dict:
     return {
         "context_status": context.status,
         "selected_tab_count": len(context.selected_tabs),
-        "focused_control_count": len(context.focused_labels),
+        "focused_control_count": context.focused_marker_count,
         "named_container_count": len(context.panel_labels),
         "controls_with_ancestry": context.contextual_controls,
         "accessible_controls": context.all_controls,
