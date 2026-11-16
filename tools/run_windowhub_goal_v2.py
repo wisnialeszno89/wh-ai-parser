@@ -86,6 +86,8 @@ def run_goal(loop, *, goal, reasoner, mode, max_actions, experience=(),
              approved_persistent=False, show_window_title=False,
              customer_lookup_name=None):
     session = ComputerUseV2ActionSession()
+    from app.agent.runtime.goal_progress_memory import ProgressMemory
+    progress = ProgressMemory()
     task_id = "wh-" + uuid4().hex[:16]
     feedback = list(experience)
     customer_lookup_attempted = False
@@ -95,6 +97,16 @@ def run_goal(loop, *, goal, reasoner, mode, max_actions, experience=(),
         if stage is None:
             print("STOP: WindowHub must be the foreground application.")
             return 4
+        world_state = progress.observe(scene, stage=stage)
+        print("WORLD_STAGE=" + str(world_state["stage"]))
+        print("WORLD_CHANGED=" + str(world_state["world_changed_since_last"]))
+        print("WORLD_VISIBLE_CONTROLS=" + str(world_state["visible_semantic_controls"]))
+        feedback.append({
+            "source": "local_world_state",
+            "observed_stage": stage,
+            "world_changed": world_state["world_changed_since_last"],
+            "visible_semantic_controls": world_state["visible_semantic_controls"],
+        })
         if (mode == "execute" and customer_lookup_name
                 and stage == "document_properties"
                 and not customer_lookup_attempted):
@@ -155,8 +167,13 @@ def run_goal(loop, *, goal, reasoner, mode, max_actions, experience=(),
         print(f"REASONER_DECISION={response['decision']} CONFIDENCE={response['confidence']}")
         print(f"REASONER_REASON={str(response['rationale'])[:300]}")
         if response["decision"] == "done":
-            print("DONE_VERIFIED=" + str(stage == "modifier"))
-            return 0 if stage == "modifier" else 6
+            # The editor stage alone is not proof that an arbitrary task is
+            # finished. Never mark a document/customer/catalog operation done
+            # solely because the native window is titled Modyfikator.
+            print("MODEL_DONE_REQUESTED=True")
+            print("TASK_COMPLETION_VERIFIED=False")
+            print("STOP: goal-specific business postconditions require independent verification.")
+            return 4
         if response["decision"] != "act" or response["confidence"] < .80:
             print("STOP: reasoner cannot yet choose a confident executable action.")
             return 4
@@ -169,6 +186,11 @@ def run_goal(loop, *, goal, reasoner, mode, max_actions, experience=(),
         if mode == "think":
             print("THINK_ONLY: nothing executed.")
             return 0
+        allowed, progress_reason = progress.allow_action(action.action, scene, stage=stage)
+        print("PROGRESS_ACTION_POLICY=" + progress_reason)
+        if not allowed:
+            print("STOP: identical action on unchanged screen would be a blind repeat.")
+            return 6
         try:
             execute_v2_step(loop, scene, action, approved_persistent=approved_persistent)
         except (ValueError, RuntimeError) as exc:
@@ -182,6 +204,7 @@ def run_goal(loop, *, goal, reasoner, mode, max_actions, experience=(),
             "to_stage": stage_of(after) or "unknown",
             "action_type": action.action.name,
             "verified": True,
+            "world_change_detected": progress.feedback(after, stage=stage_of(after))["observable_change"],
         })
     print("STOP: action budget exhausted; goal completion not assumed.")
     return 4
