@@ -130,6 +130,12 @@ def run_document_core(*, customer_name: str, fresh_document: bool,
                 print("HANDOFF_DECLINED=True")
                 return 6
             if resume.strip().casefold() in {"tak", "t"}:
+                # PowerShell became foreground while taking the answer.
+                # Restore WindowHub automatically before inspecting the dialog.
+                refocused, why = activate_windowhub_workflow_window()
+                print("HANDOFF_REFOCUS=" + why)
+                if not refocused:
+                    return 6
                 # Re-observe to defend against handoff-time UI changes.
                 final = inspect(loop)
                 if stage_of(final) != "document_properties" or not all(
