@@ -40,7 +40,7 @@ def compact_state(scene: Any, *, stage: str | None = None) -> tuple:
                 v = value if isinstance(value, bool) else None
             signals.append(v)
         items.append((e.kind, aid, tuple(signals)))
-    return (app, window, tuple(sorted(set(items)))[:150]))
+    return (app, window, tuple(sorted(set(items), key=repr)[:150])))
 
 
 def action_identity(action: Any) -> tuple[str, str, str]:
