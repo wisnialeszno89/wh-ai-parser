@@ -16,7 +16,7 @@ $secret = [Convert]::ToBase64String($bytes).TrimEnd('=').Replace('+','-').Replac
 $now = [DateTimeOffset]::UtcNow
 $expiry = $now.AddHours(2)
 
-$env:NAVIMIND_AGENT_V2_URL = 'https://navimind.app/api/agent/task'
+$env:NAVIMIND_AGENT_V2_URL = 'https://www.navimind.app/api/agent/task'
 $env:NAVIMIND_AGENT_V2_SECRET = $secret
 Set-Clipboard -Value $secret
 Remove-Variable secret -ErrorAction SilentlyContinue
