@@ -138,7 +138,7 @@ def append_unresolved_issues(ledger: TaskLedger, *, path=None) -> int:
     # Caller retains the ledger's single responsibility for deduplication.
     with file.open("a", encoding="utf-8") as stream:
         for row in rows:
-            stream.write(json.dumps(row, ensure_ascii=False) + "\\n")
+            stream.write(json.dumps(row, ensure_ascii=False) + "\n")
     return len(rows)
 
 
