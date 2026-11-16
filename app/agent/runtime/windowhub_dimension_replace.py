@@ -130,8 +130,14 @@ def replace_dimension_once(loop, *, field_name: str, desired: int) -> DimensionR
 
     # If Windows/DevExpress commit on focus-loss, first inspect, then make
     # a bounded focus move only if needed. Never call WRITE a second time.
-    after = loop.observe_scene()
-    actual = current_dimension(after, field_name)
-    if isinstance(actual, str) and actual.strip() == str(desired):
-        return DimensionReplaceResult("verified", "native_value_readback", existing, actual)
+    from time import sleep
+    actual = None
+    for readback_attempt in range(3):
+        if readback_attempt:
+            sleep(0.15)
+        after = loop.observe_scene()
+        actual = current_dimension(after, field_name)
+        if isinstance(actual, str) and actual.strip() == str(desired):
+            return DimensionReplaceResult("verified", "native_value_readback", existing, actual)
+    # Retried *reading* only, never sending input a second time.
     return DimensionReplaceResult("blocked", "post_write_readback_mismatch", existing, actual)
