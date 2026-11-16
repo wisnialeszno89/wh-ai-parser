@@ -137,14 +137,20 @@ def main(argv=None):
     if pos != 0:
         print("MISSION_RESULT=partial_dimensions_unverified")
         return pos
-    print("MISSION_RESULT=partial")
     print("DIMENSIONS_VERIFIED=True")
-    print("PENDING_COLOR_OUTSIDE=" + item.color_outside)
-    print("PENDING_COLOR_INSIDE=" + item.color_inside)
-    print("PENDING_GLAZING_PANES=" + str(item.glazing_panes))
-    print("PENDING_OPENING=agent catalog-aware selection")
+    from app.agent.runtime.windowhub_catalog_continuation import continue_to_construction
+    catalog = continue_to_construction(
+        loop,
+        width=args.width, height=args.height,
+        color_outside=item.color_outside,
+        color_inside=item.color_inside,
+        glazing_panes=item.glazing_panes,
+    )
+    print("CATALOG_CONTINUATION_CODE=" + str(catalog))
+    print("PENDING_OPENING_AND_SASH_BUILD=requires_verified_editor_controls")
     print("DRAFT_SAVED_VERIFIED=False")
-    return 0
+    print("MISSION_RESULT=" + ("partial_catalog_stage" if catalog == 0 else "partial_catalog_blocked"))
+    return catalog
 
 
 if __name__ == "__main__":
