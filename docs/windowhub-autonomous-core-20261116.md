@@ -200,3 +200,14 @@ Verified against connected infrastructure on 2026-11-16:
 Added tools/run_navimind_v2_think_secure.ps1: temporary local V2 endpoint setting, masked secret prompt, presence-only diagnostics and a single --mode think run. It restores environment variables and does not save secret to disk. Obtain the matching production NAVIMIND_AGENT_SECRET only through an authorized Vercel dashboard/session; never send it to chat or GitHub. No model call or live browser request has been executed by the GitHub editing connector.
 
 Acceptance: V2 test must report REASONER_DECISION, PROPOSED_ACTION, THINK_LOCAL_POLICY and THINK_ONLY. If HTTP 401/403 or non-JSON is returned, separately diagnose Vercel Deployment Protection and application auth without changing protections or disclosing credentials.
+
+
+## 2026-11-16: V2 auth fails 401 after masked credential entry
+
+New user result: masked-input local helper confirms V2_URL=format_valid and V2_SECRET=set, but calling the endpoint returns navimind_http_401 before a reasoning decision. WindowHub remains intact and its document/MDI scope is still confirmed. Do **not** treat secret presence as proof of matching server credentials.
+
+Inspected NaviMind route main: its authentication returns JSON {"error":"UNAUTHORIZED"} with HTTP 401 for a mismatched x-navimind-agent-secret. Vercel SSO/deployment protection may independently reject client requests with 401/403 and a HTML or other protection response.
+
+Added tools/probe_navimind_auth_layer.py: POST "{}" (intentionally invalid task contract) with the existing request's secret header. When app auth succeeds it expects 400 {"error":"INVALID_AGENT_TASK"} (or INVALID_AGENT_TASK_V2). With auth failure, it prints an allowlisted *category only*: "navimind_secret_rejected" for known app JSON, "vercel_or_upstream_protection" for HTML, or "unknown_auth_layer" otherwise. Never logs headers, secret, URL or body. Does not invoke model or WindowHub. tools/run_navimind_v2_think_secure.ps1 invokes this before THINK and stops on failure. Tests: tests/test_navimind_auth_layer_probe.py.
+
+Resolution: if navimind_secret_rejected, operator must use matching production NAVIMIND_AGENT_SECRET or rotate in Vercel and local input. If vercel_or_upstream_protection, diagnose using the authorized Vercel CLI (vercel curl) or trusted-source controls; avoid disabling deployment protection. Never leak secrets in chat or git. No server env values were decrypted or mutated.
