@@ -208,20 +208,48 @@ def run_goal(loop, *, goal, reasoner, mode, max_actions, experience=(),
         actions = prepared.request_payload["capabilities"]["actions"]
         print(f"CYCLE={revision+1} STAGE={stage} ACTION_CAPABILITIES={len(actions)}")
         if mode == "inspect":
-            from app.agent.runtime.goal_affordance_ranking import relevance_score
-            entity_labels = {
-                item.get("ref"): str(item.get("label") or "")
-                for item in prepared.request_payload["world"]["entities"]
-            }
-            ranked_hits = [
-                (item, relevance_score(
-                    goal, label=entity_labels.get(item.get("target_ref"), "")
-                ))
-                for item in actions
-                if item.get("target_ref") is not None
-            ]
-            positive = sum(score > 0 for _, score in ranked_hits)
+            from app.agent.runtime.goal_affordance_ranking import affordance_relevance
+            from app.agent.runtime.active_panel_context import observe_panel_context
+            ranked_hits = []
+            for item in actions:
+                if item.get("target_ref") is None:
+                    continue
+                # The capability's target ref is deliberately opaque. Inspect
+                # diagnostic relevance against the *same local* reference map.
+                target = item["target_ref"]
+                try:
+                    element = prepared.snapshot.reference_map.resolve(
+                        target, task_id=task_id, world_revision=revision + 1
+                    )
+                except (ValueError, KeyError):
+                    continue
+                ranking = affordance_relevance(
+                    {
+                        "entity_ref": target,
+                        "description": item.get("description", ""),
+                    },
+                    goal=goal,
+                    reference_map=prepared.snapshot.reference_map,
+                    task_id=task_id,
+                    world_revision=revision + 1,
+                    panel_context=observe_panel_context(scene),
+                )
+                ranked_hits.append((item, ranking))
+            positive = sum(rank["direct"] > 0 for _, rank in ranked_hits)
             print("GOAL_RELEVANT_ACTIONS=" + str(positive))
+            print("GOAL_CONTEXTUAL_ACTIONS=" + str(sum(
+                rank["context"] > 0 for _, rank in ranked_hits
+            )))
+            for entry, rank in sorted(
+                ranked_hits, key=lambda pair: -pair[1]["score"]
+            )[:5]:
+                print(
+                    "GOAL_CANDIDATE="
+                    + str(rank["label"])[:80]
+                    + " DIRECT=" + str(rank["direct"])
+                    + " PANEL=" + str(rank["context"])
+                    + " TOTAL=" + str(rank["score"])
+                )
             if positive == 0:
                 print("GOAL_CONTEXT=NO_DIRECT_SEMANTIC_MATCH_INSPECT_NAVIGATION_BEFORE_ACTION")
             else:
