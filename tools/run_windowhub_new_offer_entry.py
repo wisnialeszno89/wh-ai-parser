@@ -20,7 +20,10 @@ from app.agent.offers.windowhub_new_offer_action import prepare_new_offer_from_w
 from app.agent.offers.windowhub_offer_form_action import (
     WindowHubFormActionStatus, WindowHubOfferFormActionExecutor,
 )
-from app.agent.runtime.windowhub_window_activation import activate_windowhub_workflow_window
+from app.agent.runtime.windowhub_window_activation import (
+    activate_windowhub_workflow_window,
+    activate_windowhub_start_workspace,
+)
 
 
 def parse_args(argv=None):
@@ -56,11 +59,32 @@ def main(argv=None):
         print("OFFER_ENTRY=DOCUMENT_PROPERTIES_ALREADY_OPEN")
         print("NO_ACTION: Existing document properties need verified ownership and customer.")
         return 0
-    if stage not in {"start", "offer_document"}:
+    if stage == "offer_document":
+        # The New Offer tile may be present in the UIA tree but lie behind
+        # the open offer. Never click through an occluded document. Focus
+        # the real Start1 window and re-observe before preparing an action.
+        if not args.execute_live:
+            print("ENTRY_ROUTE=SWITCH_TO_START1_FIRST")
+            print("INSPECT_ONLY: No click on background New Offer tile.")
+            return 0
+        focused_start, start_reason = activate_windowhub_start_workspace()
+        print("START1_ACTIVATION=" + start_reason)
+        if not focused_start:
+            print("STOP: Could not safely activate Start1; no click attempted.")
+            return 3
+        scene = loop.observe_scene()
+        stage = stage_of(scene)
+        print("START1_READBACK_STAGE=" + str(stage))
+        if stage != "start":
+            print("STOP: Start1 stage not verified after activation.")
+            return 4
+
+    if stage != "start":
         print("STOP: Existing wizard or unknown stage; do not discard progress.")
         return 4
 
-    prepared = prepare_new_offer_from_workspace(scene)
+    from app.agent.offers.windowhub_new_offer_action import prepare_new_offer_from_start
+    prepared = prepare_new_offer_from_start(scene)
     print("NEW_OFFER_PREPARATION=" + prepared.status.value)
     print("NEW_OFFER_REASON=" + prepared.reason)
     if prepared.status is not WindowHubFormActionStatus.READY:
