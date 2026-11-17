@@ -14,6 +14,7 @@ import re
 # A parsed number is not proof of ownership; native MDI hierarchy and exact
 # selected-tab caption must still agree before enabling any action.
 _OFFER_CAPTION = re.compile(r"^OFR/\d+(?:-\d+)*-?(?:\s*<>)?$", re.IGNORECASE)
+_ORDER_CAPTION = re.compile(r"^ZLC/\d+(?:-\d+)*-?(?:\s*<>)?$", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -235,8 +236,42 @@ def _document_from_native_chain(wrapper) -> str | None:
     return None
 
 
+def _scoped_owner_from_native_chain(wrapper) -> str | None:
+    """Prove an offer OR order owner through a native MDI child window.
+
+    This returns a document caption for structural scoping only. It never
+    grants edit permission, especially to any ZLC document.
+    """
+    current = wrapper
+    for _ in range(16):
+        try:
+            parent = current.parent()
+            if parent is None:
+                return None
+            info = parent.element_info
+            role = str(getattr(info, "control_type", "") or "").casefold()
+            title = str(getattr(info, "name", "") or "").strip()
+            native = int(getattr(info, "handle", 0) or 0)
+            if role == "window" and native > 0:
+                host = parent.parent()
+                if host is not None:
+                    host_info = host.element_info
+                    if (
+                        str(getattr(host_info, "class_name", "") or "").casefold() == "mdiclient"
+                        and int(getattr(host_info, "handle", 0) or 0) > 0
+                    ):
+                        if _OFFER_CAPTION.fullmatch(title) or _ORDER_CAPTION.fullmatch(title):
+                            return title
+                        # An unidentified MDI child is not a known owner.
+                        return None
+            current = parent
+        except (AttributeError, ValueError, TypeError, OSError):
+            return None
+    return None
+
+
 def enrich_native_mdi_document_scope(scene, *, desktop=None):
-    """Attach verified owner to duplicate toolbar controls only if all scoped.
+    """Attach verified OFR/ZLC owners to duplicate toolbar controls only if all scoped.
 
     Read-only. Unknown/duplicate/cross-document evidence never authorizes
     a candidate. Re-run on every observation rather than caching a position.
@@ -289,7 +324,7 @@ def enrich_native_mdi_document_scope(scene, *, desktop=None):
             wrappers = mapping.get(rid, [])
             if len(wrappers) != 1:
                 return scene
-            owner = _document_from_native_chain(wrappers[0])
+            owner = _scoped_owner_from_native_chain(wrappers[0])
             if not owner:
                 return scene
             scoped[id(element)] = owner
