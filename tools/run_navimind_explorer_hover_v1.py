@@ -96,7 +96,7 @@ def window_origin(scene) -> tuple[int, int]:
     return int(rect.left), int(rect.top)
 
 
-def explore(*, expected_process: str, limit: int, hover_seconds: float, output: Path) -> int:
+def explore(*, expected_process: str, limit: int, hover_seconds: float, output: Path, start_delay: int = 6) -> int:
     if os.name != "nt":
         print("EXPLORER_STOP=windows_required")
         return 2
@@ -106,7 +106,7 @@ def explore(*, expected_process: str, limit: int, hover_seconds: float, output: 
     if not 1 <= limit <= 30 or not .3 <= hover_seconds <= 3:
         print("EXPLORER_STOP=invalid_limits")
         return 2
-    hwnd, process = current_foreground()
+    if not 0 <= start_delay <= 20:\n        print("EXPLORER_STOP=invalid_start_delay")\n        return 2\n    print("EXPLORER_PREPARE=Switch focus to the target application now", flush=True)\n    time.sleep(start_delay)\n    hwnd, process = current_foreground()
     if process != expected_process.casefold():
         print("EXPLORER_STOP=foreground_process_mismatch ACTUAL=" + process)
         return 4
@@ -192,11 +192,11 @@ def main():
     parser = argparse.ArgumentParser(description="Application-neutral hover-only UI explorer")
     parser.add_argument("--process", required=True, help="Expected foreground process, e.g. Okna.exe")
     parser.add_argument("--limit", type=int, default=10)
-    parser.add_argument("--hover-seconds", type=float, default=0.9)
+    parser.add_argument("--hover-seconds", type=float, default=0.9)\n    parser.add_argument("--start-delay", type=int, default=6)
     parser.add_argument("--output", type=Path, default=Path("explorer_hover_results.json"))
     args = parser.parse_args()
     return explore(expected_process=args.process, limit=args.limit,
-                   hover_seconds=args.hover_seconds, output=args.output)
+                   hover_seconds=args.hover_seconds, output=args.output,\n                   start_delay=args.start_delay)
 
 
 if __name__ == "__main__":
