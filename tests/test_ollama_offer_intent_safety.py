@@ -112,3 +112,29 @@ def test_unique_verified_add_is_explicit_first_step_before_dimensions():
     assert "FIRST" not in view["current_step"]
     assert "after the dimensions wizard" in view["current_step"]
     assert "Dodaj" in view["current_step"]
+
+
+def test_one_step_live_execution_flags_are_explicit_and_opt_in():
+    from tools.run_windowhub_goal_v2 import parse_args
+    base = parse_args(["--reasoner", "local-ollama", "--mode", "execute",
+                       "--execute-live", "--max-actions", "1",
+                       "--require-stage", "offer_document", "--goal", "Dodaj"])
+    assert base.allow_local_offer_add_once is False
+    approved = parse_args(["--reasoner", "local-ollama", "--mode", "execute",
+                           "--execute-live", "--max-actions", "1",
+                           "--require-stage", "offer_document",
+                           "--allow-local-offer-add-once",
+                           "--expected-offer", "OFR/4488-4300 <>",
+                           "--goal", "Dodaj"])
+    assert approved.allow_local_offer_add_once is True
+    assert approved.expected_offer == "OFR/4488-4300 <>"
+
+
+def test_offer_step_model_view_does_not_grant_other_or_order_actions():
+    from copy import deepcopy
+    request = request_for_offer()
+    request["metadata"]["verified_windowhub_stage"] = "order_document"
+    assert compact_local_model_view(request)["actions"] == []
+    other = deepcopy(request)
+    other["metadata"]["verified_windowhub_stage"] = "offer_document"
+    assert compact_local_model_view(other)["actions"] == []
