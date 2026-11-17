@@ -109,6 +109,7 @@ def activate_windowhub_wizard(*, wait_seconds: float = 2.0, include_workspace: b
                 title in {"Właściwości dokumentu", "Zakładanie nowego klienta"}
                 or title.startswith("Okna - Start1")
                 or title.startswith("Okna - OFR/")
+                or title.startswith("Okna - ZLC/")
             )
             if not is_wizard and not (include_workspace and is_workflow):
                 return True
@@ -149,6 +150,7 @@ def activate_windowhub_wizard(*, wait_seconds: float = 2.0, include_workspace: b
                 documents = [
                     item for item in candidates
                     if item[1].startswith("Okna - OFR/")
+                    or item[1].startswith("Okna - ZLC/")
                 ]
                 start = [
                     item for item in candidates
