@@ -616,6 +616,7 @@ def main(argv=None):
             print("MDI_PROBE_BUTTON_" + str(index) + "_UIA_MATCH=" + str(item["uia_match_count"]))
             print("MDI_PROBE_BUTTON_" + str(index) + "_NATIVE_PARENTS=" + str(item["native_ancestor_windows"]))
             print("MDI_PROBE_BUTTON_" + str(index) + "_MDI_CAPTION_MATCH=" + str(item["mdi_title_match_count"]))
+            print("MDI_PROBE_BUTTON_" + str(index) + "_MDI_CHILD_CATEGORY=" + str(item["mdi_child_classification"]))
             print("MDI_PROBE_BUTTON_" + str(index) + "_STRUCTURE=" + repr(item["structural_chain"][:8]))
         print("MDI_PROBE_ACTIONS_EXECUTED=False")
         return 0
