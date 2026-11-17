@@ -29,7 +29,7 @@ def parse_args(argv=None):
     parser.add_argument("--mode", choices=("inspect", "think", "execute"), default="inspect")
     parser.add_argument("--reasoner", choices=("navimind", "local-ollama"), default="navimind",
                         help="Choose existing NaviMind endpoint or local Ollama without Vercel")
-    parser.add_argument("--require-stage", choices=("start", "offer_document", "position", "dimensions", "basic_parameters", "glazing", "hardware"), help="Fail closed when observed WindowHub stage is not the required stage")
+    parser.add_argument("--require-stage", choices=("start", "offer_document", "order_document", "position", "dimensions", "basic_parameters", "glazing", "hardware"), help="Fail closed when observed WindowHub stage is not the required stage")
     parser.add_argument("--probe-mdi", action="store_true",
                         help="Read-only native UIA ancestry of duplicate per-offer toolbar controls")
     parser.add_argument("--reuse-shared-navimind-endpoint", action="store_true", help="Use existing V1 connection for V2 only AFTER NaviMind PR #26 is deployed")
@@ -150,6 +150,11 @@ def run_goal(loop, *, goal, reasoner, mode, max_actions, experience=(),
         stage = stage_of(scene)
         if stage is None:
             print("STOP: WindowHub must be the foreground application.")
+            return 4
+        if stage == "order_document" and mode != "inspect":
+            print("STOP: ZLC document recognized, but its action semantics are not verified.")
+            print("AI_REQUEST_SENT=False")
+            print("INPUT_EXECUTED=False")
             return 4
         if require_stage is not None and stage != require_stage:
             print("STOP: required stage " + require_stage + ", actual stage " + str(stage))
