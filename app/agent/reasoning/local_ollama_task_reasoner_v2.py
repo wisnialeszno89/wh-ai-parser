@@ -168,8 +168,22 @@ class LocalOllamaTaskReasonerV2:
         print("LOCAL_AI_VIEW_BYTES=" + str(len(json.dumps(compact, ensure_ascii=False).encode("utf-8"))), flush=True)
         print("LOCAL_AI_ACTION_CANDIDATES=" + str(len(compact["actions"])), flush=True)
         if not compact["actions"]:
-            self.last_error = "local_ai_no_verified_action_candidate"
-            return None
+            # No valid proposal is better than a guessed business action.
+            # Return a V2-valid decision without wasting a local-model call.
+            decision = {
+                "version": "2",
+                "task_id": request["task_id"],
+                "decision": "manual_review",
+                "rationale": "No action verified for the current WindowHub document and goal.",
+                "confidence": 1.0,
+                "observation_request": None,
+                "action": None,
+                "completion": None,
+                "requires_manual_review": True,
+            }
+            validate_agent_task_v2_response(decision, request)
+            print("LOCAL_AI_SAFE_FALLBACK=no_verified_action_no_model_call", flush=True)
+            return decision
 
         http_request = Request(
             self.url, data=body,
