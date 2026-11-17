@@ -110,6 +110,8 @@ def enforce_v2_live_policy(scene, resolved, *, approved_persistent=False) -> Non
     if action.requires_confirmation and not approved_persistent:
         raise ValueError("v2_persistent_action_needs_operator_approval")
     title = (state.active_window_title or "").strip().casefold()
+    if title.startswith("okna - zlc/"):
+        raise ValueError("v2_order_document_read_only")
     label = getattr(action.target, "label", None)
     if (
         action.name == "click_screen_element"
