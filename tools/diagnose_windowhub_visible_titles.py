@@ -1,7 +1,7 @@
-"""Read-only list of WindowHub top-level titles for local diagnostics.
+"""Read-only Win32 window-title diagnosis for Okna.exe, no third-party packages.
 
-No focus transfer, no clicks, no screenshots, no model calls.
-Titles can include client or offer data: inspect console output before sharing.
+No focus change, clicks, screenshots, model calls or document mutation.
+Window titles can contain customer data: redact before sharing.
 """
 from __future__ import annotations
 import ctypes
@@ -9,56 +9,110 @@ import os
 from ctypes import wintypes
 
 
-def run():
+def run() -> int:
     if os.name != "nt":
         print("STOP=windows_required")
         return 2
     try:
-        import psutil
-        from app.agent.runtime.windowhub_discovery_diagnostics import categorize_window_title
-        pids = {
-            p.info["pid"] for p in psutil.process_iter(["pid", "name"])
-            if (p.info.get("name") or "").casefold() == "okna.exe"
-        }
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        user32 = ctypes.WinDLL("user32", use_last_error=True)
+        TH32CS_SNAPPROCESS = 0x00000002
+        INVALID_HANDLE_VALUE = ctypes.c_void_p(-1).value
+
+        class PROCESSENTRY32W(ctypes.Structure):
+            _fields_ = [
+                ("dwSize", wintypes.DWORD),
+                ("cntUsage", wintypes.DWORD),
+                ("th32ProcessID", wintypes.DWORD),
+                ("th32DefaultHeapID", ctypes.POINTER(ctypes.c_ulong)),
+                ("th32ModuleID", wintypes.DWORD),
+                ("cntThreads", wintypes.DWORD),
+                ("th32ParentProcessID", wintypes.DWORD),
+                ("pcPriClassBase", ctypes.c_long),
+                ("dwFlags", wintypes.DWORD),
+                ("szExeFile", wintypes.WCHAR * 260),
+            ]
+
+        kernel32.CreateToolhelp32Snapshot.argtypes = [wintypes.DWORD, wintypes.DWORD]
+        kernel32.CreateToolhelp32Snapshot.restype = wintypes.HANDLE
+        kernel32.Process32FirstW.argtypes = [wintypes.HANDLE, ctypes.POINTER(PROCESSENTRY32W)]
+        kernel32.Process32FirstW.restype = wintypes.BOOL
+        kernel32.Process32NextW.argtypes = [wintypes.HANDLE, ctypes.POINTER(PROCESSENTRY32W)]
+        kernel32.Process32NextW.restype = wintypes.BOOL
+        kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+        kernel32.CloseHandle.restype = wintypes.BOOL
+
+        snapshot = kernel32.CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0)
+        if snapshot in (None, 0, INVALID_HANDLE_VALUE):
+            print("STOP=process_snapshot_failed")
+            return 4
+        pids = set()
+        try:
+            item = PROCESSENTRY32W()
+            item.dwSize = ctypes.sizeof(item)
+            found = kernel32.Process32FirstW(snapshot, ctypes.byref(item))
+            while found:
+                if item.szExeFile.casefold() == "okna.exe":
+                    pids.add(int(item.th32ProcessID))
+                found = kernel32.Process32NextW(snapshot, ctypes.byref(item))
+        finally:
+            kernel32.CloseHandle(snapshot)
+
         print("WINDOWHUB_PROCESS_COUNT=" + str(len(pids)))
-        u = ctypes.WinDLL("user32", use_last_error=True)
-        u.IsWindowVisible.argtypes = [wintypes.HWND]
-        u.IsWindowVisible.restype = wintypes.BOOL
-        u.IsIconic.argtypes = [wintypes.HWND]
-        u.IsIconic.restype = wintypes.BOOL
-        u.GetWindowTextLengthW.argtypes = [wintypes.HWND]
-        u.GetWindowTextLengthW.restype = ctypes.c_int
-        u.GetWindowTextW.argtypes = [wintypes.HWND, wintypes.LPWSTR, ctypes.c_int]
-        u.GetWindowThreadProcessId.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.DWORD)]
-        u.GetWindowThreadProcessId.restype = wintypes.DWORD
+        callback_type = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+        user32.EnumWindows.argtypes = [callback_type, wintypes.LPARAM]
+        user32.EnumWindows.restype = wintypes.BOOL
+        user32.IsWindowVisible.argtypes = [wintypes.HWND]
+        user32.IsWindowVisible.restype = wintypes.BOOL
+        user32.IsIconic.argtypes = [wintypes.HWND]
+        user32.IsIconic.restype = wintypes.BOOL
+        user32.GetWindowTextLengthW.argtypes = [wintypes.HWND]
+        user32.GetWindowTextLengthW.restype = ctypes.c_int
+        user32.GetWindowTextW.argtypes = [wintypes.HWND, wintypes.LPWSTR, ctypes.c_int]
+        user32.GetWindowThreadProcessId.argtypes = [
+            wintypes.HWND, ctypes.POINTER(wintypes.DWORD)
+        ]
+        user32.GetWindowThreadProcessId.restype = wintypes.DWORD
+
         rows = []
-        def callback(hwnd, unused):
+        def inspect(hwnd, ignored):
             pid = wintypes.DWORD()
-            u.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
-            if pid.value not in pids or not u.IsWindowVisible(hwnd):
+            user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+            if int(pid.value) not in pids or not user32.IsWindowVisible(hwnd):
                 return True
-            length = u.GetWindowTextLengthW(hwnd)
+            length = user32.GetWindowTextLengthW(hwnd)
             if length <= 0:
                 return True
-            buf = ctypes.create_unicode_buffer(length + 1)
-            u.GetWindowTextW(hwnd, buf, length + 1)
-            title = buf.value.strip()
+            title_buffer = ctypes.create_unicode_buffer(length + 1)
+            user32.GetWindowTextW(hwnd, title_buffer, length + 1)
+            title = title_buffer.value.strip()
             if title:
-                rows.append((title, bool(u.IsIconic(hwnd))))
+                rows.append((title, bool(user32.IsIconic(hwnd))))
             return True
-        cbtype = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
-        cb = cbtype(callback)
-        u.EnumWindows.argtypes = [cbtype, wintypes.LPARAM]
-        u.EnumWindows.restype = wintypes.BOOL
-        u.EnumWindows(cb, 0)
+
+        callback = callback_type(inspect)
+        user32.EnumWindows(callback, 0)
         print("WINDOWHUB_VISIBLE_TITLED_COUNT=" + str(len(rows)))
-        for index, (title, minimized) in enumerate(rows, start=1):
-            print("WINDOW_" + str(index) + "_CATEGORY=" + categorize_window_title(title))
-            print("WINDOW_" + str(index) + "_MINIMIZED=" + str(minimized))
-            print("WINDOW_" + str(index) + "_TITLE=" + repr(title[:200]))
+        # Local diagnosis only; never logged to a remote model.
+        for index, (title, minimized) in enumerate(rows, 1):
+            normalized = title.casefold()
+            category = (
+                "wizard" if normalized in {
+                    "dodawanie nowej pozycji", "wielkość okna",
+                    "podstawowe parametry okna", "parametry szklenia",
+                    "parametry parapetu", "parametry okuć",
+                } else "dialog" if normalized in {
+                    "właściwości dokumentu", "zakładanie nowego klienta"
+                } else "start" if normalized.startswith("okna - start1")
+                else "document" if normalized.startswith("okna - ofr/")
+                else "unrecognized"
+            )
+            print(f"WINDOW_{index}_CATEGORY={category}")
+            print(f"WINDOW_{index}_MINIMIZED={minimized}")
+            print(f"WINDOW_{index}_TITLE={title[:200]!r}")
         print("WINDOWHUB_ACTIONS_EXECUTED=False")
         print("WINDOWHUB_AI_CALLS=0")
-        print("PRIVACY=Titles can include business data; redact before sharing.")
+        print("PRIVACY=Redact business details from titles before sharing.")
         return 0
     except Exception as exc:
         print("STOP=diagnostics_unavailable_" + type(exc).__name__)
