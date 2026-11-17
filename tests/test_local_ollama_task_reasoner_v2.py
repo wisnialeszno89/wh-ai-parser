@@ -68,7 +68,7 @@ def test_provider_connection_failure_is_safe():
 
 def test_provider_invalid_decision_fails_closed():
     def opener(*args, **kwargs):
-        return FakeResponse(b'{"message":{"content":"{\"decision\":\"act\"}"}}')
+        return FakeResponse(json.dumps({"message": {"content": json.dumps({"decision": "act"})}}).encode())
     engine = LocalOllamaTaskReasonerV2(model="test-model", opener=opener)
     assert engine.reason(prepared_request()) is None
     assert engine.last_error == "local_ai_invalid_v2_decision"
