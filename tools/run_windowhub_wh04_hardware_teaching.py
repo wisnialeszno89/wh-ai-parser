@@ -10,8 +10,14 @@ import argparse
 import json
 import os
 from pathlib import Path
+import sys
 import tempfile
 import time
+
+# Support both 'python tools/script.py' and 'python -m tools.script'.
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 from tools.run_windowhub_wh03_construction_inspector import (
     observe, screenshot_foreground, snapshot_controls,
