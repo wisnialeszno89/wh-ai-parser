@@ -66,6 +66,8 @@ def stage_of(scene: ScreenScene) -> str | None:
     title = (state.active_window_title or "").strip().casefold()
     if title.startswith("okna - ofr/"):
         return "offer_document"
+    if title.startswith("okna - zlc/"):
+        return "order_document"
     return KNOWN_STAGES.get(title, "windowhub_unmapped")
 
 
