@@ -27,6 +27,8 @@ def parse_args(argv=None):
     parser.add_argument("--goal", help="Free-form Polish or German instruction")
     parser.add_argument("--task-file", type=Path, help="Client request (.txt/.md/.pdf)")
     parser.add_argument("--mode", choices=("inspect", "think", "execute"), default="inspect")
+    parser.add_argument("--reasoner", choices=("navimind", "local-ollama"), default="navimind",
+                        help="Choose existing NaviMind endpoint or local Ollama without Vercel")
     parser.add_argument("--probe-mdi", action="store_true",
                         help="Read-only native UIA ancestry of duplicate per-offer toolbar controls")
     parser.add_argument("--reuse-shared-navimind-endpoint", action="store_true", help="Use existing V1 connection for V2 only AFTER NaviMind PR #26 is deployed")
@@ -496,12 +498,18 @@ def main(argv=None):
             return 3
     try:
         experience = read_demonstration_experience(args.demo) if args.demo else ()
-        reasoner = (
-            NaviMindTaskReasonerV2(
-                config=shared_endpoint_v2_config(),
-            ) if args.reuse_shared_navimind_endpoint
-            else NaviMindTaskReasonerV2()
-        ) if args.mode != "inspect" else None
+        if args.mode == "inspect":
+            reasoner = None
+        elif args.reasoner == "local-ollama":
+            from app.agent.reasoning.local_ollama_task_reasoner_v2 import LocalOllamaTaskReasonerV2
+            reasoner = LocalOllamaTaskReasonerV2()
+        else:
+            reasoner = (
+                NaviMindTaskReasonerV2(
+                    config=shared_endpoint_v2_config(),
+                ) if args.reuse_shared_navimind_endpoint
+                else NaviMindTaskReasonerV2()
+            )
     except (RuntimeError, ValueError, OSError) as exc:
         print("STOP: NaviMind V2 configuration or demo error: " + str(exc))
         if args.mode != "inspect":
@@ -529,6 +537,12 @@ def main(argv=None):
             print("ACTION=Configure NAVIMIND_AGENT_V2_URL and matching NAVIMIND_AGENT_V2_SECRET locally; never commit secrets.")
             print("SECURITY=Do not paste secrets or production customer payloads into logs.")
         return 5
+    if args.reasoner == "local-ollama" and args.reuse_shared_navimind_endpoint:
+        print("STOP: cannot combine local Ollama with shared NaviMind endpoint.")
+        return 2
+    if args.reasoner == "local-ollama" and args.mode == "execute":
+        print("STOP: local Ollama provider is in THINK-only evaluation mode; no live GUI actions.")
+        return 2
     if args.reuse_shared_navimind_endpoint and args.mode != "inspect":
         print("NAVIMIND_ENDPOINT=shared /api/agent/task (V2 payload)")
         print("REQUIREMENT=Target server must support protocol version 2; check server deployment independently.")
@@ -541,7 +555,12 @@ def main(argv=None):
         print("DEMO_EXPERIENCE_ITEMS=" + str(len(experience)))
         print("DEMO_MODIFIER_VERIFIED=" + str(report["modifier_observed"]))
     if args.mode != "inspect":
-        print("NOTICE: goal and semantic scene are transmitted to configured NaviMind.")
+        if args.reasoner == "local-ollama":
+            print("REASONER=LOCAL_OLLAMA_LOOPBACK")
+            print("NOTICE: semantic goal and scene are sent only to localhost Ollama; no Vercel.")
+            print("THINK_ONLY: this integration does not execute local AI decisions.")
+        else:
+            print("NOTICE: goal and semantic scene are transmitted to configured NaviMind.")
     if args.probe_mdi:
         from app.agent.runtime.windows_desktop_agent_control_loop import (
             create_windows_desktop_agent_control_loop,
