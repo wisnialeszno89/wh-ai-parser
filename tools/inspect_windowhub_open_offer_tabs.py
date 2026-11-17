@@ -108,8 +108,7 @@ def inventory_native_mdi_children():
                 return True
             parent = u.GetParent(hwnd)
             parent_cls = cls(parent) if parent else ""
-            child_cls = cls(hwnd)
-            if parent_cls == "mdiclient" and child_cls in {"window", "windowsforms10.window"}:
+            if parent_cls == "mdiclient":
                 records[(kind, name.casefold())] = (kind, name)
             return True
         child_cb = cbtype(each_child)
