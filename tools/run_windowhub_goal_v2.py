@@ -417,7 +417,10 @@ def run_goal(loop, *, goal, reasoner, mode, max_actions, experience=(),
             # input in the blocked cycle.
             continue
         try:
-            execute_v2_step(loop, scene, action, approved_persistent=approved_persistent)
+            execute_v2_step(
+                loop, scene, action, approved_persistent=approved_persistent,
+                expected_offer=expected_offer if local_offer_add_once else None,
+            )
         except (ValueError, RuntimeError) as exc:
             print("ACTION_OUTCOME=blocked_or_unverified")
             feedback.append({
