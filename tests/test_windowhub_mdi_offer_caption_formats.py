@@ -5,7 +5,7 @@ No GUI dependency: fake wrappers prove MDI ancestry, no arbitrary window titles.
 from types import SimpleNamespace
 
 from app.agent.runtime.windowhub_mdi_native_probe import (
-    _document_from_native_chain, classify_native_candidates,
+    _document_from_native_chain, _mdi_document_classification, classify_native_candidates,
 )
 
 
@@ -58,3 +58,24 @@ def test_only_one_exact_selected_caption_is_distinct():
         "matching_mdi_ancestor", "other_mdi_ancestor",
     )
     assert report.status == "candidate_for_structural_validation"
+
+
+def test_diagnostics_distinguish_active_other_order_and_unclassified():
+    active = button_chain("OFR/4488-4300 <>")
+    other = button_chain("OFR/4687-")
+    order = button_chain("ZLC/1312-")
+    unknown = button_chain("Untitled")
+    for widget, expected in (
+        (active, "active_offer"),
+        (other, "other_offer"),
+        (order, "order_read_only"),
+        (unknown, "unrecognized_mdi_child"),
+    ):
+        assert _mdi_document_classification(widget, "OFR/4488-4300 <>") == expected
+
+
+def test_no_proven_mdi_parent_stays_unclassified():
+    assert _mdi_document_classification(
+        button_chain("OFR/4488-4300 <>", host_class="Other"),
+        "OFR/4488-4300 <>",
+    ) == "no_proven_mdi_child"
