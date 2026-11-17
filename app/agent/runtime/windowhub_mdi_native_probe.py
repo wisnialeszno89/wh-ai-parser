@@ -8,6 +8,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from collections import Counter
+import re
+
+# Observed WH captions include OFR/4687- and OFR/4488-4300 <>.
+# A parsed number is not proof of ownership; native MDI hierarchy and exact
+# selected-tab caption must still agree before enabling any action.
+_OFFER_CAPTION = re.compile(r"^OFR/\\d+(?:-\\d+)*-?(?:\\s*<>)?$", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -31,7 +37,6 @@ def native_title_matches(selected_name: str, title: str) -> bool:
 
 def classify_native_candidates(*, selected_document: str | None,
                                candidate_ancestor_titles: tuple[tuple[str, ...], ...]) -> MdiProbe:
-    import re
     matched = []
     scope_status = []
     unknown = 0
@@ -41,7 +46,7 @@ def classify_native_candidates(*, selected_document: str | None,
         distinct_doc_names = {
             title.strip().casefold() for title in titles
             if isinstance(title, str)
-            and re.fullmatch(r"ofr/\d+-", title.strip().casefold())
+            and _OFFER_CAPTION.fullmatch(title.strip())
         }
         if matching == 1 and len(distinct_doc_names) == 1:
             scope_status.append("matching_mdi_ancestor")
@@ -169,7 +174,6 @@ def inspect_native_mdi_button_ancestry(scene, *, desktop=None, limit=8) -> dict:
 
 def _document_from_native_chain(wrapper) -> str | None:
     """Recognize WindowHub document child Window -> MDIClient structure."""
-    import re
     current = wrapper
     for _ in range(16):
         try:
@@ -181,7 +185,7 @@ def _document_from_native_chain(wrapper) -> str | None:
             title = str(getattr(info, "name", "") or "").strip()
             native = int(getattr(info, "handle", 0) or 0)
             if (role == "window" and native > 0
-                    and re.fullmatch(r"OFR/\d+-", title, flags=re.IGNORECASE)):
+                    and _OFFER_CAPTION.fullmatch(title)):
                 host = parent.parent()
                 host_info = host.element_info
                 if (str(getattr(host_info, "class_name", "") or "").casefold()
