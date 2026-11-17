@@ -60,8 +60,42 @@ def test_unknown_projected_stage_cannot_offer_random_clicks():
 
 def test_unique_verified_add_is_explicit_first_step_before_dimensions():
     from app.agent.runtime.computer_use_v2_action_session import ComputerUseV2ActionSession
+    from dataclasses import replace
+    from app.agent.perception.screen_element import ScreenElement
+    from app.agent.perception.interaction_capability import InteractionCapability
+
+    # An OFR Add capability is deliberately absent unless the scene also
+    # proves exactly one selected document tab and the button's MDI owner.
+    # Test the real security prerequisite instead of mocking an unsafe click.
+    active_offer = "OFR/4488-4300 <>"
+    original = synthetic_scene("Okna - " + active_offer, label="Dodaj")
+    add_button = replace(
+        original.elements[0],
+        metadata={
+            **original.elements[0].metadata,
+            "document_scope": active_offer,
+            "document_scope_source": "verified_native_mdi_child",
+        },
+    )
+    tab = ScreenElement(
+        kind="tabitem", label=active_offer,
+        x=200, y=20, width=140, height=30,
+        confidence=0.99,
+        interaction_capability=InteractionCapability.CLICKABLE,
+        metadata={
+            "source": "windows_ui_automation",
+            "uia_control_type": "tabitem",
+            "uia_visible": True,
+            "uia_enabled": True,
+            "uia_selected": True,
+            "uia_tab_scope": "document",
+            "uia_runtime_id": "[synthetic-active-offer-tab]",
+            "automation_id": "synthetic_tab",
+        },
+    )
+    scene = replace(original, elements=(add_button, tab))
     request = ComputerUseV2ActionSession().prepare_cycle(
-        synthetic_scene("Okna - OFR/4488-4300 <>", label="Dodaj"),
+        scene,
         task_id="offer-step-order", goal="Dodaj okno 1500x1400",
         world_revision=1, observed_at="2026-11-17T09:00:00Z",
     ).request_payload
