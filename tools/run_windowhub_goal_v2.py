@@ -233,6 +233,11 @@ def run_goal(loop, *, goal, reasoner, mode, max_actions, experience=(),
             observed_at=datetime.now(timezone.utc).isoformat(),
         )
         actions = prepared.request_payload["capabilities"]["actions"]
+        # Authoritative stage from locally observed Okna.exe foreground.
+        # V2 world title may be redacted or normalized for privacy, and is
+        # never a reliable substitute for the local stage classifier.
+        if reasoner is not None:
+            prepared.request_payload["metadata"]["verified_windowhub_stage"] = stage
         if stage == "offer_document" and reasoner is not None:
             from app.agent.runtime.active_document_scope import unique_active_document_control
             scoped_add = unique_active_document_control(scene, label="Dodaj")
