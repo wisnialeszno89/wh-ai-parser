@@ -51,11 +51,11 @@ def check(model: str, timeout: int) -> int:
         obj = json.loads(content)
         print("OLLAMA_JSON=" + ("PASS" if isinstance(obj, dict) and obj.get("status") == "ok" else "UNEXPECTED"))
         return 0 if isinstance(obj, dict) and obj.get("status") == "ok" else 5
-    except (TimeoutError, URLError) as exc:
-        print("OLLAMA_TEST=TIMEOUT_OR_UNAVAILABLE_" + type(exc).__name__)
-        return 5
     except HTTPError as exc:
         print("OLLAMA_TEST=HTTP_" + str(exc.code))
+        return 5
+    except (TimeoutError, URLError) as exc:
+        print("OLLAMA_TEST=TIMEOUT_OR_UNAVAILABLE_" + type(exc).__name__)
         return 5
     except (ValueError, KeyError, TypeError) as exc:
         print("OLLAMA_TEST=INVALID_RESPONSE_" + type(exc).__name__)
