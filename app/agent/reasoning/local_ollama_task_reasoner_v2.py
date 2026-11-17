@@ -69,11 +69,29 @@ def compact_local_model_view(request: Mapping[str, object]) -> dict[str, object]
         ][:4]
     elif stage == "order_document":
         selected = []  # ZLC must never receive an executable suggestion.
+    elif stage == "offer_document":
+        # Only the MDI-owner-verified Add control can be proposed here.
+        # A different offer toolbar, Start1 or a global "NOWA OFERTA"
+        # control is NOT a substitute for an unscoped document action.
+        # Semantic projection does not expose native document scope to AI.
+        # The runner must supply a proven, locally derived eligibility flag.
+        eligible_refs = set(request.get("metadata", {}).get(
+            "verified_active_offer_add_refs", []
+        ))
+        selected = [
+            a for a in actions
+            if a.get("name", "").startswith("click_ent_")
+            and a.get("target_ref") in eligible_refs
+            and str(by_ref.get(a.get("target_ref"), {}).get("label") or "").strip().casefold()
+                in {"dodaj", "dodaj nową pozycję okna do oferty"}
+        ][:1]
     else:
         selected = [
             a for a in actions
             if a.get("name", "").startswith(("click_ent_", "write_ent_"))
             and a.get("requires_confirmation") is False
+            and str(by_ref.get(a.get("target_ref"), {}).get("label") or "").strip().casefold()
+                not in {"nowa oferta", "nowe zlecenie"}
         ][:12]
     relevant_refs = {a.get("target_ref") for a in selected}
     entities = [
