@@ -25,6 +25,10 @@ DEFAULT_MODEL = "qwen2.5:7b"
 SYSTEM_PROMPT = """You plan ONE WindowHub step; you never click. Reply ONLY with V2 JSON.
 Use exactly one listed action name/ref; never invent controls. ZLC orders cannot be modified.
 For a NEW offer on Start1 choose NOWA OFERTA when uniquely available.
+For an EXISTING OFR offer with one verified Dodaj action and a goal to add a window,
+choose Dodaj FIRST. It opens the position wizard; dimensions are entered LATER.
+Do NOT seek width/height fields in the offer document. A future step is not
+missing evidence for the first navigation step.
 If no appropriate verified action exists, return manual_review.
 For act return exactly:
 {"version":"2","task_id":"COPY_FROM_INPUT","decision":"act",
@@ -118,6 +122,12 @@ def compact_local_model_view(request: Mapping[str, object]) -> dict[str, object]
              "requires_confirmation": a.get("requires_confirmation")}
             for a in selected
         ],
+        "current_step": (
+            "Open Dodawanie nowej pozycji with the sole verified Dodaj; "
+            "set 1500x1400 only after the dimensions wizard appears."
+            if stage == "offer_document" and len(selected) == 1
+            else "Observe the current stage and choose only a matching verified action."
+        ),
         "constraints": {
             "no_order_edit": True,
             "no_save_or_submit": True,
