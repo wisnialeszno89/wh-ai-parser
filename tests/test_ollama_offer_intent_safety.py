@@ -39,3 +39,20 @@ def test_fake_new_offer_cannot_become_active_offer_add():
     request["metadata"]["verified_active_offer_add_refs"] = [cap["target_ref"]]
     # Native proof alone must not launder a control whose semantic label is wrong.
     assert compact_local_model_view(request)["actions"] == []
+
+
+def test_verified_offer_stage_overrides_redacted_world_title():
+    request = request_for_offer()
+    request["world"]["window_title"] = "WindowHub"  # Privacy projection.
+    request["metadata"]["verified_windowhub_stage"] = "offer_document"
+    view = compact_local_model_view(request)
+    assert view["stage"] == "offer_document"
+    assert view["actions"] == []
+
+
+def test_unknown_projected_stage_cannot_offer_random_clicks():
+    request = request_for_offer()
+    request["world"]["window_title"] = "WindowHub"
+    view = compact_local_model_view(request)
+    assert view["stage"] == "windowhub_unmapped"
+    assert view["actions"] == []
