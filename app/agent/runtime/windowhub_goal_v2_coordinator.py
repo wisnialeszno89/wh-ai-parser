@@ -174,7 +174,7 @@ def enforce_v2_live_policy(scene, resolved, *, approved_persistent=False) -> Non
     verified_v2_outcome(resolved)
 
 
-def execute_v2_step(loop, scene, resolved, *, approved_persistent=False):
+def execute_v2_step(loop, scene, resolved, *, approved_persistent=False, expected_offer=None):
     """Run exactly one model-proposed, locally checked action with verification."""
     action_target = resolved.action.target
     if (
@@ -190,6 +190,10 @@ def execute_v2_step(loop, scene, resolved, *, approved_persistent=False):
         if (scene.observation.state.active_window_title or "").casefold().startswith("okna - ofr/"):
             from app.agent.runtime.windowhub_mdi_native_probe import enrich_native_mdi_document_scope
             scene = enrich_native_mdi_document_scope(scene)
+    if expected_offer is not None and (
+        scene.observation.state.active_window_title or ""
+    ).strip() != "Okna - " + expected_offer:
+        raise ValueError("v2_test_offer_changed_before_execution")
     enforce_v2_live_policy(scene, resolved, approved_persistent=approved_persistent)
     expected = verified_v2_outcome(resolved, baseline_scene=scene)
     action: AgentAction = resolved.action
