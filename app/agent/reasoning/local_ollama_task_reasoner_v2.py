@@ -44,6 +44,56 @@ you may use {"kind":"entity_state_equals", "target_ref":exact_ref,
 Do not output markdown. Output valid JSON only.
 """
 
+def compact_local_model_view(request: Mapping[str, object]) -> dict[str, object]:
+    """Reduce inference cost without changing the authoritative V2 contract.
+
+    These opaque entity/action refs remain tied to the original request;
+    the ORIGINAL full request still validates the returned action.
+    """
+    from app.agent.learning.windowhub_environment_knowledge import (
+        windowhub_environment_knowledge,
+    )
+    world = request["world"]
+    title = str(world.get("window_title") or "")
+    normalized = title.casefold().strip()
+    if normalized.startswith("okna - zlc/"):
+        stage = "order_document"
+    elif normalized.startswith("okna - ofr/"):
+        stage = "offer_document"
+    else:
+        from app.agent.learning.windowhub_demonstration import KNOWN_STAGES
+        stage = KNOWN_STAGES.get(normalized, "windowhub_unmapped")
+    actions = request["capabilities"]["actions"]
+    # Exposed capabilities are the only permissible outputs.
+    selected = list(actions)[:64]
+    relevant_refs = {a.get("target_ref") for a in selected}
+    entities = [
+        {"ref": e.get("ref"), "label": e.get("label"),
+         "type": e.get("type"), "state": e.get("state")}
+        for e in world["entities"]
+        if e.get("ref") in relevant_refs
+    ]
+    return {
+        "version": request["version"],
+        "task_id": request["task_id"],
+        "goal": request["goal"],
+        "stage": stage,
+        "application": world.get("application"),
+        "environment_knowledge": windowhub_environment_knowledge(stage),
+        "entities": entities,
+        "actions": [
+            {"name": a.get("name"), "target_ref": a.get("target_ref"),
+             "requires_confirmation": a.get("requires_confirmation")}
+            for a in selected
+        ],
+        "constraints": {
+            "no_order_edit": True,
+            "no_save_or_submit": True,
+            "decision_only": True,
+        },
+    }
+
+
 def _check_endpoint(url: str) -> None:
     # Do not allow configurable remote endpoints or credential exfiltration.
     if url != LOCAL_URL:
@@ -69,15 +119,16 @@ class LocalOllamaTaskReasonerV2:
         try:
             validate_agent_task_v2_payload(request)
             actions = request["capabilities"]["actions"]
+            compact = compact_local_model_view(request)
             # The provider only sees the already-redacted V2 semantic world.
             body = json.dumps({
                 "model": self.model,
                 "stream": False,
                 "format": "json",
-                "options": {"temperature": 0},
+                "options": {"temperature": 0, "num_ctx": 4096, "num_predict": 450},
                 "messages": [
                     {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": json.dumps(request, ensure_ascii=False)},
+                    {"role": "user", "content": json.dumps(compact, ensure_ascii=False)},
                 ],
             }, ensure_ascii=False, allow_nan=False).encode("utf-8")
             if len(body) > MAX_BODY_BYTES * 2:
