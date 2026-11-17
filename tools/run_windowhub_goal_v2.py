@@ -37,6 +37,9 @@ def parse_args(argv=None):
     parser.add_argument("--max-actions", type=int, default=6)
     parser.add_argument("--show-window-title", action="store_true", help="Print current native title locally for unknown stages; may contain business details")
     parser.add_argument("--execute-live", action="store_true")
+    parser.add_argument("--allow-local-offer-add-once", action="store_true",
+                        help="One locally verified Dodaj on exact test OFR; requires --expected-offer")
+    parser.add_argument("--expected-offer", help="Exact selected test OFR caption, e.g. OFR/4488-4300 <>")
     parser.add_argument("--activate-window", action="store_true",
                         help="Require authorized WindowHub focus; with both desktop flags, discovery is automatic even without this option")
     parser.add_argument("--approve-persistent", action="store_true")
@@ -135,7 +138,8 @@ def request_human_resume(loop, *, timeout_seconds=60):
 def run_goal(loop, *, goal, reasoner, mode, max_actions, experience=(),
              approved_persistent=False, show_window_title=False,
              customer_lookup_name=None, interactive_handoff=False,
-             handoff_timeout=60, require_stage=None):
+             handoff_timeout=60, require_stage=None,
+             local_offer_add_once=False, expected_offer=None):
     session = ComputerUseV2ActionSession()
     from app.agent.runtime.goal_progress_memory import ProgressMemory
     progress = ProgressMemory()
@@ -380,6 +384,23 @@ def run_goal(loop, *, goal, reasoner, mode, max_actions, experience=(),
             print("THINK_EXPECTED_SCENE_CHANGE=" + str(expectation.require_scene_change))
             print("THINK_ONLY: nothing executed.")
             return 0
+        if local_offer_add_once:
+            # Explicit one-step permission never extends to any other GUI action.
+            from app.agent.runtime.active_document_scope import unique_active_document_control
+            selected_control = unique_active_document_control(scene, label="Dodaj")
+            actual_offer = (scene.observation.state.active_window_title or "").strip()
+            if not (
+                stage == "offer_document"
+                and actual_offer == "Okna - " + expected_offer
+                and action.action.name == "click_screen_element"
+                and getattr(action.action.target, "label", "").strip().casefold() == "dodaj"
+                and selected_control is not None
+                and (selected_control.metadata or {}).get("uia_runtime_id")
+                    == getattr(action.action.target, "uia_runtime_id", None)
+            ):
+                print("STOP: LOCAL_OFFER_ADD_GUARD=BLOCKED")
+                return 4
+            print("LOCAL_OFFER_ADD_GUARD=PASS")
         allowed, progress_reason = progress.allow_action(action.action, scene, stage=stage)
         print("PROGRESS_ACTION_POLICY=" + progress_reason)
         if not allowed:
@@ -572,8 +593,19 @@ def main(argv=None):
     if args.reasoner == "local-ollama" and args.reuse_shared_navimind_endpoint:
         print("STOP: cannot combine local Ollama with shared NaviMind endpoint.")
         return 2
-    if args.reasoner == "local-ollama" and args.mode == "execute":
-        print("STOP: local Ollama provider is in THINK-only evaluation mode; no live GUI actions.")
+    if args.allow_local_offer_add_once and not (
+        args.reasoner == "local-ollama" and args.mode == "execute"
+        and args.execute_live and args.max_actions == 1
+        and args.require_stage == "offer_document"
+        and not args.approve_persistent and not args.interactive_handoff
+        and not args.customer_lookup_skill and not args.task_file
+        and isinstance(args.expected_offer, str)
+        and args.expected_offer == "OFR/4488-4300 <>"
+    ):
+        print("STOP: single-action Ollama offer test requires exact scoped flags and offer caption.")
+        return 2
+    if args.reasoner == "local-ollama" and args.mode == "execute" and not args.allow_local_offer_add_once:
+        print("STOP: local Ollama provider is THINK-only except explicit one-step test offer Add.")
         return 2
     if args.reuse_shared_navimind_endpoint and args.mode != "inspect":
         print("NAVIMIND_ENDPOINT=shared /api/agent/task (V2 payload)")
@@ -590,7 +622,10 @@ def main(argv=None):
         if args.reasoner == "local-ollama":
             print("REASONER=LOCAL_OLLAMA_LOOPBACK")
             print("NOTICE: semantic goal and scene are sent only to localhost Ollama; no Vercel.")
-            print("THINK_ONLY: this integration does not execute local AI decisions.")
+            if args.mode == "think":
+                print("THINK_ONLY: no local AI decisions will be executed.")
+            else:
+                print("LOCAL_EXECUTE_LIMIT=one verified Add on exact test offer")
         else:
             print("NOTICE: goal and semantic scene are transmitted to configured NaviMind.")
     if args.probe_mdi:
