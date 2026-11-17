@@ -668,6 +668,8 @@ def main(argv=None):
             interactive_handoff=args.interactive_handoff,
             handoff_timeout=args.handoff_timeout,
             require_stage=args.require_stage,
+            local_offer_add_once=args.allow_local_offer_add_once,
+            expected_offer=args.expected_offer,
         )
     except Exception as exc:
         print("STOP: " + type(exc).__name__ + ": " + str(exc)[:200])
