@@ -34,7 +34,9 @@ def _json_compatible_construction_map(value):
 
 
 def windowhub_skill_knowledge() -> dict[str, object]:
+    from app.agent.learning.windowhub_environment_knowledge import windowhub_environment_knowledge
     return {
+        "grounded_environment": windowhub_environment_knowledge(),
         "application": "WindowHub",
         "general_computer_skills": [
             "Observe the current window before acting; an earlier screenshot may be stale.",
@@ -67,7 +69,7 @@ def windowhub_skill_knowledge() -> dict[str, object]:
         ],
         "business_goal": "Follow the current user's specific objective. Existing offers and individual fields may be edited without opening a new offer or choosing a customer.",
         "known_stages": [
-            "start", "document_properties", "new_customer", "offer_document",
+            "start", "document_properties", "new_customer", "offer_document", "order_document",
             "position", "dimensions", "basic_parameters", "glazing",
             "hardware", "modifier",
         ],
