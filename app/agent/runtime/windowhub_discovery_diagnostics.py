@@ -20,6 +20,8 @@ def categorize_window_title(title: str) -> str:
         return "start"
     if normalized.startswith("okna - ofr/"):
         return "document"
+    if normalized.startswith("okna - zlc/"):
+        return "order_document"
     return "unrecognized"
 
 
@@ -32,7 +34,7 @@ def diagnostic_counts() -> dict[str, int]:
     import psutil
     counts = {k: 0 for k in (
         "processes", "visible_titled_windows", "wizard", "dialog",
-        "start", "document", "unrecognized",
+        "start", "document", "order_document", "unrecognized",
     )}
     active_pids = set()
     for process in psutil.process_iter(["pid", "name"]):
@@ -88,12 +90,12 @@ def suggest_recovery(counts: dict[str, int]) -> str:
     if counts.get("visible_titled_windows", 0) == 0:
         return "no_visible_titled_window_or_application_minimized_to_tray"
     if counts.get("unrecognized", 0) > 0 and not any(
-        counts.get(item, 0) for item in ("wizard", "dialog", "start", "document")
+        counts.get(item, 0) for item in ("wizard", "dialog", "start", "document", "order_document")
     ):
         return "windowhub_running_but_title_not_mapped"
-    if sum(counts.get(item, 0) for item in ("wizard", "dialog", "start", "document")) > 1:
+    if sum(counts.get(item, 0) for item in ("wizard", "dialog", "start", "document", "order_document")) > 1:
         return "multiple_workflow_windows_need_context"
-    if sum(counts.get(item, 0) for item in ("wizard", "dialog", "start", "document")) == 1:
+    if sum(counts.get(item, 0) for item in ("wizard", "dialog", "start", "document", "order_document")) == 1:
         return "known_window_exists_focus_or_permission_issue"
     return "environment_unresolved"
 
