@@ -79,3 +79,26 @@ def test_cli_parse_accepts_explicit_local_reasoner():
     args = parse_args(["--goal", "Dodaj", "--reasoner", "local-ollama", "--mode", "think"])
     assert args.reasoner == "local-ollama"
     assert args.mode == "think"
+
+
+def test_model_receives_compact_grounded_stage_view_not_full_payload():
+    from app.agent.reasoning.local_ollama_task_reasoner_v2 import compact_local_model_view
+    request = prepared_request()
+    view = compact_local_model_view(request)
+    assert view["task_id"] == request["task_id"]
+    assert view["stage"] == "start"
+    assert "world" not in view
+    assert "environment_knowledge" in view
+    assert view["constraints"]["decision_only"] is True
+    refs = {e["ref"] for e in request["world"]["entities"]}
+    assert all(a["target_ref"] in refs for a in view["actions"] if a["target_ref"])
+
+
+def test_compact_model_view_is_not_permission_to_edit_zlc():
+    from copy import deepcopy
+    from app.agent.reasoning.local_ollama_task_reasoner_v2 import compact_local_model_view
+    request = deepcopy(prepared_request())
+    request["world"]["window_title"] = "Okna - ZLC/1312- perfectline <>"
+    view = compact_local_model_view(request)
+    assert view["stage"] == "order_document"
+    assert view["environment_knowledge"]["document_policy"]["ZLC/"] == "read_only_no_mutations"
