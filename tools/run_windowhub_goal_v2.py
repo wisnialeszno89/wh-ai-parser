@@ -29,6 +29,7 @@ def parse_args(argv=None):
     parser.add_argument("--mode", choices=("inspect", "think", "execute"), default="inspect")
     parser.add_argument("--reasoner", choices=("navimind", "local-ollama"), default="navimind",
                         help="Choose existing NaviMind endpoint or local Ollama without Vercel")
+    parser.add_argument("--require-stage", choices=("start", "offer_document", "position", "dimensions", "basic_parameters", "glazing", "hardware"), help="Fail closed when observed WindowHub stage is not the required stage")
     parser.add_argument("--probe-mdi", action="store_true",
                         help="Read-only native UIA ancestry of duplicate per-offer toolbar controls")
     parser.add_argument("--reuse-shared-navimind-endpoint", action="store_true", help="Use existing V1 connection for V2 only AFTER NaviMind PR #26 is deployed")
@@ -134,7 +135,7 @@ def request_human_resume(loop, *, timeout_seconds=60):
 def run_goal(loop, *, goal, reasoner, mode, max_actions, experience=(),
              approved_persistent=False, show_window_title=False,
              customer_lookup_name=None, interactive_handoff=False,
-             handoff_timeout=60):
+             handoff_timeout=60, require_stage=None):
     session = ComputerUseV2ActionSession()
     from app.agent.runtime.goal_progress_memory import ProgressMemory
     progress = ProgressMemory()
@@ -149,6 +150,10 @@ def run_goal(loop, *, goal, reasoner, mode, max_actions, experience=(),
         stage = stage_of(scene)
         if stage is None:
             print("STOP: WindowHub must be the foreground application.")
+            return 4
+        if require_stage is not None and stage != require_stage:
+            print("STOP: required stage " + require_stage + ", actual stage " + str(stage))
+            print("AI_REQUEST_SENT=False")
             return 4
         from app.agent.runtime.active_panel_context import (
             safe_panel_diagnostics, panel_model_context,
@@ -599,6 +604,7 @@ def main(argv=None):
                                   if args.customer_lookup_skill else None),
             interactive_handoff=args.interactive_handoff,
             handoff_timeout=args.handoff_timeout,
+            require_stage=args.require_stage,
         )
     except Exception as exc:
         print("STOP: " + type(exc).__name__ + ": " + str(exc)[:200])
