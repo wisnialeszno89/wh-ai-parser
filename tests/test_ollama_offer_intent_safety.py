@@ -56,3 +56,25 @@ def test_unknown_projected_stage_cannot_offer_random_clicks():
     view = compact_local_model_view(request)
     assert view["stage"] == "windowhub_unmapped"
     assert view["actions"] == []
+
+
+def test_unique_verified_add_is_explicit_first_step_before_dimensions():
+    from app.agent.runtime.computer_use_v2_action_session import ComputerUseV2ActionSession
+    request = ComputerUseV2ActionSession().prepare_cycle(
+        synthetic_scene("Okna - OFR/4488-4300 <>", label="Dodaj"),
+        task_id="offer-step-order", goal="Dodaj okno 1500x1400",
+        world_revision=1, observed_at="2026-11-17T09:00:00Z",
+    ).request_payload
+    cap = next(
+        c for c in request["capabilities"]["actions"]
+        if c["name"].startswith("click_ent_")
+    )
+    request["metadata"]["verified_windowhub_stage"] = "offer_document"
+    request["metadata"]["verified_active_offer_add_refs"] = [cap["target_ref"]]
+    view = compact_local_model_view(request)
+    assert view["stage"] == "offer_document"
+    assert len(view["actions"]) == 1
+    assert view["actions"][0]["target_ref"] == cap["target_ref"]
+    assert "FIRST" not in view["current_step"]
+    assert "after the dimensions wizard" in view["current_step"]
+    assert "Dodaj" in view["current_step"]
