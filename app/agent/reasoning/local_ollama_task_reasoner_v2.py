@@ -56,6 +56,11 @@ def compact_local_model_view(request: Mapping[str, object]) -> dict[str, object]
     else:
         from app.agent.learning.windowhub_demonstration import KNOWN_STAGES
         stage = KNOWN_STAGES.get(normalized, "windowhub_unmapped")
+    # A local scene classification overrides projected/redacted window text.
+    # Only the trusted runner sets this value after checking Okna.exe.
+    local_stage = request.get("metadata", {}).get("verified_windowhub_stage")
+    if isinstance(local_stage, str):
+        stage = local_stage
     actions = request["capabilities"]["actions"]
     by_ref = {e.get("ref"): e for e in world["entities"]}
     # The model needs only the controls relevant to the CURRENT step. Keep
@@ -67,8 +72,8 @@ def compact_local_model_view(request: Mapping[str, object]) -> dict[str, object]
             if a.get("name", "").startswith("click_ent_")
             and str(by_ref.get(a.get("target_ref"), {}).get("label") or "").strip().casefold() in wanted
         ][:4]
-    elif stage == "order_document":
-        selected = []  # ZLC must never receive an executable suggestion.
+    elif stage in {"order_document", "windowhub_unmapped"}:
+        selected = []  # ZLC and unknown stages never expose executable suggestions.
     elif stage == "offer_document":
         # Only the MDI-owner-verified Add control can be proposed here.
         # A different offer toolbar, Start1 or a global "NOWA OFERTA"
