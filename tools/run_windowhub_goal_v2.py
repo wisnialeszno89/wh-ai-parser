@@ -233,6 +233,23 @@ def run_goal(loop, *, goal, reasoner, mode, max_actions, experience=(),
             observed_at=datetime.now(timezone.utc).isoformat(),
         )
         actions = prepared.request_payload["capabilities"]["actions"]
+        if stage == "offer_document" and reasoner is not None:
+            from app.agent.runtime.active_document_scope import unique_active_document_control
+            scoped_add = unique_active_document_control(scene, label="Dodaj")
+            eligible = []
+            if scoped_add is not None:
+                for item in actions:
+                    try:
+                        matched = prepared.snapshot.reference_map.resolve(
+                            item["target_ref"], task_id=task_id,
+                            world_revision=revision + 1,
+                        )
+                    except (ValueError, KeyError, TypeError):
+                        continue
+                    if matched is scoped_add and item["name"].startswith("click_ent_"):
+                        eligible.append(item["target_ref"])
+            prepared.request_payload["metadata"]["verified_active_offer_add_refs"] = eligible[:1]
+            print("OFFER_ADD_MODEL_ELIGIBLE=" + str(len(eligible) == 1))
         print(f"CYCLE={revision+1} STAGE={stage} ACTION_CAPABILITIES={len(actions)}")
         if mode == "inspect":
             from app.agent.runtime.goal_affordance_ranking import affordance_relevance
