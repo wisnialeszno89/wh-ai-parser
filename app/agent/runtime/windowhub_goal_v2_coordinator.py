@@ -114,6 +114,13 @@ def enforce_v2_live_policy(scene, resolved, *, approved_persistent=False) -> Non
         raise ValueError("v2_order_document_read_only")
     label = getattr(action.target, "label", None)
     if (
+        title.startswith("okna - ofr/")
+        and action.name == "click_screen_element"
+        and isinstance(label, str)
+        and label.strip().casefold() in {"nowa oferta", "nowe zlecenie"}
+    ):
+        raise ValueError("v2_new_document_action_forbidden_inside_existing_offer")
+    if (
         action.name == "click_screen_element"
         and title in {"zakładanie nowego klienta", "właściwości dokumentu"}
         and isinstance(label, str)
