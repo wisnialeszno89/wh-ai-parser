@@ -14,7 +14,7 @@ import re
 # A parsed number is not proof of ownership; native MDI hierarchy and exact
 # selected-tab caption must still agree before enabling any action.
 _OFFER_CAPTION = re.compile(r"^OFR/\d+(?:-\d+)*-?(?:\s*<>)?$", re.IGNORECASE)
-_ORDER_CAPTION = re.compile(r"^ZLC/\d+(?:-\d+)*-?(?:\s*<>)?$", re.IGNORECASE)
+_ORDER_CAPTION = re.compile(r"^ZLC/\d+(?:-\d+)*-?(?:\s+.{1,160})?$", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
