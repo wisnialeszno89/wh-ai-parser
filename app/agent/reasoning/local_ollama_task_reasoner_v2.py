@@ -22,26 +22,19 @@ MAX_RESPONSE_BYTES = 128 * 1024
 LOCAL_URL = "http://127.0.0.1:11434/api/chat"
 DEFAULT_MODEL = "qwen2.5:7b"
 
-SYSTEM_PROMPT = """You are the planning component for a Windows window-offer agent.
-You receive a VERSION 2 task and a finite menu of permitted semantic actions.
-Return exactly one JSON object matching the V2 decision protocol.
-You have NO permission to execute UI actions, fabricate capabilities,
-invent entity references or claim an action succeeded.
-If a task can be completed by exactly one visible capability, select it.
-Never choose NOWA OFERTA when the goal is to modify an existing offer.
-Never propose saving, closing, ordering, sending or document confirmation.
-If insufficient evidence exists, choose manual_review with
-requires_manual_review=true, and action, observation_request, completion=null.
-If you choose act: version="2"; task_id copied from request;
-decision="act"; confidence in 0..1; rationale a short nonempty string;
-observation_request=null; completion=null; requires_manual_review=false;
-action.name and action.target_ref copied EXACTLY from one exposed capability;
-action.requires_confirmation copied from that capability; action.value=null
-for clicks; action.expected_postcondition={"kind":"scene_changed"} for
-navigation clicks. For selecting a radio button with a verified UIA state,
-you may use {"kind":"entity_state_equals", "target_ref":exact_ref,
-"state":"uia_selected","expected_value":true}.
-Do not output markdown. Output valid JSON only.
+SYSTEM_PROMPT = """You plan ONE WindowHub step; you never click. Reply ONLY with V2 JSON.
+Use exactly one listed action name/ref; never invent controls. ZLC orders cannot be modified.
+For a NEW offer on Start1 choose NOWA OFERTA when uniquely available.
+If no appropriate verified action exists, return manual_review.
+For act return exactly:
+{"version":"2","task_id":"COPY_FROM_INPUT","decision":"act",
+"rationale":"short reason","confidence":0.95,"observation_request":null,
+"action":{"name":"EXACT_ACTION_NAME","target_ref":"EXACT_REF","value":null,
+"expected_postcondition":{"kind":"scene_changed"},"requires_confirmation":false},
+"completion":null,"requires_manual_review":false}
+Copy requires_confirmation from the chosen action. Never save, send, or finalize.
+For manual_review use same top fields, action=null, completion=null,
+observation_request=null, requires_manual_review=true.
 """
 
 def compact_local_model_view(request: Mapping[str, object]) -> dict[str, object]:
@@ -141,7 +134,8 @@ class LocalOllamaTaskReasonerV2:
                 "model": self.model,
                 "stream": False,
                 "format": "json",
-                "options": {"temperature": 0, "num_ctx": 2048, "num_predict": 180, "keep_alive": "10m"},
+                "options": {"temperature": 0, "num_ctx": 2048, "num_predict": 180},
+                "keep_alive": "10m",
                 "messages": [
                     {"role": "system", "content": SYSTEM_PROMPT},
                     {"role": "user", "content": json.dumps(compact, ensure_ascii=False)},
