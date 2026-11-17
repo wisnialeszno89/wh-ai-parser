@@ -102,3 +102,35 @@ def test_compact_model_view_is_not_permission_to_edit_zlc():
     view = compact_local_model_view(request)
     assert view["stage"] == "order_document"
     assert view["environment_knowledge"]["document_policy"]["ZLC/"] == "read_only_no_mutations"
+
+
+def test_start_stage_exposes_only_relevant_first_step_to_model():
+    from app.agent.reasoning.local_ollama_task_reasoner_v2 import compact_local_model_view
+    request = prepared_request()
+    view = compact_local_model_view(request)
+    assert len(view["actions"]) == 1
+    target = view["actions"][0]["target_ref"]
+    assert next(e["label"] for e in view["entities"] if e["ref"] == target) == "NOWA OFERTA"
+    assert "knowledge" not in view and "experience" not in view
+
+
+def test_local_request_uses_bounded_generation_and_context():
+    request = prepared_request()
+    selected = next(c for c in request["capabilities"]["actions"] if c["name"].startswith("click_ent_"))
+    response = {
+        "version": "2", "task_id": request["task_id"], "decision": "act",
+        "rationale": "Next valid step", "confidence": 0.95,
+        "observation_request": None, "completion": None,
+        "requires_manual_review": False,
+        "action": {"name": selected["name"], "target_ref": selected["target_ref"],
+                   "value": None, "requires_confirmation": selected["requires_confirmation"],
+                   "expected_postcondition": {"kind": "scene_changed"}},
+    }
+    def opener(req, timeout):
+        posted = json.loads(req.data)
+        assert posted["options"]["num_ctx"] == 2048
+        assert posted["options"]["num_predict"] == 180
+        assert posted["keep_alive"] == "10m"
+        assert len(posted["messages"][1]["content"].encode("utf-8")) < 5000
+        return FakeResponse(json.dumps({"message": {"content": json.dumps(response)}}).encode())
+    assert LocalOllamaTaskReasonerV2(model="test-model", opener=opener).reason(request) == response
