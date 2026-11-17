@@ -13,7 +13,7 @@ import re
 # Observed WH captions include OFR/4687- and OFR/4488-4300 <>.
 # A parsed number is not proof of ownership; native MDI hierarchy and exact
 # selected-tab caption must still agree before enabling any action.
-_OFFER_CAPTION = re.compile(r"^OFR/\\d+(?:-\\d+)*-?(?:\\s*<>)?$", re.IGNORECASE)
+_OFFER_CAPTION = re.compile(r"^OFR/\d+(?:-\d+)*-?(?:\s*<>)?$", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
