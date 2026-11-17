@@ -32,7 +32,7 @@ class FakeResponse:
 
 def test_local_provider_emits_protocol_valid_single_action_without_credentials():
     request = prepared_request()
-    cap = next(c for c in request["capabilities"]["actions"] if c["name"].startswith("click_ent_"))
+    cap = next(c for c in request["capabilities"]["actions"] if c["name"].startswith("click_ent_") and not c["requires_confirmation"])
     decision = {
         "version": "2", "task_id": request["task_id"], "decision": "act",
         "rationale": "One exposed action", "confidence": 0.9,
