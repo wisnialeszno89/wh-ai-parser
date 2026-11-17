@@ -71,6 +71,41 @@ def classify_native_candidates(*, selected_document: str | None,
     )
 
 
+def _mdi_document_classification(wrapper, selected: str | None) -> str:
+    """Describe the nearest proven MDI child without revealing document data.
+
+    Diagnostic ONLY; even a matching category does not authorize a click.
+    """
+    current = wrapper
+    for _ in range(16):
+        try:
+            parent = current.parent()
+            if parent is None:
+                break
+            info = parent.element_info
+            if (
+                str(getattr(info, "control_type", "") or "").casefold() == "window"
+                and int(getattr(info, "handle", 0) or 0) > 0
+            ):
+                host = parent.parent()
+                if host is not None:
+                    host_info = host.element_info
+                    if (
+                        str(getattr(host_info, "class_name", "") or "").casefold() == "mdiclient"
+                        and int(getattr(host_info, "handle", 0) or 0) > 0
+                    ):
+                        title = str(getattr(info, "name", "") or "").strip()
+                        if _OFFER_CAPTION.fullmatch(title):
+                            return "active_offer" if native_title_matches(selected or "", title) else "other_offer"
+                        if title.casefold().startswith("zlc/"):
+                            return "order_read_only"
+                        return "unrecognized_mdi_child"
+            current = parent
+        except (AttributeError, ValueError, TypeError, OSError):
+            break
+    return "no_proven_mdi_child"
+
+
 def inspect_native_mdi_button_ancestry(scene, *, desktop=None, limit=8) -> dict:
     """Read-only Win32 + UIA probe for observed duplicate 'Dodaj' controls.
 
@@ -129,11 +164,13 @@ def inspect_native_mdi_button_ancestry(scene, *, desktop=None, limit=8) -> dict:
             "uia_match_count": len(found),
             "mdi_title_match_count": 0,
             "native_ancestor_windows": 0,
+            "mdi_child_classification": "uia_unresolved",
             "structural_chain": [],
         }
         if len(found) != 1:
             details.append(record)
             continue
+        record["mdi_child_classification"] = _mdi_document_classification(found[0], selected)
         current = found[0]
         seen = set()
         for _ in range(16):
