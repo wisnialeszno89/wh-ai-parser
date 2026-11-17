@@ -64,12 +64,28 @@ def compact_local_model_view(request: Mapping[str, object]) -> dict[str, object]
         from app.agent.learning.windowhub_demonstration import KNOWN_STAGES
         stage = KNOWN_STAGES.get(normalized, "windowhub_unmapped")
     actions = request["capabilities"]["actions"]
-    # Exposed capabilities are the only permissible outputs.
-    selected = list(actions)[:64]
+    by_ref = {e.get("ref"): e for e in world["entities"]}
+    # The model needs only the controls relevant to the CURRENT step. Keep
+    # original opaque references and validate against full V2 request later.
+    if stage == "start":
+        wanted = {"nowa oferta"}
+        selected = [
+            a for a in actions
+            if a.get("name", "").startswith("click_ent_")
+            and str(by_ref.get(a.get("target_ref"), {}).get("label") or "").strip().casefold() in wanted
+        ][:4]
+    elif stage == "order_document":
+        selected = []  # ZLC must never receive an executable suggestion.
+    else:
+        selected = [
+            a for a in actions
+            if a.get("name", "").startswith(("click_ent_", "write_ent_"))
+            and a.get("requires_confirmation") is False
+        ][:12]
     relevant_refs = {a.get("target_ref") for a in selected}
     entities = [
         {"ref": e.get("ref"), "label": e.get("label"),
-         "type": e.get("type"), "state": e.get("state")}
+         "type": e.get("type")}
         for e in world["entities"]
         if e.get("ref") in relevant_refs
     ]
@@ -125,7 +141,7 @@ class LocalOllamaTaskReasonerV2:
                 "model": self.model,
                 "stream": False,
                 "format": "json",
-                "options": {"temperature": 0, "num_ctx": 4096, "num_predict": 450},
+                "options": {"temperature": 0, "num_ctx": 2048, "num_predict": 180, "keep_alive": "10m"},
                 "messages": [
                     {"role": "system", "content": SYSTEM_PROMPT},
                     {"role": "user", "content": json.dumps(compact, ensure_ascii=False)},
@@ -135,6 +151,12 @@ class LocalOllamaTaskReasonerV2:
                 raise ValueError("ollama_request_too_large")
         except (TypeError, ValueError, KeyError) as exc:
             self.last_error = "local_ai_invalid_request:" + type(exc).__name__
+            return None
+
+        print("LOCAL_AI_VIEW_BYTES=" + str(len(json.dumps(compact, ensure_ascii=False).encode("utf-8"))), flush=True)
+        print("LOCAL_AI_ACTION_CANDIDATES=" + str(len(compact["actions"])), flush=True)
+        if not compact["actions"]:
+            self.last_error = "local_ai_no_verified_action_candidate"
             return None
 
         http_request = Request(
