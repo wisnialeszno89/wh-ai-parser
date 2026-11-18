@@ -106,7 +106,12 @@ def explore(*, expected_process: str, limit: int, hover_seconds: float, output: 
     if not 1 <= limit <= 30 or not .3 <= hover_seconds <= 3:
         print("EXPLORER_STOP=invalid_limits")
         return 2
-    if not 0 <= start_delay <= 20:\n        print("EXPLORER_STOP=invalid_start_delay")\n        return 2\n    print("EXPLORER_PREPARE=Switch focus to the target application now", flush=True)\n    time.sleep(start_delay)\n    hwnd, process = current_foreground()
+    if not 0 <= start_delay <= 20:
+        print("EXPLORER_STOP=invalid_start_delay")
+        return 2
+    print("EXPLORER_PREPARE=Switch focus to the target application now", flush=True)
+    time.sleep(start_delay)
+    hwnd, process = current_foreground()
     if process != expected_process.casefold():
         print("EXPLORER_STOP=foreground_process_mismatch ACTUAL=" + process)
         return 4
@@ -126,8 +131,9 @@ def explore(*, expected_process: str, limit: int, hover_seconds: float, output: 
         print("EXPLORER_STOP=business_order_not_allowed")
         return 4
     x0, y0 = window_origin(scene)
-    visible_width = scene.observation.state.screen_width
-    visible_height = scene.observation.state.screen_height
+    win_rect = scene.observation.metadata.get("window_rect")
+    visible_width = int(win_rect.right - win_rect.left)
+    visible_height = int(win_rect.bottom - win_rect.top)
     if not isinstance(visible_width, int) or not isinstance(visible_height, int):
         raise RuntimeError("dimensions_missing")
     candidates = eligible_controls(scene, limit=limit)
@@ -192,11 +198,13 @@ def main():
     parser = argparse.ArgumentParser(description="Application-neutral hover-only UI explorer")
     parser.add_argument("--process", required=True, help="Expected foreground process, e.g. Okna.exe")
     parser.add_argument("--limit", type=int, default=10)
-    parser.add_argument("--hover-seconds", type=float, default=0.9)\n    parser.add_argument("--start-delay", type=int, default=6)
+    parser.add_argument("--hover-seconds", type=float, default=0.9)
+    parser.add_argument("--start-delay", type=int, default=6)
     parser.add_argument("--output", type=Path, default=Path("explorer_hover_results.json"))
     args = parser.parse_args()
     return explore(expected_process=args.process, limit=args.limit,
-                   hover_seconds=args.hover_seconds, output=args.output,\n                   start_delay=args.start_delay)
+                   hover_seconds=args.hover_seconds, output=args.output,
+                   start_delay=args.start_delay)
 
 
 if __name__ == "__main__":
