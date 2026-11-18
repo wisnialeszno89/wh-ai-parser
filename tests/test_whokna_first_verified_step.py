@@ -8,9 +8,13 @@ from tools import run_navimind_whokna_first_verified_step as first
 
 def scene(title="Okna - OFR/4708-"):
     return SimpleNamespace(
-        observation=SimpleNamespace(state=SimpleNamespace(
-            active_window_title=title, active_application="Okna.exe"
-        ))
+        observation=SimpleNamespace(
+            state=SimpleNamespace(
+                active_window_title=title, active_application="Okna.exe"
+            ),
+            metadata={},
+        ),
+        elements=(),
     )
 
 
