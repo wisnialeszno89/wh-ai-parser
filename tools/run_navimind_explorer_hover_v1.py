@@ -21,6 +21,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from app.agent.perception.visual_tooltip_reader import tooltip_ocr
 from app.agent.runtime.windows_desktop_agent_control_loop import (
     create_windows_desktop_agent_control_loop,
 )
@@ -344,6 +345,10 @@ def explore(*, expected_process: str, limit: int, hover_seconds: float, output: 
             )
             if hover_image is not None:
                 hover_image.save(frames_dir / ("hover_" + str(idx).zfill(2) + ".png"))
+            tooltip = tooltip_ocr(
+                baseline_image, hover_image, (mx, my),
+                crops_folder=frames_dir / "tooltip_crops", step=idx,
+            )
             record = {
                 "index": idx,
                 "kind": e.kind,
@@ -352,6 +357,7 @@ def explore(*, expected_process: str, limit: int, hover_seconds: float, output: 
                 "rect_relative": [e.x, e.y, e.width, e.height],
                 "new_visible_labels": observed[:12],
                 "image_difference": difference,
+                "tooltip_ocr": tooltip,
                 "hover_at_relative": [mx, my],
                 "outcome": "hover_observed_no_click",
             }
@@ -359,13 +365,15 @@ def explore(*, expected_process: str, limit: int, hover_seconds: float, output: 
             print("HOVER_" + str(idx) + "=" + (e.label or "(unnamed)")[:65]
                   + " NEW_LABELS=" + str(len(observed))
                   + " CHANGED_PIXELS=" + str(difference["changed_pixels"])
-                  + " VISUAL_CHANGE=" + str(difference["visual_change"]), flush=True)
+                  + " VISUAL_CHANGE=" + str(difference["visual_change"])
+                  + " OCR_STATUS=" + str(tooltip["status"])
+                  + " OCR_TEXT=" + repr(tooltip["text"]), flush=True)
             # Do not reuse a stale baseline: tooltips can persist between hovers.
             before = control_text(after_scene)
     finally:
         user32.SetCursorPos(cursor_start.x, cursor_start.y)
     output.write_text(json.dumps({
-        "schema": "navimind.explorer.hover.v1",
+        "schema": "navimind.explorer.hover.v1.4",
         "application": process,
         "window_title": scene.observation.state.active_window_title,
         "mode": "hover_only",
