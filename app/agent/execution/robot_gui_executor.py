@@ -335,7 +335,7 @@ class RobotGUIExecutor(ActionExecutor):
                     "screen_origin": screen_origin,
                     "window_handle": window_handle,
                     "executed": result.executed,
-                    "execution_path": "uia_only",
+                    "execution_path": "uia_mdi_add" if mdi_add_offer is not None else "uia_only",
                     "control_type": element.kind,
                     "interaction_capability": (
                         element.interaction_capability.value

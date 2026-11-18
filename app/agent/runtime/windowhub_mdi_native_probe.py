@@ -499,8 +499,8 @@ def _verified_inactive_mdi_siblings(wrappers, selected, root, api) -> tuple[set[
     return excluded, "inactive_sibling_verified" if excluded else "no_inactive_sibling_proven"
 
 
-def verify_mdi_add_hit(point, *, root, expected_offer, metadata, desktop=None, win32=None) -> bool:
-    """Rebind the mouse point to the exact live UIA control in the active child."""
+def resolve_mdi_add_hit(point, *, root, expected_offer, metadata, desktop=None, win32=None):
+    """Return the exact live UIA button under the observed point in the active offer."""
     try:
         from app.agent.perception.windowhub_ui_automation_provider import (
             WindowHubUIAutomationProvider,
@@ -508,7 +508,7 @@ def verify_mdi_add_hit(point, *, root, expected_offer, metadata, desktop=None, w
 
         api = win32 if win32 is not None else _Win32Mdi()
         if api.foreground() != root:
-            return False
+            return None
         if desktop is None:
             from pywinauto import Desktop
             desktop = Desktop(backend="uia")
@@ -522,20 +522,29 @@ def verify_mdi_add_hit(point, *, root, expected_offer, metadata, desktop=None, w
             or WindowHubUIAutomationProvider._runtime_id(hit) != metadata.get("uia_runtime_id")
             or not same_offer_id(expected_offer, _scoped_owner_from_native_chain(hit) or "")
         ):
-            return False
+            return None
         lineage = _win32_mdi_lineage(hit, api)
         if lineage is None:
-            return False
+            return None
         host, child = lineage
-        return (
+        if (
             api.parent(host, 2) == root
             and api.active_child(host) == child
             and same_offer_id(expected_offer, api.title(child))
             and native_title_matches("Okna - " + expected_offer, api.title(root))
             and api.foreground() == root
-        )
+        ):
+            return hit
+        return None
     except Exception:
-        return False
+        return None
+
+
+def verify_mdi_add_hit(point, *, root, expected_offer, metadata, desktop=None, win32=None) -> bool:
+    return resolve_mdi_add_hit(
+        point, root=root, expected_offer=expected_offer, metadata=metadata,
+        desktop=desktop, win32=win32,
+    ) is not None
 
 
 def _inactive_mdi_evidence(wrappers, selected, root, *, win32):

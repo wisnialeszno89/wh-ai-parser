@@ -1,3 +1,5 @@
+import time
+
 from app.agent.agent_action import AgentAction
 
 from app.agent.environment.environment_adapter import (
@@ -106,29 +108,37 @@ class VerificationLoop:
                 # stating that no hardware interaction occurred. In that
                 # case, keep the existing scene and skip observation.
                 if execution_was_performed is not False:
-                    observation = (
-                        self.environment.observe()
+                    add_offer = context.get_value("_windowhub_mdi_add_offer")
+                    wait_for_add = (
+                        isinstance(add_offer, str)
+                        and action.name == "click_screen_element"
+                        and execution_was_performed is True
+                        and expected_outcome is not None
+                        and expected_outcome.expected_window_title == "Dodawanie nowej pozycji"
                     )
+                    for observation_index in range(3 if wait_for_add else 1):
+                        if observation_index:
+                            time.sleep(0.25)
+                        observation = self.environment.observe()
+                        context.update_observation(observation)
+                        scene = self.perception_engine.perceive(observation)
+                        context.update_scene(scene)
+                        if expected_outcome is None:
+                            break
 
-                    context.update_observation(
-                        observation
-                    )
+                        verification_result = self.outcome_verifier.verify(expected_outcome, scene)
+                        if verification_result.verified or not wait_for_add:
+                            break
 
-                    scene = (
-                        self.perception_engine.perceive(
-                            observation
-                        )
-                    )
-
-                    context.update_scene(scene)
-
-                    if expected_outcome is not None:
-                        verification_result = (
-                            self.outcome_verifier.verify(
-                                expected_outcome,
-                                scene,
-                            )
-                        )
+                        # Wait only while the same offer remains in front.
+                        # An unexpected dialog or focus change needs review
+                        # and must not cause another invocation.
+                        state = observation.state
+                        if (
+                            state.active_application != "Okna.exe"
+                            or (state.active_window_title or "").strip() != "Okna - " + add_offer
+                        ):
+                            break
 
             attempt = ExecutionAttempt(
                 action=action,

@@ -242,6 +242,7 @@ def main():
         print("WH_STEP_ACTIONS_EXECUTED=0", flush=True)
         return 0
     print("WH_STEP_MODE=ONE_VERIFIED_LIVE_ACTION", flush=True)
+    print("WH_STEP_ADD_METHOD=UIA_INVOKE_PATTERN", flush=True)
     try:
         execute_v2_step(
             loop, native_scene, resolved,

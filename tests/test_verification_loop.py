@@ -580,3 +580,34 @@ def test_window_activation_verification_failure_never_retries_activation():
     assert result.requires_manual_review is True
     assert len(result.attempts) == 1
     assert executor.seen_generations == [None]
+
+
+def test_mdi_add_waits_for_wizard_by_observing_without_repeating_input(monkeypatch):
+    class MdiAddExecutor(SuccessfulExecutor):
+        calls = 0
+
+        def execute(self, action, context):
+            self.calls += 1
+            return ExecutionResult(
+                action_name=action.name, success=True, message="Invoked",
+                metadata={"executed": True},
+            )
+
+    executor = MdiAddExecutor()
+    loop = create_loop(executor)
+    titles = iter(["Okna - OFR/42-", "Dodawanie nowej pozycji"])
+    monkeypatch.setattr(loop.environment, "observe", lambda: EnvironmentObservation(
+        state=EnvironmentState(active_application="Okna.exe", active_window_title=next(titles)),
+    ))
+    monkeypatch.setattr("app.agent.runtime.verification_loop.time.sleep", lambda seconds: None)
+    context = create_context()
+    context.set_value("_windowhub_mdi_add_offer", "OFR/42-")
+    context.set_value("expected_outcomes", {"click_screen_element": ExpectedOutcome(
+        description="Wait for position wizard", expected_active_application="Okna.exe",
+        expected_window_title="Dodawanie nowej pozycji",
+    )})
+    result = loop.run(AgentAction(name="click_screen_element", description="Open wizard"), context)
+
+    assert result.success
+    assert result.last_attempt.verification_result.verified
+    assert executor.calls == 1
