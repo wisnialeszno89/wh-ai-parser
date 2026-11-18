@@ -85,3 +85,22 @@ def test_unfinished_or_broken_ancestry_is_not_proof():
             raise ValueError("provider failed")
 
     assert _provably_outside_mdi_client(Broken()) is False
+
+
+def test_enrichment_diagnostic_requires_exact_selected_tab():
+    from types import SimpleNamespace
+    from app.agent.runtime.windowhub_mdi_native_probe import diagnose_native_scope_enrichment
+
+    scene = SimpleNamespace(
+        observation=SimpleNamespace(
+            state=SimpleNamespace(
+                active_application="Okna.exe",
+                active_window_title="Okna - OFR/4680-",
+            ),
+            metadata={},
+        ),
+        elements=(),
+    )
+    result = diagnose_native_scope_enrichment(scene)
+    assert result["status"] == "selected_tab_missing"
+    assert result["native_owner_active"] == 0
