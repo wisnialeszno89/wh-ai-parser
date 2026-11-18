@@ -66,3 +66,27 @@ def test_mss_bgra_numpy_screenshot_finds_visual_regions():
     found = visual_hover_candidates(scene, limit=4)
     assert 1 <= len(found) <= 4
     assert all(e.metadata["source"] == "visual_exploration" for e in found)
+
+
+
+def test_visual_hover_difference_detects_popup_away_from_pointer():
+    from tools.run_navimind_explorer_hover_v1 import visual_hover_difference
+    initial = Image.new("RGB", (220, 160), "white")
+    hovered = initial.copy()
+    draw = ImageDraw.Draw(hovered)
+    draw.rectangle((90, 50, 195, 86), fill="black")
+    result = visual_hover_difference(initial, hovered, pointer=(35, 34))
+    assert result["visual_change"] is True
+    assert result["changed_pixels"] > 100
+    assert result["changed_bounds"] == [90, 50, 196, 87]
+
+
+def test_visual_hover_difference_ignores_pointer_only_change():
+    from tools.run_navimind_explorer_hover_v1 import visual_hover_difference
+    initial = Image.new("RGB", (220, 160), "white")
+    hovered = initial.copy()
+    draw = ImageDraw.Draw(hovered)
+    draw.rectangle((35, 35, 41, 41), fill="black")
+    result = visual_hover_difference(initial, hovered, pointer=(38, 37))
+    assert result["visual_change"] is False
+    assert result["changed_pixels"] == 0
