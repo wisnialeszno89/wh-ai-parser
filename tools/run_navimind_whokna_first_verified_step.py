@@ -27,6 +27,7 @@ from app.agent.runtime.active_document_scope import (
 from app.agent.runtime.windowhub_goal_v2_coordinator import execute_v2_step
 from app.agent.runtime.windowhub_mdi_native_probe import (
     enrich_native_mdi_document_scope, inspect_native_mdi_button_ancestry,
+    diagnose_native_scope_enrichment,
 )
 from app.agent.runtime.windows_desktop_agent_control_loop import (
     create_windows_desktop_agent_control_loop,
@@ -45,7 +46,9 @@ def diagnose_add_scope(scene) -> dict:
         native = inspect_native_mdi_button_ancestry(scene)
     except Exception as exc:
         native = {"status": "diagnostic_error_" + type(exc).__name__}
+    precise = diagnose_native_scope_enrichment(scene)
     return {
+        "enrichment": precise,
         "selected_tab_status": selected["selected_document_status"],
         "observed_dodaj": selected["observed"],
         "native_probe_status": native.get("status"),
