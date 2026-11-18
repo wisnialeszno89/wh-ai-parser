@@ -157,6 +157,53 @@ def visual_hover_candidates(scene, *, limit: int) -> list:
         return []
 
 
+def screenshot_rgb(scene):
+    """Convert native MSS BGRA or PIL capture to a PIL RGB image."""
+    from PIL import Image
+    import numpy as np
+    screenshot = scene.observation.metadata.get("screenshot")
+    raw = getattr(screenshot, "image", None)
+    if raw is None:
+        return None
+    if isinstance(raw, Image.Image):
+        return raw.convert("RGB")
+    pixels = np.asarray(raw)
+    if pixels.ndim == 3 and pixels.shape[2] in (3, 4):
+        return Image.fromarray(
+            np.ascontiguousarray(pixels[:, :, :3][:, :, ::-1]),
+            "RGB",
+        )
+    if pixels.ndim == 2:
+        return Image.fromarray(pixels.astype("uint8"), "L").convert("RGB")
+    return None
+
+
+def visual_hover_difference(before_image, after_image, *, pointer: tuple[int, int]):
+    """Find image differences outside cursor pixels. Evidence, not tooltip proof."""
+    import numpy as np
+    if before_image is None or after_image is None:
+        return {"changed_pixels": 0, "changed_bounds": None, "visual_change": False}
+    before = np.asarray(before_image.convert("RGB"), dtype=np.int16)
+    after = np.asarray(after_image.convert("RGB"), dtype=np.int16)
+    if before.shape != after.shape or before.ndim != 3:
+        return {"changed_pixels": 0, "changed_bounds": None, "visual_change": False}
+    mask = np.max(np.abs(before - after), axis=2) >= 28
+    x, y = pointer
+    # Ignore the cursor itself; not tooltip blocks extending away from it.
+    mask[max(0, y - 16):y + 24, max(0, x - 16):x + 24] = False
+    ys, xs = np.where(mask)
+    pixels = int(xs.size)
+    bbox = None
+    if pixels:
+        bbox = [int(xs.min()), int(ys.min()),
+                int(xs.max()) + 1, int(ys.max()) + 1]
+    return {
+        "changed_pixels": pixels,
+        "changed_bounds": bbox,
+        "visual_change": pixels >= 80,
+    }
+
+
 def control_text(scene) -> set[str]:
     """Collect only short, visible UIA labels. Avoid customer text field contents."""
     result = set()
@@ -247,6 +294,11 @@ def explore(*, expected_process: str, limit: int, hover_seconds: float, output: 
         candidates = visual_hover_candidates(scene, limit=limit)
         discovery_mode = "visual_hover_hypotheses"
     before = control_text(scene)
+    baseline_image = screenshot_rgb(scene)
+    frames_dir = output.parent / (output.stem + "_frames")
+    frames_dir.mkdir(parents=True, exist_ok=True)
+    if baseline_image is not None:
+        baseline_image.save(frames_dir / "baseline.png")
     user32 = ctypes.windll.user32
     cursor_start = wintypes.POINT()
     user32.GetCursorPos(ctypes.byref(cursor_start))
@@ -274,6 +326,12 @@ def explore(*, expected_process: str, limit: int, hover_seconds: float, output: 
                 break
             after_scene = loop.observe_scene()
             observed = sorted(control_text(after_scene) - before)
+            hover_image = screenshot_rgb(after_scene)
+            difference = visual_hover_difference(
+                baseline_image, hover_image, pointer=(mx, my)
+            )
+            if hover_image is not None:
+                hover_image.save(frames_dir / ("hover_" + str(idx).zfill(2) + ".png"))
             record = {
                 "index": idx,
                 "kind": e.kind,
@@ -281,11 +339,15 @@ def explore(*, expected_process: str, limit: int, hover_seconds: float, output: 
                 "automation_id": (e.metadata or {}).get("automation_id"),
                 "rect_relative": [e.x, e.y, e.width, e.height],
                 "new_visible_labels": observed[:12],
+                "image_difference": difference,
+                "hover_at_relative": [mx, my],
                 "outcome": "hover_observed_no_click",
             }
             results.append(record)
             print("HOVER_" + str(idx) + "=" + (e.label or "(unnamed)")[:65]
-                  + " NEW_LABELS=" + str(len(observed)), flush=True)
+                  + " NEW_LABELS=" + str(len(observed))
+                  + " CHANGED_PIXELS=" + str(difference["changed_pixels"])
+                  + " VISUAL_CHANGE=" + str(difference["visual_change"]), flush=True)
             # Do not reuse a stale baseline: tooltips can persist between hovers.
             before = control_text(after_scene)
     finally:
@@ -301,6 +363,7 @@ def explore(*, expected_process: str, limit: int, hover_seconds: float, output: 
     }, ensure_ascii=False, indent=2), encoding="utf-8")
     print("EXPLORER_ACTIONS_CLICKED=0")
     print("EXPLORER_OUTPUT=" + str(output))
+    print("EXPLORER_FRAMES_FOLDER=" + str(frames_dir))
     print("EXPLORER_HOVERS=" + str(len(results)))
     print("EXPLORER_NOTE=Review labels for customer details before sharing.")
     return 0
