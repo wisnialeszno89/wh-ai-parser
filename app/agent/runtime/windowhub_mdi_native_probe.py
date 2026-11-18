@@ -326,6 +326,54 @@ def unknown_mdi_ancestry_reason(wrapper) -> str:
     return "parent_chain_depth_exceeded"
 
 
+def unresolved_mdi_child_shape(wrapper, *, selected: str | None = None) -> dict:
+    """Read-only, privacy-safe type of the immediate child of MDIClient.
+
+    No captions, HWNDs, runtime IDs or screen coordinates leave this function.
+    The result is diagnostic, never authority to select a button.
+    """
+    current = wrapper
+    keep_alive = {}
+    for depth in range(40):
+        try:
+            parent = current.parent()
+            if parent is None:
+                return {"kind": "mdi_parent_not_found"}
+            if id(parent) in keep_alive:
+                return {"kind": "cyclic_ancestry"}
+            keep_alive[id(parent)] = parent
+            parent_info = parent.element_info
+            parent_class = str(getattr(parent_info, "class_name", "") or "").casefold()
+            if parent_class == "mdiclient":
+                info = current.element_info
+                role = str(getattr(info, "control_type", "") or "").casefold()
+                cls = str(getattr(info, "class_name", "") or "").casefold()
+                handle_present = int(getattr(info, "handle", 0) or 0) > 0
+                title = str(getattr(info, "name", "") or "").strip()
+                if not title:
+                    caption_kind = "empty"
+                elif _OFFER_CAPTION.fullmatch(title):
+                    caption_kind = "offer_same" if native_title_matches(
+                        selected or "", title
+                    ) else "offer_other"
+                elif _ORDER_CAPTION.fullmatch(title):
+                    caption_kind = "order"
+                else:
+                    caption_kind = "other_or_nonstandard"
+                return {
+                    "kind": "mdi_immediate_child",
+                    "depth": depth,
+                    "role": role[:32],
+                    "class": cls[:64],
+                    "native_handle_present": handle_present,
+                    "caption_kind": caption_kind,
+                }
+            current = parent
+        except (AttributeError, ValueError, TypeError, OSError):
+            return {"kind": "ancestry_unavailable"}
+    return {"kind": "ancestry_depth_exceeded"}
+
+
 def diagnose_native_scope_enrichment(scene, *, desktop=None) -> dict:
     """Explain precisely why scope enrichment stopped, without UI values/IDs.
 
@@ -345,6 +393,7 @@ def diagnose_native_scope_enrichment(scene, *, desktop=None) -> dict:
         "proven_outside_mdi": 0,
         "unresolved_ancestry": 0,
         "unresolved_reasons": {},
+        "unresolved_mdi_child_shapes": [],
         "existing_scope_conflicts": 0,
     }
     title = (scene.observation.state.active_window_title or "").strip()
@@ -422,6 +471,10 @@ def diagnose_native_scope_enrichment(scene, *, desktop=None) -> dict:
                 reason = unknown_mdi_ancestry_reason(found[0])
                 reasons = result["unresolved_reasons"]
                 reasons[reason] = reasons.get(reason, 0) + 1
+                if reason == "mdi_client_without_recognized_child":
+                    result["unresolved_mdi_child_shapes"].append(
+                        unresolved_mdi_child_shape(found[0], selected=selected)
+                    )
             existing = (element.metadata or {}).get("document_scope")
             if existing is not None and existing != owner:
                 # This remains only an indicator; never fixes source metadata.
