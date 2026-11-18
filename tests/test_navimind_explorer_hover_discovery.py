@@ -112,3 +112,21 @@ def test_visual_discovery_rejects_high_contrast_document_content():
         for e in found
     )
     assert not any(170 < e.x < 640 and 160 < e.y < 390 for e in found)
+
+
+def test_explorer_rejects_scroll_and_select_all_buttons():
+    elements = []
+    for index, label in enumerate(
+        ("Wiersz w górę", "Strona w dół", "Wiersz w dół",
+         "Zaznacz wszystkie", "Dodaj")
+    ):
+        elements.append(SimpleNamespace(
+            kind="button", label=label, x=10 + 45 * index, y=20,
+            width=24, height=24, has_bounds=True,
+            metadata={
+                "source": "windows_ui_automation", "uia_visible": True,
+                "uia_enabled": True, "uia_runtime_id": f"rid{index}",
+            },
+        ))
+    found = eligible_controls(_scene(elements=elements), limit=12)
+    assert [e.label for e in found] == ["Dodaj"]
