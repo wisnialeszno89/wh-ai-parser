@@ -294,6 +294,32 @@ def _provably_outside_mdi_client(wrapper) -> bool:
     return False
 
 
+def unknown_mdi_ancestry_reason(wrapper) -> str:
+    """Classify missing owner without exposing titles, HWNDs or private text."""
+    current = wrapper
+    seen = set()
+    for _ in range(40):
+        try:
+            parent = current.parent()
+            if parent is None:
+                return "chain_ended_without_proven_owner"
+            signature = id(parent)
+            if signature in seen:
+                return "cyclic_parent_chain"
+            seen.add(signature)
+            info = parent.element_info
+            class_name = str(getattr(info, "class_name", "") or "").casefold()
+            role = str(getattr(info, "control_type", "") or "").casefold()
+            if class_name == "mdiclient":
+                return "mdi_client_without_recognized_child"
+            if role == "window" and not int(getattr(info, "handle", 0) or 0):
+                return "window_ancestor_without_native_handle"
+            current = parent
+        except (AttributeError, ValueError, TypeError, OSError):
+            return "parent_chain_unavailable"
+    return "parent_chain_depth_exceeded"
+
+
 def diagnose_native_scope_enrichment(scene, *, desktop=None) -> dict:
     """Explain precisely why scope enrichment stopped, without UI values/IDs.
 
@@ -312,6 +338,7 @@ def diagnose_native_scope_enrichment(scene, *, desktop=None) -> dict:
         "native_owner_other": 0,
         "proven_outside_mdi": 0,
         "unresolved_ancestry": 0,
+        "unresolved_reasons": {},
         "existing_scope_conflicts": 0,
     }
     title = (scene.observation.state.active_window_title or "").strip()
@@ -386,6 +413,9 @@ def diagnose_native_scope_enrichment(scene, *, desktop=None) -> dict:
                 result["proven_outside_mdi"] += 1
             else:
                 result["unresolved_ancestry"] += 1
+                reason = unknown_mdi_ancestry_reason(found[0])
+                reasons = result["unresolved_reasons"]
+                reasons[reason] = reasons.get(reason, 0) + 1
             existing = (element.metadata or {}).get("document_scope")
             if existing is not None and existing != owner:
                 # This remains only an indicator; never fixes source metadata.
