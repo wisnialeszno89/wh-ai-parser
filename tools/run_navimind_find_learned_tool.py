@@ -14,7 +14,8 @@ import unicodedata
 
 ALIASES = {
     "okucia": ("okucia", "okucie", "wybor typu okuc", "wybór typu okuć", "hardware"),
-    "skrzydlo": ("skrzydlo", "skrzydłem", "skrzydlem", "sash", "oscieznica + skrzydlo"),
+    "skrzydlo": ("skrzydlo", "skrzydłem", "skrzydlem", "skrzydtem", "sash", "oscieznica + skrzydlo"),
+    "szklenie": ("szklenie", "szklenia", "wstawianie szklenia", "szyba", "szyby", "glazing"),
     "oscieznica": ("oscieznica", "oscieznicy", "rama", "frame"),
     "podzial": ("wiele pol", "rownooddalonych", "podzial", "division"),
     "nawietrzak": ("naszybowy", "nawietrzak", "vent"),
