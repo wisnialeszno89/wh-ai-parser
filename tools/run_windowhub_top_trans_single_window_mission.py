@@ -254,8 +254,53 @@ def toggle_price_once(scene, key, *, desired_checked=True):
     return True
 
 
+def _select_catalog_with_uia_patterns(wrapper, *, allowed, still_foreground):
+    """Read list items under the verified combo and select one exact match."""
+    if not still_foreground():
+        return False
+    expand = None
+    opened_here = False
+    try:
+        expand = wrapper.iface_expand_collapse
+        state = int(expand.CurrentExpandCollapseState)
+        if state == 0:  # UIA ExpandCollapseState_Collapsed
+            expand.Expand()
+            opened_here = True
+        elif state != 1:  # UIA ExpandCollapseState_Expanded
+            return False
+        rows = wrapper.descendants(control_type="ListItem")
+        available = [
+            row for row in rows
+            if (row.element_info.name or "").strip().casefold() in allowed
+        ]
+        print("CATALOG_OPTION_COUNT =", len(rows))
+        print("APPROVED_EXACT_MATCHES =", len(available))
+        if len(available) != 1:
+            return False
+        row = available[0]
+        if not (row.element_info.visible and row.element_info.enabled):
+            return False
+        selection = row.iface_selection_item
+        if selection is None or not still_foreground():
+            return False
+        selection.Select()
+        return True
+    except Exception as exc:
+        print("STOP = native catalog pattern unavailable", type(exc).__name__)
+        return False
+    finally:
+        if opened_here and still_foreground():
+            try:
+                if int(expand.CurrentExpandCollapseState) == 1:
+                    expand.Collapse()
+            except Exception as exc:
+                print("CATALOG_DROPDOWN_RESTORE_FAILED =", type(exc).__name__)
+
+
 def select_catalog_option_once(scene, *, field_name, approved_options):
     """Choose one exact native ComboBox option; no substring or first-row guessing."""
+    import ctypes
+    from ctypes import wintypes
     from pywinauto import Desktop
     snapshot = WindowHubOfferFormMap().inspect(scene)
     match = snapshot.field(field_name) if snapshot else None
@@ -272,6 +317,14 @@ def select_catalog_option_once(scene, *, field_name, approved_options):
     hwnd = scene.observation.metadata.get("window_handle")
     if not isinstance(hwnd, int) or hwnd <= 0:
         return False
+    foreground = ctypes.windll.user32.GetForegroundWindow
+    foreground.restype = wintypes.HWND
+
+    def still_foreground():
+        return foreground() == hwnd
+
+    if not still_foreground():
+        return False
     candidates = []
     for item in Desktop(backend="uia").window(handle=hwnd).wrapper_object().descendants():
         try:
@@ -287,21 +340,31 @@ def select_catalog_option_once(scene, *, field_name, approved_options):
         print("STOP = catalog native combo ambiguous", field_name, len(candidates))
         return False
     wrapper = candidates[0]
+    allowed = {v.strip().casefold() for v in approved_options}
+    print("CATALOG_FIELD =", field_name)
+    item_texts = getattr(wrapper, "item_texts", None)
+    select = getattr(wrapper, "select", None)
+    if not callable(item_texts) or not callable(select):
+        return _select_catalog_with_uia_patterns(
+            wrapper, allowed=allowed, still_foreground=still_foreground,
+        )
     try:
-        options = [str(v).strip() for v in wrapper.item_texts()]
+        options = [str(v).strip() for v in item_texts()]
+    except AttributeError:
+        return _select_catalog_with_uia_patterns(
+            wrapper, allowed=allowed, still_foreground=still_foreground,
+        )
     except Exception as exc:
         print("STOP = catalog options unreadable", type(exc).__name__)
         return False
-    allowed = {v.casefold() for v in approved_options}
     available = [option for option in options if option.casefold() in allowed]
-    print("CATALOG_FIELD =", field_name)
     print("CATALOG_OPTION_COUNT =", len(options))
     print("APPROVED_EXACT_MATCHES =", len(available))
-    if len(available) != 1:
+    if len(available) != 1 or not still_foreground():
         return False
     desired = available[0]
     try:
-        wrapper.select(desired)
+        select(desired)
     except Exception as exc:
         print("STOP = catalog selection unavailable", type(exc).__name__)
         return False
