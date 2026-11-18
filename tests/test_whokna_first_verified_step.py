@@ -52,3 +52,27 @@ def test_missing_runtime_identity_rejected(monkeypatch):
                         lambda s, label: SimpleNamespace(metadata={}))
     with pytest.raises(ValueError, match="runtime_id_missing"):
         first.prepare_add_action(scene())
+
+
+def test_unverified_target_diagnostic_is_read_only(monkeypatch):
+    monkeypatch.setattr(first, "duplicate_document_action_status",
+                        lambda s, label: {
+                            "selected_document_status": "no_unique_selected_document_tab",
+                            "observed": 2, "active_scope_proven": 0,
+                            "unresolved_scope": 2,
+                            "safe_unique_active_target": False,
+                        })
+    monkeypatch.setattr(first, "enrich_native_mdi_document_scope", lambda s: s)
+    monkeypatch.setattr(first, "inspect_native_mdi_button_ancestry",
+                        lambda s: {
+                            "status": "diagnostic_only_no_native_authorization",
+                            "uia_matched_uniquely": 2,
+                            "with_exact_mdi_ancestor": 0,
+                            "with_no_mdi_ancestor": 2,
+                            "with_ambiguous_mdi_ancestor": 0,
+                        })
+    result = first.diagnose_add_scope(scene())
+    assert result["observed_dodaj"] == 2
+    assert result["safe_unique_target"] is False
+    assert result["native_without_mdi_ancestor"] == 2
+    assert "document" not in result
