@@ -21,12 +21,42 @@ from app.agent.agent_action import AgentAction
 from app.agent.knowledge.whokna_live_offer_gate import observe_offer_gate
 from app.agent.knowledge.whokna_offer_guide import load_reference, offer_plan
 from app.agent.perception.semantic_target_query import SemanticTargetQuery
-from app.agent.runtime.active_document_scope import unique_active_document_control
+from app.agent.runtime.active_document_scope import (
+    unique_active_document_control, duplicate_document_action_status,
+)
 from app.agent.runtime.windowhub_goal_v2_coordinator import execute_v2_step
-from app.agent.runtime.windowhub_mdi_native_probe import enrich_native_mdi_document_scope
+from app.agent.runtime.windowhub_mdi_native_probe import (
+    enrich_native_mdi_document_scope, inspect_native_mdi_button_ancestry,
+)
 from app.agent.runtime.windows_desktop_agent_control_loop import (
     create_windows_desktop_agent_control_loop,
 )
+
+
+def diagnose_add_scope(scene) -> dict:
+    """Structured read-only reason why native document ownership is unresolved."""
+    selected = duplicate_document_action_status(scene, label="Dodaj")
+    try:
+        enriched = enrich_native_mdi_document_scope(scene)
+        scoped = duplicate_document_action_status(enriched, label="Dodaj")
+    except Exception as exc:
+        scoped = {"diagnostic_error": type(exc).__name__}
+    try:
+        native = inspect_native_mdi_button_ancestry(scene)
+    except Exception as exc:
+        native = {"status": "diagnostic_error_" + type(exc).__name__}
+    return {
+        "selected_tab_status": selected["selected_document_status"],
+        "observed_dodaj": selected["observed"],
+        "native_probe_status": native.get("status"),
+        "native_uia_matched": native.get("uia_matched_uniquely"),
+        "native_exact_mdi_ancestors": native.get("with_exact_mdi_ancestor"),
+        "native_without_mdi_ancestor": native.get("with_no_mdi_ancestor"),
+        "native_ambiguous_ancestors": native.get("with_ambiguous_mdi_ancestor"),
+        "active_scope_proven": scoped.get("active_scope_proven", 0),
+        "scope_unresolved": scoped.get("unresolved_scope", 0),
+        "safe_unique_target": scoped.get("safe_unique_active_target", False),
+    }
 
 
 def prepare_add_action(scene):
@@ -107,7 +137,12 @@ def main():
     try:
         native_scene, resolved, offer_name = prepare_add_action(scene)
     except (ValueError, RuntimeError, OSError) as exc:
+        if str(exc) == "unique_active_dodaj_not_verified":
+            import json
+            diagnosis = diagnose_add_scope(scene)
+            print("WH_STEP_SCOPE_DIAGNOSTICS=" + json.dumps(diagnosis, ensure_ascii=False), flush=True)
         print("WH_STEP_STOP=" + str(exc), flush=True)
+        print("WH_STEP_ACTIONS_EXECUTED=0", flush=True)
         return 4
     print("WH_STEP_TARGET=verified_active_document_Dodaj", flush=True)
     if not args.execute_live:
