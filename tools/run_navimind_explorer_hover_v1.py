@@ -120,25 +120,38 @@ def visual_hover_candidates(scene, *, limit: int) -> list:
         if w < 160 or h < 120:
             return []
         edge = gray.filter(ImageFilter.FIND_EDGES)
-        # Search toolbar-like areas: upper 30% and outer 18% of the sides.
+        # Avoid the document content: text in tables/diagrams has stronger
+        # edges than actual tiny toolbar icons. Probe narrow top/left bars,
+        # using relative limits so this also works in other applications.
         tile = 36
         stride = 36
-        scored = []
+        top_band = max(90, min(130, int(h * .095)))
+        left_band = max(44, min(76, int(w * .035)))
+        scored = {"top": [], "left": []}
         for y in range(36, h - tile, stride):
             for x in range(8, w - tile, stride):
-                if not (y < int(h * .30) or x < int(w * .18)
-                        or x > int(w * .82)):
+                region = (
+                    "top" if y + tile <= top_band
+                    else "left" if x + tile <= left_band else None
+                )
+                if region is None:
                     continue
                 crop = edge.crop((x, y, x + tile, y + tile))
                 stat = ImageStat.Stat(crop)
                 score = stat.mean[0] + .25 * stat.stddev[0]
                 if score < 14:
                     continue
-                scored.append((score, x, y))
-        scored.sort(reverse=True)
+                scored[region].append((score, x, y))
+        for group in scored.values():
+            group.sort(reverse=True)
         selected = []
-        for score, x, y in scored:
-            # Spread hovers across distinct regions; no dense sampling of text.
+        # Ensure both horizontal and vertical toolbars get sampled. No
+        # visual candidate is proof of interactivity or click permission.
+        while len(selected) < limit and any(scored.values()):
+            region = "top" if len(selected) % 2 == 0 else "left"
+            if not scored[region]:
+                region = "left" if region == "top" else "top"
+            score, x, y = scored[region].pop(0)
             if any(abs(x - prev.x) < tile * 2 and abs(y - prev.y) < tile * 2
                    for prev in selected):
                 continue
@@ -147,10 +160,9 @@ def visual_hover_candidates(scene, *, limit: int) -> list:
                 label="visual_region_" + str(len(selected) + 1),
                 x=x, y=y, width=tile, height=tile,
                 metadata={"source": "visual_exploration",
-                          "visual_edge_score": round(float(score), 2)},
+                          "visual_edge_score": round(float(score), 2),
+                          "toolbar_band": region},
             ))
-            if len(selected) >= limit:
-                break
         return selected
     except (ImportError, AttributeError, ValueError, TypeError) as exc:
         print("EXPLORER_VISUAL_ERROR=" + type(exc).__name__, flush=True)
