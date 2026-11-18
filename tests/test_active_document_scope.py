@@ -93,3 +93,30 @@ def test_print_template_buttons_excluded():
     )
     assert duplicate_document_action_status(s)["observed"] == 0
     assert unique_active_document_control(s) is None
+
+
+def test_native_active_offer_with_structurally_proven_global_buttons():
+    from dataclasses import replace
+    active = button("active", scope="OFR/4680-")
+    active = replace(active, metadata={
+        **active.metadata, "document_scope_source": "verified_native_mdi_child",
+    })
+    global_button = button("global", scope="__outside_mdi__")
+    global_button = replace(global_button, metadata={
+        **global_button.metadata, "document_scope_source": "verified_outside_mdi",
+    })
+    s = scene(selected_tab(), global_button, active)
+    assert duplicate_document_action_status(s)["safe_unique_active_target"] is True
+    assert unique_active_document_control(s) is active
+
+
+def test_global_button_cannot_mask_unproven_active_offer():
+    from dataclasses import replace
+    active = button("active", scope="OFR/4680-")
+    global_button = button("global", scope="__outside_mdi__")
+    global_button = replace(global_button, metadata={
+        **global_button.metadata, "document_scope_source": "verified_outside_mdi",
+    })
+    assert unique_active_document_control(
+        scene(selected_tab(), active, global_button)
+    ) is None
