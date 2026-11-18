@@ -100,8 +100,22 @@ def visual_hover_candidates(scene, *, limit: int) -> list:
     if image is None:
         return []
     try:
-        from PIL import ImageFilter, ImageStat
-        gray = image.convert("L")
+        from PIL import Image, ImageFilter, ImageStat
+        # MSSScreenshotEngine provides a NumPy BGRA array rather than a
+        # PIL.Image. Accept both representations without silently failing.
+        if isinstance(image, Image.Image):
+            gray = image.convert("L")
+        else:
+            import numpy as np
+            pixels = np.asarray(image)
+            if pixels.ndim == 3 and pixels.shape[2] in (3, 4):
+                # MSS channel order is BGR(A); edges need luminance only.
+                rgb = np.ascontiguousarray(pixels[:, :, :3][:, :, ::-1])
+                gray = Image.fromarray(rgb).convert("L")
+            elif pixels.ndim == 2:
+                gray = Image.fromarray(pixels.astype("uint8")).convert("L")
+            else:
+                return []
         w, h = gray.size
         if w < 160 or h < 120:
             return []
@@ -138,7 +152,8 @@ def visual_hover_candidates(scene, *, limit: int) -> list:
             if len(selected) >= limit:
                 break
         return selected
-    except (ImportError, AttributeError, ValueError, TypeError):
+    except (ImportError, AttributeError, ValueError, TypeError) as exc:
+        print("EXPLORER_VISUAL_ERROR=" + type(exc).__name__, flush=True)
         return []
 
 
