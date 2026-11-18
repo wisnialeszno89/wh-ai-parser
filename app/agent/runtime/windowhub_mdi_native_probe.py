@@ -294,6 +294,115 @@ def _provably_outside_mdi_client(wrapper) -> bool:
     return False
 
 
+def diagnose_native_scope_enrichment(scene, *, desktop=None) -> dict:
+    """Explain precisely why scope enrichment stopped, without UI values/IDs.
+
+    This is diagnostic evidence only and does not authorize any input.
+    """
+    from app.agent.runtime.active_document_scope import selected_document_tab
+    from app.agent.runtime.active_panel_context import panel_lineage
+    import os
+
+    result = {
+        "status": "not_started",
+        "active_title_matches_selected_tab": False,
+        "controls": 0,
+        "runtime_unique": 0,
+        "native_owner_active": 0,
+        "native_owner_other": 0,
+        "proven_outside_mdi": 0,
+        "unresolved_ancestry": 0,
+        "existing_scope_conflicts": 0,
+    }
+    title = (scene.observation.state.active_window_title or "").strip()
+    app = (scene.observation.state.active_application or "").replace("\\\\", "/").rsplit("/", 1)[-1].casefold()
+    if app != "okna.exe" or not title.casefold().startswith("okna - ofr/"):
+        result["status"] = "not_offer_foreground"
+        return result
+    selected, reason = selected_document_tab(scene)
+    result["selected_tab_status"] = reason
+    if not selected:
+        result["status"] = "selected_tab_missing"
+        return result
+    result["active_title_matches_selected_tab"] = native_title_matches(
+        selected, title[len("Okna - "):]
+    )
+    if not result["active_title_matches_selected_tab"]:
+        result["status"] = "selected_tab_and_foreground_disagree"
+        return result
+    if os.name != "nt" and desktop is None:
+        result["status"] = "windows_required"
+        return result
+
+    controls = [
+        e for e in scene.elements
+        if e.kind == "button"
+        and (e.label or "").strip().casefold() == "dodaj"
+        and (e.metadata or {}).get("source") in {
+            "windows_ui_automation", "windowhub_ui_automation"
+        }
+        and (e.metadata or {}).get("uia_visible") is True
+        and (e.metadata or {}).get("uia_enabled") is True
+        and not any(
+            "szablon" in p.casefold() or "wydruk" in p.casefold()
+            for p in panel_lineage(e)
+        )
+    ]
+    result["controls"] = len(controls)
+    if not 1 <= len(controls) <= 8:
+        result["status"] = "control_count_outside_limit"
+        return result
+    hwnd = scene.observation.metadata.get("window_handle")
+    if isinstance(hwnd, bool) or not isinstance(hwnd, int) or hwnd <= 0:
+        result["status"] = "missing_native_root_handle"
+        return result
+    try:
+        if desktop is None:
+            from pywinauto import Desktop
+            desktop = Desktop(backend="uia")
+        from app.agent.perception.windowhub_ui_automation_provider import (
+            WindowHubUIAutomationProvider,
+        )
+        descendants = desktop.window(handle=hwnd).wrapper_object().descendants()
+        mapping = {}
+        for wrapper in descendants[:6000]:
+            rid = WindowHubUIAutomationProvider._runtime_id(wrapper)
+            if isinstance(rid, str) and rid:
+                mapping.setdefault(rid, []).append(wrapper)
+        for element in controls:
+            rid = (element.metadata or {}).get("uia_runtime_id")
+            found = mapping.get(rid, [])
+            if len(found) != 1:
+                result["unresolved_ancestry"] += 1
+                continue
+            result["runtime_unique"] += 1
+            owner = _scoped_owner_from_native_chain(found[0])
+            if owner:
+                if native_title_matches(selected, owner):
+                    result["native_owner_active"] += 1
+                else:
+                    result["native_owner_other"] += 1
+            elif _provably_outside_mdi_client(found[0]):
+                result["proven_outside_mdi"] += 1
+            else:
+                result["unresolved_ancestry"] += 1
+            existing = (element.metadata or {}).get("document_scope")
+            if existing is not None and existing != owner:
+                # This remains only an indicator; never fixes source metadata.
+                result["existing_scope_conflicts"] += 1
+        if result["unresolved_ancestry"]:
+            result["status"] = "unresolved_native_ancestry"
+        elif result["native_owner_active"] != 1:
+            result["status"] = "active_owner_not_unique"
+        elif result["existing_scope_conflicts"]:
+            result["status"] = "existing_scope_conflict"
+        else:
+            result["status"] = "scope_evidence_candidate"
+    except Exception as exc:
+        result["status"] = "native_probe_error_" + type(exc).__name__
+    return result
+
+
 def enrich_native_mdi_document_scope(scene, *, desktop=None):
     """Attach verified OFR/ZLC owners; classify unrelated global controls structurally.
 
