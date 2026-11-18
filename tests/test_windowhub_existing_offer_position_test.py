@@ -118,3 +118,60 @@ def test_basic_parameters_prefers_known_next_when_finish_is_also_visible(monkeyp
     monkeypatch.setattr(mission, "inspect", lambda loop: after)
     assert mission.confirm_stage(object(), before, "OFR/42-", native_owner("Okna - OFR/42-")) is after
     assert calls == ["Dalej >"]
+
+
+def test_finish_waits_when_the_old_snapshot_has_already_lost_focus(monkeypatch):
+    before = scene("Podstawowe parametry okna", elements=(button("Zakończ"),))
+    after = scene("Modyfikator", hwnd=201)
+    hwnd = [200]
+    calls = []
+    api = native_owner("Okna - OFR/42-")
+    api.foreground = lambda: hwnd[0]
+
+    def invoke():
+        calls.append("finish")
+        hwnd[0] = 201
+
+    observations = iter((before, after))
+    monkeypatch.setattr(mission, "inspect", lambda loop: next(observations))
+    monkeypatch.setattr(mission.time, "sleep", lambda seconds: None)
+    monkeypatch.setattr(mission, "resolve_native_wrapper", lambda *args, **kwargs: NS(
+        iface_invoke=NS(Invoke=invoke),
+    ))
+
+    assert mission.confirm_stage(object(), before, "OFR/42-", api) is after
+    assert calls == ["finish"]
+
+
+def test_from_start_runs_only_on_the_offer_confirmed_by_document_core(monkeypatch):
+    from app.agent.runtime import windowhub_document_core as document
+    from tools import run_windowhub_new_offer_entry as entry
+
+    calls = []
+    start = scene("Okna - Start1")
+    wizard = scene("Dodawanie nowej pozycji")
+    api = native_owner("Okna - OFR/42 <>")
+    monkeypatch.setattr(mission, "inspect", lambda loop: start)
+    monkeypatch.setattr(entry, "main", lambda args: calls.append(("new_offer", args)) or 0)
+
+    def setup(*, customer_name, fresh_document, on_confirmed):
+        calls.append(("setup", customer_name, fresh_document))
+        on_confirmed(wizard)
+        return 0
+
+    monkeypatch.setattr(document, "run_document_core", setup)
+    monkeypatch.setattr(mission, "run", lambda loop, offer, api, **kwargs: (
+        calls.append(("position", offer, kwargs)) or 0
+    ))
+
+    assert mission.run_from_start(object(), "Test", api) == 0
+    assert calls == [
+        ("new_offer", ["--execute-live"]),
+        ("setup", "Test", True),
+        ("position", "OFR/42 <>", {"stop_at_editor": True}),
+    ]
+
+
+def test_from_start_refuses_to_create_offer_if_a_wizard_is_open(monkeypatch):
+    monkeypatch.setattr(mission, "inspect", lambda loop: scene("Podstawowe parametry okna"))
+    assert mission.run_from_start(object(), "Test", native_owner("Okna - OFR/42-")) == 4

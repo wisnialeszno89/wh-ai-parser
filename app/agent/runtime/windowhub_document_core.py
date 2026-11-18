@@ -27,7 +27,7 @@ def document_readiness(*, customer_verified: bool, flags_verified: bool) -> str:
 
 def run_document_core(*, customer_name: str, fresh_document: bool,
                       interactive_handoff: bool = False,
-                      ask=input) -> int:
+                      ask=input, on_confirmed=None) -> int:
     """Configure document, then confirm only after full evidence.
 
     When resuming an open dialog, never retype a previously clicked customer
@@ -170,18 +170,18 @@ def run_document_core(*, customer_name: str, fresh_document: bool,
     except Exception as exc:
         print("DOCUMENT_CONFIRM_ERROR=" + type(exc).__name__)
         return 6
-    for expected in ("offer_document", "position"):
-        # Each observation is fresh; no second click, and no document saving.
-        scene = inspect(loop)
-        if stage_of(scene) == expected:
-            print("DOCUMENT_CONFIRM_STAGE=" + expected)
-            return 0
     from time import sleep
-    for _ in range(3):
-        sleep(0.25)
+    for attempt in range(5):
         scene = inspect(loop)
-        if stage_of(scene) in {"offer_document", "position"}:
-            print("DOCUMENT_CONFIRM_STAGE=" + str(stage_of(scene)))
+        stage = stage_of(scene)
+        if stage in {"offer_document", "position"}:
+            print("DOCUMENT_CONFIRM_STAGE=" + stage)
+            if on_confirmed is not None:
+                on_confirmed(scene)
             return 0
+        if stage != "document_properties" and stage != "windowhub_unmapped":
+            break
+        if attempt < 4:
+            sleep(0.25)
     print("DOCUMENT_CONFIRM=transition_unverified")
     return 6

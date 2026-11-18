@@ -32,19 +32,31 @@ _NEXT_STAGES = {
 }
 
 
-def belongs_to_offer(scene, offer, api):
+def foreground_offer_caption(scene, api):
+    """Read the offer caption from the current document or its foreground wizard owner."""
     stage = stage_of(scene)
     hwnd = scene.observation.metadata.get("window_handle")
     if type(hwnd) is not int or hwnd <= 0 or api.foreground() != hwnd:
-        return False
+        return None
     if stage == "offer_document":
-        identity = offer_diagnostic(scene, offer)
-        return identity["selected_offer_matches_requested"] and identity["foreground_offer_matches_requested"]
-    if stage not in _WIZARDS:
+        title = (scene.observation.state.active_window_title or "").strip()
+    elif stage in _WIZARDS:
+        owner = api.parent(hwnd, 3)  # GA_ROOTOWNER
+        title = api.title(owner).strip() if owner and owner != hwnd else ""
+    else:
+        return None
+    if title.casefold().startswith("okna - ofr/") and offer_caption_id(title[7:]) is not None:
+        return title[7:]
+    return None
+
+
+def belongs_to_offer(scene, offer, api):
+    caption = foreground_offer_caption(scene, api)
+    if not same_offer_id(caption, offer):
         return False
-    owner = api.parent(hwnd, 3)  # GA_ROOTOWNER
-    title = api.title(owner).strip() if owner and owner != hwnd else ""
-    return title.casefold().startswith("okna - ofr/") and same_offer_id(title[7:], offer)
+    if stage_of(scene) == "offer_document":
+        return offer_diagnostic(scene, offer)["selected_offer_matches_requested"]
+    return True
 
 
 def confirm_stage(loop, scene, offer, api):
@@ -89,16 +101,23 @@ def confirm_stage(loop, scene, offer, api):
     except Exception as exc:
         print("TEST_CONFIRM_EFFECT_UNKNOWN=" + type(exc).__name__)
         return None
-    for i in range(4):
+    for i in range(7):
         after = inspect(loop)
         destination = stage_of(after)
-        if destination in allowed and belongs_to_offer(after, offer, api):
+        owner_matches = belongs_to_offer(after, offer, api)
+        print(f"TEST_CONFIRM_OBSERVED={destination}:owner_match_{owner_matches}")
+        if destination in allowed and owner_matches:
             print(f"TEST_CONFIRM_VERIFIED={stage}->{destination}")
             return after
-        if destination != stage or not belongs_to_offer(after, offer, api):
+        # A capture may have started before the modal changed. If the old
+        # HWND lost focus during that capture, take a fresh observation.
+        # Only a recognized destination with matching OFR can succeed.
+        if destination not in {stage, "windowhub_unmapped"} and destination not in allowed:
             break
-        if i < 3:
-            time.sleep(0.25)
+        if destination == "offer_document" and not owner_matches:
+            break
+        if i < 6:
+            time.sleep(0.4)
     print("TEST_CONFIRM_UNVERIFIED=" + stage)
     return None
 
@@ -134,7 +153,7 @@ def stop(reason):
     return 4
 
 
-def run(loop, offer, api):
+def run(loop, offer, api, *, stop_at_editor=False):
     from tools.run_windowhub_local_select_window_once import run as select_window
     from tools.run_windowhub_local_quantity_once import run as set_quantity
     from tools.run_windowhub_local_dimensions_once import run as set_dimensions
@@ -204,7 +223,7 @@ def run(loop, offer, api):
     if stage == "basic_parameters":
         scene = choose_catalog(
             loop, scene, offer, api, "profile_color", colors,
-            accepted_defaults=("Biały", "Biały / Biały"),
+            accepted_defaults=("Biały", "Biały / Biały", "BIAŁY CZARNA USZCZELKA"),
         )
         if scene is None:
             return stop("profile_color_selection_or_readback_unverified")
@@ -248,15 +267,48 @@ def run(loop, offer, api):
     # Returning to the same offer proves navigation, but not an added row.
     # Modifier may open with an unbuilt frame. Do not accept an empty editor.
     if stage == "modifier":
+        if stop_at_editor and color_verified and belongs_to_offer(scene, offer, api):
+            print("TEST_RESULT=construction_editor_reached")
+            return 0
         return stop("construction_editor_reached_position_commit_unverified")
     if stage == "offer_document":
         return stop("returned_to_requested_offer_new_row_unverified")
     return stop("unsupported_stage")
 
 
+def run_from_start(loop, customer, api):
+    from app.agent.runtime.windowhub_document_core import run_document_core
+    from tools.run_windowhub_new_offer_entry import main as open_offer
+
+    if stage_of(inspect(loop)) != "start":
+        return stop("expected_start1_before_new_offer")
+    if open_offer(["--execute-live"]) != 0:
+        return stop("new_offer_entry_unverified")
+    confirmed = []
+
+    def capture(scene):
+        caption = foreground_offer_caption(scene, api)
+        if caption and belongs_to_offer(scene, caption, api):
+            confirmed.append(caption)
+
+    code = run_document_core(
+        customer_name=customer, fresh_document=True, on_confirmed=capture,
+    )
+    if code != 0:
+        return stop("customer_prices_or_document_confirmation_unverified")
+    if len(confirmed) != 1:
+        return stop("created_offer_identity_unverified")
+    offer = confirmed[0]
+    print("TEST_DOCUMENT_CONFIRMED=True")
+    print("TEST_TARGET_OFFER=" + offer)
+    return run(loop, offer, api, stop_at_editor=True)
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--execute-live", action="store_true")
+    parser.add_argument("--from-start", action="store_true",
+                        help="Create one test offer from Start1 for an existing test customer")
     parser.add_argument("--start-delay", type=int, default=12, choices=range(0, 31), metavar="0..30")
     args = parser.parse_args(argv)
     if os.name != "nt" or not args.execute_live:
@@ -264,15 +316,23 @@ def main(argv=None):
     if any(os.environ.get(name) != "1" for name in ("COMPUTER_USE_LIVE", "WH_REAL_WINDOWHUB")):
         return stop("desktop_access_not_authorized")
     try:
-        offer = input("Numer otwartej oferty testowej (OFR/…): ").strip()
+        target = input(
+            "Dokładna nazwa istniejącego klienta testowego: " if args.from_start
+            else "Numer otwartej oferty testowej (OFR/…): "
+        ).strip()
     except (EOFError, KeyboardInterrupt):
-        return stop("no_test_offer_provided")
-    if offer_caption_id(offer) is None:
+        return stop("no_test_target_provided")
+    if args.from_start:
+        if not target or len(target) > 100 or any(ord(ch) < 32 for ch in target):
+            return stop("invalid_test_customer_name")
+    elif offer_caption_id(target) is None:
         return stop("invalid_test_offer_number")
     print(f"Przejdz do WindowHub. Start za {args.start_delay} s.", flush=True)
     time.sleep(args.start_delay)
     from app.agent.runtime.windows_desktop_agent_control_loop import create_windows_desktop_agent_control_loop
-    return run(create_windows_desktop_agent_control_loop(), offer, _Win32Mdi())
+    loop = create_windows_desktop_agent_control_loop()
+    api = _Win32Mdi()
+    return run_from_start(loop, target, api) if args.from_start else run(loop, target, api)
 
 
 if __name__ == "__main__":
