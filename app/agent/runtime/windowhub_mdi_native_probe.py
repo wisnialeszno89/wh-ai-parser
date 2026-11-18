@@ -465,12 +465,15 @@ def enrich_native_mdi_document_scope(scene, *, desktop=None):
                 # accessible chain. It is not eligible for document actions.
                 scoped[id(element)] = ("__outside_mdi__", "verified_outside_mdi")
             else:
-                return scene
+                # Keep the one unresolved control unscoped. Preserving
+                # five proven owners is useful diagnostic information,
+                # but the unknown control still prevents a live action.
+                continue
         if sum(native_title_matches(selected, owner) for owner, _ in scoped.values()) != 1:
             return scene
         if any(
             (e.metadata or {}).get("document_scope") not in (None, scoped[id(e)][0])
-            for e in controls
+            for e in controls if id(e) in scoped
         ):
             return scene
         return replace(
