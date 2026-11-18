@@ -261,7 +261,7 @@ def window_origin(scene) -> tuple[int, int]:
 
 def explore(*, expected_process: str, limit: int, hover_seconds: float,
             output: Path, start_delay: int = 6,
-            auto_focus: bool = True, window_title_contains: str = "") -> int:
+            auto_focus: bool = False, window_title_contains: str = "") -> int:
     if os.name != "nt":
         print("EXPLORER_STOP=windows_required")
         return 2
@@ -275,6 +275,7 @@ def explore(*, expected_process: str, limit: int, hover_seconds: float,
         print("EXPLORER_STOP=invalid_start_delay")
         return 2
     if auto_focus:
+        print("EXPLORER_FOCUS_MODE=AUTOMATIC_OPT_IN", flush=True)
         ok, reason = focus_application_for_exploration(
             process=expected_process, title_contains=window_title_contains,
             prefer_unique_offer=(expected_process.casefold() == "okna.exe"
@@ -285,6 +286,7 @@ def explore(*, expected_process: str, limit: int, hover_seconds: float,
             print("EXPLORER_STOP=auto_focus_unavailable")
             return 4
     else:
+        print("EXPLORER_FOCUS_MODE=MANUAL_SAFE", flush=True)
         print("EXPLORER_PREPARE=Switch focus to the target application now", flush=True)
         time.sleep(start_delay)
     hwnd, process = current_foreground()
@@ -443,8 +445,8 @@ def main():
     parser.add_argument("--limit", type=int, default=10)
     parser.add_argument("--hover-seconds", type=float, default=0.9)
     parser.add_argument("--start-delay", type=int, default=6)
-    parser.add_argument("--manual-focus", action="store_true",
-                        help="Disable automatic activation; use --start-delay instead")
+    parser.add_argument("--auto-focus", action="store_true",
+                        help="Opt-in: activate an unambiguous application window automatically")
     parser.add_argument("--window-title-contains", default="",
                         help="Optional case-insensitive substring to disambiguate target window")
     parser.add_argument("--output", type=Path, default=Path("explorer_hover_results.json"))
@@ -452,7 +454,7 @@ def main():
     return explore(expected_process=args.process, limit=args.limit,
                    hover_seconds=args.hover_seconds, output=args.output,
                    start_delay=args.start_delay,
-                   auto_focus=not args.manual_focus,
+                   auto_focus=args.auto_focus,
                    window_title_contains=args.window_title_contains)
 
 
