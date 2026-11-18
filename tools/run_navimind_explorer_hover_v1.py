@@ -381,6 +381,31 @@ def explore(*, expected_process: str, limit: int, hover_seconds: float, output: 
         "uia_diagnostics": diagnostic,
         "records": results,
     }, ensure_ascii=False, indent=2), encoding="utf-8")
+    icon_map_path = output.with_name(output.stem + "_icon_map.json")
+    icon_map = {
+        "schema": "navimind.icon_map.unverified.v1",
+        "application": process,
+        "scope": "foreground_window_only",
+        "skills_verified": False,
+        "icons": [
+            {
+                "relative_bounds": row["rect_relative"],
+                "pointer": row["hover_at_relative"],
+                "label_hypothesis": row["tooltip_ocr"]["text"],
+                "ocr_confidence": row["tooltip_ocr"]["confidence"],
+                "evidence": row["tooltip_ocr"]["status"],
+                "behavior_verified": False,
+            }
+            for row in results
+        ],
+    }
+    icon_map_path.write_text(
+        json.dumps(icon_map, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    print("EXPLORER_ICON_MAP=" + str(icon_map_path))
+    print("EXPLORER_TOOLTIP_CANDIDATES=" + str(sum(
+        bool(row["tooltip_ocr"]["text"]) for row in results
+    )))
     print("EXPLORER_ACTIONS_CLICKED=0")
     print("EXPLORER_OUTPUT=" + str(output))
     print("EXPLORER_FRAMES_FOLDER=" + str(frames_dir))
