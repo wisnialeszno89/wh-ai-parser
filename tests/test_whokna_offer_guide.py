@@ -54,3 +54,22 @@ def test_does_not_assume_sash_click_when_frame_type_autoinserts_it():
     sash = next(x for x in plan["stages"] if x["id"] == "verify_sash")
     assert "Sprawdź" in sash["title"]
     assert sash["requires_test_offer_for_write"] is False
+
+
+def test_tooltip_szklenia_matches_glazing_stage():
+    learned = {
+        "schema": "navimind.icon_map.unverified.v1",
+        "icons": [{
+            "evidence": "ocr_candidate_unverified",
+            "label_hypothesis": "Szklenia Wstawianie szklenia",
+            "ocr_confidence": 88,
+            "pointer": [26, 620],
+            "relative_bounds": [8, 602, 36, 36],
+        }],
+    }
+    stages = offer_plan(
+        load_reference(), width=1500, height=1400, icon_map=learned
+    )["stages"]
+    glazing = next(s for s in stages if s["id"] == "glazing")
+    assert glazing["tool_hypotheses"]
+    assert glazing["tool_hypotheses"][0]["behavior_verified"] is False
