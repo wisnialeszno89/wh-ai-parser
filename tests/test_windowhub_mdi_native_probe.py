@@ -167,3 +167,56 @@ def test_real_object_cycle_is_still_rejected():
 
     assert _provably_outside_mdi_client(Cyclic()) is False
     assert unknown_mdi_ancestry_reason(Cyclic()) == "cyclic_parent_chain"
+
+
+def test_unresolved_mdi_child_shape_is_non_authorizing_and_private():
+    from types import SimpleNamespace
+    from app.agent.runtime.windowhub_mdi_native_probe import unresolved_mdi_child_shape
+
+    class Node:
+        def __init__(self, role, cls, handle=0, title="", parent=None):
+            self.element_info = SimpleNamespace(
+                control_type=role, class_name=cls, handle=handle, name=title,
+            )
+            self._parent = parent
+
+        def parent(self):
+            return self._parent
+
+    root = Node("Window", "WindowRoot", 10, "Private customer")
+    mdi = Node("Pane", "MDIClient", 20, parent=root)
+    child = Node("Window", "AfxFrameOrView", 30, "Private customer", mdi)
+    target = Node("Button", "Button", 0, "Dodaj", child)
+    shape = unresolved_mdi_child_shape(target, selected="OFR/4708-")
+    assert shape == {
+        "kind": "mdi_immediate_child",
+        "depth": 1,
+        "role": "window",
+        "class": "afxframeorview",
+        "native_handle_present": True,
+        "caption_kind": "other_or_nonstandard",
+    }
+    assert "Private customer" not in str(shape)
+    assert "Dodaj" not in str(shape)
+
+
+def test_unresolved_mdi_child_reports_nonmatching_offer_without_names():
+    from types import SimpleNamespace
+    from app.agent.runtime.windowhub_mdi_native_probe import unresolved_mdi_child_shape
+
+    class Node:
+        def __init__(self, role, cls, handle, title, parent=None):
+            self.element_info = SimpleNamespace(
+                control_type=role, class_name=cls, handle=handle, name=title,
+            )
+            self._parent = parent
+
+        def parent(self):
+            return self._parent
+
+    mdi = Node("Pane", "MDIClient", 42, "")
+    child = Node("Window", "MDIChild", 43, "OFR/4777-", mdi)
+    button = Node("Button", "Button", 0, "Dodaj", child)
+    shape = unresolved_mdi_child_shape(button, selected="OFR/4708-")
+    assert shape["caption_kind"] == "offer_other"
+    assert "4777" not in str(shape)
