@@ -13,6 +13,7 @@ from ctypes import wintypes
 import json
 import os
 from pathlib import Path
+from types import SimpleNamespace
 import sys
 import time
 
@@ -56,6 +57,89 @@ def eligible_controls(scene, *, limit: int) -> list:
         if len(selected) >= limit:
             break
     return selected
+
+
+def candidate_diagnostics(scene) -> dict[str, int]:
+    """Show why the original strict UIA candidate selector found nothing."""
+    counts = {
+        "scene_elements": len(scene.elements),
+        "uia_elements": 0, "interactive_roles": 0,
+        "visible_enabled": 0, "sized": 0,
+        "unique_runtime_ids": 0,
+    }
+    seen = set()
+    for e in scene.elements:
+        m = e.metadata or {}
+        if m.get("source") not in UIA_SOURCES:
+            continue
+        counts["uia_elements"] += 1
+        if e.kind not in INTERACTIVE_ROLES:
+            continue
+        counts["interactive_roles"] += 1
+        if m.get("uia_visible") is not True or m.get("uia_enabled") is not True:
+            continue
+        counts["visible_enabled"] += 1
+        if not e.has_bounds or not 8 <= e.width <= 160 or not 8 <= e.height <= 100:
+            continue
+        counts["sized"] += 1
+        ident = m.get("uia_runtime_id")
+        if isinstance(ident, str) and ident.strip() and ident not in seen:
+            seen.add(ident)
+            counts["unique_runtime_ids"] += 1
+    return counts
+
+
+def visual_hover_candidates(scene, *, limit: int) -> list:
+    """Image-based discovery only; candidates NEVER authorize clicks.
+
+    Locate high-contrast patches in likely toolbar bands. The visual rank is
+    merely a hover hypothesis, not an icon classification or UI capability.
+    """
+    screenshot = scene.observation.metadata.get("screenshot")
+    image = getattr(screenshot, "image", None)
+    if image is None:
+        return []
+    try:
+        from PIL import ImageFilter, ImageStat
+        gray = image.convert("L")
+        w, h = gray.size
+        if w < 160 or h < 120:
+            return []
+        edge = gray.filter(ImageFilter.FIND_EDGES)
+        # Search toolbar-like areas: upper 30% and outer 18% of the sides.
+        tile = 36
+        stride = 36
+        scored = []
+        for y in range(36, h - tile, stride):
+            for x in range(8, w - tile, stride):
+                if not (y < int(h * .30) or x < int(w * .18)
+                        or x > int(w * .82)):
+                    continue
+                crop = edge.crop((x, y, x + tile, y + tile))
+                stat = ImageStat.Stat(crop)
+                score = stat.mean[0] + .25 * stat.stddev[0]
+                if score < 14:
+                    continue
+                scored.append((score, x, y))
+        scored.sort(reverse=True)
+        selected = []
+        for score, x, y in scored:
+            # Spread hovers across distinct regions; no dense sampling of text.
+            if any(abs(x - prev.x) < tile * 2 and abs(y - prev.y) < tile * 2
+                   for prev in selected):
+                continue
+            selected.append(SimpleNamespace(
+                kind="visual_hover_region",
+                label="visual_region_" + str(len(selected) + 1),
+                x=x, y=y, width=tile, height=tile,
+                metadata={"source": "visual_exploration",
+                          "visual_edge_score": round(float(score), 2)},
+            ))
+            if len(selected) >= limit:
+                break
+        return selected
+    except (ImportError, AttributeError, ValueError, TypeError):
+        return []
 
 
 def control_text(scene) -> set[str]:
@@ -138,7 +222,15 @@ def explore(*, expected_process: str, limit: int, hover_seconds: float, output: 
     visible_height = int(win_rect.height)
     if visible_width <= 0 or visible_height <= 0:
         raise RuntimeError("window_dimensions_invalid")
+    diagnostic = candidate_diagnostics(scene)
+    print("EXPLORER_UIA_DIAGNOSTICS=" + json.dumps(diagnostic), flush=True)
     candidates = eligible_controls(scene, limit=limit)
+    discovery_mode = "uia"
+    if not candidates:
+        # WindowHub and custom-drawn software often paint toolbar icons
+        # without exporting conventional accessible Button controls.
+        candidates = visual_hover_candidates(scene, limit=limit)
+        discovery_mode = "visual_hover_hypotheses"
     before = control_text(scene)
     user32 = ctypes.windll.user32
     cursor_start = wintypes.POINT()
@@ -146,6 +238,7 @@ def explore(*, expected_process: str, limit: int, hover_seconds: float, output: 
     output.parent.mkdir(parents=True, exist_ok=True)
     results = []
     print("EXPLORER_MODE=HOVER_ONLY_NO_CLICKS", flush=True)
+    print("EXPLORER_DISCOVERY_MODE=" + discovery_mode, flush=True)
     print("EXPLORER_CANDIDATES=" + str(len(candidates)), flush=True)
     print("EXPLORER_PROCESS=" + process, flush=True)
     try:
@@ -187,6 +280,8 @@ def explore(*, expected_process: str, limit: int, hover_seconds: float, output: 
         "application": process,
         "window_title": scene.observation.state.active_window_title,
         "mode": "hover_only",
+        "discovery_mode": discovery_mode,
+        "uia_diagnostics": diagnostic,
         "records": results,
     }, ensure_ascii=False, indent=2), encoding="utf-8")
     print("EXPLORER_ACTIONS_CLICKED=0")
