@@ -222,3 +222,19 @@ def test_hit_requires_the_same_runtime_and_current_mdi_child(hit_case, allowed):
         metadata={"automation_id": "button-id", "uia_runtime_id": "1-2"},
         desktop=NS(from_point=lambda x, y: hit), win32=api,
     ) is allowed
+
+
+def test_caption_decoration_does_not_change_verified_offer_scope():
+    before = scene("A", "B", title="Okna - OFR/4678 <>")
+    active = tree("OFR/4678", rid="A")
+    other = tree("OFR/4678-2 <>", rid="B")
+    after = scope(before, [active, other])
+    assert unique_active_document_control(after) is after.elements[1]
+    assert after.elements[1].metadata["document_scope"] == "OFR/4678-"
+
+
+def test_multiple_controls_with_the_same_normalized_owner_stay_ambiguous():
+    before = scene("A", "B", title="Okna - OFR/4678 <>")
+    active = tree("OFR/4678", rid="A")
+    duplicate = tree("OFR/4678 <>", rid="B")
+    assert scope(before, [active, duplicate]) is before

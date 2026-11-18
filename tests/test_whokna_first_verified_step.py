@@ -108,3 +108,39 @@ def test_cached_document_scope_is_not_accepted_without_fresh_proof(monkeypatch):
     monkeypatch.setattr(first, "unique_active_document_control", lambda s, label: element())
     with pytest.raises(ValueError, match="unique_active_dodaj_not_verified"):
         first.prepare_add_action(scene())
+
+
+@pytest.mark.parametrize("tab, title, expected", [
+    ("OFR/42-", "Okna - OFR/42 <>", True),
+    ("OFR/42", "Okna - OFR/42-99 <>", False),
+    ("OFR/42-99", "Okna - OFR/42-99 <>", False),
+    ("OFR/43-", "Okna - OFR/42 <>", False),
+    ("OFR/42-", "Okna - OFR/42 customer text", False),
+])
+def test_cli_requires_requested_full_id_in_both_tab_and_foreground(
+    monkeypatch, capsys, tab, title, expected,
+):
+    observed = scene(title)
+    observed.elements = (SimpleNamespace(kind="tabitem", label=tab, metadata={
+        "source": "windows_ui_automation", "uia_tab_scope": "document",
+        "uia_visible": True, "uia_selected": True,
+    }),)
+    monkeypatch.setattr(first, "os", SimpleNamespace(
+        name="nt", environ={"COMPUTER_USE_LIVE": "1", "WH_REAL_WINDOWHUB": "1"},
+    ))
+    monkeypatch.setattr(first.sys, "argv", [
+        "whokna", "--offer", "OFR/42-", "--execute-live", "--start-delay", "0",
+    ])
+    monkeypatch.setattr(first, "create_windows_desktop_agent_control_loop", object)
+    monkeypatch.setattr(first, "observe_offer_gate", lambda loop: (
+        SimpleNamespace(ok=True, scene_stage="offer_document"), observed,
+    ))
+    monkeypatch.setattr(first, "prepare_add_action", lambda s: (s, None, title[7:]))
+    calls = []
+    monkeypatch.setattr(first, "execute_v2_step", lambda *args, **kwargs: calls.append(kwargs))
+    assert first.main() == (0 if expected else 4)
+    assert calls == ([{"expected_offer": title[7:], "approved_persistent": False}] if expected else [])
+    output = capsys.readouterr().out
+    assert "WH_STEP_OFFER_IDENTITY=" in output
+    assert "OFR/" not in output
+    assert "customer text" not in output

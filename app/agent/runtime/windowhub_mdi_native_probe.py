@@ -13,7 +13,7 @@ import re
 # Observed WH captions include OFR/4687- and OFR/4488-4300 <>.
 # A parsed number is not proof of ownership; native MDI hierarchy and exact
 # selected-tab caption must still agree before enabling any action.
-_OFFER_CAPTION = re.compile(r"^OFR/\d+(?:-\d+)*-?(?:\s*<>)?$", re.IGNORECASE)
+_OFFER_CAPTION = re.compile(r"^OFR/([0-9]+(?:-[0-9]+)*)-?(?:\s*<>)?$", re.IGNORECASE)
 _ORDER_CAPTION = re.compile(r"^ZLC/\d+(?:-\d+)*-?(?:\s+.{1,160})?$", re.IGNORECASE)
 
 
@@ -26,6 +26,17 @@ class MdiProbe:
     native_distinct_roots: int
     unknown_buttons: int
     status: str
+
+
+def offer_caption_id(caption: str | None) -> str | None:
+    """Return the complete OFR identifier, without known display decorations."""
+    match = _OFFER_CAPTION.fullmatch(caption.strip()) if isinstance(caption, str) else None
+    return match[1] if match else None
+
+
+def same_offer_id(left: str | None, right: str | None) -> bool:
+    identity = offer_caption_id(left)
+    return identity is not None and identity == offer_caption_id(right)
 
 
 def native_title_matches(selected_name: str, title: str) -> bool:
@@ -463,7 +474,7 @@ def _verified_inactive_mdi_siblings(wrappers, selected, root, api) -> tuple[set[
         return set(), "foreground_changed"
     active_candidates = [
         w for w in wrappers
-        if native_title_matches(selected, _scoped_owner_from_native_chain(w) or "")
+        if same_offer_id(selected, _scoped_owner_from_native_chain(w))
     ]
     if len(active_candidates) != 1:
         return set(), "titled_active_candidate_not_unique"
@@ -473,7 +484,7 @@ def _verified_inactive_mdi_siblings(wrappers, selected, root, api) -> tuple[set[
     host, child = lineage
     if api.parent(host, 2) != root:  # GA_ROOT follows parent links.
         return set(), "host_outside_foreground"
-    if api.active_child(host) != child or not native_title_matches(selected, api.title(child)):
+    if api.active_child(host) != child or not same_offer_id(selected, api.title(child)):
         return set(), "active_mdi_disagrees"
     excluded = set()
     for wrapper in wrappers:
@@ -483,7 +494,7 @@ def _verified_inactive_mdi_siblings(wrappers, selected, root, api) -> tuple[set[
         if sibling is not None and sibling[0] == host and sibling[1] != child:
             excluded.add(id(wrapper))
     if (api.foreground() != root or api.active_child(host) != child
-            or not native_title_matches(selected, api.title(child))):
+            or not same_offer_id(selected, api.title(child))):
         return set(), "active_mdi_changed"
     return excluded, "inactive_sibling_verified" if excluded else "no_inactive_sibling_proven"
 
@@ -509,7 +520,7 @@ def verify_mdi_add_hit(point, *, root, expected_offer, metadata, desktop=None, w
             or not info.visible or not info.enabled
             or info.automation_id != metadata.get("automation_id")
             or WindowHubUIAutomationProvider._runtime_id(hit) != metadata.get("uia_runtime_id")
-            or not native_title_matches(expected_offer, _scoped_owner_from_native_chain(hit) or "")
+            or not same_offer_id(expected_offer, _scoped_owner_from_native_chain(hit) or "")
         ):
             return False
         lineage = _win32_mdi_lineage(hit, api)
@@ -519,7 +530,7 @@ def verify_mdi_add_hit(point, *, root, expected_offer, metadata, desktop=None, w
         return (
             api.parent(host, 2) == root
             and api.active_child(host) == child
-            and native_title_matches(expected_offer, api.title(child))
+            and same_offer_id(expected_offer, api.title(child))
             and native_title_matches("Okna - " + expected_offer, api.title(root))
             and api.foreground() == root
         )
@@ -574,7 +585,7 @@ def diagnose_native_scope_enrichment(scene, *, desktop=None, win32=None) -> dict
     if not selected:
         result["status"] = "selected_tab_missing"
         return result
-    result["active_title_matches_selected_tab"] = native_title_matches(
+    result["active_title_matches_selected_tab"] = same_offer_id(
         selected, title[len("Okna - "):]
     )
     if not result["active_title_matches_selected_tab"]:
@@ -636,7 +647,7 @@ def diagnose_native_scope_enrichment(scene, *, desktop=None, win32=None) -> dict
             result["runtime_unique"] += 1
             owner = _scoped_owner_from_native_chain(found[0])
             if owner:
-                if native_title_matches(selected, owner):
+                if same_offer_id(selected, owner):
                     result["native_owner_active"] += 1
                 else:
                     result["native_owner_other"] += 1
@@ -656,7 +667,7 @@ def diagnose_native_scope_enrichment(scene, *, desktop=None, win32=None) -> dict
                         unresolved_mdi_child_shape(found[0], selected=selected)
                     )
             existing = (element.metadata or {}).get("document_scope")
-            if existing is not None and existing != owner:
+            if existing is not None and existing != owner and not same_offer_id(existing, owner):
                 # This remains only an indicator; never fixes source metadata.
                 result["existing_scope_conflicts"] += 1
         if result["unresolved_ancestry"]:
@@ -688,7 +699,7 @@ def enrich_native_mdi_document_scope(scene, *, desktop=None, win32=None):
     if app != "okna.exe" or not title.casefold().startswith("okna - ofr/"):
         return scene
     selected, _ = selected_document_tab(scene)
-    if not selected or not native_title_matches(selected, title[len("Okna - "):]):
+    if not selected or not same_offer_id(selected, title[len("Okna - "):]):
         return scene
     if os.name != "nt" and desktop is None:
         return scene
@@ -731,7 +742,10 @@ def enrich_native_mdi_document_scope(scene, *, desktop=None, win32=None):
         for element, wrapper in zip(controls, wrappers):
             owner = _scoped_owner_from_native_chain(wrapper)
             if owner:
-                scoped[id(element)] = (owner, "verified_native_mdi_child")
+                scoped[id(element)] = (
+                    selected if same_offer_id(selected, owner) else owner,
+                    "verified_native_mdi_child",
+                )
             elif id(wrapper) in excluded:
                 scoped[id(element)] = (_INACTIVE_MDI_SCOPE, "verified_inactive_mdi_sibling")
             elif _provably_outside_mdi_client(wrapper):
@@ -743,6 +757,7 @@ def enrich_native_mdi_document_scope(scene, *, desktop=None, win32=None):
             return scene
         if any(
             (e.metadata or {}).get("document_scope") not in (None, scoped[id(e)][0])
+            and not same_offer_id((e.metadata or {}).get("document_scope"), scoped[id(e)][0])
             for e in controls if id(e) in scoped
         ):
             return scene
