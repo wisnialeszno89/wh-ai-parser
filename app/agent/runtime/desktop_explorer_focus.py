@@ -18,6 +18,7 @@ def select_unique_window(
     process: str,
     title_contains: str = "",
     foreground_hwnd: int | None = None,
+    prefer_unique_offer: bool = False,
 ) -> tuple[int | None, str]:
     expected = process.strip().casefold()
     if not expected:
@@ -42,11 +43,26 @@ def select_unique_window(
     foreground = [item for item in matches if item["hwnd"] == foreground_hwnd]
     if len(foreground) == 1:
         return foreground[0]["hwnd"], "already_foreground_match"
+    if prefer_unique_offer and expected == "okna.exe":
+        # Prefer one offer only over known idle home windows. An unfamiliar
+        # window/dialog might be modal and must never be bypassed by guessing.
+        offers = [
+            item for item in matches
+            if item.get("title", "").strip().casefold().startswith("okna - ofr/")
+        ]
+        idle_titles = {"okna", "okna - start1", "okna -"}
+        rest = [item for item in matches if item not in offers]
+        if len(offers) == 1 and all(
+            item.get("title", "").strip().casefold() in idle_titles
+            for item in rest
+        ):
+            return offers[0]["hwnd"], "unique_offer_over_idle_home"
     return None, "ambiguous_windows_" + str(len(matches))
 
 
 def focus_application_for_exploration(
-    *, process: str, title_contains: str = "", timeout: float = 2.0
+    *, process: str, title_contains: str = "", timeout: float = 2.0,
+    prefer_unique_offer: bool = False
 ) -> tuple[bool, str]:
     """Focus existing process window; verify process/HWND after Windows focus."""
     if os.name != "nt":
@@ -106,6 +122,7 @@ def focus_application_for_exploration(
         hwnd, status = select_unique_window(
             windows, process=process, title_contains=title_contains,
             foreground_hwnd=foreground,
+            prefer_unique_offer=prefer_unique_offer,
         )
         if hwnd is None:
             return False, status
