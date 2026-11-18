@@ -90,3 +90,25 @@ def test_visual_hover_difference_ignores_pointer_only_change():
     result = visual_hover_difference(initial, hovered, pointer=(38, 37))
     assert result["visual_change"] is False
     assert result["changed_pixels"] == 0
+
+
+def test_visual_discovery_rejects_high_contrast_document_content():
+    image = Image.new("RGB", (720, 480), "white")
+    draw = ImageDraw.Draw(image)
+    # Attractive grid and bold document text are NOT toolbar controls.
+    for x in range(170, 640, 12):
+        draw.line((x, 160, x, 390), fill="black", width=4)
+    for y in range(160, 390, 12):
+        draw.line((170, y, 640, y), fill="black", width=4)
+    # Actual horizontal and vertical icon areas.
+    for x in (18, 90, 162, 234):
+        draw.rectangle((x, 40, x + 25, 65), outline="black", width=4)
+    for y in (160, 240, 320):
+        draw.rectangle((12, y, 36, y + 25), outline="black", width=4)
+    found = visual_hover_candidates(_scene(image=image), limit=8)
+    assert found
+    assert all(
+        e.metadata["toolbar_band"] == "top" or e.x + e.width <= 44
+        for e in found
+    )
+    assert not any(170 < e.x < 640 and 160 < e.y < 390 for e in found)
