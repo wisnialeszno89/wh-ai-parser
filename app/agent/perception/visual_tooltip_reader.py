@@ -7,6 +7,8 @@ No action is performed by this module.
 from __future__ import annotations
 
 from pathlib import Path
+import os
+import shutil
 
 import numpy as np
 from PIL import Image, ImageEnhance, ImageOps
@@ -81,6 +83,21 @@ def tooltip_ocr(
     except ImportError:
         result["status"] = "pytesseract_missing"
         return result
+    executable = os.environ.get("TESSERACT_CMD", "").strip()
+    if not executable:
+        executable = shutil.which("tesseract") or ""
+    if not executable and os.name == "nt":
+        for candidate in (
+            Path(os.environ.get("ProgramFiles", "C:/Program Files"))
+            / "Tesseract-OCR" / "tesseract.exe",
+            Path(os.environ.get("LOCALAPPDATA", ""))
+            / "Programs" / "Tesseract-OCR" / "tesseract.exe",
+        ):
+            if candidate.is_file():
+                executable = str(candidate)
+                break
+    if executable:
+        pytesseract.pytesseract.tesseract_cmd = executable
     best = None
     for idx, bounds in enumerate(regions):
         crop = after.crop(tuple(bounds))
