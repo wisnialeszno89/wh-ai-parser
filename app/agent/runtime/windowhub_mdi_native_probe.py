@@ -270,8 +270,32 @@ def _scoped_owner_from_native_chain(wrapper) -> str | None:
     return None
 
 
+def _provably_outside_mdi_client(wrapper) -> bool:
+    """Prove the wrapper is outside every MDIClient, not just lacking a caption.
+
+    A truncated, failing, cyclic or ambiguous ancestry chain is never proof.
+    """
+    current = wrapper
+    seen = set()
+    for _ in range(40):
+        try:
+            parent = current.parent()
+            if parent is None:
+                return True
+            if id(parent) in seen:
+                return False
+            seen.add(id(parent))
+            info = parent.element_info
+            if str(getattr(info, "class_name", "") or "").casefold() == "mdiclient":
+                return False
+            current = parent
+        except (AttributeError, ValueError, TypeError, OSError):
+            return False
+    return False
+
+
 def enrich_native_mdi_document_scope(scene, *, desktop=None):
-    """Attach verified OFR/ZLC owners to duplicate toolbar controls only if all scoped.
+    """Attach verified OFR/ZLC owners; classify unrelated global controls structurally.
 
     Read-only. Unknown/duplicate/cross-document evidence never authorizes
     a candidate. Re-run on every observation rather than caching a position.
@@ -325,13 +349,18 @@ def enrich_native_mdi_document_scope(scene, *, desktop=None):
             if len(wrappers) != 1:
                 return scene
             owner = _scoped_owner_from_native_chain(wrappers[0])
-            if not owner:
+            if owner:
+                scoped[id(element)] = (owner, "verified_native_mdi_child")
+            elif _provably_outside_mdi_client(wrappers[0]):
+                # The element has no MDIClient ancestor in its complete
+                # accessible chain. It is not eligible for document actions.
+                scoped[id(element)] = ("__outside_mdi__", "verified_outside_mdi")
+            else:
                 return scene
-            scoped[id(element)] = owner
-        if sum(native_title_matches(selected, owner) for owner in scoped.values()) != 1:
+        if sum(native_title_matches(selected, owner) for owner, _ in scoped.values()) != 1:
             return scene
         if any(
-            (e.metadata or {}).get("document_scope") not in (None, scoped[id(e)])
+            (e.metadata or {}).get("document_scope") not in (None, scoped[id(e)][0])
             for e in controls
         ):
             return scene
@@ -340,8 +369,8 @@ def enrich_native_mdi_document_scope(scene, *, desktop=None):
             elements=tuple(
                 replace(e, metadata={
                     **(e.metadata or {}),
-                    "document_scope": scoped[id(e)],
-                    "document_scope_source": "verified_native_mdi_child",
+                    "document_scope": scoped[id(e)][0],
+                    "document_scope_source": scoped[id(e)][1],
                 }) if id(e) in scoped else e
                 for e in scene.elements
             ),
