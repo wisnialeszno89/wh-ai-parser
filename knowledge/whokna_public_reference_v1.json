@@ -1,0 +1,44 @@
+{
+  "schema": "navimind.whokna.reference_knowledge.v1",
+  "source": {
+    "title": "Instrukcja programu WH Okna (publiczny podręcznik)",
+    "url": "https://whokna.com.pl/wp-content/uploads/2026/01/Instrukcja_WHOkna_v7_styczen26.pdf",
+    "catalog": "https://whokna.com.pl/baza-wiedzy/",
+    "retrieved": "2026-11-18",
+    "status": "public_documentation_not_live_verified"
+  },
+  "scope": "offer_and_graphical_window_constructor",
+  "rules": [
+    {"id": "view_window", "concept": "orientation",
+     "guidance": "Rysunek okna jest przedstawiony od strony wnętrza; rysunek drzwi według strony zawiasów.",
+     "source_pages": [44], "behavior_verified": false},
+    {"id": "frame", "concept": "oscieznica",
+     "guidance": "Wybierz narzędzie ościeżnicy i kombinację typu, następnie wskaż obszar roboczy; nie zakładaj że domyślny typ odpowiada zapytaniu.",
+     "source_pages": [44, 45], "behavior_verified": false},
+    {"id": "sash", "concept": "skrzydlo",
+     "guidance": "Skrzydło wstawia się po utworzeniu ościeżnicy; wybrany typ konstrukcji wpływa na dobór skrzydła.",
+     "source_pages": [44, 45], "behavior_verified": false},
+    {"id": "glazing", "concept": "szklenie",
+     "guidance": "Dla innego niż domyślny pakietu szybowego wybierz pakiet w panelu stanu konstrukcji przed wstawieniem szklenia.",
+     "source_pages": [45, 46], "behavior_verified": false},
+    {"id": "hardware", "concept": "okucia",
+     "guidance": "Narzędzie doboru okuć, a potem wskazanie skrzydła w obszarze roboczym, otwiera dialog z typami okuć. Dobór potwierdza się dopiero po zweryfikowaniu typu, kierunku i ograniczeń wymiarowych.",
+     "source_pages": [45, 46, 47], "behavior_verified": false},
+    {"id": "hardware_limits", "concept": "okucia",
+     "guidance": "Nie modyfikuj ręcznie kompletu elementów okuć i nie ignoruj ostrzeżeń wymiarowych bez osobnej technicznej weryfikacji.",
+     "source_pages": [46, 47], "behavior_verified": false},
+    {"id": "component_variations", "concept": "typy szklenia i profile",
+     "guidance": "Dostępność typów okien, profili oraz pakietów szybowych zależy od konfiguracji baz producenta.",
+     "source_pages": [40, 41, 42], "behavior_verified": false},
+    {"id": "offer_progression", "concept": "nowa pozycja",
+     "guidance": "Dodanie kolejnej pozycji może uruchomić wycenę bieżącej konstrukcji i kreatora nowej pozycji.",
+     "source_pages": [47], "behavior_verified": false}
+  ],
+  "policy": {
+    "knowledge_is_not_action_authority": true,
+    "validate_controls_and_results_in_current_version": true,
+    "never_explore_zlc_orders": true,
+    "require_test_offer_for_mutating_actions": true,
+    "never_assume_dealer_database_matches_manual_examples": true
+  }
+}
