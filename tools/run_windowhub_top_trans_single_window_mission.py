@@ -62,11 +62,12 @@ def matches(scene, *, kind=None, label=None, automation_id=None):
 
 
 def observe_step(loop, expected, attempts=4):
+    expected_stages = (expected,) if isinstance(expected, str) else expected
     for index in range(attempts):
         scene = inspect(loop)
         stage = stage_of(scene)
         print("POST_ACTION_STAGE =", stage, flush=True)
-        if stage == expected:
+        if stage in expected_stages:
             return scene
         if index + 1 < attempts:
             time.sleep(0.25)
