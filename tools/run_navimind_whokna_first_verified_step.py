@@ -19,6 +19,7 @@ if str(ROOT) not in sys.path:
 
 from app.agent.agent_action import AgentAction
 from app.agent.knowledge.whokna_live_offer_gate import observe_offer_gate
+from app.agent.knowledge.whokna_offer_guide import load_reference, offer_plan
 from app.agent.perception.semantic_target_query import SemanticTargetQuery
 from app.agent.runtime.active_document_scope import unique_active_document_control
 from app.agent.runtime.windowhub_goal_v2_coordinator import execute_v2_step
@@ -64,6 +65,9 @@ def prepare_add_action(scene):
 def main():
     parser = argparse.ArgumentParser(description="One bounded WindowHub offer action")
     parser.add_argument("--execute-live", action="store_true")
+    parser.add_argument("--width", type=int, default=1500)
+    parser.add_argument("--height", type=int, default=1400)
+    parser.add_argument("--quantity", type=int, default=1)
     parser.add_argument("--start-delay", type=int, default=15)
     args = parser.parse_args()
     if os.name != "nt":
@@ -78,6 +82,20 @@ def main():
     ):
         print("WH_STEP_STOP=live_environment_authorization_missing")
         return 2
+    try:
+        plan = offer_plan(
+            load_reference(), width=args.width, height=args.height,
+            quantity=args.quantity,
+        )
+    except (ValueError, OSError, KeyError) as exc:
+        print("WH_STEP_STOP=invalid_guided_offer_specification")
+        return 2
+    if plan["stages"][1]["id"] != "position" or (
+        plan["safety"]["forbid_zlc_order_mutation"] is not True
+    ):
+        print("WH_STEP_STOP=guided_plan_not_safe")
+        return 2
+    print("WH_STEP_GUIDE_STAGE=position", flush=True)
     print("WH_STEP_FOCUS_MODE=MANUAL_SAFE", flush=True)
     print("WH_STEP_PREPARE=Show disposable OFR offer in WindowHub", flush=True)
     time.sleep(args.start_delay)
