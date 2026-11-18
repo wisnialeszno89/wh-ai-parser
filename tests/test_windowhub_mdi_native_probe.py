@@ -125,3 +125,45 @@ def test_unknown_mdi_ancestry_explains_unrecognized_mdi_child():
     child = Node("Window", "UnknownChild", handle=300, parent=mdi)
     target = Node("Button", "Button", parent=child)
     assert unknown_mdi_ancestry_reason(target) == "mdi_client_without_recognized_child"
+
+
+def test_transient_uia_parent_wrappers_are_not_mistaken_for_cycle():
+    from types import SimpleNamespace
+    from app.agent.runtime.windowhub_mdi_native_probe import (
+        _provably_outside_mdi_client, unknown_mdi_ancestry_reason,
+    )
+
+    class Ephemeral:
+        def __init__(self, depth):
+            self.depth = depth
+            self.element_info = SimpleNamespace(
+                class_name="Toolbar", control_type="Pane", handle=0,
+            )
+
+        def parent(self):
+            return Ephemeral(self.depth - 1) if self.depth else None
+
+    # The parent() API returns brand-new wrappers. Old code kept only their
+    # numeric id(), allowing CPython to recycle addresses and invent cycles.
+    assert _provably_outside_mdi_client(Ephemeral(12)) is True
+    assert unknown_mdi_ancestry_reason(
+        Ephemeral(12)
+    ) == "chain_ended_without_proven_owner"
+
+
+def test_real_object_cycle_is_still_rejected():
+    from types import SimpleNamespace
+    from app.agent.runtime.windowhub_mdi_native_probe import (
+        _provably_outside_mdi_client, unknown_mdi_ancestry_reason,
+    )
+
+    class Cyclic:
+        element_info = SimpleNamespace(
+            class_name="Pane", control_type="Pane", handle=0,
+        )
+
+        def parent(self):
+            return self
+
+    assert _provably_outside_mdi_client(Cyclic()) is False
+    assert unknown_mdi_ancestry_reason(Cyclic()) == "cyclic_parent_chain"
