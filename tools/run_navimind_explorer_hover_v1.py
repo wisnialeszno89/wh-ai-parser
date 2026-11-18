@@ -22,6 +22,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from app.agent.perception.visual_tooltip_reader import tooltip_ocr
+from app.agent.runtime.desktop_explorer_focus import focus_application_for_exploration
 from app.agent.runtime.windows_desktop_agent_control_loop import (
     create_windows_desktop_agent_control_loop,
 )
@@ -258,7 +259,9 @@ def window_origin(scene) -> tuple[int, int]:
     return int(rect.left), int(rect.top)
 
 
-def explore(*, expected_process: str, limit: int, hover_seconds: float, output: Path, start_delay: int = 6) -> int:
+def explore(*, expected_process: str, limit: int, hover_seconds: float,
+            output: Path, start_delay: int = 6,
+            auto_focus: bool = True, window_title_contains: str = "") -> int:
     if os.name != "nt":
         print("EXPLORER_STOP=windows_required")
         return 2
@@ -271,8 +274,17 @@ def explore(*, expected_process: str, limit: int, hover_seconds: float, output: 
     if not 0 <= start_delay <= 20:
         print("EXPLORER_STOP=invalid_start_delay")
         return 2
-    print("EXPLORER_PREPARE=Switch focus to the target application now", flush=True)
-    time.sleep(start_delay)
+    if auto_focus:
+        ok, reason = focus_application_for_exploration(
+            process=expected_process, title_contains=window_title_contains,
+        )
+        print("EXPLORER_AUTO_FOCUS=" + reason, flush=True)
+        if not ok:
+            print("EXPLORER_STOP=auto_focus_unavailable")
+            return 4
+    else:
+        print("EXPLORER_PREPARE=Switch focus to the target application now", flush=True)
+        time.sleep(start_delay)
     hwnd, process = current_foreground()
     if process != expected_process.casefold():
         print("EXPLORER_STOP=foreground_process_mismatch ACTUAL=" + process)
@@ -429,11 +441,17 @@ def main():
     parser.add_argument("--limit", type=int, default=10)
     parser.add_argument("--hover-seconds", type=float, default=0.9)
     parser.add_argument("--start-delay", type=int, default=6)
+    parser.add_argument("--manual-focus", action="store_true",
+                        help="Disable automatic activation; use --start-delay instead")
+    parser.add_argument("--window-title-contains", default="",
+                        help="Optional case-insensitive substring to disambiguate target window")
     parser.add_argument("--output", type=Path, default=Path("explorer_hover_results.json"))
     args = parser.parse_args()
     return explore(expected_process=args.process, limit=args.limit,
                    hover_seconds=args.hover_seconds, output=args.output,
-                   start_delay=args.start_delay)
+                   start_delay=args.start_delay,
+                   auto_focus=not args.manual_focus,
+                   window_title_contains=args.window_title_contains)
 
 
 if __name__ == "__main__":
