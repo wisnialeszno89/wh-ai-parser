@@ -32,6 +32,9 @@ DENY_WORDS = (
     "zapisz", "save", "usuń", "usun", "delete", "zamknij", "close", "anuluj",
     "cancel", "zatwierd", "wyślij", "wyslij", "send", "drukuj", "print",
     "order", "zamów", "zamow", "checkout", "payment", "płatno", "platno",
+    "wiersz w górę", "wiersz w dół", "strona w górę", "strona w dół",
+    "scroll", "page up", "page down", "line up", "line down",
+    "zaznacz wszystkie", "select all",
 )
 
 
@@ -299,13 +302,19 @@ def explore(*, expected_process: str, limit: int, hover_seconds: float, output: 
         raise RuntimeError("window_dimensions_invalid")
     diagnostic = candidate_diagnostics(scene)
     print("EXPLORER_UIA_DIAGNOSTICS=" + json.dumps(diagnostic), flush=True)
-    candidates = eligible_controls(scene, limit=limit)
-    discovery_mode = "uia"
-    if not candidates:
-        # WindowHub and custom-drawn software often paint toolbar icons
-        # without exporting conventional accessible Button controls.
-        candidates = visual_hover_candidates(scene, limit=limit)
+    # UIA pagination and duplicate MDI commands can overwhelm the first
+    # candidates. Inspect the visual toolbars independently of UIA coverage,
+    # then use UIA only as a fallback if no visual candidates are found.
+    visual_candidates = visual_hover_candidates(scene, limit=limit)
+    uia_candidates = eligible_controls(scene, limit=limit)
+    if visual_candidates:
+        candidates = visual_candidates
         discovery_mode = "visual_hover_hypotheses"
+    else:
+        candidates = uia_candidates
+        discovery_mode = "uia_filtered_fallback"
+    print("EXPLORER_UIA_ELIGIBLE=" + str(len(uia_candidates)), flush=True)
+    print("EXPLORER_VISUAL_CANDIDATES=" + str(len(visual_candidates)), flush=True)
     before = control_text(scene)
     baseline_image = screenshot_rgb(scene)
     frames_dir = output.parent / (output.stem + "_frames")
