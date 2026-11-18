@@ -28,7 +28,7 @@ def changed_regions(before: Image.Image, after: Image.Image, pointer: tuple[int,
     # Connect changed letters and a tooltip background within a block.
     kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (19, 9))
     joined = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
-    n, labels, stats, _ = cv2.connectedComponentsWithStats(joined, 8)
+    n, labels, stats, _ = cv2.connectedComponentsWithStats(joined, connectivity=8)
     candidates = []
     for idx in range(1, n):
         left, top, width, height, area = map(int, stats[idx])
