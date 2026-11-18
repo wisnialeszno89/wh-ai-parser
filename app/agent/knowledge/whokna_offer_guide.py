@@ -25,11 +25,14 @@ STAGES = (
 )
 
 RULE_IDS = {
-    "frame": ("frame", "component_variations"),
+    "document": ("offer_properties", "document_tabs"),
+    "frame": ("frame", "component_variations", "profile_catalogue", "position_color"),
     "verify_sash": ("sash", "view_window"),
-    "glazing": ("glazing", "component_variations"),
+    "glazing": ("glazing", "component_variations", "glazing_catalogue"),
     "hardware": ("hardware", "hardware_limits", "view_window"),
-    "position": ("offer_progression",),
+    "position": ("offer_progression", "position_manager", "position_kind_quantity", "position_dimensions"),
+    "prices": ("pricing_components", "dealer_price_view"),
+    "review": ("document_lifecycle",),
 }
 
 MUTATING = {"document", "position", "frame", "glazing", "hardware", "prices"}

@@ -374,7 +374,173 @@ def unresolved_mdi_child_shape(wrapper, *, selected: str | None = None) -> dict:
     return {"kind": "ancestry_depth_exceeded"}
 
 
-def diagnose_native_scope_enrichment(scene, *, desktop=None) -> dict:
+_INACTIVE_MDI_SCOPE = "__inactive_mdi_sibling__"
+
+
+class _Win32Mdi:
+    """Read-only HWND queries. WM_MDIGETACTIVE is bounded for a hung UI."""
+
+    def __init__(self):
+        import ctypes
+        from ctypes import wintypes
+
+        api = ctypes.WinDLL("user32", use_last_error=True)
+        self.parent = api.GetAncestor
+        self.parent.argtypes = [wintypes.HWND, wintypes.UINT]
+        self.parent.restype = wintypes.HWND
+        self.foreground = api.GetForegroundWindow
+        self.foreground.argtypes = []
+        self.foreground.restype = wintypes.HWND
+        self._class_name = api.GetClassNameW
+        self._class_name.argtypes = [wintypes.HWND, wintypes.LPWSTR, ctypes.c_int]
+        self._class_name.restype = ctypes.c_int
+        self._title = api.GetWindowTextW
+        self._title.argtypes = self._class_name.argtypes
+        self._title.restype = ctypes.c_int
+        self._send = api.SendMessageTimeoutW
+        self._send.argtypes = [
+            wintypes.HWND, wintypes.UINT, ctypes.c_size_t, ctypes.c_ssize_t,
+            wintypes.UINT, wintypes.UINT, ctypes.POINTER(ctypes.c_size_t),
+        ]
+        self._send.restype = ctypes.c_ssize_t
+
+    def active_child(self, host):
+        import ctypes
+
+        value = ctypes.c_size_t()
+        # WM_MDIGETACTIVE, no output pointer in lParam; SMTO_ABORTIFHUNG.
+        if self._send(host, 0x0229, 0, 0, 0x0002, 250, ctypes.byref(value)):
+            return value.value
+        return 0
+
+    def class_name(self, hwnd):
+        import ctypes
+
+        buffer = ctypes.create_unicode_buffer(256)
+        self._class_name(hwnd, buffer, len(buffer))
+        return buffer.value
+
+    def title(self, hwnd):
+        import ctypes
+
+        buffer = ctypes.create_unicode_buffer(256)
+        self._title(hwnd, buffer, len(buffer))
+        return buffer.value
+
+
+def _win32_mdi_lineage(wrapper, api) -> tuple[int, int] | None:
+    """Return (MDIClient, direct child) only when UIA and Win32 paths agree."""
+    current = wrapper
+    native_anchor = 0
+    for _ in range(16):
+        info = current.element_info
+        handle = int(getattr(info, "handle", 0) or 0)
+        native_anchor = native_anchor or handle
+        parent = current.parent()
+        if parent is None:
+            return None
+        host_info = parent.element_info
+        if str(getattr(host_info, "class_name", "") or "").casefold() == "mdiclient":
+            host = int(getattr(host_info, "handle", 0) or 0)
+            if not host or not handle or api.class_name(host).casefold() != "mdiclient":
+                return None
+            if api.parent(handle, 1) != host:  # GA_PARENT, never the popup owner.
+                return None
+            for _ in range(16):
+                if native_anchor == handle:
+                    return host, handle
+                if not native_anchor or native_anchor == host:
+                    break
+                native_anchor = api.parent(native_anchor, 1)
+            return None
+        current = parent
+    return None
+
+
+def _verified_inactive_mdi_siblings(wrappers, selected, root, api) -> tuple[set[int], str]:
+    """Exclude unknown controls only by positive, same-host sibling evidence."""
+    if api.foreground() != root:
+        return set(), "foreground_changed"
+    active_candidates = [
+        w for w in wrappers
+        if native_title_matches(selected, _scoped_owner_from_native_chain(w) or "")
+    ]
+    if len(active_candidates) != 1:
+        return set(), "titled_active_candidate_not_unique"
+    lineage = _win32_mdi_lineage(active_candidates[0], api)
+    if lineage is None:
+        return set(), "active_candidate_lineage_unverified"
+    host, child = lineage
+    if api.parent(host, 2) != root:  # GA_ROOT follows parent links.
+        return set(), "host_outside_foreground"
+    if api.active_child(host) != child or not native_title_matches(selected, api.title(child)):
+        return set(), "active_mdi_disagrees"
+    excluded = set()
+    for wrapper in wrappers:
+        if _scoped_owner_from_native_chain(wrapper) is not None:
+            continue
+        sibling = _win32_mdi_lineage(wrapper, api)
+        if sibling is not None and sibling[0] == host and sibling[1] != child:
+            excluded.add(id(wrapper))
+    if (api.foreground() != root or api.active_child(host) != child
+            or not native_title_matches(selected, api.title(child))):
+        return set(), "active_mdi_changed"
+    return excluded, "inactive_sibling_verified" if excluded else "no_inactive_sibling_proven"
+
+
+def verify_mdi_add_hit(point, *, root, expected_offer, metadata, desktop=None, win32=None) -> bool:
+    """Rebind the mouse point to the exact live UIA control in the active child."""
+    try:
+        from app.agent.perception.windowhub_ui_automation_provider import (
+            WindowHubUIAutomationProvider,
+        )
+
+        api = win32 if win32 is not None else _Win32Mdi()
+        if api.foreground() != root:
+            return False
+        if desktop is None:
+            from pywinauto import Desktop
+            desktop = Desktop(backend="uia")
+        hit = desktop.from_point(*point)
+        info = hit.element_info
+        if (
+            str(info.name or "").strip().casefold() != "dodaj"
+            or str(info.control_type or "").casefold() != "button"
+            or not info.visible or not info.enabled
+            or info.automation_id != metadata.get("automation_id")
+            or WindowHubUIAutomationProvider._runtime_id(hit) != metadata.get("uia_runtime_id")
+            or not native_title_matches(expected_offer, _scoped_owner_from_native_chain(hit) or "")
+        ):
+            return False
+        lineage = _win32_mdi_lineage(hit, api)
+        if lineage is None:
+            return False
+        host, child = lineage
+        return (
+            api.parent(host, 2) == root
+            and api.active_child(host) == child
+            and native_title_matches(expected_offer, api.title(child))
+            and native_title_matches("Okna - " + expected_offer, api.title(root))
+            and api.foreground() == root
+        )
+    except Exception:
+        return False
+
+
+def _inactive_mdi_evidence(wrappers, selected, root, *, win32):
+    if not any(
+        _scoped_owner_from_native_chain(w) is None and not _provably_outside_mdi_client(w)
+        for w in wrappers
+    ):
+        return set(), "not_needed"
+    try:
+        api = win32 if win32 is not None else _Win32Mdi()
+        return _verified_inactive_mdi_siblings(wrappers, selected, root, api)
+    except Exception as exc:
+        return set(), "win32_query_failed_" + type(exc).__name__
+
+
+def diagnose_native_scope_enrichment(scene, *, desktop=None, win32=None) -> dict:
     """Explain precisely why scope enrichment stopped, without UI values/IDs.
 
     This is diagnostic evidence only and does not authorize any input.
@@ -391,13 +557,15 @@ def diagnose_native_scope_enrichment(scene, *, desktop=None) -> dict:
         "native_owner_active": 0,
         "native_owner_other": 0,
         "proven_outside_mdi": 0,
+        "proven_inactive_mdi_siblings": 0,
+        "win32_mdi_status": "not_started",
         "unresolved_ancestry": 0,
         "unresolved_reasons": {},
         "unresolved_mdi_child_shapes": [],
         "existing_scope_conflicts": 0,
     }
     title = (scene.observation.state.active_window_title or "").strip()
-    app = (scene.observation.state.active_application or "").replace("\\\\", "/").rsplit("/", 1)[-1].casefold()
+    app = (scene.observation.state.active_application or "").replace("\\", "/").rsplit("/", 1)[-1].casefold()
     if app != "okna.exe" or not title.casefold().startswith("okna - ofr/"):
         result["status"] = "not_offer_foreground"
         return result
@@ -451,6 +619,14 @@ def diagnose_native_scope_enrichment(scene, *, desktop=None) -> dict:
             rid = WindowHubUIAutomationProvider._runtime_id(wrapper)
             if isinstance(rid, str) and rid:
                 mapping.setdefault(rid, []).append(wrapper)
+        matched = [mapping.get((e.metadata or {}).get("uia_runtime_id"), []) for e in controls]
+        if all(len(wrappers) == 1 for wrappers in matched):
+            excluded, result["win32_mdi_status"] = _inactive_mdi_evidence(
+                [wrappers[0] for wrappers in matched], selected, hwnd, win32=win32,
+            )
+        else:
+            excluded = set()
+            result["win32_mdi_status"] = "runtime_identity_unverified"
         for element in controls:
             rid = (element.metadata or {}).get("uia_runtime_id")
             found = mapping.get(rid, [])
@@ -464,8 +640,12 @@ def diagnose_native_scope_enrichment(scene, *, desktop=None) -> dict:
                     result["native_owner_active"] += 1
                 else:
                     result["native_owner_other"] += 1
+            elif id(found[0]) in excluded:
+                result["proven_inactive_mdi_siblings"] += 1
+                owner = _INACTIVE_MDI_SCOPE
             elif _provably_outside_mdi_client(found[0]):
                 result["proven_outside_mdi"] += 1
+                owner = "__outside_mdi__"
             else:
                 result["unresolved_ancestry"] += 1
                 reason = unknown_mdi_ancestry_reason(found[0])
@@ -492,7 +672,7 @@ def diagnose_native_scope_enrichment(scene, *, desktop=None) -> dict:
     return result
 
 
-def enrich_native_mdi_document_scope(scene, *, desktop=None):
+def enrich_native_mdi_document_scope(scene, *, desktop=None, win32=None):
     """Attach verified OFR/ZLC owners; classify unrelated global controls structurally.
 
     Read-only. Unknown/duplicate/cross-document evidence never authorizes
@@ -540,24 +720,25 @@ def enrich_native_mdi_document_scope(scene, *, desktop=None):
             rid = WindowHubUIAutomationProvider._runtime_id(control)
             if isinstance(rid, str) and rid:
                 mapping.setdefault(rid, []).append(control)
+        matched = [mapping.get((e.metadata or {}).get("uia_runtime_id"), []) for e in controls]
+        if any(len(wrappers) != 1 for wrappers in matched):
+            return scene
+        wrappers = [match[0] for match in matched]
+        if len({id(wrapper) for wrapper in wrappers}) != len(wrappers):
+            return scene
+        excluded, _ = _inactive_mdi_evidence(wrappers, selected, hwnd, win32=win32)
         scoped = {}
-        for element in controls:
-            rid = (element.metadata or {}).get("uia_runtime_id")
-            wrappers = mapping.get(rid, [])
-            if len(wrappers) != 1:
-                return scene
-            owner = _scoped_owner_from_native_chain(wrappers[0])
+        for element, wrapper in zip(controls, wrappers):
+            owner = _scoped_owner_from_native_chain(wrapper)
             if owner:
                 scoped[id(element)] = (owner, "verified_native_mdi_child")
-            elif _provably_outside_mdi_client(wrappers[0]):
-                # The element has no MDIClient ancestor in its complete
-                # accessible chain. It is not eligible for document actions.
+            elif id(wrapper) in excluded:
+                scoped[id(element)] = (_INACTIVE_MDI_SCOPE, "verified_inactive_mdi_sibling")
+            elif _provably_outside_mdi_client(wrapper):
                 scoped[id(element)] = ("__outside_mdi__", "verified_outside_mdi")
             else:
-                # Keep the one unresolved control unscoped. Preserving
-                # five proven owners is useful diagnostic information,
-                # but the unknown control still prevents a live action.
-                continue
+                # Never reuse a prior association when fresh proof is missing.
+                return scene
         if sum(native_title_matches(selected, owner) for owner, _ in scoped.values()) != 1:
             return scene
         if any(

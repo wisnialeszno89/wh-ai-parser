@@ -161,6 +161,8 @@ def enforce_v2_live_policy(scene, resolved, *, approved_persistent=False) -> Non
         from app.agent.runtime.windowhub_mdi_native_probe import enrich_native_mdi_document_scope
         from app.agent.runtime.active_document_scope import unique_active_document_control
         native_scene = enrich_native_mdi_document_scope(scene)
+        if native_scene is scene:
+            raise ValueError("v2_mdi_document_owner_unverified_at_execution")
         scoped_target = unique_active_document_control(native_scene, label="Dodaj")
         if scoped_target is None or (
             (scoped_target.metadata or {}).get("uia_runtime_id")
@@ -177,19 +179,20 @@ def enforce_v2_live_policy(scene, resolved, *, approved_persistent=False) -> Non
 def execute_v2_step(loop, scene, resolved, *, approved_persistent=False, expected_offer=None):
     """Run exactly one model-proposed, locally checked action with verification."""
     action_target = resolved.action.target
+    add_offer = None
     if (
         resolved.action.name == "click_screen_element"
         and isinstance(action_target, SemanticTargetQuery)
         and (action_target.label or "").strip().casefold() == "dodaj"
-        and (scene.observation.state.active_window_title or "").casefold().startswith("okna - ofr/")
+        and (scene.observation.state.active_window_title or "").strip().casefold().startswith("okna - ofr/")
     ):
         # A salesperson can change the active offer between planning and
         # clicking. Re-observe the actual foreground desktop and re-check
         # exact native runtime identity and MDI ownership, failing closed.
+        add_offer = (scene.observation.state.active_window_title or "").strip()[7:]
         scene = loop.observe_scene()
-        if (scene.observation.state.active_window_title or "").casefold().startswith("okna - ofr/"):
-            from app.agent.runtime.windowhub_mdi_native_probe import enrich_native_mdi_document_scope
-            scene = enrich_native_mdi_document_scope(scene)
+        if (scene.observation.state.active_window_title or "").strip() != "Okna - " + add_offer:
+            raise ValueError("v2_test_offer_changed_before_execution")
     if expected_offer is not None and (
         scene.observation.state.active_window_title or ""
     ).strip() != "Okna - " + expected_offer:
@@ -206,6 +209,8 @@ def execute_v2_step(loop, scene, resolved, *, approved_persistent=False, expecte
         request=AgentRequest(message="Execute one verified semantic WindowHub action")
     )
     context.update_scene(scene)
+    if add_offer is not None:
+        context.set_value("_windowhub_mdi_add_offer", add_offer)
     context.set_value("expected_outcomes", {action.name: expected})
     plan = ActionPlan(
         intent=AgentIntent.COMPUTER_USE,

@@ -25,7 +25,7 @@ def element():
 
 
 def test_dodaj_handoff_is_semantic_and_verified(monkeypatch):
-    monkeypatch.setattr(first, "enrich_native_mdi_document_scope", lambda s: s)
+    monkeypatch.setattr(first, "enrich_native_mdi_document_scope", lambda s: SimpleNamespace(**vars(s)))
     monkeypatch.setattr(first, "unique_active_document_control",
                         lambda s, label: element())
     observed, decision, offer = first.prepare_add_action(scene())
@@ -37,13 +37,13 @@ def test_dodaj_handoff_is_semantic_and_verified(monkeypatch):
 
 
 def test_refuses_order_document(monkeypatch):
-    monkeypatch.setattr(first, "enrich_native_mdi_document_scope", lambda s: s)
+    monkeypatch.setattr(first, "enrich_native_mdi_document_scope", lambda s: SimpleNamespace(**vars(s)))
     with pytest.raises(ValueError, match="test_offer_document_required"):
         first.prepare_add_action(scene("Okna - ZLC/4708-"))
 
 
 def test_unverified_dodaj_fails_closed(monkeypatch):
-    monkeypatch.setattr(first, "enrich_native_mdi_document_scope", lambda s: s)
+    monkeypatch.setattr(first, "enrich_native_mdi_document_scope", lambda s: SimpleNamespace(**vars(s)))
     monkeypatch.setattr(first, "unique_active_document_control",
                         lambda s, label: None)
     with pytest.raises(ValueError, match="unique_active_dodaj_not_verified"):
@@ -51,7 +51,7 @@ def test_unverified_dodaj_fails_closed(monkeypatch):
 
 
 def test_missing_runtime_identity_rejected(monkeypatch):
-    monkeypatch.setattr(first, "enrich_native_mdi_document_scope", lambda s: s)
+    monkeypatch.setattr(first, "enrich_native_mdi_document_scope", lambda s: SimpleNamespace(**vars(s)))
     monkeypatch.setattr(first, "unique_active_document_control",
                         lambda s, label: SimpleNamespace(metadata={}))
     with pytest.raises(ValueError, match="runtime_id_missing"):
@@ -66,7 +66,7 @@ def test_unverified_target_diagnostic_is_read_only(monkeypatch):
                             "unresolved_scope": 2,
                             "safe_unique_active_target": False,
                         })
-    monkeypatch.setattr(first, "enrich_native_mdi_document_scope", lambda s: s)
+    monkeypatch.setattr(first, "enrich_native_mdi_document_scope", lambda s: SimpleNamespace(**vars(s)))
     monkeypatch.setattr(first, "inspect_native_mdi_button_ancestry",
                         lambda s: {
                             "status": "diagnostic_only_no_native_authorization",
@@ -94,3 +94,17 @@ def test_foreground_failure_report_redacts_window_title():
     assert diagnostic["window_rect_type"] == "missing"
     assert "Private Client" not in str(diagnostic)
     assert diagnostic["is_windowhub_process"] is True
+
+
+def test_live_requires_explicit_test_offer_before_observing(monkeypatch, capsys):
+    monkeypatch.setattr(first, "os", SimpleNamespace(name="nt"))
+    monkeypatch.setattr(first.sys, "argv", ["whokna", "--execute-live"])
+    assert first.main() == 2
+    assert "WH_STEP_STOP=explicit_test_offer_required" in capsys.readouterr().out
+
+
+def test_cached_document_scope_is_not_accepted_without_fresh_proof(monkeypatch):
+    monkeypatch.setattr(first, "enrich_native_mdi_document_scope", lambda s: s)
+    monkeypatch.setattr(first, "unique_active_document_control", lambda s, label: element())
+    with pytest.raises(ValueError, match="unique_active_dodaj_not_verified"):
+        first.prepare_add_action(scene())

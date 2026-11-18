@@ -5,9 +5,9 @@
     "url": "https://whokna.com.pl/wp-content/uploads/2026/01/Instrukcja_WHOkna_v7_styczen26.pdf",
     "catalog": "https://whokna.com.pl/baza-wiedzy/",
     "retrieved": "2026-11-18",
-    "status": "public_manual_sections_partially_cross_checked_runtime_unverified"
+    "status": "public_manual_sections_reviewed_runtime_version_unverified"
   },
-  "scope": "offer_and_graphical_window_constructor",
+  "scope": "offer_wizard_document_workspace_construction_catalogue_pricing_and_document_flow",
   "rules": [
     {
       "id": "view_window",
@@ -86,6 +86,135 @@
       "guidance": "Dodanie kolejnej pozycji może uruchomić wycenę bieżącej konstrukcji i kreatora nowej pozycji.",
       "source_pages": [
         47
+      ],
+      "behavior_verified": false
+    },
+    {
+      "id": "offer_properties",
+      "concept": "wlasciwosci oferty",
+      "guidance": "Kreator rozpoczyna się od właściwości oferty. Pole Zamawiający pozwala wybrać klienta z bazy. Tryb uruchamiania kreatora zależy od ustawień.",
+      "source_pages": [
+        22,
+        23,
+        26
+      ],
+      "behavior_verified": false
+    },
+    {
+      "id": "position_kind_quantity",
+      "concept": "rodzaj i ilosc pozycji",
+      "guidance": "Kreator pozycji pozwala wybrać rodzaj pozycji i liczbę sztuk. Pozycje z galerii lub cennika zależą od wcześniejszego przygotowania danych.",
+      "source_pages": [
+        27,
+        28
+      ],
+      "behavior_verified": false
+    },
+    {
+      "id": "position_dimensions",
+      "concept": "wymiary",
+      "guidance": "Ekran Wielkość okna ma osobne pola szerokości i wysokości oraz pola ścięć narożników. Sprawdzaj szerokość i wysokość niezależnie po wprowadzeniu.",
+      "source_pages": [
+        28,
+        29,
+        30
+      ],
+      "behavior_verified": false
+    },
+    {
+      "id": "position_color",
+      "concept": "kolor i wzmocnienie",
+      "guidance": "Na ekranie podstawowych parametrów wybiera się kolor z bazy. Opcje wzmocnień zależą od systemu profili, koloru i wymiarów.",
+      "source_pages": [
+        30,
+        31,
+        32
+      ],
+      "behavior_verified": false
+    },
+    {
+      "id": "position_manager",
+      "concept": "menadzer pozycji",
+      "guidance": "Instrukcja wskazuje przycisk Dodaj w Menadżerze pozycji. Przy kolejnej pozycji przed kreatorem może pojawić się wycena poprzedniej konstrukcji.",
+      "source_pages": [
+        38,
+        47,
+        72
+      ],
+      "behavior_verified": false
+    },
+    {
+      "id": "document_tabs",
+      "concept": "zakladki dokumentow",
+      "guidance": "Dokumenty mogą być otwarte w wielu zakładkach lub obok siebie. Operacje ogólne dotyczą aktualnie aktywnego dokumentu.",
+      "source_pages": [
+        80,
+        81,
+        82,
+        83,
+        84
+      ],
+      "behavior_verified": false
+    },
+    {
+      "id": "pricing_components",
+      "concept": "skladniki wyceny",
+      "guidance": "Pola Bez ceny w instrukcji wyłączają obliczanie odpowiednich składników. Osobna opcja pozwala doliczyć montaż do ceny konstrukcji. Sprawdź wynik w wycenie i podglądzie wydruku.",
+      "source_pages": [
+        26,
+        47,
+        48,
+        49,
+        84
+      ],
+      "behavior_verified": false
+    },
+    {
+      "id": "dealer_price_view",
+      "concept": "wycena dealerska",
+      "guidance": "Wycena dealerska może nie udostępniać zakładek kosztów materiałowych i szczegółów. Ręczna zmiana ceny może wpłynąć również na kwoty netto, brutto i rabat.",
+      "source_pages": [
+        47,
+        48
+      ],
+      "behavior_verified": false
+    },
+    {
+      "id": "profile_catalogue",
+      "concept": "baza profili",
+      "guidance": "Profile i związane z nimi wzmocnienia oraz dostępne kolory są elementami bazy technologicznej. Dobór należy sprawdzić w bazie używanej do danej wyceny.",
+      "source_pages": [
+        229,
+        230,
+        232,
+        234
+      ],
+      "behavior_verified": false
+    },
+    {
+      "id": "glazing_catalogue",
+      "concept": "baza pakietow szybowych",
+      "guidance": "Baza rozróżnia pojedyncze szyby, ramki i gotowe pakiety. Liczba szyb z zapytania nie identyfikuje artykułu pakietu w bazie.",
+      "source_pages": [
+        297,
+        298,
+        302,
+        304,
+        306
+      ],
+      "behavior_verified": false
+    },
+    {
+      "id": "document_lifecycle",
+      "concept": "dokumenty",
+      "guidance": "Podgląd, zapis oferty i dalsze przekształcenia dokumentu są odrębnymi operacjami. Przejście do kolejnego etapu obiegu dokumentu wymaga osobnej decyzji handlowca.",
+      "source_pages": [
+        84,
+        86,
+        87,
+        89,
+        94,
+        97
       ],
       "behavior_verified": false
     }

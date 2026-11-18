@@ -40,6 +40,9 @@ def diagnose_add_scope(scene) -> dict:
     try:
         enriched = enrich_native_mdi_document_scope(scene)
         scoped = duplicate_document_action_status(enriched, label="Dodaj")
+        scoped["safe_unique_active_target"] = (
+            enriched is not scene and unique_active_document_control(enriched, label="Dodaj") is not None
+        )
     except Exception as exc:
         scoped = {"diagnostic_error": type(exc).__name__}
     try:
@@ -101,6 +104,8 @@ def prepare_add_action(scene):
     if not title.casefold().startswith("okna - ofr/"):
         raise ValueError("test_offer_document_required")
     native_scene = enrich_native_mdi_document_scope(scene)
+    if native_scene is scene:
+        raise ValueError("unique_active_dodaj_not_verified")
     element = unique_active_document_control(native_scene, label="Dodaj")
     if element is None:
         raise ValueError("unique_active_dodaj_not_verified")
@@ -130,6 +135,7 @@ def prepare_add_action(scene):
 def main():
     parser = argparse.ArgumentParser(description="One bounded WindowHub offer action")
     parser.add_argument("--execute-live", action="store_true")
+    parser.add_argument("--offer", help="Exact caption of the disposable test OFR")
     parser.add_argument("--width", type=int, default=1500)
     parser.add_argument("--height", type=int, default=1400)
     parser.add_argument("--quantity", type=int, default=1)
@@ -140,6 +146,9 @@ def main():
         return 2
     if not 0 <= args.start_delay <= 30:
         print("WH_STEP_STOP=invalid_delay")
+        return 2
+    if args.execute_live and not (args.offer or "").startswith("OFR/"):
+        print("WH_STEP_STOP=explicit_test_offer_required")
         return 2
     if args.execute_live and not (
         os.environ.get("COMPUTER_USE_LIVE") == "1"
@@ -174,6 +183,12 @@ def main():
         print("WH_STEP_STOP=not_verified_offer_document", flush=True)
         print("WH_STEP_ACTIONS_EXECUTED=0", flush=True)
         return 4
+    if args.offer is not None and (
+        scene.observation.state.active_window_title or ""
+    ).strip() != "Okna - " + args.offer:
+        print("WH_STEP_STOP=test_offer_mismatch", flush=True)
+        print("WH_STEP_ACTIONS_EXECUTED=0", flush=True)
+        return 4
     try:
         native_scene, resolved, offer_name = prepare_add_action(scene)
     except (ValueError, RuntimeError, OSError) as exc:
@@ -186,6 +201,10 @@ def main():
         return 4
     print("WH_STEP_TARGET=verified_active_document_Dodaj", flush=True)
     if not args.execute_live:
+        import json
+        print("WH_STEP_SCOPE_DIAGNOSTICS=" + json.dumps(
+            diagnose_add_scope(scene), ensure_ascii=False,
+        ), flush=True)
         print("WH_STEP_MODE=PREFLIGHT_ONLY", flush=True)
         print("WH_STEP_ACTIONS_EXECUTED=0", flush=True)
         return 0
@@ -193,7 +212,7 @@ def main():
     try:
         execute_v2_step(
             loop, native_scene, resolved,
-            expected_offer=offer_name,
+            expected_offer=args.offer or offer_name,
             approved_persistent=False,
         )
     except (RuntimeError, ValueError) as exc:

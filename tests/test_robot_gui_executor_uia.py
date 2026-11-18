@@ -696,3 +696,32 @@ def test_navigation_guard_rejects_changed_state_before_any_mouse_action(override
     assert result.requires_manual_review is True
     assert result.metadata["executed"] is False
     assert mouse.points == []
+
+
+def test_live_mdi_add_blocks_mouse_when_the_hit_is_another_control(monkeypatch):
+    element = make_uia_element(label="Dodaj", automation_id="add-id")
+    executor = RobotActionExecutor(mode=RobotExecutionMode.LIVE)
+    executor.safety_gate = AllowingUIASafetyGate()
+    executor.mouse = RecordingMouse()
+    checked = []
+
+    def verify(point, **scope):
+        checked.append((point, scope))
+        return False
+
+    monkeypatch.setattr(
+        "app.agent.runtime.windowhub_mdi_native_probe.verify_mdi_add_hit", verify,
+    )
+    result = executor.execute_uia_screen_element(
+        screen_element=element,
+        action=InteractionAction.CLICK,
+        screen_origin=(100, 200),
+        window_handle=1234,
+        mdi_add_offer="OFR/42-",
+    )
+
+    assert not result.success and not result.executed
+    assert executor.mouse.points == []
+    assert checked == [((175, 285), {
+        "root": 1234, "expected_offer": "OFR/42-", "metadata": element.metadata,
+    })]
