@@ -18,7 +18,7 @@ def changed_regions(before: Image.Image, after: Image.Image, pointer: tuple[int,
 
     a = np.asarray(before.convert("RGB"), dtype=np.int16)
     b = np.asarray(after.convert("RGB"), dtype=np.int16)
-    if a.shape != b or a.ndim != 3:
+    if a.shape != b.shape or a.ndim != 3:
         return []
     mask = (np.max(np.abs(a - b), axis=2) >= 25).astype(np.uint8)
     x, y = pointer
