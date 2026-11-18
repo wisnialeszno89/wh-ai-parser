@@ -276,7 +276,10 @@ def _provably_outside_mdi_client(wrapper) -> bool:
     A truncated, failing, cyclic or ambiguous ancestry chain is never proof.
     """
     current = wrapper
-    seen = set()
+    # Hold strong references: pywinauto can create new wrapper objects for
+    # every .parent() call. Using id() without retaining them may falsely
+    # report a cycle when CPython reuses a released object address.
+    seen = {}
     for _ in range(40):
         try:
             parent = current.parent()
@@ -284,7 +287,7 @@ def _provably_outside_mdi_client(wrapper) -> bool:
                 return True
             if id(parent) in seen:
                 return False
-            seen.add(id(parent))
+            seen[id(parent)] = parent
             info = parent.element_info
             if str(getattr(info, "class_name", "") or "").casefold() == "mdiclient":
                 return False
@@ -297,7 +300,10 @@ def _provably_outside_mdi_client(wrapper) -> bool:
 def unknown_mdi_ancestry_reason(wrapper) -> str:
     """Classify missing owner without exposing titles, HWNDs or private text."""
     current = wrapper
-    seen = set()
+    # Hold strong references: pywinauto can create new wrapper objects for
+    # every .parent() call. Using id() without retaining them may falsely
+    # report a cycle when CPython reuses a released object address.
+    seen = {}
     for _ in range(40):
         try:
             parent = current.parent()
@@ -306,7 +312,7 @@ def unknown_mdi_ancestry_reason(wrapper) -> str:
             signature = id(parent)
             if signature in seen:
                 return "cyclic_parent_chain"
-            seen.add(signature)
+            seen[signature] = parent
             info = parent.element_info
             class_name = str(getattr(info, "class_name", "") or "").casefold()
             role = str(getattr(info, "control_type", "") or "").casefold()
