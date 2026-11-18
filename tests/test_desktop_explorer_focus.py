@@ -43,3 +43,37 @@ def test_wrong_process_or_minimized_is_not_eligible():
          window(13, visible=False)], process="okna.exe"
     )
     assert result == (None, "no_matching_visible_window")
+
+
+def test_offer_preferred_over_idle_start1_when_explicitly_enabled():
+    windows = [
+        window(11, title="Okna - Start1"),
+        window(12, title="Okna - OFR/4708-"),
+    ]
+    assert select_unique_window(
+        windows, process="okna.exe", prefer_unique_offer=True,
+    ) == (12, "unique_offer_over_idle_home")
+
+
+def test_offer_preference_does_not_override_dialog():
+    windows = [
+        window(11, title="Wybór okuć: 1"),
+        window(12, title="Okna - OFR/4708-"),
+    ]
+    hwnd, reason = select_unique_window(
+        windows, process="okna.exe", prefer_unique_offer=True,
+    )
+    assert hwnd is None
+    assert reason == "ambiguous_windows_2"
+
+
+def test_offer_preference_does_not_pick_between_two_offers():
+    windows = [
+        window(11, title="Okna - OFR/4708-"),
+        window(12, title="Okna - OFR/4709-"),
+    ]
+    hwnd, reason = select_unique_window(
+        windows, process="okna.exe", prefer_unique_offer=True,
+    )
+    assert hwnd is None
+    assert reason == "ambiguous_windows_2"
