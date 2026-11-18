@@ -67,6 +67,33 @@ def diagnose_add_scope(scene) -> dict:
     }
 
 
+def stopped_foreground_diagnostic(gate, scene) -> dict:
+    """Non-sensitive foreground diagnostic; no window captions or values."""
+    application = (
+        scene.observation.state.active_application or ""
+    ).replace("\\\\", "/").rsplit("/", 1)[-1].casefold()
+    rectangle = scene.observation.metadata.get("window_rect")
+    if isinstance(rectangle, (list, tuple)) and len(rectangle) == 4:
+        rect_type = "four_coordinates"
+    elif rectangle is None:
+        rect_type = "missing"
+    else:
+        rect_type = type(rectangle).__name__
+    return {
+        "gate_reason": gate.reason,
+        "scene_stage": gate.scene_stage,
+        "is_windowhub_process": application == "okna.exe",
+        "foreground_title_kind": (
+            "offer" if gate.scene_stage == "offer_document"
+            else "wizard" if gate.scene_stage == "wizard"
+            else "start" if gate.scene_stage == "start"
+            else "other_or_unrecognized"
+        ),
+        "window_rect_type": rect_type,
+        "scene_elements": len(scene.elements),
+    }
+
+
 def prepare_add_action(scene):
     """Only a uniquely scoped semantic UIA control can be executed."""
     gate = scene.observation.state
@@ -140,7 +167,12 @@ def main():
     loop = create_windows_desktop_agent_control_loop()
     observed, scene = observe_offer_gate(loop)
     if not observed.ok or observed.scene_stage != "offer_document":
-        print("WH_STEP_STOP=not_verified_offer_document")
+        import json
+        print("WH_STEP_FOREGROUND_DIAGNOSTICS=" + json.dumps(
+            stopped_foreground_diagnostic(observed, scene), ensure_ascii=False,
+        ), flush=True)
+        print("WH_STEP_STOP=not_verified_offer_document", flush=True)
+        print("WH_STEP_ACTIONS_EXECUTED=0", flush=True)
         return 4
     try:
         native_scene, resolved, offer_name = prepare_add_action(scene)
