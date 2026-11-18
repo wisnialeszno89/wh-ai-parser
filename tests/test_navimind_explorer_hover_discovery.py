@@ -48,3 +48,21 @@ def test_uia_filter_reports_reason_without_granting_click():
     scene = _scene(elements=(element,))
     assert candidate_diagnostics(scene)["unique_runtime_ids"] == 1
     assert eligible_controls(scene, limit=5) == [element]
+
+
+def test_mss_bgra_numpy_screenshot_finds_visual_regions():
+    import numpy as np
+    img = Image.new("RGB", (360, 240), "white")
+    d = ImageDraw.Draw(img)
+    for x in (30, 90, 150, 210, 270):
+        d.rectangle((x, 40, x + 26, 66), outline="black", width=3)
+        d.line((x + 3, 44, x + 22, 62), fill="black", width=3)
+    rgb = np.asarray(img)
+    bgra = np.concatenate(
+        [rgb[:, :, ::-1], np.full((*rgb.shape[:2], 1), 255, dtype=np.uint8)],
+        axis=2,
+    )
+    scene = _scene(image=bgra)
+    found = visual_hover_candidates(scene, limit=4)
+    assert 1 <= len(found) <= 4
+    assert all(e.metadata["source"] == "visual_exploration" for e in found)
