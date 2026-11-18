@@ -132,10 +132,12 @@ def explore(*, expected_process: str, limit: int, hover_seconds: float, output: 
         return 4
     x0, y0 = window_origin(scene)
     win_rect = scene.observation.metadata.get("window_rect")
-    visible_width = int(win_rect.right - win_rect.left)
-    visible_height = int(win_rect.bottom - win_rect.top)
-    if not isinstance(visible_width, int) or not isinstance(visible_height, int):
-        raise RuntimeError("dimensions_missing")
+    if win_rect is None:
+        raise RuntimeError("window_rect_missing")
+    visible_width = int(win_rect.width)
+    visible_height = int(win_rect.height)
+    if visible_width <= 0 or visible_height <= 0:
+        raise RuntimeError("window_dimensions_invalid")
     candidates = eligible_controls(scene, limit=limit)
     before = control_text(scene)
     user32 = ctypes.windll.user32
