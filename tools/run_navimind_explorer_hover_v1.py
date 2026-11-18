@@ -22,6 +22,9 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from app.agent.perception.visual_tooltip_reader import tooltip_ocr
+from app.agent.perception.explorer_tool_memory import (
+    load_memory, merge_observations, select_for_learning,
+)
 from app.agent.runtime.desktop_explorer_focus import focus_application_for_exploration
 from app.agent.runtime.windows_desktop_agent_control_loop import (
     create_windows_desktop_agent_control_loop,
@@ -321,16 +324,30 @@ def explore(*, expected_process: str, limit: int, hover_seconds: float,
     # UIA pagination and duplicate MDI commands can overwhelm the first
     # candidates. Inspect the visual toolbars independently of UIA coverage,
     # then use UIA only as a fallback if no visual candidates are found.
-    visual_candidates = visual_hover_candidates(scene, limit=limit)
-    uia_candidates = eligible_controls(scene, limit=limit)
+    # Sample more locations than one run needs. Prior OCR successes are
+    # remembered and skipped so subsequent runs discover unfamiliar icons.
+    memory_path = output.with_name(output.stem + "_icon_map.json")
+    learned = load_memory(
+        memory_path, application=process,
+        window_title=scene.observation.state.active_window_title or "",
+        window_size=(visible_width, visible_height),
+    )
+    visual_candidates = visual_hover_candidates(scene, limit=max(30, limit * 4))
+    uia_candidates = eligible_controls(scene, limit=max(30, limit * 4))
     if visual_candidates:
-        candidates = visual_candidates
+        candidate_pool = visual_candidates
         discovery_mode = "visual_hover_hypotheses"
     else:
-        candidates = uia_candidates
+        candidate_pool = uia_candidates
         discovery_mode = "uia_filtered_fallback"
+    candidates, memory_stats = select_for_learning(
+        candidate_pool, learned, limit=limit,
+    )
     print("EXPLORER_UIA_ELIGIBLE=" + str(len(uia_candidates)), flush=True)
     print("EXPLORER_VISUAL_CANDIDATES=" + str(len(visual_candidates)), flush=True)
+    print("EXPLORER_KNOWN_SKIPPED=" + str(memory_stats["known_skipped"]), flush=True)
+    print("EXPLORER_NEW_CANDIDATES=" + str(memory_stats["new"]), flush=True)
+    print("EXPLORER_RETRY_UNCERTAIN=" + str(memory_stats["retry_uncertain"]), flush=True)
     before = control_text(scene)
     baseline_image = screenshot_rgb(scene)
     frames_dir = output.parent / (output.stem + "_frames")
@@ -406,27 +423,21 @@ def explore(*, expected_process: str, limit: int, hover_seconds: float,
         "uia_diagnostics": diagnostic,
         "records": results,
     }, ensure_ascii=False, indent=2), encoding="utf-8")
-    icon_map_path = output.with_name(output.stem + "_icon_map.json")
+    icon_map_path = memory_path
+    merged_icons = merge_observations(learned, results)
     icon_map = {
         "schema": "navimind.icon_map.unverified.v1",
         "application": process,
+        "window_title": scene.observation.state.active_window_title,
+        "window_size": [visible_width, visible_height],
         "scope": "foreground_window_only",
         "skills_verified": False,
-        "icons": [
-            {
-                "relative_bounds": row["rect_relative"],
-                "pointer": row["hover_at_relative"],
-                "label_hypothesis": row["tooltip_ocr"]["text"],
-                "ocr_confidence": row["tooltip_ocr"]["confidence"],
-                "evidence": row["tooltip_ocr"]["status"],
-                "behavior_verified": False,
-            }
-            for row in results
-        ],
+        "icons": merged_icons,
     }
     icon_map_path.write_text(
         json.dumps(icon_map, ensure_ascii=False, indent=2), encoding="utf-8"
     )
+    print("EXPLORER_MEMORY_TOTAL=" + str(len(merged_icons)))
     print("EXPLORER_ICON_MAP=" + str(icon_map_path))
     print("EXPLORER_TOOLTIP_CANDIDATES=" + str(sum(
         bool(row["tooltip_ocr"]["text"]) for row in results
