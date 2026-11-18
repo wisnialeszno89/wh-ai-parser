@@ -104,3 +104,24 @@ def test_enrichment_diagnostic_requires_exact_selected_tab():
     result = diagnose_native_scope_enrichment(scene)
     assert result["status"] == "selected_tab_missing"
     assert result["native_owner_active"] == 0
+
+
+def test_unknown_mdi_ancestry_explains_unrecognized_mdi_child():
+    from types import SimpleNamespace
+    from app.agent.runtime.windowhub_mdi_native_probe import unknown_mdi_ancestry_reason
+
+    class Node:
+        def __init__(self, role, class_name, handle=0, parent=None):
+            self.element_info = SimpleNamespace(
+                control_type=role, class_name=class_name, handle=handle
+            )
+            self._parent = parent
+
+        def parent(self):
+            return self._parent
+
+    root = Node("Window", "MainWnd", handle=100)
+    mdi = Node("Pane", "MDIClient", handle=200, parent=root)
+    child = Node("Window", "UnknownChild", handle=300, parent=mdi)
+    target = Node("Button", "Button", parent=child)
+    assert unknown_mdi_ancestry_reason(target) == "mdi_client_without_recognized_child"
