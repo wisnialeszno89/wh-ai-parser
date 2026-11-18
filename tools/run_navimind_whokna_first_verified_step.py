@@ -25,7 +25,9 @@ from app.agent.perception.semantic_target_query import SemanticTargetQuery
 from app.agent.runtime.active_document_scope import (
     unique_active_document_control, duplicate_document_action_status, selected_document_tab,
 )
-from app.agent.runtime.windowhub_goal_v2_coordinator import execute_v2_step
+from app.agent.runtime.windowhub_goal_v2_coordinator import (
+    execute_v2_step, windowhub_add_postcondition_diagnostic,
+)
 from app.agent.runtime.windowhub_mdi_native_probe import (
     enrich_native_mdi_document_scope, inspect_native_mdi_button_ancestry,
     diagnose_native_scope_enrichment, offer_caption_id, same_offer_id,
@@ -149,7 +151,10 @@ def prepare_add_action(scene):
 
 def main():
     parser = argparse.ArgumentParser(description="One bounded WindowHub offer action")
-    parser.add_argument("--execute-live", action="store_true")
+    modes = parser.add_mutually_exclusive_group()
+    modes.add_argument("--execute-live", action="store_true")
+    modes.add_argument("--inspect-current", action="store_true",
+                       help="Observe the current foreground state without input")
     parser.add_argument("--offer", help="Complete identifier of the disposable test OFR")
     parser.add_argument("--width", type=int, default=1500)
     parser.add_argument("--height", type=int, default=1400)
@@ -171,6 +176,20 @@ def main():
     ):
         print("WH_STEP_STOP=live_environment_authorization_missing")
         return 2
+    if args.inspect_current:
+        print("WH_STEP_MODE=INSPECT_CURRENT_ONLY", flush=True)
+        print("WH_STEP_PREPARE=Show the result of the last action without dismissing it", flush=True)
+        time.sleep(args.start_delay)
+        try:
+            scene = create_windows_desktop_agent_control_loop().observe_scene()
+            diagnostic = windowhub_add_postcondition_diagnostic(scene, args.offer)
+        except Exception as exc:
+            print("WH_STEP_STOP=inspection_failed_" + type(exc).__name__, flush=True)
+            print("WH_STEP_ACTIONS_EXECUTED=0", flush=True)
+            return 4
+        print("WH_STEP_CURRENT_STATE=" + json.dumps(diagnostic), flush=True)
+        print("WH_STEP_ACTIONS_EXECUTED=0", flush=True)
+        return 0
     try:
         plan = offer_plan(
             load_reference(), width=args.width, height=args.height,

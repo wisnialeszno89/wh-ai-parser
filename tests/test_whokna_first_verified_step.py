@@ -144,3 +144,32 @@ def test_cli_requires_requested_full_id_in_both_tab_and_foreground(
     assert "WH_STEP_OFFER_IDENTITY=" in output
     assert "OFR/" not in output
     assert "customer text" not in output
+
+
+def test_inspect_current_reports_wizard_without_preparing_or_executing(monkeypatch, capsys):
+    observed = scene("Dodawanie nowej pozycji")
+    monkeypatch.setattr(first, "os", SimpleNamespace(name="nt"))
+    monkeypatch.setattr(first.sys, "argv", ["whokna", "--inspect-current", "--start-delay", "0"])
+    monkeypatch.setattr(first, "create_windows_desktop_agent_control_loop", lambda: SimpleNamespace(
+        observe_scene=lambda: observed,
+    ))
+    assert first.main() == 0
+    output = capsys.readouterr().out
+    assert '"wizard_step": "position"' in output
+    assert '"exact_position_title": true' in output
+    assert "WH_STEP_ACTIONS_EXECUTED=0" in output
+
+
+def test_current_state_diagnostic_redacts_unknown_window_title():
+    diagnostic = first.windowhub_add_postcondition_diagnostic(scene("Private customer details"))
+    assert diagnostic["foreground_kind"] == "unrecognized"
+    assert diagnostic["wizard_step"] is None
+    assert "Private customer details" not in str(diagnostic)
+
+
+def test_current_state_distinguishes_same_offer_from_a_different_foreground():
+    diagnostic = first.windowhub_add_postcondition_diagnostic(
+        scene("Okna - OFR/4708 <>"), "OFR/4708-",
+    )
+    assert diagnostic["requested_offer_still_foreground"] is True
+    assert "4708" not in str(diagnostic)

@@ -5,6 +5,7 @@ The local runtime owns the native target and checks every postcondition.
 """
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping
 from dataclasses import replace
 
@@ -21,6 +22,34 @@ from app.agent.verification.outcome_verifier import OutcomeVerifier
 
 _ALLOWED_STATE_FIELDS = frozenset({"uia_checked", "uia_selected", "uia_focused"})
 _GENERIC_LABELS = frozenset({"oknawpf", "lookupedit", "part_item", "layoutcontrol"})
+
+
+def windowhub_add_postcondition_diagnostic(scene, expected_offer=None) -> dict:
+    """Classify the observed transition without logging a raw title or UI text."""
+    if scene is None:
+        return {"observation_available": False}
+
+    from app.agent.offers.windowhub_offer_form_map import identify_windowhub_form_step
+    from app.agent.runtime.windowhub_discovery_diagnostics import categorize_window_title
+    from app.agent.runtime.windowhub_mdi_native_probe import same_offer_id
+
+    state = scene.observation.state
+    application = state.active_application or ""
+    is_windowhub = application.replace("\\", "/").rsplit("/", 1)[-1].casefold() == "okna.exe"
+    title = state.active_window_title or ""
+    step = identify_windowhub_form_step(title) if is_windowhub else None
+    kind = categorize_window_title(title) if is_windowhub else "other_application"
+    return {
+        "observation_available": True,
+        "is_windowhub": is_windowhub,
+        "application_matches_verifier": application == "Okna.exe",
+        "foreground_kind": kind,
+        "wizard_step": step.value if step else None,
+        "exact_position_title": is_windowhub and title == "Dodawanie nowej pozycji",
+        "requested_offer_still_foreground": (
+            kind == "document" and same_offer_id(title.strip()[7:], expected_offer)
+        ),
+    }
 
 
 def verified_v2_outcome(resolved, *, baseline_scene=None) -> ExpectedOutcome:
@@ -248,5 +277,9 @@ def execute_v2_step(loop, scene, resolved, *, approved_persistent=False, expecte
         print("V2_INPUT_EXECUTED=" + str(executed_flag is True))
         print("V2_VERIFICATION_PRESENT=" + str(verification is not None))
         print("V2_POSTCONDITION_VERIFIED=" + str(verification_ok))
+        if add_offer is not None and executed_flag is True:
+            print("V2_ADD_POSTCONDITION_SCENE=" + json.dumps(
+                windowhub_add_postcondition_diagnostic(context.current_scene, add_offer),
+            ))
         raise RuntimeError("v2_action_executed_but_not_verified_or_was_blocked")
     return result
