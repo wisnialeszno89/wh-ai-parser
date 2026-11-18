@@ -1289,10 +1289,12 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
 
     @staticmethod
     def _current_control_value(item) -> str | None:
-        for method_name in (
-            "get_value",
-            "window_text",
-        ):
+        element_info = getattr(item, "element_info", None)
+        role = str(getattr(element_info, "control_type", "") or "").casefold()
+        methods = ("selected_text", "get_value", "window_text") if role == "combobox" else (
+            "get_value", "window_text",
+        )
+        for method_name in methods:
             method = getattr(item, method_name, None)
             if not callable(method):
                 continue
@@ -1306,12 +1308,6 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
                 value = value.strip()
                 if value:
                     return value
-
-        element_info = getattr(
-            item,
-            "element_info",
-            None,
-        )
 
         for attribute_name in (
             "value",

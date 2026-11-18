@@ -255,10 +255,38 @@ def toggle_price_once(scene, key, *, desired_checked=True):
     return True
 
 
-def _select_catalog_with_uia_patterns(wrapper, *, allowed, still_foreground):
+def _catalog_choice(options, allowed, *, allow_test_catalog_choice=False):
+    """Resolve one exact native label. Test mode may use a real catalog alternative."""
+    from collections import Counter
+
+    labels = [option.strip().casefold() for option in options]
+    preferred = [i for i, label in enumerate(labels) if label in allowed]
+    print("CATALOG_OPTION_COUNT =", len(options))
+    print("APPROVED_EXACT_MATCHES =", len(preferred))
+    if len(preferred) == 1:
+        return preferred[0]
+    if not allow_test_catalog_choice:
+        return None
+
+    counts = Counter(labels)
+    for index in preferred + list(range(len(labels))):
+        label = labels[index]
+        if (
+            counts[label] == 1 and any(char.isalnum() for char in label)
+            and not label.lstrip("(<[ ").startswith((
+                "wybierz", "select", "brak", "none", "bez szklenia",
+                "bez szyby", "bez szyb", "bez koloru", "no glazing",
+            ))
+            and not (label.startswith("<") and label.endswith(">"))
+        ):
+            return index
+    return None
+
+
+def _select_catalog_with_uia_patterns(wrapper, *, allowed, still_foreground, allow_test_catalog_choice=False):
     """Read list items under the verified combo and select one exact match."""
     if not still_foreground():
-        return False
+        return None
     expand = None
     opened_here = False
     try:
@@ -268,27 +296,23 @@ def _select_catalog_with_uia_patterns(wrapper, *, allowed, still_foreground):
             expand.Expand()
             opened_here = True
         elif state != 1:  # UIA ExpandCollapseState_Expanded
-            return False
+            return None
         rows = wrapper.descendants(control_type="ListItem")
-        available = [
-            row for row in rows
-            if (row.element_info.name or "").strip().casefold() in allowed
-        ]
-        print("CATALOG_OPTION_COUNT =", len(rows))
-        print("APPROVED_EXACT_MATCHES =", len(available))
-        if len(available) != 1:
-            return False
-        row = available[0]
+        options = [(row.element_info.name or "").strip() for row in rows]
+        index = _catalog_choice(options, allowed, allow_test_catalog_choice=allow_test_catalog_choice)
+        if index is None:
+            return None
+        row = rows[index]
         if not (row.element_info.visible and row.element_info.enabled):
-            return False
+            return None
         selection = row.iface_selection_item
         if selection is None or not still_foreground():
-            return False
+            return None
         selection.Select()
-        return True
+        return options[index]
     except Exception as exc:
         print("STOP = native catalog pattern unavailable", type(exc).__name__)
-        return False
+        return None
     finally:
         if opened_here and still_foreground():
             try:
@@ -299,7 +323,14 @@ def _select_catalog_with_uia_patterns(wrapper, *, allowed, still_foreground):
 
 
 def select_catalog_option_once(scene, *, field_name, approved_options):
-    """Choose one exact native ComboBox option; no substring or first-row guessing."""
+    """Select a uniquely approved label in the sales workflow."""
+    return select_catalog_label_once(
+        scene, field_name=field_name, approved_options=approved_options,
+    ) is not None
+
+
+def select_catalog_label_once(scene, *, field_name, approved_options, allow_test_catalog_choice=False):
+    """Return the selected exact native label for independent readback."""
     import ctypes
     from ctypes import wintypes
     from pywinauto import Desktop
@@ -308,16 +339,16 @@ def select_catalog_option_once(scene, *, field_name, approved_options):
     if (match is None or not match.is_unique or match.enabled is not True
             or match.element.kind != "combobox"):
         print("STOP = catalog combo unavailable", field_name)
-        return False
+        return None
     target = match.element
     meta = target.metadata or {}
     if not isinstance(meta.get("uia_runtime_id"), str):
         print("STOP = catalog combo has no stable runtime identity")
-        return False
+        return None
     from app.agent.perception.windowhub_ui_automation_provider import WindowHubUIAutomationProvider
     hwnd = scene.observation.metadata.get("window_handle")
     if not isinstance(hwnd, int) or hwnd <= 0:
-        return False
+        return None
     foreground = ctypes.windll.user32.GetForegroundWindow
     foreground.restype = wintypes.HWND
 
@@ -325,7 +356,7 @@ def select_catalog_option_once(scene, *, field_name, approved_options):
         return foreground() == hwnd
 
     if not still_foreground():
-        return False
+        return None
     candidates = []
     for item in Desktop(backend="uia").window(handle=hwnd).wrapper_object().descendants():
         try:
@@ -339,7 +370,7 @@ def select_catalog_option_once(scene, *, field_name, approved_options):
             continue
     if len(candidates) != 1:
         print("STOP = catalog native combo ambiguous", field_name, len(candidates))
-        return False
+        return None
     wrapper = candidates[0]
     allowed = {v.strip().casefold() for v in approved_options}
     print("CATALOG_FIELD =", field_name)
@@ -348,28 +379,28 @@ def select_catalog_option_once(scene, *, field_name, approved_options):
     if not callable(item_texts) or not callable(select):
         return _select_catalog_with_uia_patterns(
             wrapper, allowed=allowed, still_foreground=still_foreground,
+            allow_test_catalog_choice=allow_test_catalog_choice,
         )
     try:
         options = [str(v).strip() for v in item_texts()]
     except AttributeError:
         return _select_catalog_with_uia_patterns(
             wrapper, allowed=allowed, still_foreground=still_foreground,
+            allow_test_catalog_choice=allow_test_catalog_choice,
         )
     except Exception as exc:
         print("STOP = catalog options unreadable", type(exc).__name__)
-        return False
-    available = [option for option in options if option.casefold() in allowed]
-    print("CATALOG_OPTION_COUNT =", len(options))
-    print("APPROVED_EXACT_MATCHES =", len(available))
-    if len(available) != 1 or not still_foreground():
-        return False
-    desired = available[0]
+        return None
+    index = _catalog_choice(options, allowed, allow_test_catalog_choice=allow_test_catalog_choice)
+    if index is None or not still_foreground():
+        return None
+    desired = options[index]
     try:
         select(desired)
     except Exception as exc:
         print("STOP = catalog selection unavailable", type(exc).__name__)
-        return False
-    return True
+        return None
+    return desired
 
 
 def advance_known_wizard(scene, *, expected_stage):

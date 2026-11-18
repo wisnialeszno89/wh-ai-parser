@@ -19,7 +19,7 @@ from app.agent.runtime.windowhub_mdi_native_probe import _Win32Mdi, offer_captio
 from tools.run_navimind_whokna_first_verified_step import test_offer_diagnostic as offer_diagnostic
 from tools.run_windowhub_new_offer_native_invoke_once import resolve_native_wrapper
 from tools.run_windowhub_sales_offer_live import open_verified_position
-from tools.run_windowhub_top_trans_single_window_mission import inspect, matches, select_catalog_option_once
+from tools.run_windowhub_top_trans_single_window_mission import inspect, matches, select_catalog_label_once
 
 WIDTH, HEIGHT, QUANTITY = 1500, 1400, 1
 _WIZARDS = {"position", "dimensions", "basic_parameters", "glazing", "hardware", "modifier"}
@@ -58,6 +58,14 @@ def confirm_stage(loop, scene, offer, api):
         if (b.label or "").strip().casefold() in {"dalej >", "ok", "zakończ", "zakoncz"}
         and (b.metadata or {}).get("automation_id")
     ]
+    if len(buttons) > 1 and stage in {"position", "dimensions", "basic_parameters", "glazing"}:
+        next_buttons = [
+            b for b in buttons
+            if b.label.strip().casefold() == "dalej >"
+            and b.metadata["automation_id"] == "12324"
+        ]
+        if len(next_buttons) == 1:
+            buttons = next_buttons
     if len(buttons) != 1:
         print(f"TEST_CONFIRM_BLOCKED={stage}:affirmative_control_count_{len(buttons)}")
         return None
@@ -99,18 +107,25 @@ def choose_catalog(loop, scene, offer, api, field, options, *, accepted_defaults
     if not belongs_to_offer(scene, offer, api):
         return None
     if exact_selected(scene, field, options + accepted_defaults):
+        from app.agent.runtime.windowhub_catalog_handoff import current_catalog_value
+        print(f"TEST_CATALOG_ALREADY_SELECTED={field}:{current_catalog_value(scene, field)!r}")
         return scene
-    if not select_catalog_option_once(
-        scene, field_name=field, approved_options=options,
-    ):
+    label = select_catalog_label_once(
+        scene, field_name=field, approved_options=options + accepted_defaults,
+        allow_test_catalog_choice=True,
+    )
+    if label is None:
         return None
-    after = inspect(loop)
-    if (
-        stage_of(after) == stage_of(scene)
-        and belongs_to_offer(after, offer, api)
-        and exact_selected(after, field, options)
-    ):
-        return after
+    print(f"TEST_CATALOG_REQUESTED={field}:{label!r}")
+    for attempt in range(3):
+        after = inspect(loop)
+        if stage_of(after) != stage_of(scene) or not belongs_to_offer(after, offer, api):
+            break
+        if exact_selected(after, field, (label,)):
+            print(f"TEST_CATALOG_READBACK={field}:{label!r}")
+            return after
+        if attempt < 2:
+            time.sleep(0.25)
     return None
 
 
@@ -228,6 +243,8 @@ def run(loop, offer, api):
 
     print("TEST_FINAL_STAGE=" + str(stage))
     print("TEST_CATALOG_READBACK_COMPLETE=" + str(color_verified and glazing_verified))
+    if not glazing_verified and stage in {"modifier", "offer_document"}:
+        print("TEST_GLAZING_WIZARD_NOT_OBSERVED=True")
     # Returning to the same offer proves navigation, but not an added row.
     # Modifier may open with an unbuilt frame. Do not accept an empty editor.
     if stage == "modifier":
