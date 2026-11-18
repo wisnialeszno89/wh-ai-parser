@@ -50,3 +50,38 @@ def test_single_candidate_still_requires_structural_validation():
         "other_mdi_ancestor", "matching_mdi_ancestor", "other_mdi_ancestor"
     )
     # Not equivalent to verified UIA-document scope or permission to click.
+
+
+def test_proven_global_toolbar_is_outside_mdi():
+    from types import SimpleNamespace
+    from app.agent.runtime.windowhub_mdi_native_probe import _provably_outside_mdi_client
+
+    class Node:
+        def __init__(self, class_name, parent=None):
+            self.element_info = SimpleNamespace(class_name=class_name)
+            self._parent = parent
+
+        def parent(self):
+            return self._parent
+
+    root = Node("Window")
+    toolbar = Node("Toolbar", root)
+    global_button = Node("Button", toolbar)
+    assert _provably_outside_mdi_client(global_button) is True
+    mdi = Node("MDIClient", root)
+    document = Node("Window", mdi)
+    offer_button = Node("Button", document)
+    assert _provably_outside_mdi_client(offer_button) is False
+
+
+def test_unfinished_or_broken_ancestry_is_not_proof():
+    from types import SimpleNamespace
+    from app.agent.runtime.windowhub_mdi_native_probe import _provably_outside_mdi_client
+
+    class Broken:
+        element_info = SimpleNamespace(class_name="Button")
+
+        def parent(self):
+            raise ValueError("provider failed")
+
+    assert _provably_outside_mdi_client(Broken()) is False
