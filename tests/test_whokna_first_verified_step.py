@@ -80,3 +80,17 @@ def test_unverified_target_diagnostic_is_read_only(monkeypatch):
     assert result["safe_unique_target"] is False
     assert result["native_without_mdi_ancestor"] == 2
     assert "document" not in result
+
+
+def test_foreground_failure_report_redacts_window_title():
+    gate = SimpleNamespace(
+        reason="unrecognized_windowhub_stage",
+        scene_stage="unknown",
+    )
+    s = scene("Private Client Account 1234")
+    diagnostic = first.stopped_foreground_diagnostic(gate, s)
+    assert diagnostic["gate_reason"] == "unrecognized_windowhub_stage"
+    assert diagnostic["scene_elements"] == 0
+    assert diagnostic["window_rect_type"] == "missing"
+    assert "Private Client" not in str(diagnostic)
+    assert diagnostic["is_windowhub_process"] is True
