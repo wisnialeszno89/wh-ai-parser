@@ -46,7 +46,12 @@ def diagnose_add_scope(scene) -> dict:
         native = inspect_native_mdi_button_ancestry(scene)
     except Exception as exc:
         native = {"status": "diagnostic_error_" + type(exc).__name__}
-    precise = diagnose_native_scope_enrichment(scene)
+    try:
+        precise = diagnose_native_scope_enrichment(scene)
+    except Exception as exc:
+        # Diagnostic failure must not change the action gate or authorize
+        # any click; preserve a stable error category for offline fixtures.
+        precise = {"status": "diagnostic_error_" + type(exc).__name__}
     return {
         "enrichment": precise,
         "selected_tab_status": selected["selected_document_status"],
