@@ -130,3 +130,10 @@ def test_explorer_rejects_scroll_and_select_all_buttons():
         ))
     found = eligible_controls(_scene(elements=elements), limit=12)
     assert [e.label for e in found] == ["Dodaj"]
+
+
+def test_hover_explorer_requires_explicit_opt_in_to_autofocus():
+    import inspect
+    from tools.run_navimind_explorer_hover_v1 import explore
+    signature = inspect.signature(explore)
+    assert signature.parameters["auto_focus"].default is False
