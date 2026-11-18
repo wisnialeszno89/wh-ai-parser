@@ -78,4 +78,12 @@ def unique_active_document_control(scene, *, label: str = "Dodaj"):
     if not candidates or any(control_document_scope(e, selected) == "unknown" for e in candidates):
         return None
     in_active = [e for e in candidates if control_document_scope(e, selected) == "active"]
+    # Treat an explicitly verified global toolbar as excluded only when the
+    # single active control is itself backed by native MDI ancestry.
+    if any((e.metadata or {}).get("document_scope_source") == "verified_outside_mdi"
+           for e in candidates):
+        if len(in_active) != 1 or (in_active[0].metadata or {}).get(
+            "document_scope_source"
+        ) != "verified_native_mdi_child":
+            return None
     return in_active[0] if len(in_active) == 1 else None
