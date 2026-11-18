@@ -277,6 +277,8 @@ def explore(*, expected_process: str, limit: int, hover_seconds: float,
     if auto_focus:
         ok, reason = focus_application_for_exploration(
             process=expected_process, title_contains=window_title_contains,
+            prefer_unique_offer=(expected_process.casefold() == "okna.exe"
+                                 and not window_title_contains),
         )
         print("EXPLORER_AUTO_FOCUS=" + reason, flush=True)
         if not ok:
