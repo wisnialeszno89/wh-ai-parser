@@ -23,7 +23,8 @@ ALIASES = {
 
 
 def normalize(value: str) -> str:
-    value = unicodedata.normalize("NFKD", value.casefold())
+    value = value.casefold().translate(str.maketrans({"ł": "l", "Ł": "l"}))
+    value = unicodedata.normalize("NFKD", value)
     value = "".join(c for c in value if not unicodedata.combining(c))
     return " ".join(re.findall(r"[a-z0-9]+", value))
 
