@@ -120,3 +120,23 @@ def test_global_button_cannot_mask_unproven_active_offer():
     assert unique_active_document_control(
         scene(selected_tab(), active, global_button)
     ) is None
+
+
+def test_one_native_active_four_other_and_one_unknown_still_blocks():
+    from dataclasses import replace
+    active = button("active", scope="OFR/4680-")
+    active = replace(active, metadata={
+        **active.metadata, "document_scope_source": "verified_native_mdi_child",
+    })
+    controls = [
+        button("other-" + str(i), scope="OFR/467" + str(i) + "-")
+        for i in range(4)
+    ]
+    unknown = button("unknown", scope=None)
+    s = scene(selected_tab(), active, *controls, unknown)
+    status = duplicate_document_action_status(s)
+    assert status["active_scope_proven"] == 1
+    assert status["other_document_scope"] == 4
+    assert status["unresolved_scope"] == 1
+    assert status["safe_unique_active_target"] is False
+    assert unique_active_document_control(s) is None
