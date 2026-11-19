@@ -168,10 +168,31 @@ def test_from_start_runs_only_on_the_offer_confirmed_by_document_core(monkeypatc
     assert calls == [
         ("new_offer", ["--execute-live"]),
         ("setup", "Test", True),
-        ("position", "OFR/42 <>", {"stop_at_editor": True}),
+        ("position", "OFR/42 <>", {"stop_at_editor": True, "color_label": None}),
     ]
 
 
 def test_from_start_refuses_to_create_offer_if_a_wizard_is_open(monkeypatch):
     monkeypatch.setattr(mission, "inspect", lambda loop: scene("Podstawowe parametry okna"))
     assert mission.run_from_start(object(), "Test", native_owner("Okna - OFR/42-")) == 4
+
+
+def test_new_offer_uses_verified_start1_navigation_from_an_open_offer(monkeypatch):
+    from tools import run_windowhub_new_offer_entry as entry
+
+    monkeypatch.setattr(mission, "inspect", lambda loop: scene("Okna - OFR/42-"))
+    calls = []
+    monkeypatch.setattr(entry, "main", lambda args: calls.append(args) or 4)
+    assert mission.run_from_start(object(), "Test", native_owner("Okna - OFR/42-")) == 4
+    assert calls == [["--execute-live"]]
+
+
+def test_requested_glazing_is_an_exact_build_up_not_just_a_pane_count():
+    from tools.run_windowhub_top_trans_single_window_mission import _catalog_choice
+
+    options = ["3 szyby", "4/16/4/16/4", "Pakiet szybowy: 4 / 12 / 4 / 12 / 4 mm"]
+    assert _catalog_choice(options, set(), match_label=mission.matches_required_glazing) == 2
+    assert _catalog_choice(options + ["4-12-4-12-4"], set(),
+                           match_label=mission.matches_required_glazing) is None
+    assert not mission.matches_required_glazing("44/12/4/12/4")
+    assert not mission.matches_required_glazing("4/12/4/12/44")

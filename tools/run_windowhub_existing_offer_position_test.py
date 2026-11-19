@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 from pathlib import Path
 import sys
 import time
@@ -22,6 +23,24 @@ from tools.run_windowhub_sales_offer_live import open_verified_position
 from tools.run_windowhub_top_trans_single_window_mission import inspect, matches, select_catalog_label_once
 
 WIDTH, HEIGHT, QUANTITY = 1500, 1400, 1
+_EXTERIOR_ANTHRACITE = (
+    "Antracyt / Biały",
+    "Antracyt / Bialy",
+    "Antracyt zewnętrzny / Biały wewnętrzny",
+    "Antracyt zew. / Biały wew.",
+    "RAL 7016 / Biały",
+    "RAL 7016 / Bialy",
+)
+_GLAZING_4_12_4_12_4 = re.compile(
+    r"(?:pakiet(?: szybowy)?\s*:?\s*)?4\s*[/–-]\s*12\s*[/–-]\s*4\s*[/–-]\s*12\s*[/–-]\s*4(?:\s*mm)?",
+    re.IGNORECASE,
+)
+
+
+def matches_required_glazing(label):
+    return _GLAZING_4_12_4_12_4.fullmatch(label.strip()) is not None
+
+
 _WIZARDS = {"position", "dimensions", "basic_parameters", "glazing", "hardware", "modifier"}
 _NEXT_STAGES = {
     "position": {"dimensions"},
@@ -122,16 +141,22 @@ def confirm_stage(loop, scene, offer, api):
     return None
 
 
-def choose_catalog(loop, scene, offer, api, field, options, *, accepted_defaults=()):
+def choose_catalog(
+    loop, scene, offer, api, field, options, *, accepted_defaults=(),
+    allow_test_catalog_choice=True, match_label=None,
+):
     if not belongs_to_offer(scene, offer, api):
         return None
-    if exact_selected(scene, field, options + accepted_defaults):
-        from app.agent.runtime.windowhub_catalog_handoff import current_catalog_value
-        print(f"TEST_CATALOG_ALREADY_SELECTED={field}:{current_catalog_value(scene, field)!r}")
-        return scene
+    from app.agent.runtime.windowhub_catalog_handoff import current_catalog_value
+    approved_current = exact_selected(scene, field, options + accepted_defaults)
+    if approved_current or match_label is not None:
+        current = current_catalog_value(scene, field)
+        if approved_current or (current and match_label(current)):
+            print(f"TEST_CATALOG_ALREADY_SELECTED={field}:{current!r}")
+            return scene
     label = select_catalog_label_once(
         scene, field_name=field, approved_options=options + accepted_defaults,
-        allow_test_catalog_choice=True,
+        allow_test_catalog_choice=allow_test_catalog_choice, match_label=match_label,
     )
     if label is None:
         return None
@@ -153,7 +178,7 @@ def stop(reason):
     return 4
 
 
-def run(loop, offer, api, *, stop_at_editor=False):
+def run(loop, offer, api, *, stop_at_editor=False, color_label=None):
     from tools.run_windowhub_local_select_window_once import run as select_window
     from tools.run_windowhub_local_quantity_once import run as set_quantity
     from tools.run_windowhub_local_dimensions_once import run as set_dimensions
@@ -218,12 +243,19 @@ def run(loop, offer, api, *, stop_at_editor=False):
             return stop("dimensions_confirmation_unverified")
         stage = stage_of(scene)
 
-    colors, glazing = catalog_options_for(outside="antracyt", inside="biały", glazing_panes=2)
+    if stop_at_editor:
+        colors = (color_label,) if color_label else _EXTERIOR_ANTHRACITE
+        glazing = ()
+    else:
+        colors, glazing = catalog_options_for(outside="antracyt", inside="biały", glazing_panes=2)
     color_verified = glazing_verified = False
     if stage == "basic_parameters":
         scene = choose_catalog(
             loop, scene, offer, api, "profile_color", colors,
-            accepted_defaults=("Biały", "Biały / Biały", "BIAŁY CZARNA USZCZELKA"),
+            accepted_defaults=() if stop_at_editor else (
+                "Biały", "Biały / Biały", "BIAŁY CZARNA USZCZELKA",
+            ),
+            allow_test_catalog_choice=not stop_at_editor,
         )
         if scene is None:
             return stop("profile_color_selection_or_readback_unverified")
@@ -235,7 +267,11 @@ def run(loop, offer, api, *, stop_at_editor=False):
         stage = stage_of(scene)
 
     if stage == "glazing":
-        scene = choose_catalog(loop, scene, offer, api, "glazing_package", glazing)
+        scene = choose_catalog(
+            loop, scene, offer, api, "glazing_package", glazing,
+            allow_test_catalog_choice=not stop_at_editor,
+            match_label=matches_required_glazing if stop_at_editor else None,
+        )
         if scene is None:
             return stop("glazing_selection_or_readback_unverified")
         glazing_verified = True
@@ -268,6 +304,9 @@ def run(loop, offer, api, *, stop_at_editor=False):
     # Modifier may open with an unbuilt frame. Do not accept an empty editor.
     if stage == "modifier":
         if stop_at_editor and color_verified and belongs_to_offer(scene, offer, api):
+            print("TEST_EDITOR_REACHED=True")
+            if not glazing_verified:
+                return stop("editor_reached_required_glazing_unverified")
             print("TEST_RESULT=construction_editor_reached")
             return 0
         return stop("construction_editor_reached_position_commit_unverified")
@@ -276,12 +315,14 @@ def run(loop, offer, api, *, stop_at_editor=False):
     return stop("unsupported_stage")
 
 
-def run_from_start(loop, customer, api):
+def run_from_start(loop, customer, api, *, color_label=None):
     from app.agent.runtime.windowhub_document_core import run_document_core
     from tools.run_windowhub_new_offer_entry import main as open_offer
 
-    if stage_of(inspect(loop)) != "start":
-        return stop("expected_start1_before_new_offer")
+    stage = stage_of(inspect(loop))
+    print("TEST_NEW_OFFER_ENTRY_STAGE=" + str(stage))
+    if stage not in {"start", "offer_document"}:
+        return stop("expected_start1_or_offer_workspace_before_new_offer")
     if open_offer(["--execute-live"]) != 0:
         return stop("new_offer_entry_unverified")
     confirmed = []
@@ -301,7 +342,7 @@ def run_from_start(loop, customer, api):
     offer = confirmed[0]
     print("TEST_DOCUMENT_CONFIRMED=True")
     print("TEST_TARGET_OFFER=" + offer)
-    return run(loop, offer, api, stop_at_editor=True)
+    return run(loop, offer, api, stop_at_editor=True, color_label=color_label)
 
 
 def main(argv=None):
@@ -309,6 +350,7 @@ def main(argv=None):
     parser.add_argument("--execute-live", action="store_true")
     parser.add_argument("--from-start", action="store_true",
                         help="Create one test offer from Start1 for an existing test customer")
+    parser.add_argument("--color-label", help="Exact catalog label for exterior anthracite and white interior")
     parser.add_argument("--start-delay", type=int, default=12, choices=range(0, 31), metavar="0..30")
     args = parser.parse_args(argv)
     if os.name != "nt" or not args.execute_live:
@@ -322,6 +364,8 @@ def main(argv=None):
         ).strip()
     except (EOFError, KeyboardInterrupt):
         return stop("no_test_target_provided")
+    if args.color_label is not None and (not args.from_start or not args.color_label.strip()):
+        return stop("invalid_exact_color_label")
     if args.from_start:
         if not target or len(target) > 100 or any(ord(ch) < 32 for ch in target):
             return stop("invalid_test_customer_name")
@@ -332,7 +376,9 @@ def main(argv=None):
     from app.agent.runtime.windows_desktop_agent_control_loop import create_windows_desktop_agent_control_loop
     loop = create_windows_desktop_agent_control_loop()
     api = _Win32Mdi()
-    return run_from_start(loop, target, api) if args.from_start else run(loop, target, api)
+    if args.from_start:
+        return run_from_start(loop, target, api, color_label=args.color_label)
+    return run(loop, target, api)
 
 
 if __name__ == "__main__":

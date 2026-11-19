@@ -76,3 +76,10 @@ widoczną cenę konstrukcji i wyłączają kalkulację montażu, demontażu i wy
 Test wymaga odczytu powiązania z numerem OFR utworzonym przez przebieg.
 Gdy instalacja przechodzi bezpośrednio do edytora, osobny krok szklenia oznacza
 jako niezaobserwowany.
+
+
+Próba od początku startuje z rozpoznanego Start1 albo z istniejącej oferty,
+z której używa zweryfikowanej nawigacji do Start1. Otwarty kreator jest
+oddzielnym stanem i zatrzymuje rozpoczęcie nowej oferty. Wariant akceptacyjny
+wymaga antracytu na zewnątrz i bieli wewnątrz oraz odczytu dokładnego pakietu
+4/12/4/12/4. Wejście do edytora bez odczytu pakietu to wynik częściowy.

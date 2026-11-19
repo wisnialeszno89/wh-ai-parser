@@ -255,17 +255,28 @@ def toggle_price_once(scene, key, *, desired_checked=True):
     return True
 
 
-def _catalog_choice(options, allowed, *, allow_test_catalog_choice=False):
+def _catalog_choice(options, allowed, *, allow_test_catalog_choice=False, match_label=None):
     """Resolve one exact native label. Test mode may use a real catalog alternative."""
     from collections import Counter
 
     labels = [option.strip().casefold() for option in options]
-    preferred = [i for i, label in enumerate(labels) if label in allowed]
+    preferred = [
+        i for i, label in enumerate(labels)
+        if label in allowed or (match_label is not None and match_label(options[i]))
+    ]
     print("CATALOG_OPTION_COUNT =", len(options))
     print("APPROVED_EXACT_MATCHES =", len(preferred))
     if len(preferred) == 1:
         return preferred[0]
     if not allow_test_catalog_choice:
+        relevant = [
+            option for option, label in zip(options, labels)
+            if "antrac" in label or "7016" in label or (
+                match_label is not None and label.count("/") >= 2
+            )
+        ]
+        if relevant:
+            print("CATALOG_RELEVANT_LABELS =", repr(relevant[:12]))
         return None
 
     counts = Counter(labels)
@@ -283,7 +294,9 @@ def _catalog_choice(options, allowed, *, allow_test_catalog_choice=False):
     return None
 
 
-def _select_catalog_with_uia_patterns(wrapper, *, allowed, still_foreground, allow_test_catalog_choice=False):
+def _select_catalog_with_uia_patterns(
+    wrapper, *, allowed, still_foreground, allow_test_catalog_choice=False, match_label=None,
+):
     """Read list items under the verified combo and select one exact match."""
     if not still_foreground():
         return None
@@ -299,7 +312,9 @@ def _select_catalog_with_uia_patterns(wrapper, *, allowed, still_foreground, all
             return None
         rows = wrapper.descendants(control_type="ListItem")
         options = [(row.element_info.name or "").strip() for row in rows]
-        index = _catalog_choice(options, allowed, allow_test_catalog_choice=allow_test_catalog_choice)
+        index = _catalog_choice(
+            options, allowed, allow_test_catalog_choice=allow_test_catalog_choice, match_label=match_label,
+        )
         if index is None:
             return None
         row = rows[index]
@@ -329,7 +344,9 @@ def select_catalog_option_once(scene, *, field_name, approved_options):
     ) is not None
 
 
-def select_catalog_label_once(scene, *, field_name, approved_options, allow_test_catalog_choice=False):
+def select_catalog_label_once(
+    scene, *, field_name, approved_options, allow_test_catalog_choice=False, match_label=None,
+):
     """Return the selected exact native label for independent readback."""
     import ctypes
     from ctypes import wintypes
@@ -379,19 +396,21 @@ def select_catalog_label_once(scene, *, field_name, approved_options, allow_test
     if not callable(item_texts) or not callable(select):
         return _select_catalog_with_uia_patterns(
             wrapper, allowed=allowed, still_foreground=still_foreground,
-            allow_test_catalog_choice=allow_test_catalog_choice,
+            allow_test_catalog_choice=allow_test_catalog_choice, match_label=match_label,
         )
     try:
         options = [str(v).strip() for v in item_texts()]
     except AttributeError:
         return _select_catalog_with_uia_patterns(
             wrapper, allowed=allowed, still_foreground=still_foreground,
-            allow_test_catalog_choice=allow_test_catalog_choice,
+            allow_test_catalog_choice=allow_test_catalog_choice, match_label=match_label,
         )
     except Exception as exc:
         print("STOP = catalog options unreadable", type(exc).__name__)
         return None
-    index = _catalog_choice(options, allowed, allow_test_catalog_choice=allow_test_catalog_choice)
+    index = _catalog_choice(
+        options, allowed, allow_test_catalog_choice=allow_test_catalog_choice, match_label=match_label,
+    )
     if index is None or not still_foreground():
         return None
     desired = options[index]
