@@ -149,3 +149,30 @@ def test_document_confirmation_requires_explicit_operator_permission():
     with pytest.raises(ValueError, match="document_commit_requires_explicit_approval"):
         enforce_v2_live_policy(document_scene, proposal)
     enforce_v2_live_policy(document_scene, proposal, approved_persistent=True)
+
+
+@pytest.mark.parametrize("label", [
+    "Zapisz", "Zapisz ofertę", "Wyślij ofertę", "Utwórz zamówienie",
+])
+def test_autonomous_v2_never_persists_before_salesperson_review(label):
+    control = ScreenElement(
+        kind="button", label=label,
+        metadata={
+            "source": "windowhub_ui_automation", "uia_control_type": "button",
+            "uia_runtime_id": "persistent1", "automation_id": "SAVE",
+            "uia_enabled": True, "uia_visible": True,
+        },
+    )
+    proposal = SimpleNamespace(
+        action=AgentAction(
+            name="click_screen_element", description="Persistence attempt",
+            target=SemanticTargetQuery(
+                role="button", label=label, automation_id="SAVE",
+                uia_runtime_id="persistent1",
+            ),
+        ),
+        target_ref="ent_0001",
+        expected_postcondition={"kind": "scene_changed"},
+    )
+    with pytest.raises(ValueError, match="salesperson_review_required_before_persistence"):
+        enforce_v2_live_policy(scene(control), proposal, approved_persistent=True)

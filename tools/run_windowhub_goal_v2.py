@@ -12,6 +12,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from app.agent.intake.task_document import read_task_document
+from app.agent.bridge.windowhub_sales_mission_v2 import load_sales_mission, mission_goal, mission_knowledge
 from app.agent.learning.windowhub_demonstration import stage_of
 from app.agent.learning.windowhub_training_context import (read_demonstration_experience, read_demonstration_report, windowhub_skill_knowledge)
 from app.agent.perception.windowhub_semantic_world import enrich_windowhub_scene
@@ -26,6 +27,7 @@ def parse_args(argv=None):
     parser = argparse.ArgumentParser(description="Goal-driven WindowHub with NaviMind V2")
     parser.add_argument("--goal", help="Free-form Polish or German instruction")
     parser.add_argument("--task-file", type=Path, help="Client request (.txt/.md/.pdf)")
+    parser.add_argument("--sales-mission", type=Path, help="Validated multi-position sales mission JSON")
     parser.add_argument("--mode", choices=("inspect", "think", "execute"), default="inspect")
     parser.add_argument("--reasoner", choices=("navimind", "local-ollama"), default="navimind",
                         help="Choose existing NaviMind endpoint or local Ollama without Vercel")
@@ -139,7 +141,7 @@ def run_goal(loop, *, goal, reasoner, mode, max_actions, experience=(),
              approved_persistent=False, show_window_title=False,
              customer_lookup_name=None, interactive_handoff=False,
              handoff_timeout=60, require_stage=None,
-             local_offer_add_once=False, expected_offer=None):
+             local_offer_add_once=False, expected_offer=None, sales_mission=None):
     session = ComputerUseV2ActionSession()
     from app.agent.runtime.goal_progress_memory import ProgressMemory
     progress = ProgressMemory()
@@ -232,7 +234,8 @@ def run_goal(loop, *, goal, reasoner, mode, max_actions, experience=(),
         prepared = session.prepare_cycle(
             scene, task_id=task_id, session_id=task_id, goal=goal,
             world_revision=revision + 1, cycle=revision,
-            max_cycles=max_actions, knowledge=windowhub_skill_knowledge(),
+            max_cycles=max_actions, knowledge=(mission_knowledge(windowhub_skill_knowledge(), sales_mission)
+                                                   if sales_mission is not None else windowhub_skill_knowledge()),
             experience=feedback[-12:],
             observed_at=datetime.now(timezone.utc).isoformat(),
         )
@@ -495,8 +498,21 @@ def main(argv=None):
     except (ValueError, RuntimeError, OSError) as exc:
         print("STOP: document intake: " + str(exc))
         return 2
+    sales_mission = None
+    if args.sales_mission is not None:
+        try:
+            sales_mission = load_sales_mission(args.sales_mission)
+        except (ValueError, OSError) as exc:
+            print("STOP: invalid sales mission: " + str(exc))
+            return 2
+        if args.customer_name and args.customer_name.strip() != sales_mission["customer"]["exact_name"]:
+            print("STOP: customer name conflicts with mission.")
+            return 2
+    if sales_mission is not None and args.approve_persistent:
+        print("STOP: structured sales missions forbid persistence approval before review.")
+        return 2
     goal = "\n".join(
-        part for part in (args.goal or "", "Client request: " + file_text if file_text else "")
+        part for part in (mission_goal(sales_mission) if sales_mission else "", args.goal or "", "Client request: " + file_text if file_text else "")
         if part.strip()
     )
     if not goal.strip() or len(goal) > 16000:
@@ -673,6 +689,7 @@ def main(argv=None):
             require_stage=args.require_stage,
             local_offer_add_once=args.allow_local_offer_add_once,
             expected_offer=args.expected_offer,
+            sales_mission=sales_mission,
         )
     except Exception as exc:
         print("STOP: " + type(exc).__name__ + ": " + str(exc)[:200])

@@ -1,0 +1,145 @@
+{
+  "schema": "navimind.windowhub.enquiry_mission.v1",
+  "mission_id": "top-trans-janik-artur-20261119-4windows",
+  "source": {
+    "kind": "uploaded_photo",
+    "filename": "obraz(20261119-130807).png",
+    "source_document": "Angebot187550807",
+    "document_date": "2026-04-15",
+    "original_named_customer": "Hartmut Zingelmann",
+    "note": "Source customer is not target customer; target chosen explicitly by salesperson. Image remains in chat; repository stores a structured interpretation, not image bytes.",
+    "handwritten_instruction": {
+      "original": "ohne Fußleisten!",
+      "interpretation_pl": "bez dolnych listew/profili podokiennych",
+      "confidence": "high"
+    }
+  },
+  "customer": {
+    "exact_name": "Top Trans Janik Artur",
+    "lookup_mode": "existing_exact_record",
+    "on_ambiguous": "do_not_select_wrong_customer"
+  },
+  "entry": {
+    "preferred_controls": [
+      "NOWA OFERTA",
+      "Start1 → NOWA OFERTA"
+    ],
+    "resume_allowed": false
+  },
+  "global": {
+    "system": "Perfectline",
+    "system_availability": "check_installed_catalogue",
+    "color_external": "antracyt",
+    "color_internal": "biały",
+    "color_confidence": "one-sided anthracite interpreted as exterior only; verify with salesperson",
+    "glazing_panes": 2,
+    "hardware_default": "UR ACTIVPILOT only if verified compatible",
+    "discount_window_percent": 20,
+    "discount_roller_percent": null,
+    "save_before_salesperson_review": false,
+    "send_before_salesperson_review": false,
+    "bottom_transport_or_foot_strips": "exclude; handwritten ohne Fußleisten!"
+  },
+  "positions": [
+    {
+      "index": 1,
+      "quantity": 1,
+      "kind": "window",
+      "width_mm": 1640,
+      "height_mm": 1010,
+      "source_dimensions": "1640 wide; 1010 window height excluding 30 mm bottom strip; upper roller-box height unknown",
+      "layout": "two_sashes",
+      "sections_width_mm": [
+        820,
+        820
+      ],
+      "opening": "infer_from_drawing_and_verify_from_inside; left/right hinges appear outward",
+      "box_above_marked": true,
+      "roller_position": {
+        "requested": true,
+        "kind": "top_mounted_box",
+        "pricing": "no_price",
+        "width_mm": 1640,
+        "overall_height_mm": null,
+        "box_height_mm": null,
+        "determination": "observe live manufacturer options and confirm how total roller-box height is defined before entry",
+        "total_size_policy": "width same as linked window unless verified catalogue requires otherwise; total height equals bare window height plus verified box height if manufacturer sizing convention confirms; do not invent box size",
+        "total_height_expression": "1010 + verified_box_height_mm",
+        "total_height_verification_required": true
+      },
+      "dimension_basis": "bare_window_excluding_bottom_strip"
+    },
+    {
+      "index": 2,
+      "quantity": 1,
+      "kind": "window",
+      "width_mm": 1020,
+      "height_mm": 1010,
+      "source_dimensions": "1020 wide; 1010 window height excluding 30 mm bottom strip; upper roller-box height unknown",
+      "layout": "single_sash",
+      "opening": "handle appears on left, right hinge inferred; verify DKR convention",
+      "box_above_marked": true,
+      "roller_position": {
+        "requested": true,
+        "kind": "top_mounted_box",
+        "pricing": "no_price",
+        "width_mm": 1020,
+        "overall_height_mm": null,
+        "box_height_mm": null,
+        "determination": "observe live manufacturer options and confirm how total roller-box height is defined before entry",
+        "total_size_policy": "width same as linked window unless verified catalogue requires otherwise; total height equals bare window height plus verified box height if manufacturer sizing convention confirms; do not invent box size",
+        "total_height_expression": "1010 + verified_box_height_mm",
+        "total_height_verification_required": true
+      },
+      "dimension_basis": "bare_window_excluding_bottom_strip"
+    },
+    {
+      "index": 3,
+      "quantity": 1,
+      "kind": "window",
+      "width_mm": 1180,
+      "height_mm": 950,
+      "source_dimensions": "1180 wide; 950 window without 30 mm bottom strip (980 including strip)",
+      "layout": "single_sash",
+      "opening": "handle appears on left, right hinge inferred; verify DKR convention",
+      "box_above_marked": false,
+      "dimension_basis": "bare_window_excluding_bottom_strip"
+    },
+    {
+      "index": 4,
+      "quantity": 1,
+      "kind": "window",
+      "width_mm": 880,
+      "height_mm": 980,
+      "source_dimensions": "880 wide; 980 window without 30 mm bottom strip (1010 including strip)",
+      "layout": "single_sash",
+      "opening": "handle appears on left, right hinge inferred; verify DKR convention",
+      "box_above_marked": false,
+      "dimension_basis": "bare_window_excluding_bottom_strip"
+    }
+  ],
+  "interpretation_flags": [
+    "Handwritten 'ohne Fußleisten!': omit 30-mm bottom strips; window heights read without those strips",
+    "top-mounted box heights are not specified and must not be invented",
+    "source quote buyer Hartmut Zingelmann must not override exact requested Top Trans Janik Artur",
+    "box only for positions 1 and 2 by visual interpretation; operator to verify",
+    "roller positions should be separate only if live application supports the requested structure; price excluded",
+    "opening codes and draw view not fully proven by photographed source",
+    "If source dimension is window-only, keep it unchanged when adding a top box; if source dimension is total assembly, reconcile only using verified box and manufacturer sizing convention."
+  ],
+  "acceptance": {
+    "four_window_positions": 4,
+    "roller_box_positions": 2,
+    "discount_applies_to": "window_only",
+    "require_customer_readback": true,
+    "require_dimensions_readback": true,
+    "require_compatible_catalogue_selection": true,
+    "allow_verified_nearest_substitute": true,
+    "allow_dimensioned_placeholder": true,
+    "allow_save": false,
+    "end_state": "salesperson_review_without_save",
+    "log_substitutions_and_unfinished_fields": true,
+    "manufacturer_first_geometry": true,
+    "total_assembly_dimension_readback_required": true
+  }
+}

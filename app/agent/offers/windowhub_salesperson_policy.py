@@ -128,6 +128,7 @@ class PositionResult:
     missing: tuple[str, ...] = ()
     assumptions: tuple[str, ...] = ()
     note: str = ""
+    substitutions: tuple[tuple[str, str, str], ...] = ()
 
     def __post_init__(self):
         if self.index < 1:
@@ -173,6 +174,10 @@ class OfferProgress:
                     "missing": list(item.missing),
                     "assumptions": list(item.assumptions),
                     "note": item.note,
+                    "substitutions": [
+                        {"field": field, "requested": requested, "chosen": chosen}
+                        for field, requested, chosen in item.substitutions
+                    ],
                 }
                 for item in sorted(self.positions, key=lambda x: x.index)
             ],
@@ -180,3 +185,24 @@ class OfferProgress:
             "partial_count": sum(x.status == PositionStatus.PARTIAL for x in self.positions),
             "blocked_count": sum(x.status == PositionStatus.BLOCKED for x in self.positions),
         }
+
+
+    def salesperson_review_report(self) -> dict[str, object]:
+        """Readback-only result for a human to inspect before any save.
+
+        Never claim the live document is unsaved; it could predate this run.
+        """
+        report = self.report()
+        report.update({
+            "workflow_state": "awaiting_salesperson_review",
+            "agent_save_performed": False,
+            "save_authorized": False,
+            "requires_human_review": True,
+            "required_checks": [
+                "Compare every completed position with the original customer enquiry",
+                "Approve or correct all reported technical substitutions",
+                "Review all partial, missing and blocked fields",
+                "Verify totals, discount, VAT and preview before authorizing save",
+            ],
+        })
+        return report
