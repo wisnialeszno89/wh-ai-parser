@@ -7,9 +7,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Mapping
 
-from app.agent.offers.windowhub_salesperson_policy import SalesPosition, plan_position
+from app.agent.offers.windowhub_salesperson_policy import SalesPosition
 
 
 class Decision(str, Enum):
@@ -20,6 +19,7 @@ class Decision(str, Enum):
     PLACEHOLDER = "placeholder"
     ASK = "ask"
     STOP = "stop"
+    SUBSTITUTE = "substitute"
 
 
 @dataclass(frozen=True)
@@ -29,6 +29,8 @@ class FieldDecision:
     desired: str | None
     reason: str
     source: str
+    requested: str | None = None
+    substitution_requires_review: bool = False
 
 
 @dataclass(frozen=True)
@@ -46,6 +48,41 @@ class FieldEvidence:
     exact_document: bool = True
 
 
+@dataclass(frozen=True)
+class CatalogAlternative:
+    label: str
+    compatibility_verified: bool
+    suitability_verified: bool
+    deviation: str
+    priority: int = 100
+
+
+def choose_alternative(
+    field: str,
+    requested: str,
+    candidates: tuple[CatalogAlternative, ...],
+    *,
+    same_document_verified: bool,
+) -> FieldDecision:
+    """Rank only options backed by actual compatibility and functional evidence."""
+    if not same_document_verified:
+        return FieldDecision(field, Decision.STOP, None,
+                             "document_identity_unverified", "request", requested)
+    valid = [c for c in candidates if c.compatibility_verified
+             and c.suitability_verified and c.label.strip()]
+    if not valid:
+        return FieldDecision(field, Decision.ASK, None,
+                             "no_verified_compatible_alternative", "request", requested)
+    ordered = sorted(valid, key=lambda c: (c.priority, c.label.casefold()))
+    if len(ordered) > 1 and ordered[0].priority == ordered[1].priority:
+        return FieldDecision(field, Decision.ASK, None,
+                             "equally_ranked_alternatives_need_review", "request", requested)
+    choice = ordered[0]
+    return FieldDecision(field, Decision.SUBSTITUTE, choice.label,
+                         "verified_compatible_alternative:" + choice.deviation,
+                         "catalogue_alternative", requested, True)
+
+
 def decide_field(
     field: str,
     requested: str | None,
@@ -53,6 +90,7 @@ def decide_field(
     *,
     default: str | None = None,
     required: bool = True,
+    alternatives: tuple[CatalogAlternative, ...] = (),
 ) -> FieldDecision:
     """Choose a next step without silently replacing an explicit requirement.
 
@@ -74,6 +112,13 @@ def decide_field(
         matches = [v for v in evidence.available_options if v.casefold() == desired.casefold()]
         if len(matches) != 1:
             if user_requested:
+                alternative = choose_alternative(field, desired, alternatives,
+                                                 same_document_verified=evidence.exact_document)
+                if alternative.action == Decision.SUBSTITUTE:
+                    if alternative.desired not in evidence.available_options:
+                        return FieldDecision(field, Decision.INSPECT, desired,
+                                             "alternative_not_in_live_catalogue", source)
+                    return alternative
                 return FieldDecision(field, Decision.ASK, desired,
                                      "requested_catalogue_value_unavailable_or_ambiguous", source)
             return FieldDecision(field, Decision.SKIP_OPTIONAL if not required else Decision.ASK,
@@ -106,7 +151,7 @@ def decision_context() -> dict[str, object]:
                  "choose_one_action", "validate_target", "execute_once", "readback", "update_progress"],
         "evidence": "Never infer success from dispatched clicks, old screenshots, OCR alone, or manual examples.",
         "catalogue": "A supplier catalogue is installation-specific; inspect live options. Never invent profile, glass or fitting compatibility.",
-        "priority": "Explicit customer requirements outrank defaults; never substitute a requested technical option silently.",
+        "priority": "Explicit requirements outrank defaults; choose only technically verified compatible alternatives, and flag every substitution for salesperson review.",
         "defaults": {"both_sides_color": "biały only if neither side specified",
                      "glazing": "2 panes only if unspecified",
                      "discount": "0% only when no discount instruction exists",
@@ -114,6 +159,9 @@ def decision_context() -> dict[str, object]:
         "recovery": "On uncertain postcondition, reobserve before acting; never blind-retry a click or repeat position creation.",
         "partial": "If dimensions are verified and editor permits a blank position, preserve the draft and report missing requirements. Otherwise ask or stop.",
         "pricing": "Differentiate discount, markup and VAT; confirm only a fresh readback for the current document.",
-        "approval": "Drafts may be prepared but never submitted as an order, sent, or converted to production without explicit approval.",
+        "approval": "Do not SAVE, send, submit, or convert an offer before salesperson review and explicit approval. Leave the draft unsaved and on screen.",
         "learning": "Keep provenance and regression tests for user corrections; do not promote a demonstration to an unconditional rule.",
+        "substitution": "Choose only a live-available compatible and functionally suitable substitute; record requested versus chosen and deviation.",
+        "review": "End with unsaved on-screen draft and report exact/alternative/default/partial fields and verification gaps.",
+        "internet": "Public references are explanatory; dealer-specific catalogues and technical compatibility need live evidence.",
     }
