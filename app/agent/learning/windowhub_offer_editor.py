@@ -76,8 +76,8 @@ def position_grid_bottom(dark, row):
     return None
 
 
-def find_drawing(rgb, row):
-    """Locate one rectangular drawing below the recognized position list."""
+def drawing_candidates(rgb, row):
+    """Find plausible outlines below the table without assuming a panel gap."""
     red, green, blue = np.moveaxis(rgb, -1, 0)
     white = (red > 249) & (green > 249) & (blue > 249)
     frame = (red < 40) & (green < 60) & (blue > 240)
@@ -86,14 +86,13 @@ def find_drawing(rgb, row):
     height, width = rgb.shape[:2]
     grid_bottom = position_grid_bottom(dark, row)
     top = grid_bottom if grid_bottom is not None else row.bottom
-    gap = max(85, round(height * 0.10)) if grid_bottom is not None else max(180, round(height * 0.22))
     for box in _boxes(white | frame):
         x, y, w, h = box.x, box.y, box.width, box.height
         if not (
             min(w, h) >= 85 and 0.55 <= w / h <= 1.65
             and 2 <= x < row.x + min(240, row.width // 4)
             and box.right < width and box.bottom < height
-            and top + 4 < y <= top + gap
+            and top + 4 < y
         ):
             continue
         # An empty drawing has a black perimeter; a built frame has a
@@ -112,7 +111,43 @@ def find_drawing(rgb, row):
         c != b and c.x <= b.x and c.y <= b.y and c.right >= b.right and c.bottom >= b.bottom
         for c in candidates
     )]
-    return outer[0] if len(outer) == 1 else None
+    return grid_bottom, outer
+
+
+def locate_drawing(rgb, row, *, expected_size=None):
+    """Use a second, wider read only when it can be tied to the selected grid."""
+    grid_bottom, candidates = drawing_candidates(rgb, row)
+    top = grid_bottom if grid_bottom is not None else row.bottom
+    height = rgb.shape[0]
+    gap = max(85, round(height * 0.10)) if grid_bottom is not None else max(180, round(height * 0.22))
+    primary = [box for box in candidates if box.y <= top + gap]
+    evidence = {
+        "row_bottom": row.bottom, "grid_bottom": grid_bottom, "first_search_end": top + gap,
+        "candidate_count": len(candidates),
+    }
+    if len(primary) == 1:
+        return primary[0], {"diagnosis": "primary", **evidence}
+    if primary or len(candidates) > 1:
+        return None, {"diagnosis": "ambiguous_drawing", **evidence}
+    if not candidates:
+        return None, {"diagnosis": "no_verified_outline", **evidence}
+
+    drawing = candidates[0]
+    evidence["outline_top"] = drawing.y
+    if grid_bottom is None:
+        return None, {"diagnosis": "table_boundary_missing", **evidence}
+    if expected_size is None:
+        return None, {"diagnosis": "outline_outside_first_search", **evidence}
+    width_mm, height_mm = expected_size
+    ratio = drawing.width * height_mm / (drawing.height * width_mm)
+    if not 0.85 <= ratio <= 1.15:
+        return None, {"diagnosis": "outline_proportions_disagree", **evidence}
+    return drawing, {"diagnosis": "outline_outside_first_search", "recovered": True, **evidence}
+
+
+def find_drawing(rgb, row):
+    """Locate one rectangular drawing in the usual position under the grid."""
+    return locate_drawing(rgb, row)[0]
 
 
 def fixed_window_stage(rgb):

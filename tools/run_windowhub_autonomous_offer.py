@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
 import os
 import sys
@@ -54,7 +55,7 @@ def capture(loop, offer, api):
 def read_position_drawing(rgb, number, size):
     import cv2
     from app.agent.learning.windowhub_offer_editor import (
-        find_drawing, selected_row_box, selected_window_matches,
+        locate_drawing, selected_row_box, selected_window_matches,
     )
     from app.agent.offers.windowhub_customer_visual_selection import _ocr_text_results
 
@@ -65,9 +66,11 @@ def read_position_drawing(rgb, number, size):
     gray = cv2.resize(255 - gray, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
     if not selected_window_matches(_ocr_text_results(gray, (0, 0)), number, *size):
         raise WorkspaceBlocked("selected_window_number_quantity_or_dimensions_unverified")
-    drawing = find_drawing(rgb, row)
+    drawing, evidence = locate_drawing(rgb, row, expected_size=size)
+    if evidence["diagnosis"] != "primary":
+        print("WH_RECOVERY_DRAWING=" + json.dumps(evidence, sort_keys=True), flush=True)
     if drawing is None:
-        raise WorkspaceBlocked("drawing_outline_unverified")
+        raise WorkspaceBlocked("drawing_outline_unverified:" + evidence["diagnosis"])
     return drawing
 
 
@@ -148,6 +151,7 @@ def verify_editor_transition(scene, offer, api, number, size, *, opening):
     except (WorkspaceBlocked, OSError, RuntimeError, ValueError) as exc:
         reason = str(exc) if isinstance(exc, WorkspaceBlocked) else type(exc).__name__
         print("WH_EDITOR_EVIDENCE=" + reason, flush=True)
+        print("WH_RECOVERY_NEXT=" + recovery_advice(reason), flush=True)
         return False
     verified = bool(child and active_mdi_child(offer.frame, api) == child and offer.accept_visual_editor(scene, api))
     print("WH_EDITOR_EVIDENCE=" + ("verified_" + state if verified else "workspace_changed"), flush=True)
@@ -221,6 +225,40 @@ def apply_ur_hardware(loop, api, frame, child):
     raise WorkspaceBlocked("owned_hardware_dialog_not_observed")
 
 
+def recovery_advice(reason):
+    code = reason.split(":", 1)[0]
+    if code in {"drawing_outline_unverified", "new_position_unverified"}:
+        return "Odsłoń pole rysunku pod tabelą i sprawdź, czy widać cały obrys bieżącej pozycji."
+    if code in {"selected_position_row_unverified", "selected_window_number_quantity_or_dimensions_unverified"}:
+        return "Zaznacz w szkicu właściwy wiersz i sprawdź numer pozycji, ilość i wymiary z polecenia."
+    if code in {"construction_tool_unverified", "native_construction_toolbar_missing"}:
+        return "Odsłoń pasek Narzędzia edytora i sprawdź, czy ikona bieżącej operacji jest dostępna."
+    if code in {"compatible_ur_option_or_confirmation_unverified", "owned_hardware_dialog_not_observed"}:
+        return "Sprawdź, czy otworzył się dobór okuć i czy katalog udostępnia jednoznaczny wariant UR."
+    if code in {"drawing_changed_after_tool_selection", "construction_effect_unverified"}:
+        return "Sprawdź rysunek i ewentualny dialog WindowHub. Potwierdź efekt przed ponownym wykonaniem czynności."
+    if code in {"active_offer_workspace_unverified", "active_offer_changed_during_capture",
+                "native_input_target_changed", "requested_editor_draft_not_selected"}:
+        return "Przywróć na pierwszy plan właściwy szkic i zaznacz pozycję wskazaną w poleceniu."
+    return "Sprawdź ostatni komunikat WindowHub i stan bieżącej pozycji."
+
+
+def effect_evidence(before, after, tool, expected, blocked):
+    observed = after[-1] if after is not None else None
+    pixel_change = None
+    if after is not None and before[2] is not None and after[2] is not None:
+        import numpy as np
+
+        initial = before[3].crop(before[2])
+        final = after[3].crop(after[2])
+        if initial.shape == final.shape:
+            pixel_change = round(float(np.any(initial != final, axis=-1).mean()), 4)
+    return {
+        "action": tool.name, "before": before[-1], "expected": expected, "observed": observed,
+        "fraction_pixels_changed": pixel_change, "blocked": blocked,
+    }
+
+
 def build_fixed(loop, offer, api, number, size):
     return build_construction(loop, offer, api, number, size)
 
@@ -260,7 +298,8 @@ def build_construction(loop, offer, api, number, size, *, opening=False):
         click_owned(scene, rect, offer, api, target, toolbar=toolbar)
         # A toolbar click can alter the selected document, the visible row or
         # the canvas geometry. Authorize placement only after a fresh read.
-        active, active_rect, _, active_drawing, active_stage = observe()
+        before = observe()
+        active, active_rect, _, active_drawing, active_stage = before
         if active_stage != stage or active.observation.metadata["window_handle"] != hwnd:
             raise WorkspaceBlocked("drawing_changed_after_tool_selection")
         hardware_child = active_mdi_child(hwnd, api) if tool is GuiTool.HARDWARE else None
@@ -269,28 +308,32 @@ def build_construction(loop, offer, api, number, size, *, opening=False):
         click_owned(active, active_rect, offer, api, active_drawing.center)
         if tool is GuiTool.HARDWARE:
             apply_ur_hardware(loop, api, hwnd, hardware_child)
+        last_observation = None
+        blocked = None
         for attempt in range(5):
             try:
-                current = observe()
-            except WorkspaceBlocked:
-                if attempt == 4:
-                    raise
-                time.sleep(0.25)
-                continue
-            # Some configured frame types insert the matching sash immediately.
-            if current[-1] == expected or (opening and tool is GuiTool.FRAME and current[-1] == "sash"):
-                if current[-1] != expected:
-                    print(f"WH_AUTONOMOUS_VERIFIED={number}:frame_and_sash", flush=True)
+                after = observe()
+                last_observation, blocked = after, None
+            except WorkspaceBlocked as exc:
+                last_observation, blocked = None, str(exc)
+            else:
+                frame_and_sash = opening and tool is GuiTool.FRAME and after[-1] == "sash"
+                if after[-1] == expected or frame_and_sash:
+                    current = after
+                    if attempt:
+                        print(f"WH_RECOVERY=effect_verified_after_{attempt + 1}_reads", flush=True)
+                    print(f"WH_AUTONOMOUS_VERIFIED={number}:{'frame_and_sash' if frame_and_sash else expected}", flush=True)
+                    if expected == "opening_marker":
+                        from app.agent.learning.windowhub_opening_marker import read_opening_marker_side
+                        direction = read_opening_marker_side(current[3].crop(current[2]))
+                        print(f"WH_AUTONOMOUS_OPENING_MARKER={direction}", flush=True)
                     break
-                print(f"WH_AUTONOMOUS_VERIFIED={number}:{expected}", flush=True)
-                if expected == "opening_marker":
-                    from app.agent.learning.windowhub_opening_marker import read_opening_marker_side
-                    direction = read_opening_marker_side(current[3].crop(current[2]))
-                    print(f"WH_AUTONOMOUS_OPENING_MARKER={direction}", flush=True)
-                break
-            if current[-1] != stage or attempt == 4:
-                raise WorkspaceBlocked(f"unexpected_drawing_after_{tool.name}:{current[-1]}")
-            time.sleep(0.25)
+            if attempt < 4:
+                time.sleep(0.25)
+        else:
+            evidence = effect_evidence(before, last_observation, tool, expected, blocked)
+            print("WH_RECOVERY_EFFECT=" + json.dumps(evidence, sort_keys=True), flush=True)
+            raise WorkspaceBlocked("construction_effect_unverified:" + (blocked or str(evidence["observed"])))
     if current[-1] != complete:
         raise WorkspaceBlocked("construction_postcondition_unverified:" + current[-1])
     return current[0]
@@ -419,6 +462,7 @@ def main(argv=None):
         )
     except WorkspaceBlocked as exc:
         print("WH_AUTONOMOUS_STOP=" + str(exc), flush=True)
+        print("WH_RECOVERY_NEXT=" + recovery_advice(str(exc)), flush=True)
         return 4
     except (OSError, RuntimeError, ValueError, ImportError) as exc:
         print("WH_AUTONOMOUS_STOP=runtime_" + type(exc).__name__, flush=True)

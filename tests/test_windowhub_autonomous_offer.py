@@ -251,3 +251,53 @@ def test_selected_draft_build_keeps_document_and_checks_dimensions(monkeypatch):
         ("observe", scope, 1, (1000, 1000), True),
         ("build", scope, 1, (1000, 1000), True),
     ]
+
+
+def test_wider_drawing_search_recovers_only_a_unique_proportional_outline():
+    from app.agent.learning.windowhub_offer_editor import locate_drawing
+
+    rgb = frame("builder_01_empty.png")
+    row = selected_row_box(rgb)
+    # Move the editor panel down while preserving the grid's lower edge.
+    insertion = 372
+    gap = np.full((180, rgb.shape[1], 3), 218, dtype=rgb.dtype)
+    shifted = np.concatenate((rgb[:insertion], gap, rgb[insertion:]))
+    assert find_drawing(shifted, row) is None
+    found, diagnosis = locate_drawing(shifted, row, expected_size=(1000, 1000))
+    assert found.y == 578
+    assert diagnosis["recovered"]
+    assert diagnosis["outline_top"] > diagnosis["first_search_end"]
+    found, diagnosis = locate_drawing(shifted, row, expected_size=(1500, 1000))
+    assert found is None and diagnosis["diagnosis"] == "outline_proportions_disagree"
+
+
+def test_unverified_effect_is_reobserved_without_replaying_click(monkeypatch, capsys):
+    scene = NS(observation=NS(metadata={"window_handle": 200}))
+    draw = NS(center=(100, 120))
+    empty = (scene, None, None, draw, "empty")
+    states = iter([empty] * 7)
+    clicks = []
+    monkeypatch.setattr(live, "observe_workspace", lambda *a: next(states))
+    monkeypatch.setattr(live, "tool_target", lambda *a: (206, (12, 100)))
+    monkeypatch.setattr(live, "click_owned", lambda *a, **kw: clicks.append(a[-1]))
+    monkeypatch.setattr(live.time, "sleep", lambda *a: None)
+    with pytest.raises(live.WorkspaceBlocked, match="construction_effect_unverified:empty"):
+        live.build_fixed(object(), "OFR/42-", object(), 1, (1000, 1000))
+    assert clicks == [(12, 100), (100, 120)]
+    assert '"expected": "frame"' in capsys.readouterr().out
+
+
+def test_delayed_effect_recovers_and_continues_without_duplicate_click(monkeypatch, capsys):
+    scene = NS(observation=NS(metadata={"window_handle": 200}))
+    draw = NS(center=(100, 120))
+    states = iter((scene, None, None, draw, state) for state in (
+        "empty", "empty", "unknown", "frame", "frame", "fixed_glazed",
+    ))
+    clicks = []
+    monkeypatch.setattr(live, "observe_workspace", lambda *a: next(states))
+    monkeypatch.setattr(live, "tool_target", lambda *a: (206, (12, 100)))
+    monkeypatch.setattr(live, "click_owned", lambda *a, **kw: clicks.append(a[-1]))
+    monkeypatch.setattr(live.time, "sleep", lambda *a: None)
+    assert live.build_fixed(object(), "OFR/42-", object(), 1, (1000, 1000)) is scene
+    assert len(clicks) == 4
+    assert "WH_RECOVERY=effect_verified_after_2_reads" in capsys.readouterr().out
