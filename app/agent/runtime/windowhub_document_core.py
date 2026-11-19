@@ -127,20 +127,31 @@ def run_document_core(*, customer_name: str, fresh_document: bool,
             if type(hwnd) is not int or hwnd <= 0:
                 print("CUSTOMER_MANUAL_STOP=original_document_unverified")
                 return 6
-            print("CUSTOMER_MANUAL_SELECTION_REQUIRED=True")
-            hint = (
-                " W teście bez klienta pozostaw pole puste i wpisz 'BEZ KLIENTA'."
-                if allow_test_blank_customer else ""
-            )
+            clicked_exact = detail.startswith("CUSTOMER_CLICKED_BUT_SELECTION_UNVERIFIED_")
             try:
-                manual = ask(
-                    "Wybierz klienta w WindowHub, pozostaw Właściwości dokumentu otwarte "
-                    "i wpisz w PowerShell pełną nazwę wybranego klienta." + hint
-                    + " [Enter = przerwij]: "
-                ).strip()
+                if clicked_exact:
+                    print("CUSTOMER_VISUAL_CONFIRMATION_REQUIRED=True")
+                    reply = ask(
+                        f"Sprawdź pole klienta w WindowHub. Czy wybrano '{customer_name}'? [tak/N]: "
+                    )
+                    if reply.strip().casefold() not in {"tak", "t"}:
+                        print("CUSTOMER_MANUAL_STOP=selection_not_confirmed")
+                        return 6
+                    manual = customer_name
+                else:
+                    print("CUSTOMER_MANUAL_SELECTION_REQUIRED=True")
+                    hint = (
+                        " W teście bez klienta pozostaw pole puste i wpisz 'BEZ KLIENTA'."
+                        if allow_test_blank_customer else ""
+                    )
+                    manual = ask(
+                        "Wybierz klienta w WindowHub, pozostaw Właściwości dokumentu otwarte "
+                        "i wpisz w PowerShell pełną nazwę wybranego klienta." + hint
+                        + " [Enter = przerwij]: "
+                    ).strip()
             except (EOFError, KeyboardInterrupt):
                 return 6
-            blank = allow_test_blank_customer and manual.casefold() == "bez klienta"
+            blank = not clicked_exact and allow_test_blank_customer and manual.casefold() == "bez klienta"
             if not blank and (
                 not manual or len(manual) > 100 or any(ord(char) < 32 for char in manual)
                 or (manual.casefold() != customer_name.casefold()

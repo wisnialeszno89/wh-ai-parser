@@ -222,3 +222,38 @@ def test_blank_test_handoff_accepts_only_the_cleared_lookup(monkeypatch, capsys)
     assert core.run_document_core(**kwargs) == 0
     assert calls == ["OK"]
     assert "DOCUMENT_CUSTOMER_ACCEPTANCE=human_confirmed_blank_test" in capsys.readouterr().out
+
+
+def test_clicked_customer_with_opaque_readback_only_needs_visual_confirmation(monkeypatch, capsys):
+    from types import SimpleNamespace as NS
+    from app.agent.runtime import windowhub_document_core as core
+    from app.agent.runtime import windowhub_window_activation as activation
+    from app.agent.runtime import windows_desktop_agent_control_loop as controls
+    from tools import run_windowhub_top_trans_single_window_mission as legacy
+    from tools import run_windowhub_new_offer_native_invoke_once as native
+
+    state = NS(active_application="Okna.exe", active_window_title="Właściwości dokumentu")
+    scene = NS(observation=NS(state=state, metadata={"window_handle": 80}))
+    picker = NS(metadata={"current_value": None})
+    searches = []
+    prompts = []
+    monkeypatch.setattr(activation, "activate_windowhub_workflow_window", lambda: (True, "ok"))
+    monkeypatch.setattr(controls, "create_windows_desktop_agent_control_loop", object)
+    monkeypatch.setattr(legacy, "inspect", lambda loop: scene)
+    monkeypatch.setattr(legacy, "customer_selected", lambda *args: False)
+    monkeypatch.setattr(legacy, "matches", lambda *args, **kwargs: [picker])
+    monkeypatch.setattr(legacy, "verify_exclusion", lambda *args, **kwargs: True)
+    monkeypatch.setattr(legacy, "progressive_customer_selection", lambda *args, **kwargs: (
+        searches.append(args[2]) or (False, "CUSTOMER_CLICKED_BUT_SELECTION_UNVERIFIED_native_selected_value_not_exposed")
+    ))
+    monkeypatch.setattr(native, "resolve_native_wrapper", lambda *args, **kwargs: NS(
+        iface_invoke=NS(Invoke=lambda: setattr(state, "active_window_title", "Okna - OFR/42-")),
+    ))
+    full = "Top Trans Janik Artur"
+    assert core.run_document_core(
+        customer_name=full, fresh_document=True, confirm_similar_customer=True,
+        ask=lambda prompt: prompts.append(prompt) or "tak",
+    ) == 0
+    assert searches == [full]
+    assert len(prompts) == 1 and full in prompts[0]
+    assert "DOCUMENT_CUSTOMER_ACCEPTANCE=human_confirmed_selection" in capsys.readouterr().out
