@@ -62,8 +62,12 @@
         "width_mm": 1640,
         "overall_height_mm": null,
         "box_height_mm": null,
-        "determination": "observe live manufacturer options and confirm how total roller-box height is defined before entry"
-      }
+        "determination": "observe live manufacturer options and confirm how total roller-box height is defined before entry",
+        "total_size_policy": "width same as linked window unless verified catalogue requires otherwise; total height equals bare window height plus verified box height if manufacturer sizing convention confirms; do not invent box size",
+        "total_height_expression": "1010 + verified_box_height_mm",
+        "total_height_verification_required": true
+      },
+      "dimension_basis": "bare_window_excluding_bottom_strip"
     },
     {
       "index": 2,
@@ -82,8 +86,12 @@
         "width_mm": 1020,
         "overall_height_mm": null,
         "box_height_mm": null,
-        "determination": "observe live manufacturer options and confirm how total roller-box height is defined before entry"
-      }
+        "determination": "observe live manufacturer options and confirm how total roller-box height is defined before entry",
+        "total_size_policy": "width same as linked window unless verified catalogue requires otherwise; total height equals bare window height plus verified box height if manufacturer sizing convention confirms; do not invent box size",
+        "total_height_expression": "1010 + verified_box_height_mm",
+        "total_height_verification_required": true
+      },
+      "dimension_basis": "bare_window_excluding_bottom_strip"
     },
     {
       "index": 3,
@@ -94,7 +102,8 @@
       "source_dimensions": "1180 wide; 950 window without 30 mm bottom strip (980 including strip)",
       "layout": "single_sash",
       "opening": "handle appears on left, right hinge inferred; verify DKR convention",
-      "box_above_marked": false
+      "box_above_marked": false,
+      "dimension_basis": "bare_window_excluding_bottom_strip"
     },
     {
       "index": 4,
@@ -105,7 +114,8 @@
       "source_dimensions": "880 wide; 980 window without 30 mm bottom strip (1010 including strip)",
       "layout": "single_sash",
       "opening": "handle appears on left, right hinge inferred; verify DKR convention",
-      "box_above_marked": false
+      "box_above_marked": false,
+      "dimension_basis": "bare_window_excluding_bottom_strip"
     }
   ],
   "interpretation_flags": [
@@ -114,7 +124,8 @@
     "source quote buyer Hartmut Zingelmann must not override exact requested Top Trans Janik Artur",
     "box only for positions 1 and 2 by visual interpretation; operator to verify",
     "roller positions should be separate only if live application supports the requested structure; price excluded",
-    "opening codes and draw view not fully proven by photographed source"
+    "opening codes and draw view not fully proven by photographed source",
+    "If source dimension is window-only, keep it unchanged when adding a top box; if source dimension is total assembly, reconcile only using verified box and manufacturer sizing convention."
   ],
   "acceptance": {
     "four_window_positions": 4,
@@ -127,6 +138,8 @@
     "allow_dimensioned_placeholder": true,
     "allow_save": false,
     "end_state": "salesperson_review_without_save",
-    "log_substitutions_and_unfinished_fields": true
+    "log_substitutions_and_unfinished_fields": true,
+    "manufacturer_first_geometry": true,
+    "total_assembly_dimension_readback_required": true
   }
 }
