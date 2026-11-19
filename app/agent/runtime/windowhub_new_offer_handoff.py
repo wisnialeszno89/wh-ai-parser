@@ -236,12 +236,34 @@ class NewOfferHandoff:
             draft and draft == _draft_name(selected) and draft == _draft_name(frame_title)
         )
 
+    def bind_next_position(self, scene, api):
+        """Arm continuation after a verified Add action opens the position form."""
+        hwnd = foreground_handle(scene, api)
+        if not self.explicit_draft or stage_of(scene) != "position" or not self._owns_draft_wizard(hwnd, api):
+            return False
+        self.position = hwnd
+        return True
+
+    def _owns_draft_wizard(self, hwnd, api):
+        return bool(
+            hwnd and hwnd != self.frame and self._owned(hwnd, api)
+            and active_mdi_child(self.frame, api) == self.child
+        )
+
     def verify(self, scene, api, *, entry=False, follows=None):
         """Return the evidence source, or a diagnostic explaining the block."""
         hwnd = foreground_handle(scene, api)
         stage = scoped_position_stage(scene, self, api)
         if self.explicit_draft:
-            return "native_new_draft" if self.has_visual_editor(scene, api) else "explicit_draft_editor_unverified"
+            if self.has_visual_editor(scene, api):
+                return "native_new_draft"
+            if (
+                self.position and stage in WIZARD_STAGES and self._owns_draft_wizard(hwnd, api)
+                and (hwnd == self.position or follows == self.position)
+            ):
+                self.position = hwnd
+                return "owned_position_transaction"
+            return "explicit_draft_editor_unverified"
         if not self.properties or not self._owned(hwnd, api):
             return "foreground_or_native_owner_unverified"
         if hwnd == self.properties or (entry and stage not in {"position", "offer_document"}):

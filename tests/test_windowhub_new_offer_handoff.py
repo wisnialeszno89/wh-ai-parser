@@ -261,3 +261,21 @@ def test_editor_only_uses_frame_caption_or_verified_visual_tab_without_overridin
     assert NewOfferHandoff.bind_selected_draft(scene, native, "Dokument15", visual_draft_check=visual)
     scene = native.observe(10, "Okna -", tab="Dokument16")
     assert NewOfferHandoff.bind_selected_draft(scene, native, "Dokument15", visual_draft_check=visual) is None
+
+
+def test_explicit_draft_accepts_only_owned_wizard_after_verified_add():
+    native = Native()
+    native.children.append(40)
+    native.active = 40
+    native.titles.update({10: "Okna -", 40: "Dokument13"})
+    workspace = native.observe(10, "Okna -", tab="Dokument13")
+    scope = NewOfferHandoff.bind_selected_draft(workspace, native, "Dokument13")
+    assert scope and scope.accept_visual_editor(workspace, native)
+    position = native.observe(21, "Dodawanie nowej pozycji")
+    assert scope.verify(position, native) == "explicit_draft_editor_unverified"
+    assert scope.bind_next_position(position, native)
+    assert scope.verify(position, native) == "owned_position_transaction"
+    dimensions = native.observe(22, "Wielkość okna")
+    assert scope.verify(dimensions, native, follows=21) == "owned_position_transaction"
+    native.active = 31
+    assert scope.verify(dimensions, native, follows=21) == "explicit_draft_editor_unverified"

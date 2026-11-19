@@ -395,3 +395,44 @@ def test_next_position_never_clicks_add_when_glazing_and_hardware_are_not_verifi
     monkeypatch.setattr(live, "find_draft_add_button", lambda *args: pytest.fail("must not find or click Add"))
     with pytest.raises(live.WorkspaceBlocked, match="next_position_previous_construction_unverified"):
         live.open_draft_next_position(object(), object(), object(), 1, (1000, 1000), opening=True)
+
+
+def test_glazing_fallback_checks_expected_slot_and_ignores_neighboring_blue_button():
+    from tools.check_windowhub_builder_sequence import TOOLBAR_CROP
+
+    root = live.ROOT
+    with Image.open(root / "dataset_archive/glass_tool/glass_tool.png") as image:
+        template = np.asarray(image.convert("RGB").resize((33, 33), Image.Resampling.BILINEAR))
+    left, top, right, bottom = TOOLBAR_CROP
+
+    def toolbar(name):
+        return frame(name)[top:bottom, left:right]
+
+    frame_icon, sash_icon = (18, 421), (17, 462)
+    hit = live.alternate_glazing_target(toolbar("builder_03_frame_sash.png.png"), template, frame_icon, sash_icon)
+    assert hit is not None and 530 <= hit[1] <= 545
+    # The neighboring blue button remains visible after glazing, when the
+    # glazing slot itself is gray in this fixture.
+    assert live.alternate_glazing_target(toolbar("builder_04_frame_sash_glass.png.png"), template, frame_icon, sash_icon) is None
+
+
+def test_editor_draft_builds_second_supplied_position_after_owned_wizard(monkeypatch, capsys):
+    scope = NS(bind_next_position=lambda scene, api: scene == "wizard")
+    actions = []
+    monkeypatch.setattr(live, "inspect", lambda loop: object())
+    monkeypatch.setattr(live.NewOfferHandoff, "bind_selected_draft", lambda *args: scope)
+    monkeypatch.setattr(live, "verify_editor_transition", lambda *args, **kw: True)
+    monkeypatch.setattr(live, "build_construction", lambda loop, offer, api, number, size, **kw: actions.append(("build", number, size)))
+    monkeypatch.setattr(live, "open_draft_next_position", lambda *args, **kw: "wizard")
+
+    def run(loop, offer, api, *, width, height, **kw):
+        assert offer is scope
+        actions.append(("wizard", width, height))
+        return 0
+
+    monkeypatch.setattr(live, "run", run)
+    assert live.build_selected_draft(
+        object(), object(), "Dokument13", (1000, 1000), construction="ur", next_size=(1200, 1000),
+    ) == 0
+    assert actions == [("build", 1, (1000, 1000)), ("wizard", 1200, 1000), ("build", 2, (1200, 1000))]
+    assert "WH_AUTONOMOUS_RESULT=verified_draft_positions:2" in capsys.readouterr().out

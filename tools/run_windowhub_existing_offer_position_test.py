@@ -126,16 +126,20 @@ def confirm_stage(loop, scene, offer, api, *, verify_editor=None):
     for i in range(7):
         after = inspect(loop)
         destination = scoped_position_stage(after, offer, api)
+        editor_verified = None
         if (
             verify_editor is not None and "offer_document" in allowed
             and destination in {"windowhub_unmapped", "offer_document"}
             and isinstance(offer, NewOfferHandoff)
-            and verify_editor(after, offer, api)
         ):
-            destination = scoped_position_stage(after, offer, api)
+            editor_verified = verify_editor(after, offer, api)
+            if editor_verified:
+                destination = scoped_position_stage(after, offer, api)
         if isinstance(offer, NewOfferHandoff) and destination in allowed:
             evidence = offer.verify(after, api, follows=scene.observation.metadata.get("window_handle"))
-            owner_matches = evidence in VERIFIED_HANDOFF
+            owner_matches = evidence in VERIFIED_HANDOFF and not (
+                offer.explicit_draft and destination == "offer_document" and editor_verified is False
+            )
             print("TEST_WIZARD_SCOPE=" + evidence)
         else:
             owner_matches = belongs_to_offer(after, offer, api) if not isinstance(offer, NewOfferHandoff) else False

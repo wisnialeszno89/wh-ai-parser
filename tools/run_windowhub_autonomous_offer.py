@@ -91,6 +91,73 @@ def observe_workspace(loop, offer, api, number, size, *, opening=False):
     return scene, rect, rgb, drawing, state
 
 
+def native_glazing_target(hwnd, toolbars, api):
+    """Resolve a named enabled glazing button in the current toolbar."""
+    from pywinauto import Desktop
+
+    root = Desktop(backend="uia").window(handle=hwnd).wrapper_object()
+    controls = []
+    for button in root.descendants(control_type="Button"):
+        try:
+            info = button.element_info
+            name = " ".join((info.name or "").casefold().split())
+            if name not in {"wstawianie szklenia", "wstaw szklenie", "wstawianie szkleń"} or not info.visible:
+                continue
+            current = button
+            for _ in range(12):
+                if current is None:
+                    break
+                handle = current.element_info.handle
+                if handle in toolbars and api.parent(handle, 2) == hwnd:
+                    controls.append((handle, button))
+                    break
+                current = current.parent()
+        except Exception:
+            continue
+    if not controls:
+        return None
+    if len(controls) != 1 or not controls[0][1].element_info.enabled:
+        raise WorkspaceBlocked("glazing_native_control_ambiguous_or_disabled")
+    handle, button = controls[0]
+    r = button.rectangle()
+    if r.right <= r.left or r.bottom <= r.top:
+        raise WorkspaceBlocked("construction_tool_unverified:GLASS")
+    return handle, ((r.left + r.right) // 2, (r.top + r.bottom) // 2)
+
+
+def blue_icon_pixels(rgb):
+    red, _, blue = rgb.transpose(2, 0, 1).astype("int16")
+    return (blue - red).clip(0, 255).astype("uint8")
+
+
+def active_glazing_icon(colors, hit):
+    x, y = hit
+    patch = colors[max(0, y - 5):y + 6, max(0, x - 5):x + 6]
+    return bool(patch.size and (patch > 35).mean() >= 0.45)
+
+
+def alternate_glazing_target(rgb, template, frame, sash):
+    """Find an enabled icon in the glazing slot relative to frame and sash."""
+    from app.agent.learning.windowhub_offer_editor import toolbar_tool
+
+    if frame is None or sash is None:
+        return None
+    spacing = sash[1] - frame[1]
+    if not 24 <= spacing <= 80 or abs(frame[0] - sash[0]) > 8:
+        return None
+    expected = sash[1] + 2 * spacing
+    start = max(0, expected - spacing // 2 - template.shape[0] // 2)
+    stop = min(rgb.shape[0], expected + spacing // 2 + template.shape[0] // 2)
+    colors = blue_icon_pixels(rgb)
+    hit = toolbar_tool(colors[start:stop], blue_icon_pixels(template))
+    if hit is None:
+        return None
+    hit = (hit[0], hit[1] + start)
+    if abs(hit[1] - expected) > spacing // 3 or abs(hit[0] - sash[0]) > 8:
+        return None
+    return hit if active_glazing_icon(colors, hit) else None
+
+
 def tool_target(rgb, rect, hwnd, tool, *, api=None):
     import cv2
     import numpy as np
@@ -103,11 +170,32 @@ def tool_target(rgb, rect, hwnd, tool, *, api=None):
     toolbars = native.visible_toolbars(hwnd)
     if not toolbars:
         raise WorkspaceBlocked("native_construction_toolbar_missing")
-    name, scale = ARCHIVED_TEMPLATES[tool]
-    with Image.open(ROOT / "templates" / name) as source:
-        template = source.convert("L").resize(
-            (round(source.width * scale), round(source.height * scale)), Image.Resampling.BILINEAR,
-        )
+    def load_template(kind):
+        name, scale = ARCHIVED_TEMPLATES[kind]
+        with Image.open(ROOT / "templates" / name) as source:
+            return np.asarray(source.convert("L").resize(
+                (round(source.width * scale), round(source.height * scale)), Image.Resampling.BILINEAR,
+            ))
+
+    alternate = None
+    if tool is GuiTool.GLASS:
+        try:
+            target = native_glazing_target(hwnd, toolbars, native)
+        except WorkspaceBlocked:
+            raise
+        except Exception as exc:
+            print("WH_GLAZING_NATIVE=" + type(exc).__name__, flush=True)
+            target = None
+        if target is not None:
+            toolbar, (x, y) = target
+            print("WH_RECOVERY_GLAZING=verified_native_label", flush=True)
+            return toolbar, (x - rect.left, y - rect.top)
+        with Image.open(ROOT / "dataset_archive/glass_tool/glass_tool.png") as source:
+            alternate = np.asarray(source.convert("RGB").resize((33, 33), Image.Resampling.BILINEAR))
+        frame_template = load_template(GuiTool.FRAME)
+        sash_template = load_template(GuiTool.SASH)
+
+    template = load_template(tool)
     targets = []
     for toolbar in toolbars:
         x, y, width, height = _get_window_rect(toolbar)
@@ -117,8 +205,15 @@ def tool_target(rgb, rect, hwnd, tool, *, api=None):
             or bounds.bottom > rgb.shape[0] or height <= 2 * width or width <= 0
         ):
             continue
-        gray = cv2.cvtColor(bounds.crop(rgb), cv2.COLOR_RGB2GRAY)
-        hit = toolbar_tool(gray, np.asarray(template))
+        pixels = bounds.crop(rgb)
+        gray = cv2.cvtColor(pixels, cv2.COLOR_RGB2GRAY)
+        hit = toolbar_tool(gray, template)
+        if alternate is not None and (hit is None or not active_glazing_icon(blue_icon_pixels(pixels), hit)):
+            hit = alternate_glazing_target(
+                pixels, alternate, toolbar_tool(gray, frame_template), toolbar_tool(gray, sash_template),
+            )
+            if hit is not None:
+                print("WH_RECOVERY_GLAZING=verified_active_icon_variant", flush=True)
         if hit is not None:
             targets.append((toolbar, (bounds.x + hit[0], bounds.y + hit[1])))
     if len(targets) != 1:
@@ -242,6 +337,8 @@ def recovery_advice(reason):
         return "Odsłoń pole rysunku pod tabelą i sprawdź, czy widać cały obrys bieżącej pozycji."
     if code in {"selected_position_row_unverified", "selected_window_number_quantity_or_dimensions_unverified"}:
         return "Zaznacz w szkicu właściwy wiersz i sprawdź numer pozycji, ilość i wymiary z polecenia."
+    if code == "glazing_native_control_ambiguous_or_disabled":
+        return "Sprawdź, czy WindowHub udostępnił aktywne narzędzie Wstawianie szklenia po wybraniu skrzydła."
     if code in {"construction_tool_unverified", "native_construction_toolbar_missing"}:
         return "Odsłoń pasek Narzędzia edytora i sprawdź, czy ikona bieżącej operacji jest dostępna."
     if code in {"compatible_ur_option_or_confirmation_unverified", "owned_hardware_dialog_not_observed"}:
@@ -501,7 +598,7 @@ def open_draft_next_position(loop, offer, api, number, size, *, opening):
                 raise WorkspaceBlocked("next_position_dialog_unowned")
             if stage_of(after) == "position":
                 print("WH_NEXT_POSITION=wizard_open", flush=True)
-                return
+                return after
             print("WH_NEXT_POSITION_DIALOG=" + api.title(hwnd), flush=True)
             raise WorkspaceBlocked("next_position_dialog_requires_review")
         if attempt < 7:
@@ -509,7 +606,7 @@ def open_draft_next_position(loop, offer, api, number, size, *, opening):
     raise WorkspaceBlocked("next_position_transition_unverified")
 
 
-def build_selected_draft(loop, api, name, size, *, construction, next_position=False):
+def build_selected_draft(loop, api, name, size, *, construction, next_position=False, next_size=None):
     scene = inspect(loop)
     take_active_draft = name.casefold() == "active"
     requested = None if take_active_draft else name
@@ -529,10 +626,27 @@ def build_selected_draft(loop, api, name, size, *, construction, next_position=F
     if not verify_editor_transition(scene, scope, api, 1, size, opening=opening):
         raise WorkspaceBlocked("selected_editor_draft_not_verified")
     build_construction(loop, scope, api, 1, size, opening=opening)
-    print("WH_AUTONOMOUS_RESULT=verified_draft_positions:1", flush=True)
+    if next_size is None:
+        print("WH_AUTONOMOUS_RESULT=verified_draft_positions:1", flush=True)
+        if next_position:
+            open_draft_next_position(loop, scope, api, 1, size, opening=opening)
+    else:
+        print("WH_POSITION_COMPLETE=1", flush=True)
+        wizard = open_draft_next_position(loop, scope, api, 1, size, opening=opening)
+        if not scope.bind_next_position(wizard, api):
+            raise WorkspaceBlocked("next_position_wizard_scope_unverified")
+        result = run(
+            loop, scope, api, stop_at_editor=True, width=next_size[0], height=next_size[1],
+            allow_offer_workspace=True, editor_glazing_fallback=True,
+            verify_editor=lambda scene, scope, api: verify_editor_transition(
+                scene, scope, api, 2, next_size, opening=opening,
+            ),
+        )
+        if result:
+            raise WorkspaceBlocked("position_wizard_unverified:2")
+        build_construction(loop, scope, api, 2, next_size, opening=opening)
+        print("WH_AUTONOMOUS_RESULT=verified_draft_positions:2", flush=True)
     print("WH_AUTONOMOUS_PRICE_AND_SAVE=not_verified", flush=True)
-    if next_position:
-        open_draft_next_position(loop, scope, api, 1, size, opening=opening)
     return 0
 
 
@@ -562,8 +676,10 @@ def main(argv=None):
         parser.error("test obsługuje najwyżej dwie pozycje")
     if args.next_position and not args.editor_draft:
         parser.error("--next-position wymaga --editor-draft")
-    if args.editor_draft and len(args.window or ()) != 1:
-        parser.error("--editor-draft wymaga dokładnie jednego --window SZERxWYS")
+    if args.editor_draft and not args.window:
+        parser.error("--editor-draft wymaga --window SZERxWYS")
+    if args.next_position and len(args.window or ()) == 2:
+        parser.error("Drugie --window już zleca wykonanie kolejnej pozycji")
     positions = tuple(args.window) if args.window else POSITIONS[:args.positions]
     if os.name != "nt" or not args.execute_live or any(
         os.environ.get(name) != "1" for name in ("COMPUTER_USE_LIVE", "WH_REAL_WINDOWHUB")
@@ -604,6 +720,7 @@ def main(argv=None):
             return build_selected_draft(
                 loop, api, args.editor_draft, positions[0], construction=args.construction,
                 next_position=args.next_position,
+                next_size=positions[1] if len(positions) == 2 else None,
             )
         return run_from_start(
             loop, customer, api,
