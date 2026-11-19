@@ -179,8 +179,10 @@ def test_hardware_requires_catalog_ur_choice():
 
     standard = ("UR ACTIVPILOT", False, object())
     configured = ("UR 8", True, object())
-    assert choose_ur_option([standard, configured]) is configured
+    assert choose_ur_option([standard, configured]) is standard
     assert choose_ur_option([standard, ("UR 8", False, object())]) is standard
+    assert choose_ur_option([("UR Activpilot RC1N", True, object()), ("UR Activpilot RC2N", False, object())]) is None
+    assert choose_ur_option([standard, ("UR  ActivPilot ", False, object())]) is None
     assert choose_ur_option([("U 1", True, object()), ("Bez okuć", True, object())]) is None
     assert choose_ur_option([("UR 2", False, object()), ("UR 8", False, object())]) is None
 
@@ -436,3 +438,43 @@ def test_editor_draft_builds_second_supplied_position_after_owned_wizard(monkeyp
     ) == 0
     assert actions == [("build", 1, (1000, 1000)), ("wizard", 1200, 1000), ("build", 2, (1200, 1000))]
     assert "WH_AUTONOMOUS_RESULT=verified_draft_positions:2" in capsys.readouterr().out
+
+
+def test_native_hardware_catalogue_selects_exact_standard_before_ok(monkeypatch):
+    import sys
+    from app.agent.runtime.windowhub_hardware_dialog import choose_and_confirm_ur
+
+    calls = []
+    current = [(0, 1)]
+
+    def node(name, children=()):
+        return NS(text=lambda: name, children=lambda: children, is_expanded=lambda: bool(children))
+
+    items = (
+        node("UR ACTIVPILOT"),
+        node("UR ACTIVPILOT RC1N"),
+        node("UR ACTIVPILOT RC2N"),
+        node("UR ACTIVPILOT GAMA D"),
+    )
+
+    def select(path):
+        calls.append(("select", path))
+        current[0] = path
+
+    tree = NS(
+        roots=lambda: [node("N ACTIVPILOT CONCEPT GAM/GAMA Z", items)],
+        is_visible=lambda: True, is_enabled=lambda: True,
+        get_item=lambda path: items[path[1]],
+        is_selected=lambda path: path == current[0], select=select,
+    )
+    button = NS(
+        control_id=lambda: 1, window_text=lambda: "&OK",
+        is_visible=lambda: True, is_enabled=lambda: True,
+        click=lambda: calls.append(("ok", current[0])),
+    )
+    dialog = NS(descendants=lambda *, class_name: [tree] if class_name == "SysTreeView32" else [button])
+    monkeypatch.setitem(sys.modules, "pywinauto", NS(
+        Desktop=lambda backend: NS(window=lambda handle: NS(wrapper_object=lambda: dialog)),
+    ))
+    assert choose_and_confirm_ur(77, still_owned=lambda: True, confirm=lambda: pytest.fail("need native OK"))
+    assert calls == [("select", (0, 0)), ("ok", (0, 0))]

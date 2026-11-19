@@ -8,6 +8,15 @@
     "status": "public_manual_sections_reviewed_runtime_version_unverified"
   },
   "scope": "offer_wizard_document_workspace_construction_catalogue_pricing_and_document_flow",
+  "catalogue_policies": {
+    "standard_tilt_turn": {
+      "exact_labels": ["UR ACTIVPILOT"],
+      "intent_source": "operator_confirmed_standard_for_current_workflow",
+      "selection_rule": "verify_exact_visible_catalogue_entry_and_read_back_selection",
+      "different_variants_require_explicit_specification": true,
+      "reference": "https://whokna.com.pl/baza-wiedzy/nowy-dobor-okuc/"
+    }
+  },
   "rules": [
     {
       "id": "view_window",

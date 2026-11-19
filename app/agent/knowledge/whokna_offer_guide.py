@@ -45,6 +45,14 @@ def load_reference(path: Path = KNOWLEDGE_PATH) -> dict:
     return data
 
 
+def standard_tilt_turn_labels() -> tuple[str, ...]:
+    policy = load_reference()["catalogue_policies"]["standard_tilt_turn"]
+    labels = policy["exact_labels"]
+    if not labels or not all(isinstance(label, str) and label.strip() for label in labels):
+        raise ValueError("standard_tilt_turn_catalogue_labels_missing")
+    return tuple(labels)
+
+
 def single_sash_construction_recipe():
     """Bind documented concepts to the observed single-sash editor sequence."""
     from app.agent.learning.windowhub_builder_replay import NEXT_STEP
