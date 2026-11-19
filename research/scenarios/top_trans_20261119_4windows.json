@@ -7,7 +7,12 @@
     "source_document": "Angebot187550807",
     "document_date": "2026-04-15",
     "original_named_customer": "Hartmut Zingelmann",
-    "note": "Source customer is not target customer; target chosen explicitly by salesperson. Image remains in chat; repository stores a structured interpretation, not image bytes."
+    "note": "Source customer is not target customer; target chosen explicitly by salesperson. Image remains in chat; repository stores a structured interpretation, not image bytes.",
+    "handwritten_instruction": {
+      "original": "ohne Fußleisten!",
+      "interpretation_pl": "bez dolnych listew/profili podokiennych",
+      "confidence": "high"
+    }
   },
   "customer": {
     "exact_name": "Top Trans Janik Artur",
@@ -32,7 +37,8 @@
     "discount_window_percent": 20,
     "discount_roller_percent": null,
     "save_before_salesperson_review": false,
-    "send_before_salesperson_review": false
+    "send_before_salesperson_review": false,
+    "bottom_transport_or_foot_strips": "exclude; handwritten ohne Fußleisten!"
   },
   "positions": [
     {
@@ -41,7 +47,7 @@
       "kind": "window",
       "width_mm": 1640,
       "height_mm": 1010,
-      "source_dimensions": "1640 horizontal / 1010 vertical; verify whether overall window excludes box",
+      "source_dimensions": "1640 wide; 1010 window height excluding 30 mm bottom strip; upper roller-box height unknown",
       "layout": "two_sashes",
       "sections_width_mm": [
         820,
@@ -65,7 +71,7 @@
       "kind": "window",
       "width_mm": 1020,
       "height_mm": 1010,
-      "source_dimensions": "1020 horizontal / 1010 vertical; verify whether overall window excludes box",
+      "source_dimensions": "1020 wide; 1010 window height excluding 30 mm bottom strip; upper roller-box height unknown",
       "layout": "single_sash",
       "opening": "handle appears on left, right hinge inferred; verify DKR convention",
       "box_above_marked": true,
@@ -84,8 +90,8 @@
       "quantity": 1,
       "kind": "window",
       "width_mm": 1180,
-      "height_mm": 890,
-      "source_dimensions": "1180 horizontal / 890 vertical",
+      "height_mm": 950,
+      "source_dimensions": "1180 wide; 950 window without 30 mm bottom strip (980 including strip)",
       "layout": "single_sash",
       "opening": "handle appears on left, right hinge inferred; verify DKR convention",
       "box_above_marked": false
@@ -95,15 +101,15 @@
       "quantity": 1,
       "kind": "window",
       "width_mm": 880,
-      "height_mm": 1010,
-      "source_dimensions": "880 horizontal / 1010 vertical",
+      "height_mm": 980,
+      "source_dimensions": "880 wide; 980 window without 30 mm bottom strip (1010 including strip)",
       "layout": "single_sash",
       "opening": "handle appears on left, right hinge inferred; verify DKR convention",
       "box_above_marked": false
     }
   ],
   "interpretation_flags": [
-    "drawings contain 30-mm bottom dimension marks; verify they refer to transport/extension profiles rather than added window height",
+    "Handwritten 'ohne Fußleisten!': omit 30-mm bottom strips; window heights read without those strips",
     "top-mounted box heights are not specified and must not be invented",
     "source quote buyer Hartmut Zingelmann must not override exact requested Top Trans Janik Artur",
     "box only for positions 1 and 2 by visual interpretation; operator to verify",
