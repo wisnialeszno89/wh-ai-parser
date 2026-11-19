@@ -197,7 +197,10 @@ def progressive_customer_selection(
             if evidence.status == "verified":
                 print("CUSTOMER_COMMIT_VERIFIED_NATIVE = True")
                 return True, "CUSTOMER_VERIFIED_NATIVE_READBACK"
-            return False, "CUSTOMER_CLICKED_BUT_SELECTION_UNVERIFIED_" + evidence.reason
+            reason = evidence.reason
+            if evidence.popup_still_contains_exact_result is False:
+                reason += "_popup_closed"
+            return False, "CUSTOMER_CLICKED_BUT_SELECTION_UNVERIFIED_" + reason
     if short_prefix_only:
         return False, "CUSTOMER_NO_EXACT_RESULT_FOR_SHORT_PREFIX"
     return False, "CUSTOMER_NO_EXACT_SUGGESTION_DURING_TYPING"

@@ -53,6 +53,19 @@ def confirm_customer_completion(customer_name, completions, ask):
     return full_name
 
 
+def customer_confirmation_conflicts(picker_metadata, expected, *, allow_opaque_caption=False):
+    """Only an attested exact click with a closed popup can tolerate a caption."""
+    raw = picker_metadata.get("current_value")
+    if not isinstance(raw, str) or not raw.strip():
+        return False
+    if raw.strip().casefold() == expected.strip().casefold():
+        return False
+    return not (
+        allow_opaque_caption and picker_metadata.get("current_value_source")
+        in {"window_text", "rich_text"}
+    )
+
+
 def run_document_core(*, customer_name: str, fresh_document: bool,
                       interactive_handoff: bool = False,
                       ask=input, on_confirmed=None,
@@ -85,6 +98,7 @@ def run_document_core(*, customer_name: str, fresh_document: bool,
         return 4
 
     customer_source = "native"
+    allow_opaque_caption = False
     verified_customer = customer_selected(scene, customer_name)
     print("CUSTOMER_INITIAL_READBACK=" + str(verified_customer))
 
@@ -174,12 +188,19 @@ def run_document_core(*, customer_name: str, fresh_document: bool,
             if len(picker) != 1:
                 print("CUSTOMER_MANUAL_STOP=lookup_identity_unverified")
                 return 6
-            observed = (picker[0].metadata or {}).get("current_value")
-            if isinstance(observed, str) and observed.strip() and (
-                blank or observed.strip().casefold() != manual.casefold()
+            allow_opaque_caption = detail == (
+                "CUSTOMER_CLICKED_BUT_SELECTION_UNVERIFIED_native_selected_value_not_exposed_popup_closed"
+            )
+            if customer_confirmation_conflicts(
+                picker[0].metadata or {}, "" if blank else manual,
+                allow_opaque_caption=allow_opaque_caption,
             ):
                 print("CUSTOMER_MANUAL_STOP=visible_lookup_value_disagrees")
                 return 6
+            if allow_opaque_caption and (picker[0].metadata or {}).get("current_value_source") in {
+                "window_text", "rich_text",
+            }:
+                print("CUSTOMER_CAPTION_NOT_USED_AS_SELECTED_VALUE=True")
             customer_name = "" if blank else manual
             customer_source = "human_confirmed_blank_test" if blank else "human_confirmed_selection"
             matched = True
@@ -221,6 +242,14 @@ def run_document_core(*, customer_name: str, fresh_document: bool,
     ):
         print("DOCUMENT_CONFIRM_STOP=original_document_changed")
         return 6
+    if customer_source != "native":
+        final_picker = matches(final, automation_id="IDC_ZAMAWIAJACY")
+        if len(final_picker) != 1 or customer_confirmation_conflicts(
+            final_picker[0].metadata or {}, customer_name,
+            allow_opaque_caption=allow_opaque_caption,
+        ):
+            print("DOCUMENT_CONFIRM_STOP=customer_evidence_changed")
+            return 6
     for key in changed:
         if verify_exclusion(final, key, desired_checked=dict(PRICE_TARGETS)[key]):
             print("DOCUMENT_PRICE_" + key + "=verified_updated")

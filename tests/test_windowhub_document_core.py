@@ -257,3 +257,25 @@ def test_clicked_customer_with_opaque_readback_only_needs_visual_confirmation(mo
     assert searches == [full]
     assert len(prompts) == 1 and full in prompts[0]
     assert "DOCUMENT_CUSTOMER_ACCEPTANCE=human_confirmed_selection" in capsys.readouterr().out
+
+
+def test_exact_customer_with_closed_popup_can_use_visual_confirmation_over_caption():
+    from app.agent.runtime.windowhub_document_core import customer_confirmation_conflicts
+
+    caption = {"current_value": "Top", "current_value_source": "window_text"}
+    direct = {"current_value": "Inny klient", "current_value_source": "value"}
+    assert customer_confirmation_conflicts(caption, "Top Trans Janik Artur")
+    assert not customer_confirmation_conflicts(
+        caption, "Top Trans Janik Artur", allow_opaque_caption=True,
+    )
+    assert customer_confirmation_conflicts(direct, "Top Trans Janik Artur", allow_opaque_caption=True)
+
+
+def test_document_lookup_reads_native_value_before_caption():
+    from types import SimpleNamespace as NS
+    from app.agent.perception.windowhub_ui_automation_provider import WindowHubUIAutomationProvider
+
+    picker = NS(window_text=lambda: "Top", element_info=NS(value="Inny klient"))
+    assert WindowHubUIAutomationProvider._control_value_with_source(picker, prefer_native=True) == (
+        "Inny klient", "value",
+    )

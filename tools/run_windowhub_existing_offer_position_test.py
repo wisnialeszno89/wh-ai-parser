@@ -178,7 +178,7 @@ def stop(reason):
     return 4
 
 
-def run(loop, offer, api, *, stop_at_editor=False, color_label=None):
+def run(loop, offer, api, *, stop_at_editor=False, color_label=None, editor_first=False):
     from tools.run_windowhub_local_select_window_once import run as select_window
     from tools.run_windowhub_local_quantity_once import run as set_quantity
     from tools.run_windowhub_local_dimensions_once import run as set_dimensions
@@ -244,7 +244,9 @@ def run(loop, offer, api, *, stop_at_editor=False, color_label=None):
         stage = stage_of(scene)
 
     if stop_at_editor:
-        colors = (color_label,) if color_label else _EXTERIOR_ANTHRACITE
+        colors = (color_label,) if color_label else (
+            ("BIAŁY CZARNA USZCZELKA",) if editor_first else _EXTERIOR_ANTHRACITE
+        )
         glazing = ()
     else:
         colors, glazing = catalog_options_for(outside="antracyt", inside="biały", glazing_panes=2)
@@ -269,13 +271,17 @@ def run(loop, offer, api, *, stop_at_editor=False, color_label=None):
     if stage == "glazing":
         scene = choose_catalog(
             loop, scene, offer, api, "glazing_package", glazing,
-            allow_test_catalog_choice=not stop_at_editor,
+            allow_test_catalog_choice=editor_first or not stop_at_editor,
             match_label=matches_required_glazing if stop_at_editor else None,
         )
         if scene is None:
             return stop("glazing_selection_or_readback_unverified")
         glazing_verified = True
         print("TEST_GLAZING_VERIFIED=True")
+        if stop_at_editor:
+            from app.agent.runtime.windowhub_catalog_handoff import current_catalog_value
+            actual = current_catalog_value(scene, "glazing_package") or ""
+            print("TEST_REQUESTED_GLAZING_VERIFIED=" + str(matches_required_glazing(actual)))
         scene = confirm_stage(loop, scene, offer, api)
         if scene is None:
             return stop("glazing_confirmation_unverified")
@@ -305,7 +311,7 @@ def run(loop, offer, api, *, stop_at_editor=False, color_label=None):
     if stage == "modifier":
         if stop_at_editor and color_verified and belongs_to_offer(scene, offer, api):
             print("TEST_EDITOR_REACHED=True")
-            if not glazing_verified:
+            if not glazing_verified and not editor_first:
                 return stop("editor_reached_required_glazing_unverified")
             print("TEST_RESULT=construction_editor_reached")
             return 0
@@ -315,7 +321,9 @@ def run(loop, offer, api, *, stop_at_editor=False, color_label=None):
     return stop("unsupported_stage")
 
 
-def run_from_start(loop, customer, api, *, color_label=None, resume_document_properties=False):
+def run_from_start(
+    loop, customer, api, *, color_label=None, resume_document_properties=False, editor_first=False,
+):
     from app.agent.runtime.windowhub_document_core import run_document_core
     from tools.run_windowhub_new_offer_entry import main as open_offer
 
@@ -348,7 +356,10 @@ def run_from_start(loop, customer, api, *, color_label=None, resume_document_pro
     offer = confirmed[0]
     print("TEST_DOCUMENT_CONFIRMED=True")
     print("TEST_TARGET_OFFER=" + offer)
-    return run(loop, offer, api, stop_at_editor=True, color_label=color_label)
+    return run(
+        loop, offer, api, stop_at_editor=True, color_label=color_label,
+        **({"editor_first": True} if editor_first else {}),
+    )
 
 
 def main(argv=None):
@@ -358,6 +369,8 @@ def main(argv=None):
                         help="Create one test offer from Start1 for an existing test customer")
     parser.add_argument("--resume-document-properties", action="store_true",
                         help="Allow resuming the open test offer's Document Properties")
+    parser.add_argument("--editor-first", action="store_true",
+                        help="Test reaching the editor using the proven white color and available glazing")
     parser.add_argument("--color-label", help="Exact catalog label for exterior anthracite and white interior")
     parser.add_argument("--start-delay", type=int, default=12, choices=range(0, 31), metavar="0..30")
     args = parser.parse_args(argv)
@@ -372,8 +385,8 @@ def main(argv=None):
         ).strip()
     except (EOFError, KeyboardInterrupt):
         return stop("no_test_target_provided")
-    if args.resume_document_properties and not args.from_start:
-        return stop("document_resume_requires_from_start")
+    if not args.from_start and (args.resume_document_properties or args.editor_first):
+        return stop("document_resume_and_editor_first_require_from_start")
     if args.color_label is not None and (not args.from_start or not args.color_label.strip()):
         return stop("invalid_exact_color_label")
     if args.from_start:
@@ -390,6 +403,7 @@ def main(argv=None):
         return run_from_start(
             loop, target, api, color_label=args.color_label,
             resume_document_properties=args.resume_document_properties,
+            editor_first=args.editor_first,
         )
     return run(loop, target, api)
 

@@ -197,3 +197,18 @@ def test_requested_glazing_is_an_exact_build_up_not_just_a_pane_count():
                            match_label=mission.matches_required_glazing) is None
     assert not mission.matches_required_glazing("44/12/4/12/4")
     assert not mission.matches_required_glazing("4/12/4/12/44")
+
+
+def test_editor_first_can_complete_when_no_glazing_form_was_displayed(monkeypatch, capsys):
+    before = scene("Podstawowe parametry okna")
+    editor = scene("Modyfikator")
+    api = native_owner("Okna - OFR/42-")
+    monkeypatch.setattr(mission, "inspect", lambda loop: before)
+    monkeypatch.setattr(mission, "confirm_stage", lambda *args: editor)
+    monkeypatch.setattr(mission, "choose_catalog", lambda loop, scene, offer, api, field, labels, **kw: (
+        scene if field == "profile_color" and labels == ("BIAŁY CZARNA USZCZELKA",) else None
+    ))
+    assert mission.run(object(), "OFR/42-", api, stop_at_editor=True, editor_first=True) == 0
+    output = capsys.readouterr().out
+    assert "TEST_RESULT=construction_editor_reached" in output
+    assert "TEST_GLAZING_WIZARD_NOT_OBSERVED=True" in output

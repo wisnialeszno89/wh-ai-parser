@@ -865,8 +865,10 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
 
         # Never ask a table/grid for its aggregate text here. Row values
         # are available only through an explicitly authorized observation.
-        current_value = (
-            None if is_table else self._current_control_value(item)
+        current_value, value_source = (
+            (None, None) if is_table else self._control_value_with_source(
+                item, prefer_native=automation_id == "IDC_ZAMAWIAJACY",
+            )
         )
         ancestor_context = self._ancestor_context(item)
         ancestor_structure = self._ancestor_structure(item)
@@ -898,6 +900,7 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
             "name": name,
             "semantic_label_source": semantic_source,
             "current_value": current_value,
+            "current_value_source": value_source,
             # Structural UIA context is observational evidence only. It is
             # deliberately not treated as a document scope by itself.
             "uia_ancestor_context": ancestor_context,
@@ -1289,40 +1292,33 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
 
     @staticmethod
     def _current_control_value(item) -> str | None:
-        element_info = getattr(item, "element_info", None)
-        role = str(getattr(element_info, "control_type", "") or "").casefold()
-        methods = ("selected_text", "get_value", "window_text") if role == "combobox" else (
-            "get_value", "window_text",
-        )
-        for method_name in methods:
-            method = getattr(item, method_name, None)
-            if not callable(method):
-                continue
+        return WindowHubUIAutomationProvider._control_value_with_source(item)[0]
 
+    @staticmethod
+    def _control_value_with_source(item, *, prefer_native=False) -> tuple[str | None, str | None]:
+        info = getattr(item, "element_info", None)
+        role = str(getattr(info, "control_type", "") or "").casefold()
+        sources = [
+            (item, "get_value", True),
+            (item, "window_text", True),
+            (info, "value", False),
+            (info, "legacy_value", False),
+            (info, "rich_text", False),
+        ]
+        if role == "combobox":
+            sources.insert(0, (item, "selected_text", True))
+        if prefer_native:
+            sources.sort(key=lambda source: source[1] in {"window_text", "rich_text"})
+        for obj, attribute, method in sources:
             try:
-                value = method()
+                value = getattr(obj, attribute, None)
+                if method:
+                    value = value() if callable(value) else None
             except Exception:
                 continue
-
-            if isinstance(value, str):
-                value = value.strip()
-                if value:
-                    return value
-
-        for attribute_name in (
-            "value",
-            "legacy_value",
-            "rich_text",
-        ):
-            value = getattr(
-                element_info,
-                attribute_name,
-                None,
-            )
             if isinstance(value, str) and value.strip():
-                return value.strip()
-
-        return None
+                return value.strip(), attribute
+        return None, None
 
     @classmethod
     def _collect_label_candidates(
