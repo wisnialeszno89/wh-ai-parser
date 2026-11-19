@@ -315,16 +315,20 @@ def run(loop, offer, api, *, stop_at_editor=False, color_label=None):
     return stop("unsupported_stage")
 
 
-def run_from_start(loop, customer, api, *, color_label=None):
+def run_from_start(loop, customer, api, *, color_label=None, resume_document_properties=False):
     from app.agent.runtime.windowhub_document_core import run_document_core
     from tools.run_windowhub_new_offer_entry import main as open_offer
 
     stage = stage_of(inspect(loop))
     print("TEST_NEW_OFFER_ENTRY_STAGE=" + str(stage))
-    if stage not in {"start", "offer_document"}:
-        return stop("expected_start1_or_offer_workspace_before_new_offer")
-    if open_offer(["--execute-live"]) != 0:
-        return stop("new_offer_entry_unverified")
+    resume = stage == "document_properties" and resume_document_properties
+    if resume:
+        print("TEST_RESUMING_OPEN_TEST_DOCUMENT=True")
+    else:
+        if stage not in {"start", "offer_document"}:
+            return stop("expected_start1_or_offer_workspace_before_new_offer")
+        if open_offer(["--execute-live"]) != 0:
+            return stop("new_offer_entry_unverified")
     confirmed = []
 
     def capture(scene):
@@ -334,6 +338,7 @@ def run_from_start(loop, customer, api, *, color_label=None):
 
     code = run_document_core(
         customer_name=customer, fresh_document=True, on_confirmed=capture,
+        confirm_similar_customer=True, replace_customer_filter=resume,
     )
     if code != 0:
         return stop("customer_prices_or_document_confirmation_unverified")
@@ -350,6 +355,8 @@ def main(argv=None):
     parser.add_argument("--execute-live", action="store_true")
     parser.add_argument("--from-start", action="store_true",
                         help="Create one test offer from Start1 for an existing test customer")
+    parser.add_argument("--resume-document-properties", action="store_true",
+                        help="Allow resuming the open test offer's Document Properties")
     parser.add_argument("--color-label", help="Exact catalog label for exterior anthracite and white interior")
     parser.add_argument("--start-delay", type=int, default=12, choices=range(0, 31), metavar="0..30")
     args = parser.parse_args(argv)
@@ -364,6 +371,8 @@ def main(argv=None):
         ).strip()
     except (EOFError, KeyboardInterrupt):
         return stop("no_test_target_provided")
+    if args.resume_document_properties and not args.from_start:
+        return stop("document_resume_requires_from_start")
     if args.color_label is not None and (not args.from_start or not args.color_label.strip()):
         return stop("invalid_exact_color_label")
     if args.from_start:
@@ -377,7 +386,10 @@ def main(argv=None):
     loop = create_windows_desktop_agent_control_loop()
     api = _Win32Mdi()
     if args.from_start:
-        return run_from_start(loop, target, api, color_label=args.color_label)
+        return run_from_start(
+            loop, target, api, color_label=args.color_label,
+            resume_document_properties=args.resume_document_properties,
+        )
     return run(loop, target, api)
 
 

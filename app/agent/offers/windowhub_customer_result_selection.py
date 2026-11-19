@@ -52,7 +52,15 @@ def _rect(wrapper):
     return (int(r.left), int(r.top), int(r.right), int(r.bottom))
 
 
-def select_exact_customer_result(scene, customer_name: str) -> tuple[bool, str]:
+def customer_name_completes_query(label: str, query: str) -> bool:
+    """Match a full-token extension, never a prefix inside a word."""
+    label_words = label.casefold().split()
+    query_words = query.casefold().split()
+    return bool(query_words and len(label_words) > len(query_words)
+                and label_words[:len(query_words)] == query_words)
+
+
+def select_exact_customer_result(scene, customer_name: str, *, visible_completions=None) -> tuple[bool, str]:
     """Observe visible same-process UIA trees, then click one exact result.
 
     A popup may be a direct/indirect owner of Document Properties, not a direct
@@ -121,7 +129,10 @@ def select_exact_customer_result(scene, customer_name: str) -> tuple[bool, str]:
                 if role not in SELECTABLE_ROLES:
                     continue
                 name = str(info.name or "").strip()
-                if name.casefold() != customer_name.strip().casefold():
+                if name.casefold() != customer_name.strip().casefold() and not (
+                    visible_completions is not None
+                    and customer_name_completes_query(name, customer_name)
+                ):
                     continue
                 rect = _rect(node)
                 key = (role, name.casefold(), rect)
@@ -134,14 +145,33 @@ def select_exact_customer_result(scene, customer_name: str) -> tuple[bool, str]:
             except Exception:
                 continue
 
+    if visible_completions is not None:
+        for _, candidate in candidates:
+            name = candidate.name
+            if (
+                candidate.visible and candidate.enabled
+                and candidate.rect[1] >= picker_rect[3]
+                and nearby_lookup(candidate.rect, picker_rect)
+                and customer_name_completes_query(name, customer_name)
+            ):
+                visible_completions.add(name)
+
     accepted = exact_customer_candidates(
         [item[1] for item in candidates], customer_name, picker_rect
     )
-    print("CUSTOMER_EXACT_VISIBLE_MATCHES =", len(candidates))
+    print("CUSTOMER_EXACT_VISIBLE_MATCHES =", sum(
+        item[1].name.casefold() == customer_name.strip().casefold() for item in candidates
+    ))
     print("CUSTOMER_EXACT_NEARBY_RESULTS =", len(accepted))
-    if len(accepted) != 1:
+    if len(accepted) > 1:
+        return False, "EXACT_CUSTOMER_RESULT_AMBIGUOUS"
+    if not accepted:
         return False, "EXACT_CUSTOMER_RESULT_NOT_UNIQUE_OR_NOT_VISIBLE"
     node = candidates[accepted[0]][0]
+    user32.GetForegroundWindow.argtypes = []
+    user32.GetForegroundWindow.restype = wintypes.HWND
+    if int(user32.GetForegroundWindow() or 0) != hwnd:
+        return False, "CUSTOMER_DOCUMENT_NOT_FOREGROUND"
     try:
         node.click_input()
     except Exception as exc:

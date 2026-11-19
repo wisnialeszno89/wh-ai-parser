@@ -115,7 +115,10 @@ def handle_customer_lookup(scene):
     )
     return select_exact_customer_result(scene, CUSTOMER)
 
-def progressive_customer_selection(loop, initial_scene, name, *, require_result_click=False):
+def progressive_customer_selection(
+    loop, initial_scene, name, *, require_result_click=False,
+    visible_completions=None, replace_existing=False,
+):
     """Type in short chunks, observing BEFORE the final name is entered.
 
     DevExpress suggestions can disappear after a full exact-name typeahead.
@@ -131,7 +134,10 @@ def progressive_customer_selection(loop, initial_scene, name, *, require_result_
     if not parts:
         return False, "CUSTOMER_QUERY_EMPTY"
     print("CUSTOMER_TYPING_CHUNKS =", len(parts))
-    started = type_directly_into_customer_lookup(initial_scene, parts[0])
+    started = type_directly_into_customer_lookup(
+        initial_scene, parts[0],
+        **({"replace_existing": True} if replace_existing else {}),
+    )
     print("CUSTOMER_INITIAL_TYPING =", started.status, started.reason)
     if started.status != "search_submitted_unverified":
         return False, started.reason
@@ -154,11 +160,20 @@ def progressive_customer_selection(loop, initial_scene, name, *, require_result_
         print("CUSTOMER_SEARCH_CHECKPOINT =", index + 1, "/", len(parts))
         if not require_result_click and customer_selected(current, name):
             return True, "CUSTOMER_VERIFIED_AFTER_TYPED_CHUNK"
-        matched, reason = select_exact_customer_result(current, name)
+        matched, reason = select_exact_customer_result(
+            current, name,
+            **({"visible_completions": visible_completions} if visible_completions is not None else {}),
+        )
         print("CUSTOMER_NATIVE_RESULT =", reason)
+        if reason.startswith("CUSTOMER_RESULT_CLICK_FAILED_") or reason in {
+            "CUSTOMER_DOCUMENT_NOT_FOREGROUND", "EXACT_CUSTOMER_RESULT_AMBIGUOUS",
+        }:
+            return False, reason
         if not matched:
             matched, reason = select_exact_visual_customer(current, name)
             print("CUSTOMER_VISUAL_RESULT =", reason)
+            if "CLICK_FAILED" in reason or "CLICK_ERROR" in reason:
+                return False, reason
         if matched:
             # Selection is not the same as writing the filter. Verify new
             # document state once, rather than retrying clicks.

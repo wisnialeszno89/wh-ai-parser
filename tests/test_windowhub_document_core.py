@@ -129,3 +129,54 @@ def test_customer_handoff_denial_leaves_dialog_open(monkeypatch):
         customer_name="Limi Fensterbau", fresh_document=False,
         interactive_handoff=True, ask=lambda prompt: "nie",
     ) == 6
+
+
+def test_customer_completion_prompts_for_approval_or_exact_full_name():
+    from app.agent.runtime.windowhub_document_core import confirm_customer_completion
+
+    full = "Top Trans Artur Janik"
+    assert confirm_customer_completion("Top Trans", {full}, lambda prompt: "tak") == full
+    assert confirm_customer_completion("Top Trans", {full}, lambda prompt: "nie") is None
+    assert confirm_customer_completion("Top Trans", {full, "Top Trans Inny"}, lambda prompt: full) == full
+    assert confirm_customer_completion("Top Trans", set(), lambda prompt: "Top Trans") is None
+
+
+def test_customer_completion_requeries_approved_name_in_same_document(monkeypatch):
+    from types import SimpleNamespace as NS
+    from app.agent.runtime import windowhub_document_core as core
+    from app.agent.runtime import windowhub_window_activation as activation
+    from app.agent.runtime import windows_desktop_agent_control_loop as control
+    from tools import run_windowhub_top_trans_single_window_mission as legacy
+    from tools import run_windowhub_new_offer_native_invoke_once as native
+
+    state = NS(active_application="Okna.exe", active_window_title="Właściwości dokumentu")
+    scene = NS(observation=NS(state=state, metadata={"window_handle": 80}))
+    calls = []
+    monkeypatch.setattr(activation, "activate_windowhub_workflow_window", lambda: (True, "ok"))
+    monkeypatch.setattr(control, "create_windows_desktop_agent_control_loop", object)
+    monkeypatch.setattr(legacy, "inspect", lambda loop: scene)
+    monkeypatch.setattr(legacy, "customer_selected", lambda *args: False)
+    monkeypatch.setattr(legacy, "verify_exclusion", lambda *args, **kwargs: True)
+    monkeypatch.setattr(legacy, "matches", lambda *args, **kwargs: [object()])
+
+    def find(loop, scene, name, **options):
+        calls.append(name)
+        if len(calls) == 1:
+            options["visible_completions"].add("Top Trans Artur Janik")
+            return False, "CUSTOMER_NO_EXACT_SUGGESTION_DURING_TYPING"
+        assert options["replace_existing"] is True
+        return True, "CUSTOMER_VERIFIED_AFTER_EXACT_RESULT_CLICK"
+
+    def confirm():
+        state.active_window_title = "Okna - OFR/42-"
+
+    monkeypatch.setattr(legacy, "progressive_customer_selection", find)
+    monkeypatch.setattr(native, "resolve_native_wrapper", lambda *args, **kwargs: NS(
+        iface_invoke=NS(Invoke=confirm),
+    ))
+    result = core.run_document_core(
+        customer_name="Top Trans", fresh_document=True,
+        confirm_similar_customer=True, ask=lambda prompt: "tak",
+    )
+    assert result == 0
+    assert calls == ["Top Trans", "Top Trans Artur Janik"]

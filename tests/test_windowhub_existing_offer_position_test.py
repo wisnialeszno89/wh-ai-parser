@@ -154,7 +154,8 @@ def test_from_start_runs_only_on_the_offer_confirmed_by_document_core(monkeypatc
     monkeypatch.setattr(mission, "inspect", lambda loop: start)
     monkeypatch.setattr(entry, "main", lambda args: calls.append(("new_offer", args)) or 0)
 
-    def setup(*, customer_name, fresh_document, on_confirmed):
+    def setup(*, customer_name, fresh_document, on_confirmed, confirm_similar_customer, replace_customer_filter):
+        assert confirm_similar_customer and not replace_customer_filter
         calls.append(("setup", customer_name, fresh_document))
         on_confirmed(wizard)
         return 0

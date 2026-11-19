@@ -25,9 +25,30 @@ def document_readiness(*, customer_verified: bool, flags_verified: bool) -> str:
     return "ready"
 
 
+def confirm_customer_completion(customer_name, completions, ask):
+    """Ask for an exact observed name or a user-supplied full name."""
+    labels = sorted({label.casefold(): label for label in sorted(completions)}.values(), key=str.casefold)
+    try:
+        if len(labels) == 1:
+            reply = ask(f"Czy wybrać '{labels[0]}' dla '{customer_name}'? [tak/N]: ")
+            return labels[0] if reply.strip().casefold() in {"tak", "t"} else None
+        if labels:
+            print("CUSTOMER_VISIBLE_COMPLETIONS=" + repr(labels[:10]))
+        full_name = ask("Podaj pełną nazwę klienta (Enter = przerwij): ").strip()
+    except (EOFError, KeyboardInterrupt):
+        return None
+    if (
+        not full_name or len(full_name) > 100 or any(ord(char) < 32 for char in full_name)
+        or full_name.casefold() == customer_name.casefold()
+    ):
+        return None
+    return full_name
+
+
 def run_document_core(*, customer_name: str, fresh_document: bool,
                       interactive_handoff: bool = False,
-                      ask=input, on_confirmed=None) -> int:
+                      ask=input, on_confirmed=None,
+                      confirm_similar_customer=False, replace_customer_filter=False) -> int:
     """Configure document, then confirm only after full evidence.
 
     When resuming an open dialog, never retype a previously clicked customer
@@ -57,10 +78,41 @@ def run_document_core(*, customer_name: str, fresh_document: bool,
     print("CUSTOMER_INITIAL_READBACK=" + str(verified_customer))
 
     if not verified_customer and fresh_document:
+        completions = set()
+        lookup_options = {}
+        if confirm_similar_customer:
+            lookup_options["visible_completions"] = completions
+        if replace_customer_filter:
+            lookup_options["replace_existing"] = True
         matched, detail = progressive_customer_selection(
-            loop, scene, customer_name, require_result_click=True,
+            loop, scene, customer_name, require_result_click=True, **lookup_options,
         )
         print("CUSTOMER_LOOKUP_STATUS=" + detail)
+        if confirm_similar_customer and detail == "CUSTOMER_NO_EXACT_SUGGESTION_DURING_TYPING":
+            hwnd = scene.observation.metadata.get("window_handle")
+            if type(hwnd) is not int or hwnd <= 0:
+                print("CUSTOMER_COMPLETION_STOP=original_document_unverified")
+                return 6
+            approved = confirm_customer_completion(customer_name, completions, ask)
+            if approved is None:
+                print("CUSTOMER_COMPLETION_STOP=not_approved")
+                return 6
+            focused, reason = activate_windowhub_workflow_window()
+            print("CUSTOMER_COMPLETION_REFOCUS=" + reason)
+            if not focused:
+                return 6
+            resumed = inspect(loop)
+            if (
+                stage_of(resumed) != "document_properties"
+                or resumed.observation.metadata.get("window_handle") != hwnd
+            ):
+                print("CUSTOMER_COMPLETION_STOP=document_changed")
+                return 6
+            customer_name = approved
+            matched, detail = progressive_customer_selection(
+                loop, resumed, customer_name, require_result_click=True, replace_existing=True,
+            )
+            print("CUSTOMER_APPROVED_EXACT_LOOKUP_STATUS=" + detail)
         verified_customer = matched
         # Do not reinterpret a clicked exact suggestion as confirmed.
         if not verified_customer:
