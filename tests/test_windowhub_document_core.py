@@ -279,3 +279,35 @@ def test_document_lookup_reads_native_value_before_caption():
     assert WindowHubUIAutomationProvider._control_value_with_source(picker, prefer_native=True) == (
         "Inny klient", "value",
     )
+
+
+def test_manual_registered_name_with_swapped_person_names_resumes(monkeypatch, capsys):
+    from types import SimpleNamespace as NS
+    from app.agent.runtime import windowhub_document_core as core
+    from app.agent.runtime import windowhub_window_activation as activation
+    from app.agent.runtime import windows_desktop_agent_control_loop as controls
+    from tools import run_windowhub_top_trans_single_window_mission as legacy
+    from tools import run_windowhub_new_offer_native_invoke_once as native
+
+    state = NS(active_application="Okna.exe", active_window_title="Właściwości dokumentu")
+    scene = NS(observation=NS(state=state, metadata={"window_handle": 80}))
+    picker = NS(metadata={"current_value": "Top", "current_value_source": "window_text"})
+    prompts = []
+    monkeypatch.setattr(activation, "activate_windowhub_workflow_window", lambda: (True, "ok"))
+    monkeypatch.setattr(controls, "create_windows_desktop_agent_control_loop", object)
+    monkeypatch.setattr(legacy, "inspect", lambda loop: scene)
+    monkeypatch.setattr(legacy, "customer_selected", lambda *args: False)
+    monkeypatch.setattr(legacy, "verify_exclusion", lambda *args, **kwargs: True)
+    monkeypatch.setattr(legacy, "matches", lambda *args, **kwargs: [picker])
+    monkeypatch.setattr(legacy, "progressive_customer_selection", lambda *args, **kwargs: (
+        False, "CUSTOMER_NO_EXACT_RESULT_FOR_SHORT_PREFIX",
+    ))
+    monkeypatch.setattr(native, "resolve_native_wrapper", lambda *args, **kwargs: NS(
+        iface_invoke=NS(Invoke=lambda: setattr(state, "active_window_title", "Okna - OFR/42-")),
+    ))
+    assert core.run_document_core(
+        customer_name="Top Trans Artur Janik", fresh_document=True, confirm_similar_customer=True,
+        ask=lambda prompt: prompts.append(prompt) or "Top Trans Janik Artur",
+    ) == 0
+    assert len(prompts) == 1
+    assert "DOCUMENT_CUSTOMER_ACCEPTANCE=human_confirmed_selection" in capsys.readouterr().out

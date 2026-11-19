@@ -212,3 +212,17 @@ def test_editor_first_can_complete_when_no_glazing_form_was_displayed(monkeypatc
     output = capsys.readouterr().out
     assert "TEST_RESULT=construction_editor_reached" in output
     assert "TEST_GLAZING_WIZARD_NOT_OBSERVED=True" in output
+
+
+def test_handoff_resumes_only_in_the_requested_offer(monkeypatch):
+    observed = scene("Modyfikator")
+    monkeypatch.setattr(mission, "inspect", lambda loop: observed)
+    monkeypatch.setattr(mission.time, "sleep", lambda seconds: None)
+    assert mission.handoff_scene(
+        object(), "OFR/42-", native_owner("Okna - OFR/42-"), {"modifier"},
+        "Przejdź do edytora.", ask=lambda prompt: "gotowe",
+    ) is observed
+    assert mission.handoff_scene(
+        object(), "OFR/42-", native_owner("Okna - OFR/43-"), {"modifier"},
+        "Przejdź do edytora.", ask=lambda prompt: "gotowe",
+    ) is None

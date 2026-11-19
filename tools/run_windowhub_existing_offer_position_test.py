@@ -141,6 +141,60 @@ def confirm_stage(loop, scene, offer, api):
     return None
 
 
+def handoff_scene(loop, offer, api, stages, instruction, *, ask=input):
+    """Pause once for operator input and resume only in the same offer."""
+    print("TEST_HANDOFF_REQUIRED=True")
+    try:
+        answer = ask(instruction + " Wpisz 'gotowe' (Enter = przerwij): ")
+    except (EOFError, KeyboardInterrupt):
+        return None
+    if answer.strip().casefold() != "gotowe":
+        return None
+    print("Wróć do WindowHub. Odczyt za 6 sekund.", flush=True)
+    time.sleep(6)
+    scene = inspect(loop)
+    if stage_of(scene) in stages and belongs_to_offer(scene, offer, api):
+        print("TEST_HANDOFF_RESUMED=" + stage_of(scene))
+        return scene
+    print("TEST_HANDOFF_STOP=offer_or_expected_stage_unverified")
+    return None
+
+
+def confirm_or_handoff(loop, scene, offer, api, *, interactive=False):
+    after = confirm_stage(loop, scene, offer, api)
+    if after is not None or not interactive:
+        return after
+    stage = stage_of(scene)
+    return handoff_scene(
+        loop, offer, api, _NEXT_STAGES[stage],
+        "Sprawdź WindowHub. Jeżeli kreator oczekuje potwierdzenia, przejdź ręcznie "
+        "do następnego ekranu. Jeśli ekran już się zmienił, pozostaw go otwartego.",
+    )
+
+
+def catalog_or_handoff(loop, scene, offer, api, field, options, *, interactive=False, **kwargs):
+    selected = choose_catalog(loop, scene, offer, api, field, options, **kwargs)
+    if selected is not None or not interactive:
+        return selected
+    label = "kolor profilu" if field == "profile_color" else "pakiet szybowy"
+    selected = handoff_scene(
+        loop, offer, api, {stage_of(scene)},
+        f"Wybierz ręcznie {label} w WindowHub i zostaw bieżący ekran otwarty.",
+    )
+    if selected is None:
+        return None
+    from app.agent.runtime.windowhub_catalog_handoff import current_catalog_value
+    current = current_catalog_value(selected, field)
+    if (
+        not current or not any(char.isalnum() for char in current)
+        or current.casefold().lstrip("(<[ ").startswith(("wybierz", "brak", "select"))
+    ):
+        print("TEST_HANDOFF_STOP=catalog_value_unreadable")
+        return None
+    print(f"TEST_CATALOG_READBACK={field}:{current!r}")
+    return selected
+
+
 def choose_catalog(
     loop, scene, offer, api, field, options, *, accepted_defaults=(),
     allow_test_catalog_choice=True, match_label=None,
@@ -204,7 +258,12 @@ def run(loop, offer, api, *, stop_at_editor=False, color_label=None, editor_firs
             if stage_of(active) != "position" or not belongs_to_offer(active, offer, api):
                 return stop("position_wizard_owner_changed")
             if action() != 0:
-                return stop(name + "_unverified")
+                if not editor_first or handoff_scene(
+                    loop, offer, api, {"position"},
+                    "Ustaw ręcznie typ Okno i ilość 1, pozostając w kreatorze pozycji.",
+                ) is None:
+                    return stop(name + "_unverified")
+                break
 
         from app.agent.offers.windowhub_wizard_navigation import WindowHubPositionToDimensionsPlanner
         from app.agent.offers.windowhub_offer_form_action import WindowHubFormActionStatus
@@ -225,7 +284,7 @@ def run(loop, offer, api, *, stop_at_editor=False, color_label=None, editor_firs
             scene, expected_quantity=QUANTITY,
         ).status is not WindowHubFormActionStatus.READY:
             return stop("position_next_binding_unverified")
-        scene = confirm_stage(loop, scene, offer, api)
+        scene = confirm_or_handoff(loop, scene, offer, api, interactive=editor_first)
         if scene is None:
             return stop("position_confirmation_unverified")
         stage = stage_of(scene)
@@ -234,11 +293,15 @@ def run(loop, offer, api, *, stop_at_editor=False, color_label=None, editor_firs
         if not belongs_to_offer(scene, offer, api):
             return stop("dimensions_wizard_owner_unverified")
         if set_dimensions(WIDTH, HEIGHT, execute_live=True) != 0:
-            return stop("dimensions_unverified")
+            if not editor_first or handoff_scene(
+                loop, offer, api, {"dimensions"},
+                f"Wpisz ręcznie szerokość {WIDTH} mm i wysokość {HEIGHT} mm, zostając w formularzu.",
+            ) is None:
+                return stop("dimensions_unverified")
         scene = inspect(loop)
         if not dimensions_match(scene, width=WIDTH, height=HEIGHT):
             return stop("dimensions_readback_mismatch")
-        scene = confirm_stage(loop, scene, offer, api)
+        scene = confirm_or_handoff(loop, scene, offer, api, interactive=editor_first)
         if scene is None:
             return stop("dimensions_confirmation_unverified")
         stage = stage_of(scene)
@@ -252,8 +315,8 @@ def run(loop, offer, api, *, stop_at_editor=False, color_label=None, editor_firs
         colors, glazing = catalog_options_for(outside="antracyt", inside="biały", glazing_panes=2)
     color_verified = glazing_verified = False
     if stage == "basic_parameters":
-        scene = choose_catalog(
-            loop, scene, offer, api, "profile_color", colors,
+        scene = catalog_or_handoff(
+            loop, scene, offer, api, "profile_color", colors, interactive=editor_first,
             accepted_defaults=() if stop_at_editor else (
                 "Biały", "Biały / Biały", "BIAŁY CZARNA USZCZELKA",
             ),
@@ -263,14 +326,14 @@ def run(loop, offer, api, *, stop_at_editor=False, color_label=None, editor_firs
             return stop("profile_color_selection_or_readback_unverified")
         color_verified = True
         print("TEST_PROFILE_COLOR_VERIFIED=True")
-        scene = confirm_stage(loop, scene, offer, api)
+        scene = confirm_or_handoff(loop, scene, offer, api, interactive=editor_first)
         if scene is None:
             return stop("basic_parameters_confirmation_unverified")
         stage = stage_of(scene)
 
     if stage == "glazing":
-        scene = choose_catalog(
-            loop, scene, offer, api, "glazing_package", glazing,
+        scene = catalog_or_handoff(
+            loop, scene, offer, api, "glazing_package", glazing, interactive=editor_first,
             allow_test_catalog_choice=editor_first or not stop_at_editor,
             match_label=matches_required_glazing if stop_at_editor else None,
         )
@@ -282,13 +345,13 @@ def run(loop, offer, api, *, stop_at_editor=False, color_label=None, editor_firs
             from app.agent.runtime.windowhub_catalog_handoff import current_catalog_value
             actual = current_catalog_value(scene, "glazing_package") or ""
             print("TEST_REQUESTED_GLAZING_VERIFIED=" + str(matches_required_glazing(actual)))
-        scene = confirm_stage(loop, scene, offer, api)
+        scene = confirm_or_handoff(loop, scene, offer, api, interactive=editor_first)
         if scene is None:
             return stop("glazing_confirmation_unverified")
         stage = stage_of(scene)
 
     if stage == "hardware":
-        if not glazing_verified:
+        if not glazing_verified and not editor_first:
             return stop("glazing_not_observed_before_hardware")
         # This test accepts the wizard's defaults. Require an observable
         # profile and group before committing those defaults.
@@ -296,8 +359,14 @@ def run(loop, offer, api, *, stop_at_editor=False, color_label=None, editor_firs
         values = [current_catalog_value(scene, field) for field in ("hardware_profile", "hardware_group")]
         if not all(v and v.casefold() not in {"-", "—", "brak", "(brak)"} and
                    not v.casefold().startswith("wybierz") for v in values):
-            return stop("hardware_defaults_unverified")
-        scene = confirm_stage(loop, scene, offer, api)
+            if not editor_first:
+                return stop("hardware_defaults_unverified")
+            scene = handoff_scene(
+                loop, offer, api, _NEXT_STAGES["hardware"],
+                "Ustaw okucia w kreatorze i przejdź do edytora konstrukcji.",
+            )
+        else:
+            scene = confirm_or_handoff(loop, scene, offer, api, interactive=editor_first)
         if scene is None:
             return stop("hardware_confirmation_unverified")
         stage = stage_of(scene)

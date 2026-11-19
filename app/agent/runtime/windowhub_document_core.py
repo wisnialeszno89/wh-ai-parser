@@ -54,7 +54,7 @@ def confirm_customer_completion(customer_name, completions, ask):
 
 
 def customer_confirmation_conflicts(picker_metadata, expected, *, allow_opaque_caption=False):
-    """Only an attested exact click with a closed popup can tolerate a caption."""
+    """Compare a native value with the operator's confirmed selection."""
     raw = picker_metadata.get("current_value")
     if not isinstance(raw, str) or not raw.strip():
         return False
@@ -85,7 +85,9 @@ def run_document_core(*, customer_name: str, fresh_document: bool,
         verify_exclusion, toggle_price_once, matches, observe_step,
     )
     from tools.run_windowhub_new_offer_native_invoke_once import resolve_native_wrapper
-    from app.agent.offers.windowhub_customer_result_selection import customer_name_completes_query
+    from app.agent.offers.windowhub_customer_result_selection import (
+        customer_name_completes_query, customer_name_has_reordered_words,
+    )
 
     ok, reason = activate_windowhub_workflow_window()
     print("DOCUMENT_CORE_ACTIVATION=" + reason)
@@ -168,11 +170,23 @@ def run_document_core(*, customer_name: str, fresh_document: bool,
             blank = not clicked_exact and allow_test_blank_customer and manual.casefold() == "bez klienta"
             if not blank and (
                 not manual or len(manual) > 100 or any(ord(char) < 32 for char in manual)
-                or (manual.casefold() != customer_name.casefold()
-                    and not customer_name_completes_query(manual, customer_name))
             ):
-                print("CUSTOMER_MANUAL_STOP=confirmation_does_not_match_request")
+                print("CUSTOMER_MANUAL_STOP=invalid_confirmation")
                 return 6
+            if not blank and not (
+                manual.casefold() == customer_name.casefold()
+                or customer_name_completes_query(manual, customer_name)
+                or customer_name_has_reordered_words(manual, customer_name)
+            ):
+                try:
+                    answer = ask(
+                        f"Czy zastąpić klienta '{customer_name}' wybranym '{manual}'? [tak/N]: "
+                    )
+                except (EOFError, KeyboardInterrupt):
+                    return 6
+                if answer.strip().casefold() not in {"tak", "t"}:
+                    print("CUSTOMER_MANUAL_STOP=client_change_not_approved")
+                    return 6
             focused, reason = activate_windowhub_workflow_window()
             print("CUSTOMER_MANUAL_REFOCUS=" + reason)
             resumed = inspect(loop) if focused else None
@@ -188,8 +202,10 @@ def run_document_core(*, customer_name: str, fresh_document: bool,
             if len(picker) != 1:
                 print("CUSTOMER_MANUAL_STOP=lookup_identity_unverified")
                 return 6
-            allow_opaque_caption = detail == (
-                "CUSTOMER_CLICKED_BUT_SELECTION_UNVERIFIED_native_selected_value_not_exposed_popup_closed"
+            allow_opaque_caption = not blank and (
+                not clicked_exact or detail == (
+                    "CUSTOMER_CLICKED_BUT_SELECTION_UNVERIFIED_native_selected_value_not_exposed_popup_closed"
+                )
             )
             if customer_confirmation_conflicts(
                 picker[0].metadata or {}, "" if blank else manual,
@@ -232,7 +248,9 @@ def run_document_core(*, customer_name: str, fresh_document: bool,
             continue
         if not toggle_price_once(pricing_scene, key, desired_checked=desired):
             print("DOCUMENT_PRICE_" + key + "=change_failed")
-            return 6
+            if not confirm_similar_customer:
+                return 6
+            break
         changed.append(key)
 
     final = inspect(loop)
@@ -255,12 +273,43 @@ def run_document_core(*, customer_name: str, fresh_document: bool,
             print("DOCUMENT_PRICE_" + key + "=verified_updated")
         else:
             print("DOCUMENT_PRICE_" + key + "=readback_failed")
-            return 6
+            if not confirm_similar_customer:
+                return 6
     print("DOCUMENT_PRICE_BATCH_SCREENSHOTS=2")
     flags_ok = stage_of(final) == "document_properties" and all(
         verify_exclusion(final, key, desired_checked=desired)
         for key, desired in PRICE_TARGETS
     )
+    if not flags_ok and confirm_similar_customer:
+        try:
+            answer = ask(
+                "Ustaw ręcznie: bez cen montażu, demontażu i wykończenia, z ceną konstrukcji. "
+                "Zostaw Właściwości dokumentu otwarte i wpisz 'gotowe' (Enter = przerwij): "
+            )
+        except (EOFError, KeyboardInterrupt):
+            return 6
+        if answer.strip().casefold() != "gotowe":
+            return 6
+        focused, reason = activate_windowhub_workflow_window()
+        print("DOCUMENT_PRICE_HANDOFF_REFOCUS=" + reason)
+        if not focused:
+            return 6
+        final = inspect(loop)
+        if (
+            stage_of(final) != "document_properties"
+            or final.observation.metadata.get("window_handle") != scene.observation.metadata.get("window_handle")
+        ):
+            print("DOCUMENT_CONFIRM_STOP=original_document_changed")
+            return 6
+        picker = matches(final, automation_id="IDC_ZAMAWIAJACY")
+        if len(picker) != 1 or customer_confirmation_conflicts(
+            picker[0].metadata or {}, customer_name, allow_opaque_caption=allow_opaque_caption,
+        ):
+            print("DOCUMENT_CONFIRM_STOP=customer_evidence_changed")
+            return 6
+        flags_ok = all(verify_exclusion(final, key, desired_checked=desired) for key, desired in PRICE_TARGETS)
+        print("DOCUMENT_PRICE_HANDOFF_READBACK=" + str(flags_ok))
+
     # Fresh exact-value readback has priority. A previously observed native
     # verified selection may also count, but merely typing never does.
     verified_customer = verified_customer or customer_selected(final, customer_name)

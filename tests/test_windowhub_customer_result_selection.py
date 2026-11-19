@@ -53,3 +53,16 @@ def test_customer_suggestion_matches_whole_prefix_words():
     assert not customer_name_completes_query("Top Transport Artur Janik", "Top Trans")
     assert not customer_name_completes_query("Top Trans", "Top Trans")
     assert not customer_name_completes_query("Firma Top Trans Artur Janik", "Top Trans")
+
+
+def test_reordered_registered_name_is_a_suggestion_without_exact_click_authority():
+    from app.agent.offers.windowhub_customer_result_selection import customer_name_has_reordered_words
+
+    requested = "Top Trans Artur Janik"
+    registered = "Top Trans Janik Artur"
+    assert customer_name_has_reordered_words(registered, requested)
+    assert not customer_name_has_reordered_words("Top Trans Janik Adam", requested)
+    assert not customer_name_has_reordered_words("Trans Top Janik Artur", requested)
+    assert exact_customer_candidates(
+        [Candidate("dataitem", registered, (310, 335, 440, 359))], requested, PICKER,
+    ) == []

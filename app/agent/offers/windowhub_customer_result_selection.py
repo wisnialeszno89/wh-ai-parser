@@ -60,6 +60,21 @@ def customer_name_completes_query(label: str, query: str) -> bool:
                 and label_words[:len(query_words)] == query_words)
 
 
+def customer_name_has_reordered_words(label: str, query: str) -> bool:
+    """A possible alternative to show the operator, never authority to click."""
+    label_words, query_words = label.casefold().split(), query.casefold().split()
+    # Preserve the company prefix; allow the rest of the registered name
+    # to be ordered differently (for example surname before given name).
+    return (
+        len(query_words) >= 4 and label_words[:2] == query_words[:2]
+        and label_words != query_words and sorted(label_words[2:]) == sorted(query_words[2:])
+    )
+
+
+def _customer_name_is_suggestion(label: str, query: str) -> bool:
+    return customer_name_completes_query(label, query) or customer_name_has_reordered_words(label, query)
+
+
 def select_exact_customer_result(scene, customer_name: str, *, visible_completions=None) -> tuple[bool, str]:
     """Observe visible same-process UIA trees, then click one exact result.
 
@@ -131,7 +146,7 @@ def select_exact_customer_result(scene, customer_name: str, *, visible_completio
                 name = str(info.name or "").strip()
                 if name.casefold() != customer_name.strip().casefold() and not (
                     visible_completions is not None
-                    and customer_name_completes_query(name, customer_name)
+                    and _customer_name_is_suggestion(name, customer_name)
                 ):
                     continue
                 rect = _rect(node)
@@ -152,7 +167,7 @@ def select_exact_customer_result(scene, customer_name: str, *, visible_completio
                 candidate.visible and candidate.enabled
                 and candidate.rect[1] >= picker_rect[3]
                 and nearby_lookup(candidate.rect, picker_rect)
-                and customer_name_completes_query(name, customer_name)
+                and _customer_name_is_suggestion(name, customer_name)
             ):
                 visible_completions.add(name)
 
