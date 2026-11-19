@@ -23,6 +23,27 @@ from app.agent.verification.outcome_verifier import OutcomeVerifier
 _ALLOWED_STATE_FIELDS = frozenset({"uia_checked", "uia_selected", "uia_focused"})
 _GENERIC_LABELS = frozenset({"oknawpf", "lookupedit", "part_item", "layoutcontrol"})
 
+# An autonomous draft must remain on-screen and UNSAVED until the salesperson
+# explicitly finishes review. This applies even when persistent approval is
+# set for other operations (e.g. choosing an existing customer).
+_AUTONOMOUS_PERSISTENCE_LABELS = frozenset({
+    "zapisz", "zapisz jako", "zapisz dokument", "zapisz ofertę",
+    "wyślij", "wyślij ofertę", "zatwierdź ofertę", "przekaż do realizacji",
+    "utwórz zamówienie", "przekształć w zamówienie", "generuj zamówienie",
+    "save", "save as", "send", "submit order",
+})
+
+
+def reject_autonomous_persistence(action) -> None:
+    """Fail closed for recognizable save/send/convert semantic actions."""
+    if action.name != "click_screen_element":
+        return
+    target = action.target
+    label = getattr(target, "label", None)
+    if isinstance(label, str) and " ".join(label.casefold().split()) in _AUTONOMOUS_PERSISTENCE_LABELS:
+        raise ValueError("v2_salesperson_review_required_before_persistence")
+
+
 
 def windowhub_add_postcondition_diagnostic(scene, expected_offer=None) -> dict:
     """Classify the observed transition without logging a raw title or UI text."""
@@ -133,6 +154,7 @@ def verified_v2_outcome(resolved, *, baseline_scene=None) -> ExpectedOutcome:
 def enforce_v2_live_policy(scene, resolved, *, approved_persistent=False) -> None:
     """Reject unknown targets, ambiguous semantics and persistence without approval."""
     action = resolved.action
+    reject_autonomous_persistence(action)
     state = scene.observation.state
     if (state.active_application or "").replace("\\", "/").rsplit("/", 1)[-1].casefold() != "okna.exe":
         raise ValueError("v2_windowhub_not_foreground")
