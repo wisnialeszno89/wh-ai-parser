@@ -106,3 +106,24 @@ def test_no_unproven_or_equal_ranked_substitution():
         "profile", "Original", ev(available_options=("A", "B")),
         alternatives=tie,
     ).action == Decision.ASK
+
+
+def test_review_report_requires_human_and_preserves_substitution_audit():
+    from app.agent.offers.windowhub_salesperson_policy import (
+        OfferProgress, PositionResult, PositionStatus,
+    )
+    progress = OfferProgress(customer_verified=True)
+    progress.record(PositionResult(
+        index=1, status=PositionStatus.PARTIAL,
+        dimensions_verified=True, draft_placeholder_verified=True,
+        missing=("glazing",), assumptions=("default white",),
+        substitutions=(("hardware", "requested A", "compatible B"),),
+    ))
+    report = progress.salesperson_review_report()
+    assert report["requires_human_review"] is True
+    assert report["agent_save_performed"] is False
+    assert report["save_authorized"] is False
+    assert report["partial_count"] == 1
+    assert report["positions"][0]["substitutions"] == [
+        {"field": "hardware", "requested": "requested A", "chosen": "compatible B"}
+    ]
