@@ -946,6 +946,7 @@ def main(argv=None):
         report = progress.report()
         # Customer and save evidence are outside this editor/pricing report.
         print("WH_OFFER_POSITION_REPORT=" + json.dumps(report["positions"], ensure_ascii=False), flush=True)
+        print("WH_SALESPERSON_REVIEW=" + json.dumps(progress.salesperson_review_report(), ensure_ascii=False), flush=True)
 
 
 if __name__ == "__main__":
