@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from app.agent.knowledge.windowhub_decision_policy import decision_context
 from app.agent.learning.windowhub_demonstration import demonstration_experience, demonstration_summary
 from app.agent.learning.windowhub_construction_learning import (
     construction_map_coverage, construction_demonstration_report,
@@ -37,6 +38,7 @@ def windowhub_skill_knowledge() -> dict[str, object]:
     from app.agent.learning.windowhub_environment_knowledge import windowhub_environment_knowledge
     return {
         "grounded_environment": windowhub_environment_knowledge(),
+        "salesperson_decision_policy": decision_context(),
         "application": "WindowHub",
         "general_computer_skills": [
             "Observe the current window before acting; an earlier screenshot may be stale.",
