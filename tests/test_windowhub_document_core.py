@@ -129,3 +129,215 @@ def test_customer_handoff_denial_leaves_dialog_open(monkeypatch):
         customer_name="Limi Fensterbau", fresh_document=False,
         interactive_handoff=True, ask=lambda prompt: "nie",
     ) == 6
+
+
+def test_customer_completion_prompts_for_approval_or_exact_full_name():
+    from app.agent.runtime.windowhub_document_core import confirm_customer_completion
+
+    full = "Top Trans Artur Janik"
+    assert confirm_customer_completion("Top Trans", {full}, lambda prompt: "tak") == full
+    assert confirm_customer_completion("Top Trans", {full}, lambda prompt: "nie") is None
+    assert confirm_customer_completion("Top Trans", {full, "Top Trans Inny"}, lambda prompt: full) == full
+    assert confirm_customer_completion("Top Trans", set(), lambda prompt: "Top Trans") is None
+
+
+def test_customer_completion_requeries_approved_name_in_same_document(monkeypatch):
+    from types import SimpleNamespace as NS
+    from app.agent.runtime import windowhub_document_core as core
+    from app.agent.runtime import windowhub_window_activation as activation
+    from app.agent.runtime import windows_desktop_agent_control_loop as control
+    from tools import run_windowhub_top_trans_single_window_mission as legacy
+    from tools import run_windowhub_new_offer_native_invoke_once as native
+
+    state = NS(active_application="Okna.exe", active_window_title="Właściwości dokumentu")
+    scene = NS(observation=NS(state=state, metadata={"window_handle": 80}))
+    calls = []
+    monkeypatch.setattr(activation, "activate_windowhub_workflow_window", lambda: (True, "ok"))
+    monkeypatch.setattr(control, "create_windows_desktop_agent_control_loop", object)
+    monkeypatch.setattr(legacy, "inspect", lambda loop: scene)
+    monkeypatch.setattr(legacy, "customer_selected", lambda *args: False)
+    monkeypatch.setattr(legacy, "verify_exclusion", lambda *args, **kwargs: True)
+    monkeypatch.setattr(legacy, "matches", lambda *args, **kwargs: [object()])
+
+    def find(loop, scene, name, **options):
+        calls.append(name)
+        if len(calls) == 1:
+            options["visible_completions"].add("Top Trans Artur Janik")
+            assert options["short_prefix_only"] is True
+            return False, "CUSTOMER_NO_EXACT_RESULT_FOR_SHORT_PREFIX"
+        assert options["replace_existing"] is True
+        return True, "CUSTOMER_VERIFIED_AFTER_EXACT_RESULT_CLICK"
+
+    def confirm():
+        state.active_window_title = "Okna - OFR/42-"
+
+    monkeypatch.setattr(legacy, "progressive_customer_selection", find)
+    monkeypatch.setattr(native, "resolve_native_wrapper", lambda *args, **kwargs: NS(
+        iface_invoke=NS(Invoke=confirm),
+    ))
+    result = core.run_document_core(
+        customer_name="Top Trans", fresh_document=True,
+        confirm_similar_customer=True, ask=lambda prompt: "tak",
+    )
+    assert result == 0
+    assert calls == ["Top Trans", "Top Trans Artur Janik"]
+
+
+def test_blank_test_handoff_accepts_only_the_cleared_lookup(monkeypatch, capsys):
+    from types import SimpleNamespace as NS
+    from app.agent.runtime import windowhub_document_core as core
+    from app.agent.runtime import windowhub_window_activation as activation
+    from app.agent.runtime import windows_desktop_agent_control_loop as controls
+    from tools import run_windowhub_top_trans_single_window_mission as legacy
+    from tools import run_windowhub_new_offer_native_invoke_once as native
+
+    state = NS(active_application="Okna.exe", active_window_title="Właściwości dokumentu")
+    scene = NS(observation=NS(state=state, metadata={"window_handle": 80}))
+    picker = NS(metadata={"current_value": "Top"})
+    calls = []
+    monkeypatch.setattr(activation, "activate_windowhub_workflow_window", lambda: (True, "ok"))
+    monkeypatch.setattr(controls, "create_windows_desktop_agent_control_loop", object)
+    monkeypatch.setattr(legacy, "inspect", lambda loop: scene)
+    monkeypatch.setattr(legacy, "customer_selected", lambda *args: False)
+    monkeypatch.setattr(legacy, "progressive_customer_selection",
+                        lambda *args, **kwargs: (False, "CUSTOMER_NO_EXACT_RESULT_FOR_SHORT_PREFIX"))
+    monkeypatch.setattr(legacy, "matches", lambda *args, **kwargs: [picker])
+    monkeypatch.setattr(legacy, "verify_exclusion", lambda *args, **kwargs: True)
+
+    def confirm():
+        calls.append("OK")
+        state.active_window_title = "Okna - OFR/42-"
+
+    monkeypatch.setattr(native, "resolve_native_wrapper", lambda *args, **kwargs: NS(
+        iface_invoke=NS(Invoke=confirm),
+    ))
+    kwargs = dict(
+        customer_name="Top Trans", fresh_document=True, confirm_similar_customer=True,
+        allow_test_blank_customer=True, ask=lambda prompt: "BEZ KLIENTA",
+    )
+    assert core.run_document_core(**kwargs) == 6
+    assert calls == []
+
+    picker.metadata["current_value"] = ""
+    assert core.run_document_core(**kwargs) == 0
+    assert calls == ["OK"]
+    assert "DOCUMENT_CUSTOMER_ACCEPTANCE=human_confirmed_blank_test" in capsys.readouterr().out
+
+
+def test_clicked_customer_with_opaque_readback_only_needs_visual_confirmation(monkeypatch, capsys):
+    from types import SimpleNamespace as NS
+    from app.agent.runtime import windowhub_document_core as core
+    from app.agent.runtime import windowhub_window_activation as activation
+    from app.agent.runtime import windows_desktop_agent_control_loop as controls
+    from tools import run_windowhub_top_trans_single_window_mission as legacy
+    from tools import run_windowhub_new_offer_native_invoke_once as native
+
+    state = NS(active_application="Okna.exe", active_window_title="Właściwości dokumentu")
+    scene = NS(observation=NS(state=state, metadata={"window_handle": 80}))
+    picker = NS(metadata={"current_value": None})
+    searches = []
+    prompts = []
+    monkeypatch.setattr(activation, "activate_windowhub_workflow_window", lambda: (True, "ok"))
+    monkeypatch.setattr(controls, "create_windows_desktop_agent_control_loop", object)
+    monkeypatch.setattr(legacy, "inspect", lambda loop: scene)
+    monkeypatch.setattr(legacy, "customer_selected", lambda *args: False)
+    monkeypatch.setattr(legacy, "matches", lambda *args, **kwargs: [picker])
+    monkeypatch.setattr(legacy, "verify_exclusion", lambda *args, **kwargs: True)
+    monkeypatch.setattr(legacy, "progressive_customer_selection", lambda *args, **kwargs: (
+        searches.append(args[2]) or (False, "CUSTOMER_CLICKED_BUT_SELECTION_UNVERIFIED_native_selected_value_not_exposed")
+    ))
+    monkeypatch.setattr(native, "resolve_native_wrapper", lambda *args, **kwargs: NS(
+        iface_invoke=NS(Invoke=lambda: setattr(state, "active_window_title", "Okna - OFR/42-")),
+    ))
+    full = "Top Trans Janik Artur"
+    assert core.run_document_core(
+        customer_name=full, fresh_document=True, confirm_similar_customer=True,
+        ask=lambda prompt: prompts.append(prompt) or "tak",
+    ) == 0
+    assert searches == [full]
+    assert len(prompts) == 1 and full in prompts[0]
+    assert "DOCUMENT_CUSTOMER_ACCEPTANCE=human_confirmed_selection" in capsys.readouterr().out
+
+
+def test_exact_customer_with_closed_popup_can_use_visual_confirmation_over_caption():
+    from app.agent.runtime.windowhub_document_core import customer_confirmation_conflicts
+
+    caption = {"current_value": "Top", "current_value_source": "window_text"}
+    direct = {"current_value": "Inny klient", "current_value_source": "value"}
+    assert customer_confirmation_conflicts(caption, "Top Trans Janik Artur")
+    assert not customer_confirmation_conflicts(
+        caption, "Top Trans Janik Artur", allow_opaque_caption=True,
+    )
+    assert customer_confirmation_conflicts(direct, "Top Trans Janik Artur", allow_opaque_caption=True)
+
+
+def test_document_lookup_reads_native_value_before_caption():
+    from types import SimpleNamespace as NS
+    from app.agent.perception.windowhub_ui_automation_provider import WindowHubUIAutomationProvider
+
+    picker = NS(window_text=lambda: "Top", element_info=NS(value="Inny klient"))
+    assert WindowHubUIAutomationProvider._control_value_with_source(picker, prefer_native=True) == (
+        "Inny klient", "value",
+    )
+
+
+def test_manual_registered_name_with_swapped_person_names_resumes(monkeypatch, capsys):
+    from types import SimpleNamespace as NS
+    from app.agent.runtime import windowhub_document_core as core
+    from app.agent.runtime import windowhub_window_activation as activation
+    from app.agent.runtime import windows_desktop_agent_control_loop as controls
+    from tools import run_windowhub_top_trans_single_window_mission as legacy
+    from tools import run_windowhub_new_offer_native_invoke_once as native
+
+    state = NS(active_application="Okna.exe", active_window_title="Właściwości dokumentu")
+    scene = NS(observation=NS(state=state, metadata={"window_handle": 80}))
+    picker = NS(metadata={"current_value": "Top", "current_value_source": "window_text"})
+    prompts = []
+    monkeypatch.setattr(activation, "activate_windowhub_workflow_window", lambda: (True, "ok"))
+    monkeypatch.setattr(controls, "create_windows_desktop_agent_control_loop", object)
+    monkeypatch.setattr(legacy, "inspect", lambda loop: scene)
+    monkeypatch.setattr(legacy, "customer_selected", lambda *args: False)
+    monkeypatch.setattr(legacy, "verify_exclusion", lambda *args, **kwargs: True)
+    monkeypatch.setattr(legacy, "matches", lambda *args, **kwargs: [picker])
+    monkeypatch.setattr(legacy, "progressive_customer_selection", lambda *args, **kwargs: (
+        False, "CUSTOMER_NO_EXACT_RESULT_FOR_SHORT_PREFIX",
+    ))
+    monkeypatch.setattr(native, "resolve_native_wrapper", lambda *args, **kwargs: NS(
+        iface_invoke=NS(Invoke=lambda: setattr(state, "active_window_title", "Okna - OFR/42-")),
+    ))
+    assert core.run_document_core(
+        customer_name="Top Trans Artur Janik", fresh_document=True, confirm_similar_customer=True,
+        ask=lambda prompt: prompts.append(prompt) or "Top Trans Janik Artur",
+    ) == 0
+    assert len(prompts) == 1
+    assert "DOCUMENT_CUSTOMER_ACCEPTANCE=human_confirmed_selection" in capsys.readouterr().out
+
+
+def test_native_customer_is_still_subject_to_operator_approval(monkeypatch):
+    from types import SimpleNamespace as NS
+
+    from app.agent.runtime import windowhub_document_core as core
+    from app.agent.runtime import windowhub_window_activation as activation
+    from app.agent.runtime import windows_desktop_agent_control_loop as control
+    from tools import run_windowhub_top_trans_single_window_mission as legacy
+
+    scene = NS(observation=NS(
+        state=NS(active_application="Okna.exe", active_window_title="Właściwości dokumentu"),
+        metadata={"window_handle": 200},
+    ))
+    monkeypatch.setattr(activation, "activate_windowhub_workflow_window", lambda: (True, "ok"))
+    monkeypatch.setattr(control, "create_windows_desktop_agent_control_loop", lambda: object())
+    monkeypatch.setattr(legacy, "inspect", lambda loop: scene)
+    monkeypatch.setattr(legacy, "customer_selected", lambda *a: True)
+
+    def unexpected_prices(*args, **kwargs):
+        raise AssertionError("prices changed before operator approved the customer")
+
+    monkeypatch.setattr(legacy, "toggle_price_once", unexpected_prices)
+    monkeypatch.setattr(legacy, "verify_exclusion", unexpected_prices)
+    prompts = []
+    assert core.run_document_core(
+        customer_name="Test", fresh_document=True, require_customer_confirmation=True,
+        ask=lambda prompt: prompts.append(prompt) or "nie",
+    ) == 6
+    assert len(prompts) == 1

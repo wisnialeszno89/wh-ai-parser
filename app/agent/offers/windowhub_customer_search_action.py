@@ -204,7 +204,9 @@ def direct_lookup_typing_point(rect) -> tuple[int, int]:
     return (max(10, min(34, width // 5)), height // 2)
 
 
-def type_directly_into_customer_lookup(scene: Any, customer_name: str) -> CustomerSearchDecision:
+def type_directly_into_customer_lookup(
+    scene: Any, customer_name: str, *, replace_existing: bool = False,
+) -> CustomerSearchDecision:
     """One verified text-area click and one typeahead attempt on IDC_ZAMAWIAJACY.
 
     Do not guess an internal Edit; the native LookUpEdit itself owns this text
@@ -280,6 +282,8 @@ def type_directly_into_customer_lookup(scene: Any, customer_name: str) -> Custom
         print("DIRECT_LOOKUP_UIA_FOCUS = NOT_REQUIRED_FOR_LEGACY_LOOKUP")
         phase = "send_customer_name"
         from pywinauto.keyboard import send_keys
+        if replace_existing:
+            send_keys("^a")
         send_keys(customer_name, with_spaces=True, pause=0.05)
         return CustomerSearchDecision("search_submitted_unverified",
                                       "direct_verified_lookup_text_area")

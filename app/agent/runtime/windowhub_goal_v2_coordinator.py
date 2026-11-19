@@ -5,6 +5,7 @@ The local runtime owns the native target and checks every postcondition.
 """
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping
 from dataclasses import replace
 
@@ -21,6 +22,34 @@ from app.agent.verification.outcome_verifier import OutcomeVerifier
 
 _ALLOWED_STATE_FIELDS = frozenset({"uia_checked", "uia_selected", "uia_focused"})
 _GENERIC_LABELS = frozenset({"oknawpf", "lookupedit", "part_item", "layoutcontrol"})
+
+
+def windowhub_add_postcondition_diagnostic(scene, expected_offer=None) -> dict:
+    """Classify the observed transition without logging a raw title or UI text."""
+    if scene is None:
+        return {"observation_available": False}
+
+    from app.agent.offers.windowhub_offer_form_map import identify_windowhub_form_step
+    from app.agent.runtime.windowhub_discovery_diagnostics import categorize_window_title
+    from app.agent.runtime.windowhub_mdi_native_probe import same_offer_id
+
+    state = scene.observation.state
+    application = state.active_application or ""
+    is_windowhub = application.replace("\\", "/").rsplit("/", 1)[-1].casefold() == "okna.exe"
+    title = state.active_window_title or ""
+    step = identify_windowhub_form_step(title) if is_windowhub else None
+    kind = categorize_window_title(title) if is_windowhub else "other_application"
+    return {
+        "observation_available": True,
+        "is_windowhub": is_windowhub,
+        "application_matches_verifier": application == "Okna.exe",
+        "foreground_kind": kind,
+        "wizard_step": step.value if step else None,
+        "exact_position_title": is_windowhub and title == "Dodawanie nowej pozycji",
+        "requested_offer_still_foreground": (
+            kind == "document" and same_offer_id(title.strip()[7:], expected_offer)
+        ),
+    }
 
 
 def verified_v2_outcome(resolved, *, baseline_scene=None) -> ExpectedOutcome:
@@ -161,6 +190,8 @@ def enforce_v2_live_policy(scene, resolved, *, approved_persistent=False) -> Non
         from app.agent.runtime.windowhub_mdi_native_probe import enrich_native_mdi_document_scope
         from app.agent.runtime.active_document_scope import unique_active_document_control
         native_scene = enrich_native_mdi_document_scope(scene)
+        if native_scene is scene:
+            raise ValueError("v2_mdi_document_owner_unverified_at_execution")
         scoped_target = unique_active_document_control(native_scene, label="Dodaj")
         if scoped_target is None or (
             (scoped_target.metadata or {}).get("uia_runtime_id")
@@ -177,19 +208,20 @@ def enforce_v2_live_policy(scene, resolved, *, approved_persistent=False) -> Non
 def execute_v2_step(loop, scene, resolved, *, approved_persistent=False, expected_offer=None):
     """Run exactly one model-proposed, locally checked action with verification."""
     action_target = resolved.action.target
+    add_offer = None
     if (
         resolved.action.name == "click_screen_element"
         and isinstance(action_target, SemanticTargetQuery)
         and (action_target.label or "").strip().casefold() == "dodaj"
-        and (scene.observation.state.active_window_title or "").casefold().startswith("okna - ofr/")
+        and (scene.observation.state.active_window_title or "").strip().casefold().startswith("okna - ofr/")
     ):
         # A salesperson can change the active offer between planning and
         # clicking. Re-observe the actual foreground desktop and re-check
         # exact native runtime identity and MDI ownership, failing closed.
+        add_offer = (scene.observation.state.active_window_title or "").strip()[7:]
         scene = loop.observe_scene()
-        if (scene.observation.state.active_window_title or "").casefold().startswith("okna - ofr/"):
-            from app.agent.runtime.windowhub_mdi_native_probe import enrich_native_mdi_document_scope
-            scene = enrich_native_mdi_document_scope(scene)
+        if (scene.observation.state.active_window_title or "").strip() != "Okna - " + add_offer:
+            raise ValueError("v2_test_offer_changed_before_execution")
     if expected_offer is not None and (
         scene.observation.state.active_window_title or ""
     ).strip() != "Okna - " + expected_offer:
@@ -206,6 +238,8 @@ def execute_v2_step(loop, scene, resolved, *, approved_persistent=False, expecte
         request=AgentRequest(message="Execute one verified semantic WindowHub action")
     )
     context.update_scene(scene)
+    if add_offer is not None:
+        context.set_value("_windowhub_mdi_add_offer", add_offer)
     context.set_value("expected_outcomes", {action.name: expected})
     plan = ActionPlan(
         intent=AgentIntent.COMPUTER_USE,
@@ -243,5 +277,9 @@ def execute_v2_step(loop, scene, resolved, *, approved_persistent=False, expecte
         print("V2_INPUT_EXECUTED=" + str(executed_flag is True))
         print("V2_VERIFICATION_PRESENT=" + str(verification is not None))
         print("V2_POSTCONDITION_VERIFIED=" + str(verification_ok))
+        if add_offer is not None and executed_flag is True:
+            print("V2_ADD_POSTCONDITION_SCENE=" + json.dumps(
+                windowhub_add_postcondition_diagnostic(context.current_scene, add_offer),
+            ))
         raise RuntimeError("v2_action_executed_but_not_verified_or_was_blocked")
     return result

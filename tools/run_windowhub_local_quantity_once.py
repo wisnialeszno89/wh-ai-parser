@@ -33,20 +33,21 @@ def observed_quantity(scene):
     return value.strip() if isinstance(value, str) else None
 
 
-def run(quantity: int, live: bool) -> int:
+def run(quantity: int, live: bool, *, loop=None, authorize=None) -> int:
     if os.name != "nt" or isinstance(quantity, bool) or not 1 <= quantity <= 999:
         print("STOP=invalid_environment_or_quantity")
         return 2
     if os.getenv("WH_REAL_WINDOWHUB") != "1" or os.getenv("COMPUTER_USE_LIVE") != "1":
         print("STOP=desktop_flags_required")
         return 2
-    focused, message = activate_windowhub_workflow_window()
-    print("WINDOWHUB_ACTIVATION=" + message)
-    if not focused:
-        return 3
-    loop = create_windows_desktop_agent_control_loop()
+    if loop is None:
+        focused, message = activate_windowhub_workflow_window()
+        print("WINDOWHUB_ACTIVATION=" + message)
+        if not focused:
+            return 3
+        loop = create_windows_desktop_agent_control_loop()
     scene = enrich_windowhub_scene(loop.observe_scene())
-    if stage_of(scene) != "position":
+    if stage_of(scene) != "position" or (authorize is not None and not authorize(scene)):
         print("STOP=expected_position_dialog")
         return 4
     before = observed_quantity(scene)
@@ -73,6 +74,9 @@ def run(quantity: int, live: bool) -> int:
         print("DRY_RUN_PASS=True")
         print("INPUT_EXECUTED=False")
         return 0
+    if authorize is not None and not authorize(scene):
+        print("STOP=authorized_offer_changed")
+        return 4
     try:
         result = WindowHubOfferFormActionExecutor.execute_prepared(
             prepared, scene, loop,

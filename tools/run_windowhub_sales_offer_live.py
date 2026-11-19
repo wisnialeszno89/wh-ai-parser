@@ -27,9 +27,28 @@ def parse_args(argv=None):
     p.add_argument("--color-outside", default="antracyt")
     p.add_argument("--glazing-panes", type=int, default=2)
     p.add_argument("--execute-live", action="store_true")
+    p.add_argument("--resume-open-wizard", action="store_true",
+                   help="Require an already open position wizard or editor; never start a new offer")
     p.add_argument("--interactive-handoff", action="store_true",
                    help="Ask for explicit salesperson confirmation of opaque customer value, then permission to resume")
     return p.parse_args(argv)
+
+
+_RESUMABLE_STAGES = {"position", "dimensions", "basic_parameters", "glazing", "hardware", "modifier"}
+
+
+def open_verified_position(loop, scene):
+    """Delegate to the same MDI-scoped Add action as the standalone acceptance test."""
+    from tools.run_navimind_whokna_first_verified_step import prepare_add_action
+    from app.agent.runtime.windowhub_goal_v2_coordinator import execute_v2_step
+
+    try:
+        scoped, action, offer = prepare_add_action(scene)
+        execute_v2_step(loop, scoped, action, expected_offer=offer)
+    except (RuntimeError, ValueError, OSError) as exc:
+        print("POSITION_ADD_STOP=" + type(exc).__name__)
+        return False
+    return True
 
 
 def main(argv=None):
@@ -71,8 +90,12 @@ def main(argv=None):
     print("WINDOWHUB_CORE_ACTIVATION=" + info)
     if not active:
         return 3
-    stage_before = current_stage(create_windows_desktop_agent_control_loop().observe_scene())
+    before = create_windows_desktop_agent_control_loop().observe_scene()
+    stage_before = current_stage(before)
     print("MISSION_ENTRY_STAGE=" + str(stage_before))
+    if args.resume_open_wizard and stage_before not in _RESUMABLE_STAGES:
+        print("MISSION_STOP=expected_already_open_wizard")
+        return 4
     if stage_before == "document_properties":
         # Resume work rather than create a duplicate offer on every retry.
         print("MISSION_RESUME=existing_document_properties")
@@ -85,7 +108,7 @@ def main(argv=None):
             print("MISSION_RESULT=blocked_before_document")
             return entry
         fresh_document = True
-    elif stage_before in {"position", "dimensions", "basic_parameters", "glazing", "hardware", "modifier"}:
+    elif stage_before in _RESUMABLE_STAGES:
         # No new document on resume. Human confirms that this existing wizard
         # belongs to the requested customer and has valid document properties.
         if not args.interactive_handoff:
@@ -106,11 +129,15 @@ def main(argv=None):
         print("MISSION_RESUME_REFOCUS=" + refocus_info)
         if not focused:
             return 4
-        observed_after_handoff = current_stage(
-            create_windows_desktop_agent_control_loop().observe_scene()
-        )
-        if observed_after_handoff != stage_before:
-            print("MISSION_RESUME=stage_changed")
+        after = create_windows_desktop_agent_control_loop().observe_scene()
+        wizard_handle = before.observation.metadata.get("window_handle")
+        if (
+            current_stage(after) != stage_before
+            or not isinstance(wizard_handle, int)
+            or wizard_handle <= 0
+            or after.observation.metadata.get("window_handle") != wizard_handle
+        ):
+            print("MISSION_RESUME=wizard_changed")
             return 4
         print("MISSION_RESUME=human_approved_existing_wizard")
         fresh_document = False
@@ -137,24 +164,23 @@ def main(argv=None):
     from app.agent.runtime.windows_desktop_agent_control_loop import (
         create_windows_desktop_agent_control_loop,
     )
-    from tools.run_windowhub_top_trans_single_window_mission import (
-        open_new_position, observe_step,
-    )
     loop = create_windows_desktop_agent_control_loop()
     current = loop.observe_scene()
     stage = stage_of(current)
     print("POSITION_ENTRY_STAGE=" + str(stage))
+    if stage_before in _RESUMABLE_STAGES and (
+        stage != stage_before
+        or current.observation.metadata.get("window_handle") != wizard_handle
+    ):
+        print("MISSION_STOP=confirmed_wizard_no_longer_foreground")
+        return 4
     if stage == "offer_document":
-        if not open_new_position(current):
+        if not open_verified_position(loop, current):
             print("POSITION_RESULT=blocked_opening_wizard")
             return 6
-        current = observe_step(loop, "position")
-        if current is None:
-            print("POSITION_RESULT=wizard_not_verified")
-            return 6
-        stage = stage_of(current)
-        print("POSITION_ENTRY_CONFIRMED=" + str(stage))
-    elif stage not in {"position", "dimensions", "basic_parameters", "glazing", "hardware", "modifier"}:
+        stage = "position"
+        print("POSITION_ENTRY_CONFIRMED=position")
+    elif stage not in _RESUMABLE_STAGES:
         print("POSITION_RESULT=unsupported_stage")
         return 4
 
@@ -174,7 +200,7 @@ def main(argv=None):
             return pos
         print("DIMENSIONS_VERIFIED=True")
     else:
-        print("DIMENSIONS_VERIFIED=previous_stage_human_approved")
+        print("DIMENSIONS_STATUS=not_rechecked_after_resume")
     from app.agent.runtime.windowhub_catalog_continuation import continue_to_construction
     catalog = continue_to_construction(
         loop,
@@ -187,7 +213,8 @@ def main(argv=None):
     print("CATALOG_CONTINUATION_CODE=" + str(catalog))
     print("PENDING_OPENING_AND_SASH_BUILD=requires_verified_editor_controls")
     print("DRAFT_SAVED_VERIFIED=False")
-    print("MISSION_RESULT=" + ("partial_catalog_stage" if catalog == 0 else "partial_catalog_blocked"))
+    print("MISSION_GOAL_REACHED=False")
+    print("MISSION_RESULT=" + ("construction_editor_reached" if catalog == 0 else "partial_catalog_blocked"))
     return catalog
 
 

@@ -25,11 +25,14 @@ STAGES = (
 )
 
 RULE_IDS = {
-    "frame": ("frame", "component_variations"),
+    "document": ("offer_properties", "document_tabs"),
+    "frame": ("frame", "component_variations", "profile_catalogue", "position_color"),
     "verify_sash": ("sash", "view_window"),
-    "glazing": ("glazing", "component_variations"),
+    "glazing": ("glazing", "component_variations", "glazing_catalogue"),
     "hardware": ("hardware", "hardware_limits", "view_window"),
-    "position": ("offer_progression",),
+    "position": ("offer_progression", "position_manager", "position_kind_quantity", "position_dimensions"),
+    "prices": ("pricing_components", "dealer_price_view", "position_pricing_confirmation"),
+    "review": ("document_lifecycle",),
 }
 
 MUTATING = {"document", "position", "frame", "glazing", "hardware", "prices"}
@@ -40,6 +43,32 @@ def load_reference(path: Path = KNOWLEDGE_PATH) -> dict:
     if data.get("schema") != "navimind.whokna.reference_knowledge.v1":
         raise ValueError("unsupported_reference_schema")
     return data
+
+
+def standard_tilt_turn_labels() -> tuple[str, ...]:
+    policy = load_reference()["catalogue_policies"]["standard_tilt_turn"]
+    labels = policy["exact_labels"]
+    if not labels or not all(isinstance(label, str) and label.strip() for label in labels):
+        raise ValueError("standard_tilt_turn_catalogue_labels_missing")
+    return tuple(labels)
+
+
+def single_sash_construction_recipe():
+    """Bind documented concepts to the observed single-sash editor sequence."""
+    from app.agent.learning.windowhub_builder_replay import NEXT_STEP
+    from app.gui.enums.gui_tool import GuiTool
+
+    rule_ids = {
+        GuiTool.FRAME: ("frame",),
+        GuiTool.SASH: ("sash",),
+        GuiTool.GLASS: ("glazing",),
+        GuiTool.HARDWARE: ("hardware", "hardware_limits"),
+    }
+    rules = {rule["id"]: rule for rule in load_reference()["rules"]}
+    return {
+        state: (tool, expected, tuple(rules[rule_id] for rule_id in rule_ids[tool]))
+        for state, (tool, expected) in NEXT_STEP.items()
+    }
 
 
 def offer_plan(

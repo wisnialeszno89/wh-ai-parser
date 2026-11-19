@@ -475,6 +475,7 @@ class RobotActionExecutor:
         text_value: str | None = None,
         screen_origin: tuple[int, int] | None = None,
         window_handle=None,
+        mdi_add_offer: str | None = None,
     ) -> RobotActionResult:
         """
         Execute a click against a semantic UI Automation element.
@@ -618,6 +619,45 @@ class RobotActionExecutor:
             int(x + width // 2 + origin[0]),
             int(y + height // 2 + origin[1]),
         )
+
+        if mdi_add_offer is not None and self.mode is RobotExecutionMode.LIVE:
+            if action is not InteractionAction.CLICK:
+                return RobotActionResult(
+                    False, action, self.mode, False,
+                    reason="WindowHub Add binding requires a button action",
+                )
+            from app.agent.runtime.windowhub_mdi_native_probe import resolve_mdi_add_hit
+
+            button = resolve_mdi_add_hit(
+                point, root=window_handle, expected_offer=mdi_add_offer, metadata=metadata,
+            )
+            if button is None:
+                return RobotActionResult(
+                    False, action, self.mode, False,
+                    reason="Active MDI control no longer matches the UIA hit target",
+                )
+            try:
+                invoke = button.iface_invoke
+            except Exception:
+                invoke = None
+            if invoke is None:
+                return RobotActionResult(
+                    False, action, self.mode, False,
+                    reason="Active MDI control does not expose UIA InvokePattern",
+                )
+            try:
+                invoke.Invoke()
+            except Exception:
+                return RobotActionResult(
+                    False, action, self.mode, False,
+                    reason="UIA Invoke returned an error; effect unknown",
+                )
+            return RobotActionResult(
+                True, action, self.mode, True,
+                target_id=self._uia_target_id(metadata),
+                confidence=confidence,
+                reason="Active MDI Add invoked via UIA; verify the resulting scene",
+            )
 
         mouse_result = self.mouse.click(*point)
 

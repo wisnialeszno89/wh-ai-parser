@@ -58,3 +58,28 @@ Offline policy test: `python -m unittest tests.test_windowhub_salesperson_policy
 Before live integration, compare local-only `adaptive_goal_runtime.py` and
 `verified_goal_loop.py` against the integration branch in a separate worktree.
 Do not overwrite local changes or claim tests prove actual WH operation.
+
+
+## 2026-11-18 — katalog i przejście do edytora
+
+W próbie na `OFR/4494-` agent odczytał 124 pozycje koloru, wybrał
+`BIAŁY CZARNA USZCZELKA` i odczytał tę samą etykietę po zmianie.
+Uruchomił `Zakończ` z parametrów podstawowych. Operator zgłosił wejście
+do kreatora okiennego. Automat odnotował `basic_parameters_confirmation_unverified`;
+potwierdzenie przejścia przez automat pozostaje otwarte. Brak odczytu osobnego
+formularza szklenia i brak potwierdzenia zapisu pozycji lub oferty.
+
+Tryb `--from-start` testu `tools/run_windowhub_existing_offer_position_test.py`
+obejmuje Start1, nową ofertę, dokładnego istniejącego klienta testowego,
+cztery flagi cen i pierwszą pozycję do potwierdzonego edytora. Flagi ustawiają
+widoczną cenę konstrukcji i wyłączają kalkulację montażu, demontażu i wykończenia.
+Test wymaga odczytu powiązania z numerem OFR utworzonym przez przebieg.
+Gdy instalacja przechodzi bezpośrednio do edytora, osobny krok szklenia oznacza
+jako niezaobserwowany.
+
+
+Próba od początku startuje z rozpoznanego Start1 albo z istniejącej oferty,
+z której używa zweryfikowanej nawigacji do Start1. Otwarty kreator jest
+oddzielnym stanem i zatrzymuje rozpoczęcie nowej oferty. Wariant akceptacyjny
+wymaga antracytu na zewnątrz i bieli wewnątrz oraz odczytu dokładnego pakietu
+4/12/4/12/4. Wejście do edytora bez odczytu pakietu to wynik częściowy.

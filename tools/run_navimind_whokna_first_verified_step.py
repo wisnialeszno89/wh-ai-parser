@@ -7,6 +7,7 @@ verification. No focus switching, no accept/save/send and no ZLC order access.
 from __future__ import annotations
 
 import argparse
+import json
 import os
 from pathlib import Path
 import sys
@@ -22,12 +23,14 @@ from app.agent.knowledge.whokna_live_offer_gate import observe_offer_gate
 from app.agent.knowledge.whokna_offer_guide import load_reference, offer_plan
 from app.agent.perception.semantic_target_query import SemanticTargetQuery
 from app.agent.runtime.active_document_scope import (
-    unique_active_document_control, duplicate_document_action_status,
+    unique_active_document_control, duplicate_document_action_status, selected_document_tab,
 )
-from app.agent.runtime.windowhub_goal_v2_coordinator import execute_v2_step
+from app.agent.runtime.windowhub_goal_v2_coordinator import (
+    execute_v2_step, windowhub_add_postcondition_diagnostic,
+)
 from app.agent.runtime.windowhub_mdi_native_probe import (
     enrich_native_mdi_document_scope, inspect_native_mdi_button_ancestry,
-    diagnose_native_scope_enrichment,
+    diagnose_native_scope_enrichment, offer_caption_id, same_offer_id,
 )
 from app.agent.runtime.windows_desktop_agent_control_loop import (
     create_windows_desktop_agent_control_loop,
@@ -40,6 +43,9 @@ def diagnose_add_scope(scene) -> dict:
     try:
         enriched = enrich_native_mdi_document_scope(scene)
         scoped = duplicate_document_action_status(enriched, label="Dodaj")
+        scoped["safe_unique_active_target"] = (
+            enriched is not scene and unique_active_document_control(enriched, label="Dodaj") is not None
+        )
     except Exception as exc:
         scoped = {"diagnostic_error": type(exc).__name__}
     try:
@@ -94,6 +100,20 @@ def stopped_foreground_diagnostic(gate, scene) -> dict:
     }
 
 
+def test_offer_diagnostic(scene, requested: str) -> dict:
+    """Compare only recognized full IDs and keep raw UI titles local."""
+    selected, tab_status = selected_document_tab(scene)
+    title = (scene.observation.state.active_window_title or "").strip()
+    foreground = title[7:] if title.casefold().startswith("okna - ") else ""
+    return {
+        "selected_tab_status": tab_status,
+        "foreground_offer_format_recognized": offer_caption_id(foreground) is not None,
+        "selected_offer_matches_requested": same_offer_id(selected or "", requested),
+        "foreground_offer_matches_requested": same_offer_id(foreground, requested),
+        "foreground_and_selected_offer_agree": same_offer_id(foreground, selected or ""),
+    }
+
+
 def prepare_add_action(scene):
     """Only a uniquely scoped semantic UIA control can be executed."""
     gate = scene.observation.state
@@ -101,6 +121,8 @@ def prepare_add_action(scene):
     if not title.casefold().startswith("okna - ofr/"):
         raise ValueError("test_offer_document_required")
     native_scene = enrich_native_mdi_document_scope(scene)
+    if native_scene is scene:
+        raise ValueError("unique_active_dodaj_not_verified")
     element = unique_active_document_control(native_scene, label="Dodaj")
     if element is None:
         raise ValueError("unique_active_dodaj_not_verified")
@@ -129,7 +151,11 @@ def prepare_add_action(scene):
 
 def main():
     parser = argparse.ArgumentParser(description="One bounded WindowHub offer action")
-    parser.add_argument("--execute-live", action="store_true")
+    modes = parser.add_mutually_exclusive_group()
+    modes.add_argument("--execute-live", action="store_true")
+    modes.add_argument("--inspect-current", action="store_true",
+                       help="Observe the current foreground state without input")
+    parser.add_argument("--offer", help="Complete identifier of the disposable test OFR")
     parser.add_argument("--width", type=int, default=1500)
     parser.add_argument("--height", type=int, default=1400)
     parser.add_argument("--quantity", type=int, default=1)
@@ -141,12 +167,29 @@ def main():
     if not 0 <= args.start_delay <= 30:
         print("WH_STEP_STOP=invalid_delay")
         return 2
+    if args.execute_live and offer_caption_id(args.offer or "") is None:
+        print("WH_STEP_STOP=explicit_test_offer_required")
+        return 2
     if args.execute_live and not (
         os.environ.get("COMPUTER_USE_LIVE") == "1"
         and os.environ.get("WH_REAL_WINDOWHUB") == "1"
     ):
         print("WH_STEP_STOP=live_environment_authorization_missing")
         return 2
+    if args.inspect_current:
+        print("WH_STEP_MODE=INSPECT_CURRENT_ONLY", flush=True)
+        print("WH_STEP_PREPARE=Show the result of the last action without dismissing it", flush=True)
+        time.sleep(args.start_delay)
+        try:
+            scene = create_windows_desktop_agent_control_loop().observe_scene()
+            diagnostic = windowhub_add_postcondition_diagnostic(scene, args.offer)
+        except Exception as exc:
+            print("WH_STEP_STOP=inspection_failed_" + type(exc).__name__, flush=True)
+            print("WH_STEP_ACTIONS_EXECUTED=0", flush=True)
+            return 4
+        print("WH_STEP_CURRENT_STATE=" + json.dumps(diagnostic), flush=True)
+        print("WH_STEP_ACTIONS_EXECUTED=0", flush=True)
+        return 0
     try:
         plan = offer_plan(
             load_reference(), width=args.width, height=args.height,
@@ -167,18 +210,24 @@ def main():
     loop = create_windows_desktop_agent_control_loop()
     observed, scene = observe_offer_gate(loop)
     if not observed.ok or observed.scene_stage != "offer_document":
-        import json
         print("WH_STEP_FOREGROUND_DIAGNOSTICS=" + json.dumps(
             stopped_foreground_diagnostic(observed, scene), ensure_ascii=False,
         ), flush=True)
         print("WH_STEP_STOP=not_verified_offer_document", flush=True)
         print("WH_STEP_ACTIONS_EXECUTED=0", flush=True)
         return 4
+    if args.offer is not None:
+        identity = test_offer_diagnostic(scene, args.offer)
+        print("WH_STEP_OFFER_IDENTITY=" + json.dumps(identity), flush=True)
+        if not (identity["selected_offer_matches_requested"]
+                and identity["foreground_offer_matches_requested"]):
+            print("WH_STEP_STOP=test_offer_mismatch", flush=True)
+            print("WH_STEP_ACTIONS_EXECUTED=0", flush=True)
+            return 4
     try:
         native_scene, resolved, offer_name = prepare_add_action(scene)
     except (ValueError, RuntimeError, OSError) as exc:
         if str(exc) == "unique_active_dodaj_not_verified":
-            import json
             diagnosis = diagnose_add_scope(scene)
             print("WH_STEP_SCOPE_DIAGNOSTICS=" + json.dumps(diagnosis, ensure_ascii=False), flush=True)
         print("WH_STEP_STOP=" + str(exc), flush=True)
@@ -186,10 +235,14 @@ def main():
         return 4
     print("WH_STEP_TARGET=verified_active_document_Dodaj", flush=True)
     if not args.execute_live:
+        print("WH_STEP_SCOPE_DIAGNOSTICS=" + json.dumps(
+            diagnose_add_scope(scene), ensure_ascii=False,
+        ), flush=True)
         print("WH_STEP_MODE=PREFLIGHT_ONLY", flush=True)
         print("WH_STEP_ACTIONS_EXECUTED=0", flush=True)
         return 0
     print("WH_STEP_MODE=ONE_VERIFIED_LIVE_ACTION", flush=True)
+    print("WH_STEP_ADD_METHOD=UIA_INVOKE_PATTERN", flush=True)
     try:
         execute_v2_step(
             loop, native_scene, resolved,

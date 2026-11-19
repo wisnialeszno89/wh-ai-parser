@@ -278,6 +278,9 @@ class RobotGUIExecutor(ActionExecutor):
             )
 
         target_id = self._tracked_object_id(element)
+        mdi_add_offer = context.get_value("_windowhub_mdi_add_offer")
+        if mdi_add_offer is not None:
+            target_id = None
 
         if action.name == "write_text":
             target_id = None
@@ -316,6 +319,7 @@ class RobotGUIExecutor(ActionExecutor):
                 text_value=action.value,
                 screen_origin=screen_origin,
                 window_handle=window_handle,
+                **({"mdi_add_offer": mdi_add_offer} if mdi_add_offer is not None else {}),
             )
 
             return ExecutionResult(
@@ -331,7 +335,7 @@ class RobotGUIExecutor(ActionExecutor):
                     "screen_origin": screen_origin,
                     "window_handle": window_handle,
                     "executed": result.executed,
-                    "execution_path": "uia_only",
+                    "execution_path": "uia_mdi_add" if mdi_add_offer is not None else "uia_only",
                     "control_type": element.kind,
                     "interaction_capability": (
                         element.interaction_capability.value

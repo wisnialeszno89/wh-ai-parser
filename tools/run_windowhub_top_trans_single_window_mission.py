@@ -62,11 +62,12 @@ def matches(scene, *, kind=None, label=None, automation_id=None):
 
 
 def observe_step(loop, expected, attempts=4):
+    expected_stages = (expected,) if isinstance(expected, str) else expected
     for index in range(attempts):
         scene = inspect(loop)
         stage = stage_of(scene)
         print("POST_ACTION_STAGE =", stage, flush=True)
-        if stage == expected:
+        if stage in expected_stages:
             return scene
         if index + 1 < attempts:
             time.sleep(0.25)
@@ -114,7 +115,10 @@ def handle_customer_lookup(scene):
     )
     return select_exact_customer_result(scene, CUSTOMER)
 
-def progressive_customer_selection(loop, initial_scene, name, *, require_result_click=False):
+def progressive_customer_selection(
+    loop, initial_scene, name, *, require_result_click=False,
+    visible_completions=None, replace_existing=False, short_prefix_only=False,
+):
     """Type in short chunks, observing BEFORE the final name is entered.
 
     DevExpress suggestions can disappear after a full exact-name typeahead.
@@ -130,7 +134,10 @@ def progressive_customer_selection(loop, initial_scene, name, *, require_result_
     if not parts:
         return False, "CUSTOMER_QUERY_EMPTY"
     print("CUSTOMER_TYPING_CHUNKS =", len(parts))
-    started = type_directly_into_customer_lookup(initial_scene, parts[0])
+    started = type_directly_into_customer_lookup(
+        initial_scene, parts[0],
+        **({"replace_existing": True} if replace_existing else {}),
+    )
     print("CUSTOMER_INITIAL_TYPING =", started.status, started.reason)
     if started.status != "search_submitted_unverified":
         return False, started.reason
@@ -138,10 +145,12 @@ def progressive_customer_selection(loop, initial_scene, name, *, require_result_
     user32 = ctypes.WinDLL("user32", use_last_error=True)
     user32.GetForegroundWindow.argtypes = []
     user32.GetForegroundWindow.restype = wintypes.HWND
-    for index, part in enumerate(parts):
-        if index:
-            if int(user32.GetForegroundWindow() or 0) != hwnd:
-                return False, "CUSTOMER_TYPING_WINDOW_CHANGED"
+    checkpoints = 3 if short_prefix_only else len(parts)
+    for index in range(checkpoints):
+        if int(user32.GetForegroundWindow() or 0) != hwnd:
+            return False, "CUSTOMER_TYPING_WINDOW_CHANGED"
+        if index and not short_prefix_only:
+            part = parts[index]
             try:
                 send_keys(part, with_spaces=True, pause=0.07)
             except Exception as exc:
@@ -150,14 +159,27 @@ def progressive_customer_selection(loop, initial_scene, name, *, require_result_
         current = inspect(loop)
         if stage_of(current) != "document_properties":
             return False, "CUSTOMER_SEARCH_STAGE_CHANGED"
-        print("CUSTOMER_SEARCH_CHECKPOINT =", index + 1, "/", len(parts))
+        if current.observation.metadata.get("window_handle") != hwnd:
+            return False, "CUSTOMER_SEARCH_WINDOW_CHANGED"
+        print("CUSTOMER_SEARCH_CHECKPOINT =", index + 1, "/", checkpoints)
+        if short_prefix_only:
+            print("CUSTOMER_SEARCH_MODE=observe_short_prefix")
         if not require_result_click and customer_selected(current, name):
             return True, "CUSTOMER_VERIFIED_AFTER_TYPED_CHUNK"
-        matched, reason = select_exact_customer_result(current, name)
+        matched, reason = select_exact_customer_result(
+            current, name,
+            **({"visible_completions": visible_completions} if visible_completions is not None else {}),
+        )
         print("CUSTOMER_NATIVE_RESULT =", reason)
+        if reason.startswith("CUSTOMER_RESULT_CLICK_FAILED_") or reason in {
+            "CUSTOMER_DOCUMENT_NOT_FOREGROUND", "EXACT_CUSTOMER_RESULT_AMBIGUOUS",
+        }:
+            return False, reason
         if not matched:
             matched, reason = select_exact_visual_customer(current, name)
             print("CUSTOMER_VISUAL_RESULT =", reason)
+            if "CLICK_FAILED" in reason or "CLICK_ERROR" in reason:
+                return False, reason
         if matched:
             # Selection is not the same as writing the filter. Verify new
             # document state once, rather than retrying clicks.
@@ -175,7 +197,12 @@ def progressive_customer_selection(loop, initial_scene, name, *, require_result_
             if evidence.status == "verified":
                 print("CUSTOMER_COMMIT_VERIFIED_NATIVE = True")
                 return True, "CUSTOMER_VERIFIED_NATIVE_READBACK"
-            return False, "CUSTOMER_CLICKED_BUT_SELECTION_UNVERIFIED_" + evidence.reason
+            reason = evidence.reason
+            if evidence.popup_still_contains_exact_result is False:
+                reason += "_popup_closed"
+            return False, "CUSTOMER_CLICKED_BUT_SELECTION_UNVERIFIED_" + reason
+    if short_prefix_only:
+        return False, "CUSTOMER_NO_EXACT_RESULT_FOR_SHORT_PREFIX"
     return False, "CUSTOMER_NO_EXACT_SUGGESTION_DURING_TYPING"
 
 
@@ -254,24 +281,125 @@ def toggle_price_once(scene, key, *, desired_checked=True):
     return True
 
 
+def _catalog_choice(options, allowed, *, allow_test_catalog_choice=False, match_label=None):
+    """Resolve one exact native label. Test mode may use a real catalog alternative."""
+    from collections import Counter
+
+    labels = [option.strip().casefold() for option in options]
+    preferred = [
+        i for i, label in enumerate(labels)
+        if label in allowed or (match_label is not None and match_label(options[i]))
+    ]
+    print("CATALOG_OPTION_COUNT =", len(options))
+    print("APPROVED_EXACT_MATCHES =", len(preferred))
+    if len(preferred) == 1:
+        return preferred[0]
+    if not allow_test_catalog_choice:
+        relevant = [
+            option for option, label in zip(options, labels)
+            if "antrac" in label or "7016" in label or (
+                match_label is not None and label.count("/") >= 2
+            )
+        ]
+        if relevant:
+            print("CATALOG_RELEVANT_LABELS =", repr(relevant[:12]))
+        return None
+
+    counts = Counter(labels)
+    for index in preferred + list(range(len(labels))):
+        label = labels[index]
+        if (
+            counts[label] == 1 and any(char.isalnum() for char in label)
+            and not label.lstrip("(<[ ").startswith((
+                "wybierz", "select", "brak", "none", "bez szklenia",
+                "bez szyby", "bez szyb", "bez koloru", "no glazing",
+            ))
+            and not (label.startswith("<") and label.endswith(">"))
+        ):
+            return index
+    return None
+
+
+def _select_catalog_with_uia_patterns(
+    wrapper, *, allowed, still_foreground, allow_test_catalog_choice=False, match_label=None,
+):
+    """Read list items under the verified combo and select one exact match."""
+    if not still_foreground():
+        return None
+    expand = None
+    opened_here = False
+    try:
+        expand = wrapper.iface_expand_collapse
+        state = int(expand.CurrentExpandCollapseState)
+        if state == 0:  # UIA ExpandCollapseState_Collapsed
+            expand.Expand()
+            opened_here = True
+        elif state != 1:  # UIA ExpandCollapseState_Expanded
+            return None
+        rows = wrapper.descendants(control_type="ListItem")
+        options = [(row.element_info.name or "").strip() for row in rows]
+        index = _catalog_choice(
+            options, allowed, allow_test_catalog_choice=allow_test_catalog_choice, match_label=match_label,
+        )
+        if index is None:
+            return None
+        row = rows[index]
+        if not (row.element_info.visible and row.element_info.enabled):
+            return None
+        selection = row.iface_selection_item
+        if selection is None or not still_foreground():
+            return None
+        selection.Select()
+        return options[index]
+    except Exception as exc:
+        print("STOP = native catalog pattern unavailable", type(exc).__name__)
+        return None
+    finally:
+        if opened_here and still_foreground():
+            try:
+                if int(expand.CurrentExpandCollapseState) == 1:
+                    expand.Collapse()
+            except Exception as exc:
+                print("CATALOG_DROPDOWN_RESTORE_FAILED =", type(exc).__name__)
+
+
 def select_catalog_option_once(scene, *, field_name, approved_options):
-    """Choose one exact native ComboBox option; no substring or first-row guessing."""
+    """Select a uniquely approved label in the sales workflow."""
+    return select_catalog_label_once(
+        scene, field_name=field_name, approved_options=approved_options,
+    ) is not None
+
+
+def select_catalog_label_once(
+    scene, *, field_name, approved_options, allow_test_catalog_choice=False, match_label=None,
+):
+    """Return the selected exact native label for independent readback."""
+    import ctypes
+    from ctypes import wintypes
     from pywinauto import Desktop
     snapshot = WindowHubOfferFormMap().inspect(scene)
     match = snapshot.field(field_name) if snapshot else None
     if (match is None or not match.is_unique or match.enabled is not True
             or match.element.kind != "combobox"):
         print("STOP = catalog combo unavailable", field_name)
-        return False
+        return None
     target = match.element
     meta = target.metadata or {}
     if not isinstance(meta.get("uia_runtime_id"), str):
         print("STOP = catalog combo has no stable runtime identity")
-        return False
+        return None
     from app.agent.perception.windowhub_ui_automation_provider import WindowHubUIAutomationProvider
     hwnd = scene.observation.metadata.get("window_handle")
     if not isinstance(hwnd, int) or hwnd <= 0:
-        return False
+        return None
+    foreground = ctypes.windll.user32.GetForegroundWindow
+    foreground.restype = wintypes.HWND
+
+    def still_foreground():
+        return foreground() == hwnd
+
+    if not still_foreground():
+        return None
     candidates = []
     for item in Desktop(backend="uia").window(handle=hwnd).wrapper_object().descendants():
         try:
@@ -285,27 +413,39 @@ def select_catalog_option_once(scene, *, field_name, approved_options):
             continue
     if len(candidates) != 1:
         print("STOP = catalog native combo ambiguous", field_name, len(candidates))
-        return False
+        return None
     wrapper = candidates[0]
+    allowed = {v.strip().casefold() for v in approved_options}
+    print("CATALOG_FIELD =", field_name)
+    item_texts = getattr(wrapper, "item_texts", None)
+    select = getattr(wrapper, "select", None)
+    if not callable(item_texts) or not callable(select):
+        return _select_catalog_with_uia_patterns(
+            wrapper, allowed=allowed, still_foreground=still_foreground,
+            allow_test_catalog_choice=allow_test_catalog_choice, match_label=match_label,
+        )
     try:
-        options = [str(v).strip() for v in wrapper.item_texts()]
+        options = [str(v).strip() for v in item_texts()]
+    except AttributeError:
+        return _select_catalog_with_uia_patterns(
+            wrapper, allowed=allowed, still_foreground=still_foreground,
+            allow_test_catalog_choice=allow_test_catalog_choice, match_label=match_label,
+        )
     except Exception as exc:
         print("STOP = catalog options unreadable", type(exc).__name__)
-        return False
-    allowed = {v.casefold() for v in approved_options}
-    available = [option for option in options if option.casefold() in allowed]
-    print("CATALOG_FIELD =", field_name)
-    print("CATALOG_OPTION_COUNT =", len(options))
-    print("APPROVED_EXACT_MATCHES =", len(available))
-    if len(available) != 1:
-        return False
-    desired = available[0]
+        return None
+    index = _catalog_choice(
+        options, allowed, allow_test_catalog_choice=allow_test_catalog_choice, match_label=match_label,
+    )
+    if index is None or not still_foreground():
+        return None
+    desired = options[index]
     try:
-        wrapper.select(desired)
+        select(desired)
     except Exception as exc:
         print("STOP = catalog selection unavailable", type(exc).__name__)
-        return False
-    return True
+        return None
+    return desired
 
 
 def advance_known_wizard(scene, *, expected_stage):

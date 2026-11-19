@@ -97,12 +97,14 @@ def _resolve_native_field(scene, field_name: str, *, desktop=None):
     return matches[0]
 
 
-def replace_dimension_once(loop, *, field_name: str, desired: int) -> DimensionReplaceResult:
+def replace_dimension_once(loop, *, field_name: str, desired: int, authorize=None) -> DimensionReplaceResult:
     """One attempt; no control-loop automatic duplicate WRITE and no blind retry."""
     if field_name not in {"width_1", "height_1"}:
         raise ValueError("unsupported_dimension_field")
     classify_replace("", desired)
     scene = loop.observe_scene()
+    if authorize is not None and not authorize(scene):
+        return DimensionReplaceResult("blocked", "authorized_offer_changed", None)
     existing = current_dimension(scene, field_name)
     mode = classify_replace(existing, desired)
     if mode == "already_satisfied":
@@ -124,6 +126,8 @@ def replace_dimension_once(loop, *, field_name: str, desired: int) -> DimensionR
         before_native = pattern.CurrentValue
         if isinstance(before_native, str) and before_native.strip() != existing.strip():
             return DimensionReplaceResult("blocked", "native_value_changed_since_observation", existing, before_native)
+        if authorize is not None and not authorize(scene):
+            return DimensionReplaceResult("blocked", "authorized_offer_changed", existing)
         pattern.SetValue(str(desired))
     except Exception as exc:
         return DimensionReplaceResult("blocked", "native_set_value_" + type(exc).__name__, existing)
@@ -136,6 +140,8 @@ def replace_dimension_once(loop, *, field_name: str, desired: int) -> DimensionR
         if readback_attempt:
             sleep(0.15)
         after = loop.observe_scene()
+        if authorize is not None and not authorize(after):
+            return DimensionReplaceResult("blocked", "authorized_offer_changed", existing)
         actual = current_dimension(after, field_name)
         if isinstance(actual, str) and actual.strip() == str(desired):
             return DimensionReplaceResult("verified", "native_value_readback", existing, actual)

@@ -172,14 +172,14 @@ def continue_to_construction(loop, *, width: int, height: int,
                     print("STOP: Glazing teach/resume not verified.")
                     return 4
         print("GLAZING_PACKAGE_VERIFIED=True")
-        if not advance_known_wizard(scene, expected_stage="hardware"):
-            print("STOP: Hardware wizard entry unavailable.")
+        if not advance_known_wizard(scene, expected_stage="hardware_or_modifier"):
+            print("STOP: Next from glazing was not uniquely verified.")
             return 6
-        scene = observe_step(loop, "hardware")
+        scene = observe_step(loop, ("hardware", "modifier"))
         if scene is None:
-            print("STOP: Hardware stage not verified.")
+            print("STOP: Hardware or construction editor not observed.")
             return 6
-        stage = "hardware"
+        stage = stage_of(scene)
 
     if stage == "hardware":
         print("WIZARD_STAGE_REACHED=hardware")

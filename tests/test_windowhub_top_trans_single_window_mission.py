@@ -114,3 +114,52 @@ def test_document_only_selects_exact_customer_applies_mixed_states_and_stops_at_
         "OK",
     ]
     assert "WINDOWHUB_DOCUMENT_RESULT=confirmed" in capsys.readouterr().out
+
+
+def test_native_catalog_fallback_selects_only_the_exact_two_sided_option():
+    calls = []
+    expand = SimpleNamespace(CurrentExpandCollapseState=0)
+
+    def open_dropdown():
+        calls.append("expand")
+        expand.CurrentExpandCollapseState = 1
+
+    def close_dropdown():
+        calls.append("collapse")
+        expand.CurrentExpandCollapseState = 0
+
+    expand.Expand = open_dropdown
+    expand.Collapse = close_dropdown
+
+    def row(label):
+        return SimpleNamespace(
+            element_info=SimpleNamespace(name=label, visible=True, enabled=True),
+            iface_selection_item=SimpleNamespace(Select=lambda: calls.append(label)),
+        )
+
+    exact = row("Antracyt / Biały")
+    partial = row("Antracyt")
+    rows = [exact, partial]
+
+    def descendants(*, control_type):
+        assert expand.CurrentExpandCollapseState == 1
+        assert control_type == "ListItem"
+        return rows
+
+    wrapper = SimpleNamespace(iface_expand_collapse=expand, descendants=descendants)
+    requirements = {"allowed": {"antracyt / biały"}, "still_foreground": lambda: True}
+    assert mission._select_catalog_with_uia_patterns(wrapper, **requirements)
+    assert calls == ["expand", "Antracyt / Biały", "collapse"]
+
+    calls.clear()
+    rows.append(row("Antracyt / Biały"))
+    assert not mission._select_catalog_with_uia_patterns(wrapper, **requirements)
+    assert calls == ["expand", "collapse"]
+
+    calls.clear()
+    focus = iter([True, False, False])
+    rows.pop()
+    assert not mission._select_catalog_with_uia_patterns(
+        wrapper, allowed={"antracyt / biały"}, still_foreground=lambda: next(focus),
+    )
+    assert calls == ["expand"]
