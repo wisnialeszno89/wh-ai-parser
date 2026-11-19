@@ -164,4 +164,6 @@ def decision_context() -> dict[str, object]:
         "substitution": "Choose only a live-available compatible and functionally suitable substitute; record requested versus chosen and deviation.",
         "review": "End with unsaved on-screen draft and report exact/alternative/default/partial fields and verification gaps.",
         "internet": "Public references are explanatory; dealer-specific catalogues and technical compatibility need live evidence.",
+        "manufacturing_first": "Start from the installed manufacturer catalogue and its verified technical/geometry constraints, then fit closest permissible configuration to the customer intent and requested overall dimensions.",
+        "assembly_geometry": "Distinguish bare window dimensions from entire window-plus-box envelope; never shrink the bare window merely because a box is added. Use verified box size and mounting convention; validate final assembly readback.",
     }
