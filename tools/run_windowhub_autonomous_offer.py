@@ -2,9 +2,11 @@
 from __future__ import annotations
 
 import argparse
+from decimal import Decimal
 import json
 from pathlib import Path
 import os
+import re
 import sys
 import time
 
@@ -15,14 +17,18 @@ if str(ROOT) not in sys.path:
 from app.agent.learning.windowhub_demonstration import stage_of
 from app.agent.runtime.windowhub_mdi_native_probe import _Win32Mdi
 from app.agent.runtime.windowhub_new_offer_handoff import (
-    NewOfferHandoff, active_mdi_child, active_native_draft_name, foreground_handle, owner_chain, scoped_position_stage,
+    NewOfferHandoff, _draft_name, active_mdi_child, active_native_draft_name, foreground_handle, owner_chain, scoped_position_stage,
 )
+from app.agent.runtime.windowhub_pricing_dialog import (
+    PRICING_TITLE, confirm_position_pricing, parse_discount,
+)
+from app.agent.offers.windowhub_salesperson_policy import OfferProgress, PositionResult, PositionStatus
 from app.gui.enums.gui_tool import GuiTool
 from tools.run_windowhub_existing_offer_position_test import (
     belongs_to_offer, inspect, run, run_from_start,
 )
 from tools.run_windowhub_two_position_live import (
-    complete_discount, invoke_confirmation, open_next, owned_discount,
+    invoke_confirmation, open_next, owned_discount, refresh_transition,
 )
 
 STEPS = {
@@ -221,7 +227,7 @@ def tool_target(rgb, rect, hwnd, tool, *, api=None):
     return targets[0]
 
 
-def verify_editor_transition(scene, offer, api, number, size, *, opening):
+def verify_editor_transition(scene, offer, api, number, size, *, opening, blank=False):
     """Observe the wizard destination with the same vision that drives building."""
     from app.agent.learning.windowhub_builder_replay import NEXT_STEP, observe_builder_stage
     from app.agent.learning.windowhub_offer_editor import fixed_window_stage
@@ -245,10 +251,10 @@ def verify_editor_transition(scene, offer, api, number, size, *, opening):
         classify = observe_builder_stage if opening else fixed_window_stage
         state = classify(drawing.crop(image))
         allowed = {"empty", "frame", "sash", "glass", "opening_marker"} if opening else {"empty", "frame", "fixed_glazed"}
-        if state not in allowed:
+        if state not in ({"empty"} if blank else allowed):
             raise WorkspaceBlocked("unexpected_initial_drawing:" + state)
         step = (NEXT_STEP if opening else STEPS).get(state)
-        if step is not None:
+        if not blank and step is not None:
             tool_target(image, rect, offer.frame, step[0], api=api)
     except (WorkspaceBlocked, OSError, RuntimeError, ValueError) as exc:
         reason = str(exc) if isinstance(exc, WorkspaceBlocked) else type(exc).__name__
@@ -329,6 +335,8 @@ def apply_ur_hardware(loop, api, frame, child):
 
 def recovery_advice(reason):
     code = reason.split(":", 1)[0]
+    if code.startswith("pricing_"):
+        return "Sprawdź rabat i wycenę bieżącej pozycji. Potwierdź wycenę ręcznie, jeśli agent nie mógł jej odczytać."
     if code == "next_position_dialog_requires_review":
         return "Sprawdź dialog otwarty przez Dodaj, np. wycenę. Zatwierdź go po sprawdzeniu warunków."
     if code in {"draft_add_control_unverified", "next_position_transition_unverified"}:
@@ -449,25 +457,61 @@ def build_construction(loop, offer, api, number, size, *, opening=False):
     return current[0]
 
 
-def run_offer(loop, offer, api, positions, *, construction="fix"):
+def finish_position(loop, offer, api, number, size, *, opening, blank, progress):
+    if blank:
+        _, _, _, _, state = observe_workspace(loop, offer, api, number, size, opening=opening)
+        if state != "empty":
+            raise WorkspaceBlocked(f"placeholder_not_empty:{number}")
+        result = PositionResult(
+            number, PositionStatus.PARTIAL, dimensions_verified=True, draft_placeholder_verified=True,
+            missing=("configuration_requires_clarification",),
+        )
+        print(f"WH_POSITION_PLACEHOLDER_VERIFIED={number}", flush=True)
+    else:
+        if opening:
+            build_construction(loop, offer, api, number, size, opening=True)
+        else:
+            build_fixed(loop, offer, api, number, size)
+        result = PositionResult(number, PositionStatus.COMPLETE, dimensions_verified=True, complete_verified=True)
+    if progress is not None:
+        progress.record(result)
+
+
+def run_offer(
+    loop, offer, api, positions, *, construction="fix", discount=Decimal(0), leave_blank=(), progress=None,
+):
+    opening = construction == "ur"
     for number, size in enumerate(positions, 1):
         if number > 1:
             if isinstance(offer, NewOfferHandoff):
-                if not offer.offer:
-                    raise WorkspaceBlocked("next_position_requires_numbered_offer")
-                offer = offer.offer
-            predecessor = inspect(loop)
-            scene = open_next(loop, predecessor, offer, api)
-            if scene is not None and owned_discount(scene, offer, api):
-                scene = complete_discount(loop, scene, offer, api, interactive=False)
-            if scene is None or stage_of(scene) != "position" or not belongs_to_offer(scene, offer, api):
-                raise WorkspaceBlocked("next_position_or_discount_unverified")
+                scene = open_draft_next_position(
+                    loop, offer, api, number - 1, positions[number - 2], opening=construction == "ur",
+                    discount=discount, blank=number - 1 in leave_blank,
+                )
+                if not offer.bind_next_position(scene, api):
+                    raise WorkspaceBlocked("next_position_wizard_scope_unverified")
+            else:
+                predecessor = inspect(loop)
+                scene = open_next(loop, predecessor, offer, api, include_pricing=True)
+                if scene is not None and owned_discount(scene, offer, api, include_pricing=True):
+                    hwnd = foreground_handle(scene, api)
+
+                    def still_owned():
+                        return api.title(hwnd).strip().casefold() == PRICING_TITLE and owned_discount(scene, offer, api, include_pricing=True)
+
+                    if not apply_position_pricing(hwnd, discount, still_owned):
+                        raise WorkspaceBlocked("pricing_discount_or_confirmation_unverified")
+                    scene = refresh_transition(loop, offer, api, {"position"})
+                    if scene is not None:
+                        print("WH_PRICING_TRANSITION=position", flush=True)
+                if scene is None or stage_of(scene) != "position" or not belongs_to_offer(scene, offer, api):
+                    raise WorkspaceBlocked("next_position_or_discount_unverified")
         print(f"WH_AUTONOMOUS_POSITION={number}:{size[0]}x{size[1]}", flush=True)
         status = run(
             loop, offer, api, stop_at_editor=True, width=size[0], height=size[1],
             allow_offer_workspace=True, editor_glazing_fallback=True,
             verify_editor=lambda scene, scope, api: verify_editor_transition(
-                scene, scope, api, number, size, opening=construction == "ur",
+                scene, scope, api, number, size, opening=opening, blank=number in leave_blank,
             ),
         )
         if status:
@@ -476,22 +520,15 @@ def run_offer(loop, offer, api, positions, *, construction="fix"):
             workspace = inspect(loop)
             if scoped_position_stage(workspace, offer, api) != "offer_document" or not belongs_to_offer(workspace, offer, api):
                 raise WorkspaceBlocked("workspace_after_wizard_unverified:" + str(stage_of(workspace)))
-        if construction == "ur":
-            build_construction(loop, offer, api, number, size, opening=True)
-        else:
-            build_fixed(loop, offer, api, number, size)
-    print(f"WH_AUTONOMOUS_RESULT=verified_draft_positions:{len(positions)}", flush=True)
+        finish_position(loop, offer, api, number, size,
+                        opening=opening, blank=number in leave_blank, progress=progress)
+    print(f"WH_AUTONOMOUS_RESULT=verified_draft_positions:{len(positions) - len(leave_blank)}", flush=True)
     print("WH_AUTONOMOUS_PRICE_AND_SAVE=not_verified", flush=True)
     return 0
 
 
 def observe_selected_draft_tab(scene, api, name=None):
     """Read only the visually selected tab and retain its image for rechecks."""
-    import re
-    import numpy as np
-    import cv2
-    from app.agent.learning.windowhub_offer_editor import selected_tab_crop_box
-    from app.agent.offers.windowhub_customer_visual_selection import _ocr_text_results
     from app.wh.vision.mss_screenshot_engine import MSSScreenshotEngine
 
     frame = foreground_handle(scene, api)
@@ -504,6 +541,19 @@ def observe_selected_draft_tab(scene, api, name=None):
         print("WH_DRAFT_EVIDENCE=active_native_document_unverified", flush=True)
         return None
     image = MSSScreenshotEngine().capture(rect).image[:, :, 2::-1].copy()
+    visual = read_visual_draft_tab(image, name)
+    if visual is None or foreground_handle(scene, api) != frame or active_mdi_child(frame, api) != child:
+        return None
+    observed_name, _, check = visual
+    return observed_name, check
+
+
+def read_visual_draft_tab(image, name=None):
+    import cv2
+    import numpy as np
+    from app.agent.learning.windowhub_offer_editor import selected_tab_crop_box
+    from app.agent.offers.windowhub_customer_visual_selection import _ocr_text_results
+
     box = selected_tab_crop_box(image)
     if box is None:
         print("WH_DRAFT_EVIDENCE=active_tab_shape_unverified", flush=True)
@@ -531,18 +581,11 @@ def observe_selected_draft_tab(scene, api, name=None):
     if name is not None and observed_name != normalize(name):
         print("WH_DRAFT_EVIDENCE=different_active_draft", flush=True)
         return None
-    if foreground_handle(scene, api) != frame or active_mdi_child(frame, api) != child:
-        print("WH_DRAFT_EVIDENCE=active_document_changed", flush=True)
-        return None
-
     def check(rgb):
-        return (
-            foreground_handle(scene, api) == frame and active_mdi_child(frame, api) == child
-            and selected_tab_crop_box(rgb) == box and np.array_equal(box.crop(rgb), crop)
-        )
+        return selected_tab_crop_box(rgb) == box and np.array_equal(box.crop(rgb), crop)
 
     print("WH_DRAFT_EVIDENCE=verified_visual_active_tab", flush=True)
-    return observed_name, check
+    return observed_name, box, check
 
 
 def find_draft_add_button(frame, child, api):
@@ -563,8 +606,56 @@ def find_draft_add_button(frame, child, api):
     return candidates[0] if len(candidates) == 1 else None
 
 
-def open_draft_next_position(loop, offer, api, number, size, *, opening):
-    complete = "opening_marker" if opening else "fixed_glazed"
+def apply_position_pricing(hwnd, discount, still_owned):
+    try:
+        return confirm_position_pricing(hwnd, discount, still_owned=still_owned)
+    except Exception as exc:
+        # A native exception can occur after invoking the button. Never retry.
+        print("WH_PRICING_ACTION_UNCERTAIN=" + type(exc).__name__, flush=True)
+        return False
+
+
+def owned_draft_dialog(hwnd, offer, api):
+    return bool(
+        hwnd and hwnd != offer.frame and api.foreground() == hwnd and api.pid(hwnd) == offer.pid
+        and api.pid(offer.frame) == offer.pid and api.pid(offer.child) == offer.pid
+        and active_mdi_child(offer.frame, api) == offer.child
+        and (offer.frame in owner_chain(hwnd, api) or api.parent(hwnd, 3) == offer.frame)
+    )
+
+
+def wait_for_next_wizard(loop, offer, api, discount, *, accepted_hwnd=0):
+    for attempt in range(12):
+        after = inspect(loop)
+        hwnd = foreground_handle(after, api)
+        if not hwnd or api.pid(hwnd) != offer.pid or active_mdi_child(offer.frame, api) != offer.child:
+            raise WorkspaceBlocked("next_position_document_changed")
+        if hwnd != offer.frame:
+            if not owned_draft_dialog(hwnd, offer, api):
+                raise WorkspaceBlocked("next_position_dialog_unowned")
+            if stage_of(after) == "position":
+                if accepted_hwnd:
+                    print("WH_PRICING_TRANSITION=position", flush=True)
+                print("WH_NEXT_POSITION=wizard_open", flush=True)
+                return after
+            title = api.title(hwnd).strip().casefold()
+            if title != PRICING_TITLE:
+                raise WorkspaceBlocked("next_position_dialog_requires_review")
+            if accepted_hwnd and hwnd != accepted_hwnd:
+                raise WorkspaceBlocked("pricing_second_dialog_requires_review")
+            if not accepted_hwnd:
+                if not apply_position_pricing(hwnd, discount, lambda: (
+                    owned_draft_dialog(hwnd, offer, api) and api.title(hwnd).strip().casefold() == PRICING_TITLE
+                )):
+                    raise WorkspaceBlocked("pricing_discount_or_confirmation_unverified")
+                accepted_hwnd = hwnd
+        if attempt < 11:
+            time.sleep(0.25)
+    raise WorkspaceBlocked("pricing_transition_unverified" if accepted_hwnd else "next_position_transition_unverified")
+
+
+def open_draft_next_position(loop, offer, api, number, size, *, opening, discount=Decimal(0), blank=False):
+    complete = "empty" if blank else ("opening_marker" if opening else "fixed_glazed")
     scene, rect, _, _, observed = observe_workspace(loop, offer, api, number, size, opening=opening)
     if observed != complete:
         raise WorkspaceBlocked("next_position_previous_construction_unverified")
@@ -588,25 +679,13 @@ def open_draft_next_position(loop, offer, api, number, size, *, opening):
         click_owned(scene, rect, offer, api, point)
     print("WH_NEXT_POSITION_ACTION=add", flush=True)
 
-    for attempt in range(8):
-        after = inspect(loop)
-        hwnd = foreground_handle(after, api)
-        if not hwnd or api.pid(hwnd) != offer.pid or active_mdi_child(offer.frame, api) != offer.child:
-            raise WorkspaceBlocked("next_position_document_changed")
-        if hwnd != offer.frame:
-            if offer.frame not in owner_chain(hwnd, api) and api.parent(hwnd, 3) != offer.frame:
-                raise WorkspaceBlocked("next_position_dialog_unowned")
-            if stage_of(after) == "position":
-                print("WH_NEXT_POSITION=wizard_open", flush=True)
-                return after
-            print("WH_NEXT_POSITION_DIALOG=" + api.title(hwnd), flush=True)
-            raise WorkspaceBlocked("next_position_dialog_requires_review")
-        if attempt < 7:
-            time.sleep(0.25)
-    raise WorkspaceBlocked("next_position_transition_unverified")
+    return wait_for_next_wizard(loop, offer, api, discount)
 
 
-def build_selected_draft(loop, api, name, size, *, construction, next_position=False, next_size=None):
+def build_selected_draft(
+    loop, api, name, size, *, construction, next_position=False, next_size=None, discount=Decimal(0),
+    leave_blank=(), progress=None,
+):
     scene = inspect(loop)
     take_active_draft = name.casefold() == "active"
     requested = None if take_active_draft else name
@@ -623,39 +702,139 @@ def build_selected_draft(loop, api, name, size, *, construction, next_position=F
         raise WorkspaceBlocked("requested_editor_draft_not_selected")
     print("WH_DRAFT_TARGET=" + bound_name, flush=True)
     opening = construction == "ur"
-    if not verify_editor_transition(scene, scope, api, 1, size, opening=opening):
+    if not verify_editor_transition(scene, scope, api, 1, size, opening=opening, blank=1 in leave_blank):
         raise WorkspaceBlocked("selected_editor_draft_not_verified")
-    build_construction(loop, scope, api, 1, size, opening=opening)
+    finish_position(loop, scope, api, 1, size, opening=opening, blank=1 in leave_blank, progress=progress)
     if next_size is None:
-        print("WH_AUTONOMOUS_RESULT=verified_draft_positions:1", flush=True)
+        print(f"WH_AUTONOMOUS_RESULT=verified_draft_positions:{int(1 not in leave_blank)}", flush=True)
         if next_position:
-            open_draft_next_position(loop, scope, api, 1, size, opening=opening)
+            open_draft_next_position(loop, scope, api, 1, size, opening=opening, discount=discount, blank=1 in leave_blank)
     else:
         print("WH_POSITION_COMPLETE=1", flush=True)
-        wizard = open_draft_next_position(loop, scope, api, 1, size, opening=opening)
+        wizard = open_draft_next_position(loop, scope, api, 1, size, opening=opening, discount=discount, blank=1 in leave_blank)
         if not scope.bind_next_position(wizard, api):
             raise WorkspaceBlocked("next_position_wizard_scope_unverified")
-        result = run(
-            loop, scope, api, stop_at_editor=True, width=next_size[0], height=next_size[1],
-            allow_offer_workspace=True, editor_glazing_fallback=True,
-            verify_editor=lambda scene, scope, api: verify_editor_transition(
-                scene, scope, api, 2, next_size, opening=opening,
-            ),
-        )
-        if result:
-            raise WorkspaceBlocked("position_wizard_unverified:2")
-        build_construction(loop, scope, api, 2, next_size, opening=opening)
-        print("WH_AUTONOMOUS_RESULT=verified_draft_positions:2", flush=True)
+        build_next_draft_window(loop, scope, api, next_size, opening=opening, blank=2 in leave_blank, progress=progress)
+        print(f"WH_AUTONOMOUS_RESULT=verified_draft_positions:{2 - len(leave_blank)}", flush=True)
     print("WH_AUTONOMOUS_PRICE_AND_SAVE=not_verified", flush=True)
     return 0
 
 
+def build_next_draft_window(loop, scope, api, size, *, opening, blank=False, progress=None):
+    result = run(
+        loop, scope, api, stop_at_editor=True, width=size[0], height=size[1],
+        allow_offer_workspace=True, editor_glazing_fallback=True,
+        verify_editor=lambda scene, scope, api: verify_editor_transition(
+            scene, scope, api, 2, size, opening=opening, blank=blank,
+        ),
+    )
+    if result:
+        raise WorkspaceBlocked("position_wizard_unverified:2")
+    finish_position(loop, scope, api, 2, size, opening=opening, blank=blank, progress=progress)
+
+
+def bind_draft_pricing(scene, api, requested):
+    """Recover a native test draft identity from the owned foreground pricing dialog."""
+    if stage_of(scene) != "windowhub_unmapped":
+        return None
+    hwnd = foreground_handle(scene, api)
+    if not hwnd or api.title(hwnd).strip().casefold() != PRICING_TITLE:
+        return None
+    frames = set(owner_chain(hwnd, api)[1:]) | {api.parent(hwnd, 3)}
+    candidates = [(frame, child) for frame in frames
+                  if frame and (child := active_mdi_child(frame, api))]
+    if len(candidates) != 1:
+        return None
+    frame, child = candidates[0]
+    pid = api.pid(frame)
+    if not pid:
+        return None
+    captions = [api.title(frame).strip(), api.title(child).strip()]
+    if any(re.match(r"(?:okna - )?(?:ofr/|zlc/|start1)", value, re.I) for value in captions):
+        return None
+    names = {name for value in captions if (name := _draft_name(value))}
+    if len(names) > 1:
+        return None
+    name = next(iter(names), None)
+    visual_check = None
+    if name is None:
+        if captions[0].casefold() not in {"okna -", "okna"} or captions[1]:
+            return None
+        evidence = read_draft_behind_pricing(frame, hwnd, requested)
+        if evidence is None:
+            return None
+        name, visual_check = evidence
+    if requested.casefold() != "active" and _draft_name(requested) != name:
+        return None
+    scope = NewOfferHandoff(frame, pid, 0, frozenset(), None, child=child, explicit_draft=name,
+                            visual_draft_check=visual_check)
+    return scope if owned_draft_dialog(hwnd, scope, api) else None
+
+
+def read_draft_behind_pricing(frame, modal, requested):
+    from app.runtime.execution.window.window_rect import WindowRect
+    from app.wh.vision.mss_screenshot_engine import MSSScreenshotEngine
+    from pywinauto import Desktop
+
+    desktop = Desktop(backend="win32")
+
+    try:
+        bounds = desktop.window(handle=frame).wrapper_object().rectangle()
+        cover = desktop.window(handle=modal).wrapper_object().rectangle()
+        rect = WindowRect(bounds.left, bounds.top, bounds.width(), bounds.height())
+        image = MSSScreenshotEngine().capture(rect).image[:, :, 2::-1].copy()
+        readback = read_visual_draft_tab(image, None if requested.casefold() == "active" else requested)
+        if readback is None:
+            return None
+        name, box, check = readback
+        if not uncovered_tab(box, bounds, cover):
+            return None
+    except (AttributeError, OSError, RuntimeError, ValueError):
+        return None
+    return name, check
+
+
+def uncovered_tab(box, bounds, cover):
+    return (
+        bounds.left + box.right <= cover.left or bounds.left + box.x >= cover.right
+        or bounds.top + box.bottom <= cover.top or bounds.top + box.y >= cover.bottom
+    )
+
+
+def resume_draft_pricing(loop, api, name, size, *, construction, discount, progress):
+    scene = inspect(loop)
+    scope = bind_draft_pricing(scene, api, name)
+    if scope is None:
+        raise WorkspaceBlocked("pricing_draft_identity_unverified")
+    hwnd = foreground_handle(scene, api)
+
+    def still_owned():
+        fresh = bind_draft_pricing(scene, api, scope.explicit_draft)
+        return bool(fresh and (fresh.frame, fresh.child, fresh.pid) == (scope.frame, scope.child, scope.pid))
+
+    if not apply_position_pricing(hwnd, discount, still_owned):
+        raise WorkspaceBlocked("pricing_discount_or_confirmation_unverified")
+    wizard = wait_for_next_wizard(loop, scope, api, discount, accepted_hwnd=hwnd)
+    if size is not None:
+        if not scope.bind_next_position(wizard, api):
+            raise WorkspaceBlocked("next_position_wizard_scope_unverified")
+        build_next_draft_window(loop, scope, api, size, opening=construction == "ur", progress=progress)
+        print("WH_AUTONOMOUS_RESULT=verified_resumed_position:2", flush=True)
+    return 0
+
+
 def window_size(value):
-    import re
     match = re.fullmatch(r"\s*([0-9]{3,4})\s*[xX×]\s*([0-9]{3,4})\s*", value)
     if not match or not all(100 <= int(n) <= 5000 for n in match.groups()):
         raise argparse.ArgumentTypeError("podaj szerokość i wysokość w mm, np. 1200x1000")
     return tuple(map(int, match.groups()))
+
+
+def discount_percentage(value):
+    discount = parse_discount(value)
+    if discount is None:
+        raise argparse.ArgumentTypeError("podaj rabat od 0 do 100% z maksymalnie dwiema cyframi po przecinku")
+    return discount
 
 
 def main(argv=None):
@@ -667,6 +846,12 @@ def main(argv=None):
                         help="Buduj pierwszą pozycję w podanym szkicu lub wybierz active dla zaznaczonego szkicu.")
     parser.add_argument("--next-position", action="store_true",
                         help="Po weryfikacji okna otwórz następną pozycję w tym samym szkicu.")
+    parser.add_argument("--resume-pricing", action="store_true",
+                        help="Wznów z otwartej wyceny szkicu. Opcjonalne --window opisuje pozycję 2.")
+    parser.add_argument("--leave-blank", action="append", type=int, choices=(1, 2),
+                        help="Pozostaw wskazaną pozycję bez konstrukcji, z odczytanymi wymiarami.")
+    parser.add_argument("--discount", type=discount_percentage, default=Decimal(0), metavar="PROCENT",
+                        help="Rabat bieżącej pozycji w arkuszu wyceny między pozycjami. Domyślnie 0%%.")
     parser.add_argument("--positions", type=int, choices=(1, 2), default=2)
     parser.add_argument("--window", action="append", type=window_size, metavar="SZERxWYS",
                         help="Wymiary okna w mm. Powtórz opcję dla drugiej pozycji.")
@@ -676,11 +861,16 @@ def main(argv=None):
         parser.error("test obsługuje najwyżej dwie pozycje")
     if args.next_position and not args.editor_draft:
         parser.error("--next-position wymaga --editor-draft")
-    if args.editor_draft and not args.window:
+    if args.resume_pricing and (not args.editor_draft or args.next_position or len(args.window or ()) > 1):
+        parser.error("--resume-pricing wymaga --editor-draft i przyjmuje co najwyżej jedno --window")
+    if args.editor_draft and not args.window and not args.resume_pricing:
         parser.error("--editor-draft wymaga --window SZERxWYS")
     if args.next_position and len(args.window or ()) == 2:
         parser.error("Drugie --window już zleca wykonanie kolejnej pozycji")
     positions = tuple(args.window) if args.window else POSITIONS[:args.positions]
+    leave_blank = frozenset(args.leave_blank or ())
+    if leave_blank and (not args.window or args.resume_pricing or max(leave_blank) > len(positions)):
+        parser.error("--leave-blank wymaga wymiarów danej pozycji podanych przez --window")
     if os.name != "nt" or not args.execute_live or any(
         os.environ.get(name) != "1" for name in ("COMPUTER_USE_LIVE", "WH_REAL_WINDOWHUB")
     ):
@@ -714,28 +904,48 @@ def main(argv=None):
     if not args.editor_draft and not activate_windowhub_workflow_window()[0]:
         print("WH_AUTONOMOUS_STOP=windowhub_activation_failed")
         return 4
+    progress = OfferProgress()
+    total_indices = ((2,) if args.window else ()) if args.resume_pricing else tuple(range(1, len(positions) + 1))
+    failure = "position_not_attempted_or_unverified"
     try:
         loop, api = create_windows_desktop_agent_control_loop(), _Win32Mdi()
+        if args.resume_pricing:
+            return resume_draft_pricing(
+                loop, api, args.editor_draft, args.window[0] if args.window else None,
+                construction=args.construction, discount=args.discount, progress=progress,
+            )
         if args.editor_draft:
             return build_selected_draft(
                 loop, api, args.editor_draft, positions[0], construction=args.construction,
-                next_position=args.next_position,
-                next_size=positions[1] if len(positions) == 2 else None,
+                next_position=args.next_position, discount=args.discount,
+                next_size=positions[1] if len(positions) == 2 else None, leave_blank=leave_blank, progress=progress,
             )
         return run_from_start(
             loop, customer, api,
             require_customer_confirmation=True,
             on_offer_ready=lambda loop, offer, api: run_offer(
-                loop, offer, api, positions, construction=args.construction,
+                loop, offer, api, positions, construction=args.construction, discount=args.discount,
+                leave_blank=leave_blank, progress=progress,
             ),
         )
     except WorkspaceBlocked as exc:
-        print("WH_AUTONOMOUS_STOP=" + str(exc), flush=True)
+        failure = str(exc)
+        print("WH_AUTONOMOUS_STOP=" + failure, flush=True)
         print("WH_RECOVERY_NEXT=" + recovery_advice(str(exc)), flush=True)
         return 4
     except (OSError, RuntimeError, ValueError, ImportError) as exc:
-        print("WH_AUTONOMOUS_STOP=runtime_" + type(exc).__name__, flush=True)
+        failure = "runtime_" + type(exc).__name__
+        print("WH_AUTONOMOUS_STOP=" + failure, flush=True)
         return 4
+    finally:
+        remaining = [index for index in total_indices if all(p.index != index for p in progress.positions)]
+        if remaining:
+            progress.record(PositionResult(remaining[0], PositionStatus.BLOCKED, missing=(failure,)))
+            for index in remaining[1:]:
+                progress.record(PositionResult(index, PositionStatus.PENDING, missing=("not_attempted",)))
+        report = progress.report()
+        # Customer and save evidence are outside this editor/pricing report.
+        print("WH_OFFER_POSITION_REPORT=" + json.dumps(report["positions"], ensure_ascii=False), flush=True)
 
 
 if __name__ == "__main__":

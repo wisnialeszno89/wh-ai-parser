@@ -239,7 +239,10 @@ class NewOfferHandoff:
     def bind_next_position(self, scene, api):
         """Arm continuation after a verified Add action opens the position form."""
         hwnd = foreground_handle(scene, api)
-        if not self.explicit_draft or stage_of(scene) != "position" or not self._owns_draft_wizard(hwnd, api):
+        if (
+            not (self.explicit_draft or (self.properties and self.position))
+            or stage_of(scene) != "position" or not self._owns_draft_wizard(hwnd, api)
+        ):
             return False
         self.position = hwnd
         return True

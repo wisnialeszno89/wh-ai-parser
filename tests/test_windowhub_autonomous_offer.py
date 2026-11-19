@@ -122,8 +122,8 @@ def test_offer_runs_both_wizards_and_both_builds_in_one_same_offer(monkeypatch):
     calls = []
     wizard = object()
     monkeypatch.setattr(live, "inspect", lambda loop: object())
-    monkeypatch.setattr(live, "open_next", lambda *args: calls.append(("add_next", args[2])) or wizard)
-    monkeypatch.setattr(live, "owned_discount", lambda *args: False)
+    monkeypatch.setattr(live, "open_next", lambda *args, **kw: calls.append(("add_next", args[2])) or wizard)
+    monkeypatch.setattr(live, "owned_discount", lambda *args, **kw: False)
     monkeypatch.setattr(live, "stage_of", lambda scene: "position")
     monkeypatch.setattr(live, "belongs_to_offer", lambda *args: True)
     monkeypatch.setattr(live, "run", lambda loop, offer, api, **kw: calls.append((
@@ -375,7 +375,7 @@ def test_geometry_verifies_blue_frame_when_old_palette_ratios_cannot():
 
 def test_next_position_rechecks_completed_window_and_waits_for_owned_wizard(monkeypatch, capsys):
     scope = NS(frame=200, child=203, pid=50)
-    api = NS(pid=lambda hwnd: 50, parent=lambda hwnd, kind: 200, owner=lambda hwnd: 200 if hwnd == 204 else 0)
+    api = NS(foreground=lambda: 204, pid=lambda hwnd: 50, parent=lambda hwnd, kind: 200, owner=lambda hwnd: 200 if hwnd == 204 else 0)
     completed, wizard = object(), object()
     invoked = []
     monkeypatch.setattr(live, "observe_workspace", lambda *args, **kwargs: (completed, None, None, None, "opening_marker"))

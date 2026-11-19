@@ -15,6 +15,7 @@ if str(ROOT) not in sys.path:
 
 from app.agent.learning.windowhub_demonstration import stage_of
 from app.agent.runtime.windowhub_mdi_native_probe import _Win32Mdi, same_offer_id
+from app.agent.runtime.windowhub_pricing_dialog import PRICING_TITLE
 from tools.run_windowhub_existing_offer_position_test import (
     belongs_to_offer, handoff_scene, inspect, matches, run, run_from_start,
 )
@@ -54,7 +55,7 @@ def stop(reason):
     return 4
 
 
-def owned_discount(scene, offer, api):
+def owned_discount(scene, offer, api, *, include_pricing=False):
     """Accept a discount modal only under the foreground test OFR."""
     hwnd = scene.observation.metadata.get("window_handle")
     if stage_of(scene) != "windowhub_unmapped" or type(hwnd) is not int or hwnd <= 0:
@@ -66,6 +67,8 @@ def owned_discount(scene, offer, api):
     if not title.casefold().startswith("okna - ofr/") or not same_offer_id(title[7:], offer):
         return False
     caption = (scene.observation.state.active_window_title or "").strip().casefold()
+    if caption == PRICING_TITLE:
+        return include_pricing
     return caption in _DISCOUNT_TITLES or any(
         (element.metadata or {}).get("name", "").strip().rstrip(":").casefold() in _DISCOUNT_LABELS
         for element in matches(scene)
@@ -102,10 +105,12 @@ def read_discount(scene, offer, api):
     return wrapper.iface_value
 
 
-def refresh_transition(loop, offer, api, destinations, *, include_discount=False):
+def refresh_transition(loop, offer, api, destinations, *, include_discount=False, include_pricing=False):
     for attempt in range(7):
         current = inspect(loop)
         if stage_of(current) in destinations and belongs_to_offer(current, offer, api):
+            return current
+        if include_pricing and owned_discount(current, offer, api, include_pricing=True):
             return current
         if include_discount and owned_discount(current, offer, api):
             return current
@@ -228,13 +233,13 @@ def build_and_confirm(loop, offer, api, position, index):
     return refresh_transition(loop, offer, api, destinations, include_discount=index == 1)
 
 
-def open_next(loop, scene, offer, api):
+def open_next(loop, scene, offer, api, *, include_pricing=False):
     if stage_of(scene) != "offer_document" or not belongs_to_offer(scene, offer, api):
         return None
     # Add normally expects the position wizard. Re-observe even if its usual
     # postcondition fails because the discount modal intercepted the transition.
     open_verified_position(loop, scene)
-    return refresh_transition(loop, offer, api, {"position"}, include_discount=True)
+    return refresh_transition(loop, offer, api, {"position"}, include_discount=True, include_pricing=include_pricing)
 
 
 def run_offer(loop, offer, api, *, color_label=None):

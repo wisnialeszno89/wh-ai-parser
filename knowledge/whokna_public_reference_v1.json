@@ -179,6 +179,13 @@
       "behavior_verified": false
     },
     {
+      "id": "position_pricing_confirmation",
+      "concept": "wycena biezacej pozycji",
+      "guidance": "W arkuszu Wycena bieżącej pozycji rozróżnij rabat, narzut i VAT. Rabat 0% jest ustawieniem ofertowego testu bez dyspozycji handlowca. Przyjmij nową wycenę po odczycie rabatu, następnie sprawdź kolejny arkusz tego samego dokumentu.",
+      "interface_evidence": "Zrzut arkusza Wycena bieżącej pozycji dostarczony przez operatora",
+      "behavior_verified": false
+    },
+    {
       "id": "dealer_price_view",
       "concept": "wycena dealerska",
       "guidance": "Wycena dealerska może nie udostępniać zakładek kosztów materiałowych i szczegółów. Ręczna zmiana ceny może wpłynąć również na kwoty netto, brutto i rabat.",

@@ -31,7 +31,7 @@ RULE_IDS = {
     "glazing": ("glazing", "component_variations", "glazing_catalogue"),
     "hardware": ("hardware", "hardware_limits", "view_window"),
     "position": ("offer_progression", "position_manager", "position_kind_quantity", "position_dimensions"),
-    "prices": ("pricing_components", "dealer_price_view"),
+    "prices": ("pricing_components", "dealer_price_view", "position_pricing_confirmation"),
     "review": ("document_lifecycle",),
 }
 
