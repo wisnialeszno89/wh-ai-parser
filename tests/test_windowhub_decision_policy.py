@@ -2,7 +2,7 @@
 import pytest
 
 from app.agent.knowledge.windowhub_decision_policy import (
-    Decision, FieldEvidence, decide_field, decide_position_fallback, decision_context,
+    Decision, FieldEvidence, CatalogAlternative, decide_field, decide_position_fallback, decision_context,
 )
 from app.agent.offers.windowhub_salesperson_policy import SalesPosition
 
@@ -65,4 +65,44 @@ def test_placeholder_requires_real_dimensions_and_capability():
 def test_model_context_never_grants_execution_authority():
     ctx = decision_context()
     assert "readback" in ctx["loop"]
-    assert "never submitted" in ctx["approval"]
+    assert "Do not SAVE" in ctx["approval"]
+
+
+def test_nearest_option_requires_live_available_and_proven_compatibility():
+    options = (
+        CatalogAlternative("UR RC2", False, True, "different security level", 1),
+        CatalogAlternative("UR ACTIVPILOT", True, True, "approved fallback", 2),
+    )
+    result = decide_field(
+        "hardware", "Unavailable exact fitting",
+        ev(available_options=("UR RC2", "UR ACTIVPILOT")),
+        alternatives=options,
+    )
+    assert result.action == Decision.SUBSTITUTE
+    assert result.desired == "UR ACTIVPILOT"
+    assert result.requested == "Unavailable exact fitting"
+    assert result.substitution_requires_review
+
+
+def test_alternative_cannot_be_used_if_not_live_catalogue_option():
+    result = decide_field(
+        "profile", "X", ev(available_options=("Z",)),
+        alternatives=(CatalogAlternative("Y", True, True, "different profile", 1),),
+    )
+    assert result.action == Decision.INSPECT
+
+
+def test_no_unproven_or_equal_ranked_substitution():
+    result = decide_field(
+        "glazing", "3 panes", ev(available_options=("2 panes",)),
+        alternatives=(CatalogAlternative("2 panes", False, True, "not verified", 1),),
+    )
+    assert result.action == Decision.ASK
+    tie = (
+        CatalogAlternative("A", True, True, "alt1", 1),
+        CatalogAlternative("B", True, True, "alt2", 1),
+    )
+    assert decide_field(
+        "profile", "Original", ev(available_options=("A", "B")),
+        alternatives=tie,
+    ).action == Decision.ASK
