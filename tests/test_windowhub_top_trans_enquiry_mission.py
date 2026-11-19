@@ -20,7 +20,9 @@ def test_exact_customer_four_windows_two_marked_boxes():
     assert result["windowhub_offer_created"] is False
     assert result["windowhub_offer_saved"] is False
     assert data["positions"][0]["sections_width_mm"] == [820, 820]
-    assert sum(row["width_mm"] for row in data["positions"]) == 3720
+    assert sum(row["width_mm"] for row in data["positions"]) == 4720
+    assert [row["height_mm"] for row in data["positions"]] == [1010, 1010, 950, 980]
+    assert data["global"]["bottom_transport_or_foot_strips"].startswith("exclude")
     assert [r["index"] for r in data["positions"] if r["box_above_marked"]] == [1, 2]
 
 
