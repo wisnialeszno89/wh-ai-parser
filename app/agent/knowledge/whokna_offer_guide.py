@@ -45,6 +45,24 @@ def load_reference(path: Path = KNOWLEDGE_PATH) -> dict:
     return data
 
 
+def single_sash_construction_recipe():
+    """Bind documented concepts to the observed single-sash editor sequence."""
+    from app.agent.learning.windowhub_builder_replay import NEXT_STEP
+    from app.gui.enums.gui_tool import GuiTool
+
+    rule_ids = {
+        GuiTool.FRAME: ("frame",),
+        GuiTool.SASH: ("sash",),
+        GuiTool.GLASS: ("glazing",),
+        GuiTool.HARDWARE: ("hardware", "hardware_limits"),
+    }
+    rules = {rule["id"]: rule for rule in load_reference()["rules"]}
+    return {
+        state: (tool, expected, tuple(rules[rule_id] for rule_id in rule_ids[tool]))
+        for state, (tool, expected) in NEXT_STEP.items()
+    }
+
+
 def offer_plan(
     reference: dict,
     *,

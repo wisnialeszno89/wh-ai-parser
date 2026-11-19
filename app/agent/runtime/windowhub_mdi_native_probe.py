@@ -456,12 +456,17 @@ class _Win32Mdi:
             child for child in self.descendants(frame) if self.class_name(child).casefold() == "mdiclient"
         )
 
+    def visible_toolbars(self, frame):
+        return tuple(
+            hwnd for hwnd in self.descendants(frame)
+            if self.class_name(hwnd).casefold().startswith(("afx:toolbar", "toolbarwindow32"))
+            and self._is_visible(hwnd) and self._is_enabled(hwnd)
+        )
+
     def editor_toolbar(self, frame):
         candidates = [
-            hwnd for hwnd in self.descendants(frame)
-            if self.class_name(hwnd).casefold().startswith("afx:toolbar")
-            and self.title(hwnd).strip().casefold() == "narzędzia"
-            and self._is_visible(hwnd) and self._is_enabled(hwnd)
+            hwnd for hwnd in self.visible_toolbars(frame)
+            if self.title(hwnd).strip().casefold() == "narzędzia"
         ]
         return candidates[0] if len(candidates) == 1 else 0
 

@@ -158,3 +158,71 @@ def test_main_editor_without_document_in_title_is_recognized_by_native_scope():
     assert scoped_position_stage(native.observe(10, "Okna -", tab="OFR/17-"), scope, native) == "windowhub_unmapped"
     native.active = 31
     assert scoped_position_stage(workspace, scope, native) == "windowhub_unmapped"
+
+
+def test_visual_editor_proof_bridges_unknown_title_and_missing_uia_tab(monkeypatch):
+    from tools import run_windowhub_existing_offer_position_test as wizard
+
+    native = Native()
+    scope = approved(native)
+    native.children.append(40)
+    native.active = 40
+    assert scope.verify(native.observe(21, "Dodawanie nowej pozycji"), native, entry=True) == "native_new_draft"
+    basic = native.observe(22, "Podstawowe parametry okna")
+    scope.verify(basic, native, follows=21)
+    basic.elements.append(NS(kind="button", label="Zakończ", metadata={
+        "source": "windowhub_ui_automation", "automation_id": "42",
+        "uia_visible": True, "uia_enabled": True,
+    }))
+
+    def observe(loop):
+        native.titles[10] = "Okna -"
+        return native.observe(10, "Okna -")
+
+    monkeypatch.setattr(wizard, "inspect", observe)
+    monkeypatch.setattr(wizard, "resolve_native_wrapper", lambda *args, **kw: NS(
+        iface_invoke=NS(Invoke=lambda: None),
+    ))
+    calls = []
+
+    def vision(scene, bound, api):
+        calls.append(scene)
+        return bound.accept_visual_editor(scene, api)
+
+    destination = wizard.confirm_stage(object(), basic, scope, native, verify_editor=vision)
+    assert destination is calls[0]
+    assert scope.visual_editor_child == 40
+    assert wizard.belongs_to_offer(destination, scope, native)
+
+    native.active = 31
+    assert not wizard.belongs_to_offer(destination, scope, native)
+
+
+def test_visual_editor_cannot_be_used_for_order_or_mismatched_selected_document():
+    native = Native()
+    scope = approved(native)
+    native.children.append(40)
+    native.active = 40
+    assert scope.verify(native.observe(21, "Dodawanie nowej pozycji"), native, entry=True) == "native_new_draft"
+    native.titles[10] = "Okna -"
+    assert not scope.accept_visual_editor(native.observe(10, "Okna -", tab="Dokument2"), native)
+    assert not scope.accept_visual_editor(native.observe(10, "Okna -", tab="ZLC/25"), native)
+    assert scope.visual_editor_child == 0
+
+
+def test_editor_can_replace_destroyed_new_draft_handle_after_finish():
+    native = Native()
+    scope = approved(native)
+    native.children.append(40)
+    native.active = 40
+    assert scope.verify(native.observe(21, "Dodawanie nowej pozycji"), native, entry=True) == "native_new_draft"
+    native.children.append(41)
+    native.titles[41] = "Dokument1"
+    native.titles[10] = "Okna -"
+    native.active = 41
+    workspace = native.observe(10, "Okna -")
+    assert not scope.accept_visual_editor(workspace, native)
+    native.children.remove(40)
+    native.pids[40] = 0
+    assert scope.accept_visual_editor(workspace, native)
+    assert scope.child == 41

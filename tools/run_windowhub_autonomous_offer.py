@@ -51,14 +51,13 @@ def capture(loop, offer, api):
     return scene, rect, shot.image[:, :, 2::-1].copy()
 
 
-def observe_workspace(loop, offer, api, number, size, *, opening=False):
+def read_position_drawing(rgb, number, size):
     import cv2
     from app.agent.learning.windowhub_offer_editor import (
-        find_drawing, fixed_window_stage, selected_row_box, selected_window_matches,
+        find_drawing, selected_row_box, selected_window_matches,
     )
     from app.agent.offers.windowhub_customer_visual_selection import _ocr_text_results
 
-    scene, rect, rgb = capture(loop, offer, api)
     row = selected_row_box(rgb)
     if row is None:
         raise WorkspaceBlocked("selected_position_row_unverified")
@@ -69,6 +68,14 @@ def observe_workspace(loop, offer, api, number, size, *, opening=False):
     drawing = find_drawing(rgb, row)
     if drawing is None:
         raise WorkspaceBlocked("drawing_outline_unverified")
+    return drawing
+
+
+def observe_workspace(loop, offer, api, number, size, *, opening=False):
+    from app.agent.learning.windowhub_offer_editor import fixed_window_stage
+
+    scene, rect, rgb = capture(loop, offer, api)
+    drawing = read_position_drawing(rgb, number, size)
     if opening:
         from app.agent.learning.windowhub_builder_replay import read_builder_stage
         state = read_builder_stage(drawing.crop(rgb))
@@ -77,34 +84,74 @@ def observe_workspace(loop, offer, api, number, size, *, opening=False):
     return scene, rect, rgb, drawing, state
 
 
-def tool_target(rgb, rect, hwnd, tool):
+def tool_target(rgb, rect, hwnd, tool, *, api=None):
     import cv2
     import numpy as np
     from PIL import Image
     from app.agent.learning.windowhub_offer_editor import Box, toolbar_tool
-    from demo.run_native_toolbar_button_probe_live import _find_toolbar, _get_window_rect
+    from demo.run_native_toolbar_button_probe_live import _get_window_rect
     from tools.check_windowhub_builder_sequence import ARCHIVED_TEMPLATES
 
-    toolbar = _find_toolbar(hwnd)
-    if not toolbar:
+    native = api if api is not None else _Win32Mdi()
+    toolbars = native.visible_toolbars(hwnd)
+    if not toolbars:
         raise WorkspaceBlocked("native_construction_toolbar_missing")
-    x, y, width, height = _get_window_rect(toolbar)
-    bounds = Box(x - rect.left, y - rect.top, width, height)
-    if (
-        bounds.x < 0 or bounds.y < 0 or bounds.right > rgb.shape[1]
-        or bounds.bottom > rgb.shape[0] or height <= 2 * width or width <= 0
-    ):
-        raise WorkspaceBlocked("native_construction_toolbar_bounds_unverified")
     name, scale = ARCHIVED_TEMPLATES[tool]
     with Image.open(ROOT / "templates" / name) as source:
         template = source.convert("L").resize(
             (round(source.width * scale), round(source.height * scale)), Image.Resampling.BILINEAR,
         )
-    gray = cv2.cvtColor(bounds.crop(rgb), cv2.COLOR_RGB2GRAY)
-    hit = toolbar_tool(gray, np.asarray(template))
-    if hit is None:
+    targets = []
+    for toolbar in toolbars:
+        x, y, width, height = _get_window_rect(toolbar)
+        bounds = Box(x - rect.left, y - rect.top, width, height)
+        if (
+            bounds.x < 0 or bounds.y < 0 or bounds.right > rgb.shape[1]
+            or bounds.bottom > rgb.shape[0] or height <= 2 * width or width <= 0
+        ):
+            continue
+        gray = cv2.cvtColor(bounds.crop(rgb), cv2.COLOR_RGB2GRAY)
+        hit = toolbar_tool(gray, np.asarray(template))
+        if hit is not None:
+            targets.append((toolbar, (bounds.x + hit[0], bounds.y + hit[1])))
+    if len(targets) != 1:
         raise WorkspaceBlocked("construction_tool_unverified:" + tool.name)
-    return toolbar, (bounds.x + hit[0], bounds.y + hit[1])
+    return targets[0]
+
+
+def verify_editor_transition(scene, offer, api, number, size, *, opening):
+    """Observe the wizard destination with the same vision that drives building."""
+    from app.agent.learning.windowhub_builder_replay import NEXT_STEP, read_builder_stage
+    from app.agent.learning.windowhub_offer_editor import fixed_window_stage
+    from app.wh.vision.mss_screenshot_engine import MSSScreenshotEngine
+
+    scope = offer.editor_candidate(scene, api, observed_replacement=True)
+    if scope != "eligible":
+        print("WH_EDITOR_EVIDENCE=" + scope, flush=True)
+        return False
+    child = active_mdi_child(offer.frame, api)
+    rect = scene.observation.metadata.get("window_rect")
+    if rect is None or min(rect.width, rect.height) <= 0:
+        print("WH_EDITOR_EVIDENCE=no_workspace_bounds", flush=True)
+        return False
+    try:
+        image = MSSScreenshotEngine().capture(rect).image[:, :, 2::-1].copy()
+        drawing = read_position_drawing(image, number, size)
+        classify = read_builder_stage if opening else fixed_window_stage
+        state = classify(drawing.crop(image))
+        if state not in {"empty", "frame", "sash"}:
+            raise WorkspaceBlocked("unexpected_initial_drawing:" + state)
+        step = (NEXT_STEP if opening else STEPS).get(state)
+        if step is None:
+            raise WorkspaceBlocked("unexpected_initial_drawing:" + state)
+        tool_target(image, rect, offer.frame, step[0], api=api)
+    except (WorkspaceBlocked, OSError, RuntimeError, ValueError) as exc:
+        reason = str(exc) if isinstance(exc, WorkspaceBlocked) else type(exc).__name__
+        print("WH_EDITOR_EVIDENCE=" + reason, flush=True)
+        return False
+    verified = bool(child and active_mdi_child(offer.frame, api) == child and offer.accept_visual_editor(scene, api))
+    print("WH_EDITOR_EVIDENCE=" + ("verified_" + state if verified else "workspace_changed"), flush=True)
+    return verified
 
 
 def owns_native_workspace(scene, offer, api):
@@ -179,9 +226,13 @@ def build_fixed(loop, offer, api, number, size):
 
 
 def build_construction(loop, offer, api, number, size, *, opening=False):
-    from app.agent.learning.windowhub_builder_replay import NEXT_STEP
+    from app.agent.knowledge.whokna_offer_guide import single_sash_construction_recipe
 
-    steps = NEXT_STEP if opening else STEPS
+    try:
+        recipe = single_sash_construction_recipe() if opening else None
+    except (KeyError, OSError, ValueError) as exc:
+        raise WorkspaceBlocked("construction_reference_incomplete") from exc
+    steps = recipe if opening else STEPS
 
     def observe():
         if opening:
@@ -189,11 +240,20 @@ def build_construction(loop, offer, api, number, size, *, opening=False):
         return observe_workspace(loop, offer, api, number, size)
 
     current = observe()
-    if current[-1] != "empty":
-        raise WorkspaceBlocked("new_position_not_empty:" + current[-1])
+    fresh_draft = isinstance(offer, NewOfferHandoff) and offer.visual_editor_child
+    initial_states = {"empty", "frame", "sash"} if fresh_draft and opening else {"empty"}
+    if current[-1] not in initial_states:
+        raise WorkspaceBlocked("new_position_unverified:" + current[-1])
+    complete = "opening_marker" if opening else "fixed_glazed"
     for _ in steps:
+        if current[-1] == complete:
+            return current[0]
         scene, rect, rgb, drawing, stage = current
-        tool, expected = steps[stage]
+        if recipe:
+            tool, expected, source_rules = recipe[stage]
+            print("WH_PLAN_RULES=" + ",".join(rule["id"] for rule in source_rules), flush=True)
+        else:
+            tool, expected = steps[stage]
         hwnd = scene.observation.metadata["window_handle"]
         toolbar, target = tool_target(rgb, rect, hwnd, tool)
         print(f"WH_AUTONOMOUS_ACTION={number}:{tool.name}", flush=True)
@@ -217,7 +277,11 @@ def build_construction(loop, offer, api, number, size, *, opening=False):
                     raise
                 time.sleep(0.25)
                 continue
-            if current[-1] == expected:
+            # Some configured frame types insert the matching sash immediately.
+            if current[-1] == expected or (opening and tool is GuiTool.FRAME and current[-1] == "sash"):
+                if current[-1] != expected:
+                    print(f"WH_AUTONOMOUS_VERIFIED={number}:frame_and_sash", flush=True)
+                    break
                 print(f"WH_AUTONOMOUS_VERIFIED={number}:{expected}", flush=True)
                 if expected == "opening_marker":
                     from app.agent.learning.windowhub_opening_marker import read_opening_marker_side
@@ -227,6 +291,8 @@ def build_construction(loop, offer, api, number, size, *, opening=False):
             if current[-1] != stage or attempt == 4:
                 raise WorkspaceBlocked(f"unexpected_drawing_after_{tool.name}:{current[-1]}")
             time.sleep(0.25)
+    if current[-1] != complete:
+        raise WorkspaceBlocked("construction_postcondition_unverified:" + current[-1])
     return current[0]
 
 
@@ -247,6 +313,9 @@ def run_offer(loop, offer, api, positions, *, construction="fix"):
         status = run(
             loop, offer, api, stop_at_editor=True, width=size[0], height=size[1],
             allow_offer_workspace=True, editor_glazing_fallback=True,
+            verify_editor=lambda scene, scope, api: verify_editor_transition(
+                scene, scope, api, number, size, opening=construction == "ur",
+            ),
         )
         if status:
             raise WorkspaceBlocked(f"position_wizard_unverified:{number}")

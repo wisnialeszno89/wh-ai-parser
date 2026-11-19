@@ -183,3 +183,31 @@ def test_hardware_requires_catalog_ur_choice():
     assert choose_ur_option([standard, ("UR 8", False, object())]) is standard
     assert choose_ur_option([("U 1", True, object()), ("Bez okuć", True, object())]) is None
     assert choose_ur_option([("UR 2", False, object()), ("UR 8", False, object())]) is None
+
+
+def test_editor_transition_uses_real_workspace_image_and_position_readback(monkeypatch, capsys):
+    from app.wh.vision import mss_screenshot_engine
+    from app.agent.offers import windowhub_customer_visual_selection as ocr
+
+    rgb = frame("builder_01_empty.png")
+    rect = NS(width=rgb.shape[1], height=rgb.shape[0])
+    scene = NS(observation=NS(metadata={"window_rect": rect}))
+    scope = NS(frame=70)
+    monkeypatch.setattr(live, "active_mdi_child", lambda *args: 77)
+    scope.editor_candidate = lambda *a, **kw: "eligible"
+    accepted = []
+    scope.accept_visual_editor = lambda *a: not accepted.append(a)
+    monkeypatch.setattr(mss_screenshot_engine, "MSSScreenshotEngine", lambda: NS(
+        capture=lambda rect: NS(image=rgb[:, :, ::-1]),
+    ))
+    monkeypatch.setattr(ocr, "_ocr_text_results", lambda *args: [
+        NS(label="1 1 Okno 1000 x 1000", confidence=1.0, bounds=(0, 0, 20, 15)),
+    ])
+    tools = []
+    monkeypatch.setattr(live, "tool_target", lambda rgb, rect, hwnd, tool, **kw: tools.append(tool))
+    assert not live.verify_editor_transition(scene, scope, object(), 1, (1200, 1000), opening=True)
+    assert not accepted
+    assert live.verify_editor_transition(scene, scope, object(), 1, (1000, 1000), opening=True)
+    assert tools == [GuiTool.FRAME]
+    assert accepted
+    assert "WH_EDITOR_EVIDENCE=verified_empty" in capsys.readouterr().out

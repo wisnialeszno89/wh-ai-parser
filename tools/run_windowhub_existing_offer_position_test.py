@@ -81,7 +81,7 @@ def belongs_to_offer(scene, offer, api):
     return True
 
 
-def confirm_stage(loop, scene, offer, api):
+def confirm_stage(loop, scene, offer, api, *, verify_editor=None):
     """Invoke a single affirmative control of the current wizard and check its destination."""
     stage = stage_of(scene)
     allowed = _NEXT_STAGES.get(stage)
@@ -126,6 +126,13 @@ def confirm_stage(loop, scene, offer, api):
     for i in range(7):
         after = inspect(loop)
         destination = scoped_position_stage(after, offer, api)
+        if (
+            verify_editor is not None and "offer_document" in allowed
+            and destination in {"windowhub_unmapped", "offer_document"}
+            and isinstance(offer, NewOfferHandoff)
+            and verify_editor(after, offer, api)
+        ):
+            destination = scoped_position_stage(after, offer, api)
         if isinstance(offer, NewOfferHandoff) and destination in allowed:
             evidence = offer.verify(after, api, follows=scene.observation.metadata.get("window_handle"))
             owner_matches = evidence in VERIFIED_HANDOFF
@@ -168,8 +175,10 @@ def handoff_scene(loop, offer, api, stages, instruction, *, ask=input):
     return None
 
 
-def confirm_or_handoff(loop, scene, offer, api, *, interactive=False):
-    after = confirm_stage(loop, scene, offer, api)
+def confirm_or_handoff(loop, scene, offer, api, *, interactive=False, verify_editor=None):
+    after = confirm_stage(
+        loop, scene, offer, api, **({"verify_editor": verify_editor} if verify_editor else {}),
+    )
     if after is not None or not interactive:
         return after
     stage = stage_of(scene)
@@ -252,7 +261,7 @@ def stop(reason):
 def run(
     loop, offer, api, *, stop_at_editor=False, color_label=None, editor_first=False,
     width=WIDTH, height=HEIGHT, strict_catalog=False, editor_glazing_fallback=False,
-    allow_offer_workspace=False,
+    allow_offer_workspace=False, verify_editor=None,
 ):
     from tools.run_windowhub_local_select_window_once import run as select_window
     from tools.run_windowhub_local_quantity_once import run as set_quantity
@@ -316,7 +325,7 @@ def run(
             scene, expected_quantity=QUANTITY,
         ).status is not WindowHubFormActionStatus.READY:
             return stop("position_next_binding_unverified")
-        scene = confirm_or_handoff(loop, scene, offer, api, interactive=editor_first)
+        scene = confirm_or_handoff(loop, scene, offer, api, interactive=editor_first, verify_editor=verify_editor)
         if scene is None:
             return stop("position_confirmation_unverified")
         stage = scoped_position_stage(scene, offer, api)
@@ -334,7 +343,7 @@ def run(
         scene = inspect(loop)
         if not dimensions_match(scene, width=width, height=height):
             return stop("dimensions_readback_mismatch")
-        scene = confirm_or_handoff(loop, scene, offer, api, interactive=editor_first)
+        scene = confirm_or_handoff(loop, scene, offer, api, interactive=editor_first, verify_editor=verify_editor)
         if scene is None:
             return stop("dimensions_confirmation_unverified")
         stage = scoped_position_stage(scene, offer, api)
@@ -370,7 +379,7 @@ def run(
                 return stop("profile_color_selection_or_readback_unverified")
             color_verified = True
             print("TEST_PROFILE_COLOR_CHECKPOINT=True" if strict_catalog else "TEST_PROFILE_COLOR_VERIFIED=True")
-        scene = confirm_or_handoff(loop, scene, offer, api, interactive=editor_first)
+        scene = confirm_or_handoff(loop, scene, offer, api, interactive=editor_first, verify_editor=verify_editor)
         if scene is None:
             return stop("basic_parameters_confirmation_unverified")
         stage = scoped_position_stage(scene, offer, api)
@@ -395,7 +404,7 @@ def run(
                 from app.agent.runtime.windowhub_catalog_handoff import current_catalog_value
                 actual = current_catalog_value(scene, "glazing_package") or ""
                 print("TEST_REQUESTED_GLAZING_VERIFIED=" + str(matches_required_glazing(actual)))
-        scene = confirm_or_handoff(loop, scene, offer, api, interactive=editor_first)
+        scene = confirm_or_handoff(loop, scene, offer, api, interactive=editor_first, verify_editor=verify_editor)
         if scene is None:
             return stop("glazing_confirmation_unverified")
         stage = scoped_position_stage(scene, offer, api)
@@ -413,14 +422,14 @@ def run(
                 return stop("hardware_defaults_unverified")
             if allow_offer_workspace:
                 print("TEST_CATALOG=windowhub_hardware_defaults")
-                scene = confirm_stage(loop, scene, offer, api)
+                scene = confirm_stage(loop, scene, offer, api, verify_editor=verify_editor)
             else:
                 scene = handoff_scene(
                     loop, offer, api, _NEXT_STAGES["hardware"],
                     "Ustaw okucia w kreatorze i przejdź do edytora konstrukcji.",
                 )
         else:
-            scene = confirm_or_handoff(loop, scene, offer, api, interactive=editor_first)
+            scene = confirm_or_handoff(loop, scene, offer, api, interactive=editor_first, verify_editor=verify_editor)
         if scene is None:
             return stop("hardware_confirmation_unverified")
         stage = scoped_position_stage(scene, offer, api)

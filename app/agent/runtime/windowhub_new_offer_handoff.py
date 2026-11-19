@@ -71,6 +71,7 @@ class NewOfferHandoff:
     position: int = 0
     child: int = 0
     offer: str | None = None
+    visual_editor_child: int = 0
 
     @classmethod
     def begin(cls, scene, api):
@@ -101,8 +102,62 @@ class NewOfferHandoff:
         self.properties = hwnd
         return True
 
+    def _editor_child(self, api, *, observed_replacement=False):
+        active = active_mdi_child(self.frame, api)
+        if active == self.child:
+            return active
+        if (
+            not observed_replacement or not active or active in self.previous_children
+            or api.pid(active) != self.pid or self.child in api.descendants(self.frame)
+            or api.pid(self.child)
+        ):
+            return 0
+        return active
+
+    def editor_candidate(self, scene, api, *, observed_replacement=False):
+        """Check whether read-only visual verification may inspect this frame."""
+        hwnd = foreground_handle(scene, api)
+        if not self.properties or not self.position or not self.child or hwnd != self.frame:
+            return "not_bound_editor_frame"
+        child = self._editor_child(api, observed_replacement=observed_replacement)
+        if not self._owned(hwnd, api) or not child:
+            return "native_active_document_changed"
+        if stage_of(scene) not in {"windowhub_unmapped", "offer_document"}:
+            return "not_workspace_stage"
+        selected, _ = selected_document_tab(scene)
+        child_title = api.title(child)
+        for caption in (api.title(hwnd), child_title, selected or ""):
+            normalized = caption.strip().casefold()
+            if normalized.startswith(("okna - zlc/", "zlc/")) or normalized in {"start1", "okna - start1"}:
+                return "other_document_kind"
+            numbered = offer_title(caption)
+            if numbered and not (same_offer_id(numbered, self.offer) or same_offer_id(numbered, offer_title(child_title))):
+                return "other_numbered_offer"
+        child_draft = _draft_name(child_title)
+        selected_draft = _draft_name(selected or "")
+        if child_draft and selected_draft and child_draft != selected_draft:
+            return "other_selected_draft"
+        return "eligible"
+
+    def accept_visual_editor(self, scene, api):
+        if self.editor_candidate(scene, api, observed_replacement=True) != "eligible":
+            return False
+        current = self._editor_child(api, observed_replacement=True)
+        if not current:
+            return False
+        self.child = self.visual_editor_child = current
+        return True
+
+    def has_visual_editor(self, scene, api):
+        return bool(
+            self.visual_editor_child and self.visual_editor_child == self.child
+            and self.editor_candidate(scene, api) == "eligible"
+        )
+
     def recognizes_editor(self, scene, api):
         """Recognize a title-less editor only for the already bound new MDI child."""
+        if self.has_visual_editor(scene, api):
+            return True
         if not self.properties or not self.position or not self.child:
             return False
         hwnd = foreground_handle(scene, api)
@@ -119,6 +174,8 @@ class NewOfferHandoff:
 
     def _workspace(self, scene, api):
         """Match the selected tab and the linked native child or main caption."""
+        if self.has_visual_editor(scene, api):
+            return True
         selected, _ = selected_document_tab(scene)
         if not selected:
             return False
