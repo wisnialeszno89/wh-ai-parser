@@ -25,6 +25,24 @@ def _draft_name(title):
     return re.sub(r"\s+", "", match[1]).casefold() if match else None
 
 
+def active_native_draft_name(scene, api):
+    """Resolve a name only when the native captions and selected tab agree."""
+    frame = foreground_handle(scene, api)
+    if not frame or stage_of(scene) != "windowhub_unmapped":
+        return None
+    child = active_mdi_child(frame, api)
+    if not child:
+        return None
+    selected, _ = selected_document_tab(scene)
+    names = {
+        draft for title in (api.title(frame), api.title(child), selected or "")
+        if (draft := _draft_name(title))
+    }
+    if len(names) == 1:
+        return names.pop()
+    return None
+
+
 def scoped_position_stage(scene, scope, api=None):
     stage = stage_of(scene)
     if stage == "windowhub_unmapped" and isinstance(scope, NewOfferHandoff):

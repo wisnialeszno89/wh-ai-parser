@@ -324,7 +324,7 @@ def test_selected_draft_retries_binding_with_visual_proof(monkeypatch):
     check = lambda rgb: True
     binding = []
     monkeypatch.setattr(live, "inspect", lambda loop: object())
-    monkeypatch.setattr(live, "observe_selected_draft_tab", lambda *args: check)
+    monkeypatch.setattr(live, "observe_selected_draft_tab", lambda *args: ("dokument15", check))
 
     def bind(*args, visual_draft_check=None):
         binding.append(visual_draft_check)
@@ -335,3 +335,25 @@ def test_selected_draft_retries_binding_with_visual_proof(monkeypatch):
     monkeypatch.setattr(live, "build_construction", lambda *args, **kwargs: None)
     assert live.build_selected_draft(object(), object(), "Dokument15", (1000, 1000), construction="ur") == 0
     assert binding == [None, check]
+
+
+def test_active_mode_uses_the_verified_selected_draft_name(monkeypatch, capsys):
+    scope = object()
+    binding = []
+    monkeypatch.setattr(live, "inspect", lambda loop: object())
+    monkeypatch.setattr(live, "active_native_draft_name", lambda *args: None)
+    check = lambda rgb: True
+    monkeypatch.setattr(live, "observe_selected_draft_tab", lambda scene, api, name: (
+        ("dokument21", check) if name is None else None
+    ))
+
+    def bind(scene, api, name, *, visual_draft_check=None):
+        binding.append((name, visual_draft_check))
+        return scope
+
+    monkeypatch.setattr(live.NewOfferHandoff, "bind_selected_draft", bind)
+    monkeypatch.setattr(live, "verify_editor_transition", lambda *args, **kwargs: True)
+    monkeypatch.setattr(live, "build_construction", lambda *args, **kwargs: None)
+    assert live.build_selected_draft(object(), object(), "active", (1000, 1000), construction="ur") == 0
+    assert binding == [("dokument21", check)]
+    assert "WH_DRAFT_TARGET=dokument21" in capsys.readouterr().out

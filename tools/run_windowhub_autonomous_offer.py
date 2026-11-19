@@ -15,7 +15,7 @@ if str(ROOT) not in sys.path:
 from app.agent.learning.windowhub_demonstration import stage_of
 from app.agent.runtime.windowhub_mdi_native_probe import _Win32Mdi
 from app.agent.runtime.windowhub_new_offer_handoff import (
-    NewOfferHandoff, active_mdi_child, foreground_handle, owner_chain, scoped_position_stage,
+    NewOfferHandoff, active_mdi_child, active_native_draft_name, foreground_handle, owner_chain, scoped_position_stage,
 )
 from app.gui.enums.gui_tool import GuiTool
 from tools.run_windowhub_existing_offer_position_test import (
@@ -382,7 +382,7 @@ def run_offer(loop, offer, api, positions, *, construction="fix"):
     return 0
 
 
-def observe_selected_draft_tab(scene, api, name):
+def observe_selected_draft_tab(scene, api, name=None):
     """Read only the visually selected tab and retain its image for rechecks."""
     import re
     import numpy as np
@@ -420,8 +420,13 @@ def observe_selected_draft_tab(scene, api, name):
         normalize(line.label) for line in (_ocr_text_results(binary, (0, 0)) or ())
         if line.confidence >= 0.85 and re.fullmatch(r"dokument\s*\d+\s*\*?", line.label.strip(), re.IGNORECASE)
     ]
-    if names != [normalize(name)]:
-        print("WH_DRAFT_EVIDENCE=" + ("different_active_draft" if len(names) == 1 else "active_tab_name_unverified"), flush=True)
+    if len(names) != 1:
+        print("WH_DRAFT_EVIDENCE=active_tab_name_unverified", flush=True)
+        return None
+    observed_name = names[0]
+    print("WH_DRAFT_OBSERVED=" + observed_name, flush=True)
+    if name is not None and observed_name != normalize(name):
+        print("WH_DRAFT_EVIDENCE=different_active_draft", flush=True)
         return None
     if foreground_handle(scene, api) != frame or active_mdi_child(frame, api) != child:
         print("WH_DRAFT_EVIDENCE=active_document_changed", flush=True)
@@ -434,20 +439,25 @@ def observe_selected_draft_tab(scene, api, name):
         )
 
     print("WH_DRAFT_EVIDENCE=verified_visual_active_tab", flush=True)
-    return check
+    return observed_name, check
 
 
 def build_selected_draft(loop, api, name, size, *, construction):
     scene = inspect(loop)
-    scope = NewOfferHandoff.bind_selected_draft(scene, api, name)
+    take_active_draft = name.casefold() == "active"
+    requested = None if take_active_draft else name
+    bound_name = active_native_draft_name(scene, api) if take_active_draft else requested
+    scope = NewOfferHandoff.bind_selected_draft(scene, api, bound_name) if bound_name else None
     if scope is None:
-        check = observe_selected_draft_tab(scene, api, name)
-        if check is not None:
-            scope = NewOfferHandoff.bind_selected_draft(scene, api, name, visual_draft_check=check)
+        visual = observe_selected_draft_tab(scene, api, requested)
+        if visual is not None:
+            bound_name, check = visual
+            scope = NewOfferHandoff.bind_selected_draft(scene, api, bound_name, visual_draft_check=check)
             if scope is None:
                 print("WH_DRAFT_EVIDENCE=native_tab_conflicts_with_visual_name", flush=True)
     if scope is None:
         raise WorkspaceBlocked("requested_editor_draft_not_selected")
+    print("WH_DRAFT_TARGET=" + bound_name, flush=True)
     opening = construction == "ur"
     if not verify_editor_transition(scene, scope, api, 1, size, opening=opening):
         raise WorkspaceBlocked("selected_editor_draft_not_verified")
@@ -470,8 +480,8 @@ def main(argv=None):
     parser.add_argument("--execute-live", action="store_true")
     parser.add_argument("--construction", choices=("fix", "ur"), default="fix",
                         help="Rodzaj konstrukcji. UR to jedno skrzydło rozwierno-uchylne.")
-    parser.add_argument("--editor-draft", metavar="DokumentN",
-                        help="Buduj tylko pierwszą pozycję w zaznaczonym szkicu.")
+    parser.add_argument("--editor-draft", metavar="DokumentN|active",
+                        help="Buduj pierwszą pozycję w podanym szkicu lub wybierz active dla zaznaczonego szkicu.")
     parser.add_argument("--positions", type=int, choices=(1, 2), default=2)
     parser.add_argument("--window", action="append", type=window_size, metavar="SZERxWYS",
                         help="Wymiary okna w mm. Powtórz opcję dla drugiej pozycji.")
