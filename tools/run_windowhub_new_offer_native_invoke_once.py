@@ -23,9 +23,9 @@ from app.agent.perception.windowhub_ui_automation_provider import WindowHubUIAut
 
 
 def resolve_native_wrapper(
-    scene, *, label, automation_id=None, allowed_stages=(), desktop=None
+    scene, *, label, automation_id=None, allowed_stages=(), desktop=None, kind="button"
 ):
-    """Re-identify a unique native control for an explicitly allowed stage."""
+    """Re-identify a unique foreground native control by role and UIA identity."""
     from pywinauto import Desktop
     if stage_of(scene) not in allowed_stages:
         raise ValueError("unexpected_windowhub_stage")
@@ -42,7 +42,7 @@ def resolve_native_wrapper(
     elements = [
         e for e in scene.elements
         if (e.metadata or {}).get("semantic_label", e.label) == label
-        and e.kind == "button"
+        and e.kind == kind
         and (e.metadata or {}).get("source") in
             {"windows_ui_automation", "windowhub_ui_automation"}
         and (e.metadata or {}).get("uia_visible") is True
@@ -53,7 +53,7 @@ def resolve_native_wrapper(
              (e.metadata or {}).get("automation_id") == automation_id)
     ]
     if len(elements) != 1:
-        raise ValueError("native_target_not_unique_or_not_button")
+        raise ValueError("native_target_not_unique_or_wrong_role")
     target = elements[0]
     expected = target.metadata or {}
     origin = meta.get("window_rect")
@@ -74,7 +74,7 @@ def resolve_native_wrapper(
             rect = (int(r.left), int(r.top), int(r.right), int(r.bottom))
             runtime = WindowHubUIAutomationProvider._runtime_id(wrapper)
             if (
-                str(info.control_type).strip().casefold() == "button"
+                str(info.control_type).strip().casefold() == kind
                 and info.automation_id == expected["automation_id"]
                 and runtime == expected["uia_runtime_id"]
                 and rect == expected_rect
@@ -86,7 +86,7 @@ def resolve_native_wrapper(
         except Exception:
             continue
     if len(candidates) != 1:
-        raise ValueError("fresh_native_button_identity_mismatch")
+        raise ValueError("fresh_native_control_identity_mismatch")
     return candidates[0]
 
 

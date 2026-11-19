@@ -172,14 +172,15 @@ def confirm_or_handoff(loop, scene, offer, api, *, interactive=False):
     )
 
 
-def catalog_or_handoff(loop, scene, offer, api, field, options, *, interactive=False, **kwargs):
+def catalog_or_handoff(loop, scene, offer, api, field, options, *, interactive=False, manual_instruction=None, **kwargs):
     selected = choose_catalog(loop, scene, offer, api, field, options, **kwargs)
     if selected is not None or not interactive:
         return selected
     label = "kolor profilu" if field == "profile_color" else "pakiet szybowy"
     selected = handoff_scene(
         loop, offer, api, {stage_of(scene)},
-        f"Wybierz ręcznie {label} w WindowHub i zostaw bieżący ekran otwarty.",
+        f"Wybierz ręcznie {label} w WindowHub i zostaw bieżący ekran otwarty."
+        if not manual_instruction else manual_instruction,
     )
     if selected is None:
         return None
@@ -191,7 +192,15 @@ def catalog_or_handoff(loop, scene, offer, api, field, options, *, interactive=F
     ):
         print("TEST_HANDOFF_STOP=catalog_value_unreadable")
         return None
-    print(f"TEST_CATALOG_READBACK={field}:{current!r}")
+    if manual_instruction and not (
+        exact_selected(selected, field, options)
+        or (kwargs.get("match_label") and kwargs["match_label"](current))
+    ):
+        # The operator has explicitly selected the requested configuration.
+        # Only their confirmation can interpret an unfamiliar catalog label.
+        print(f"TEST_CATALOG_OPERATOR_CONFIRMED={field}:{current!r}")
+    else:
+        print(f"TEST_CATALOG_READBACK={field}:{current!r}")
     return selected
 
 
@@ -232,7 +241,10 @@ def stop(reason):
     return 4
 
 
-def run(loop, offer, api, *, stop_at_editor=False, color_label=None, editor_first=False):
+def run(
+    loop, offer, api, *, stop_at_editor=False, color_label=None, editor_first=False,
+    width=WIDTH, height=HEIGHT, strict_catalog=False, editor_glazing_fallback=False,
+):
     from tools.run_windowhub_local_select_window_once import run as select_window
     from tools.run_windowhub_local_quantity_once import run as set_quantity
     from tools.run_windowhub_local_dimensions_once import run as set_dimensions
@@ -292,21 +304,25 @@ def run(loop, offer, api, *, stop_at_editor=False, color_label=None, editor_firs
     if stage == "dimensions":
         if not belongs_to_offer(scene, offer, api):
             return stop("dimensions_wizard_owner_unverified")
-        if set_dimensions(WIDTH, HEIGHT, execute_live=True) != 0:
+        if set_dimensions(width, height, execute_live=True) != 0:
             if not editor_first or handoff_scene(
                 loop, offer, api, {"dimensions"},
-                f"Wpisz ręcznie szerokość {WIDTH} mm i wysokość {HEIGHT} mm, zostając w formularzu.",
+                f"Wpisz ręcznie szerokość {width} mm i wysokość {height} mm, zostając w formularzu.",
             ) is None:
                 return stop("dimensions_unverified")
         scene = inspect(loop)
-        if not dimensions_match(scene, width=WIDTH, height=HEIGHT):
+        if not dimensions_match(scene, width=width, height=height):
             return stop("dimensions_readback_mismatch")
         scene = confirm_or_handoff(loop, scene, offer, api, interactive=editor_first)
         if scene is None:
             return stop("dimensions_confirmation_unverified")
         stage = stage_of(scene)
 
-    if stop_at_editor:
+    if strict_catalog:
+        colors, glazing = catalog_options_for(outside="antracyt", inside="biały", glazing_panes=3)
+        if color_label:
+            colors = (color_label,)
+    elif stop_at_editor:
         colors = (color_label,) if color_label else (
             ("BIAŁY CZARNA USZCZELKA",) if editor_first else _EXTERIOR_ANTHRACITE
         )
@@ -317,15 +333,19 @@ def run(loop, offer, api, *, stop_at_editor=False, color_label=None, editor_firs
     if stage == "basic_parameters":
         scene = catalog_or_handoff(
             loop, scene, offer, api, "profile_color", colors, interactive=editor_first,
-            accepted_defaults=() if stop_at_editor else (
+            accepted_defaults=() if stop_at_editor or strict_catalog else (
                 "Biały", "Biały / Biały", "BIAŁY CZARNA USZCZELKA",
             ),
-            allow_test_catalog_choice=not stop_at_editor,
+            allow_test_catalog_choice=not (stop_at_editor or strict_catalog),
+            manual_instruction=(
+                "Wybierz antracyt tylko od zewnątrz i biały od wewnątrz. "
+                "Zostaw ekran z widoczną wybraną opcją."
+            ) if strict_catalog else None,
         )
         if scene is None:
             return stop("profile_color_selection_or_readback_unverified")
         color_verified = True
-        print("TEST_PROFILE_COLOR_VERIFIED=True")
+        print("TEST_PROFILE_COLOR_CHECKPOINT=True" if strict_catalog else "TEST_PROFILE_COLOR_VERIFIED=True")
         scene = confirm_or_handoff(loop, scene, offer, api, interactive=editor_first)
         if scene is None:
             return stop("basic_parameters_confirmation_unverified")
@@ -334,13 +354,16 @@ def run(loop, offer, api, *, stop_at_editor=False, color_label=None, editor_firs
     if stage == "glazing":
         scene = catalog_or_handoff(
             loop, scene, offer, api, "glazing_package", glazing, interactive=editor_first,
-            allow_test_catalog_choice=editor_first or not stop_at_editor,
+            allow_test_catalog_choice=not strict_catalog and (editor_first or not stop_at_editor),
             match_label=matches_required_glazing if stop_at_editor else None,
+            manual_instruction=(
+                "Wybierz pakiet trzyszybowy. Zostaw ekran z widoczną wybraną opcją."
+            ) if strict_catalog else None,
         )
         if scene is None:
             return stop("glazing_selection_or_readback_unverified")
         glazing_verified = True
-        print("TEST_GLAZING_VERIFIED=True")
+        print("TEST_GLAZING_CHECKPOINT=True" if strict_catalog else "TEST_GLAZING_VERIFIED=True")
         if stop_at_editor:
             from app.agent.runtime.windowhub_catalog_handoff import current_catalog_value
             actual = current_catalog_value(scene, "glazing_package") or ""
@@ -372,7 +395,8 @@ def run(loop, offer, api, *, stop_at_editor=False, color_label=None, editor_firs
         stage = stage_of(scene)
 
     print("TEST_FINAL_STAGE=" + str(stage))
-    print("TEST_CATALOG_READBACK_COMPLETE=" + str(color_verified and glazing_verified))
+    catalog_status = "TEST_CATALOG_CHECKPOINTS_COMPLETE=" if strict_catalog else "TEST_CATALOG_READBACK_COMPLETE="
+    print(catalog_status + str(color_verified and glazing_verified))
     if not glazing_verified and stage in {"modifier", "offer_document"}:
         print("TEST_GLAZING_WIZARD_NOT_OBSERVED=True")
     # Returning to the same offer proves navigation, but not an added row.
@@ -380,7 +404,7 @@ def run(loop, offer, api, *, stop_at_editor=False, color_label=None, editor_firs
     if stage == "modifier":
         if stop_at_editor and color_verified and belongs_to_offer(scene, offer, api):
             print("TEST_EDITOR_REACHED=True")
-            if not glazing_verified and not editor_first:
+            if not glazing_verified and (not editor_first or strict_catalog) and not editor_glazing_fallback:
                 return stop("editor_reached_required_glazing_unverified")
             print("TEST_RESULT=construction_editor_reached")
             return 0
@@ -392,6 +416,7 @@ def run(loop, offer, api, *, stop_at_editor=False, color_label=None, editor_firs
 
 def run_from_start(
     loop, customer, api, *, color_label=None, resume_document_properties=False, editor_first=False,
+    on_offer_ready=None,
 ):
     from app.agent.runtime.windowhub_document_core import run_document_core
     from tools.run_windowhub_new_offer_entry import main as open_offer
@@ -425,6 +450,8 @@ def run_from_start(
     offer = confirmed[0]
     print("TEST_DOCUMENT_CONFIRMED=True")
     print("TEST_TARGET_OFFER=" + offer)
+    if on_offer_ready is not None:
+        return on_offer_ready(loop, offer, api)
     return run(
         loop, offer, api, stop_at_editor=True, color_label=color_label,
         **({"editor_first": True} if editor_first else {}),
