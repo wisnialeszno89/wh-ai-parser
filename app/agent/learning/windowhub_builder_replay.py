@@ -40,6 +40,53 @@ def read_builder_stage(rgb: np.ndarray) -> str:
     return "unknown"
 
 
+def read_builder_geometry(rgb: np.ndarray) -> str:
+    """Classify a drawing from its four profile bands and its center."""
+    red, green, blue = np.moveaxis(rgb, -1, 0)
+    outer = (red < 40) & (green < 60) & (blue > 220)
+    inner = (red < 45) & (green > 205) & (blue < 55)
+    pane = (red < 45) & (green > 175) & (green < 245) & (blue > 240)
+    h, w = outer.shape
+    rim = min(h, w) // 4
+    if rim < 12:
+        return "unknown"
+
+    def sides(mask):
+        middle_x = slice(w // 3, 2 * w // 3)
+        middle_y = slice(h // 3, 2 * h // 3)
+        return (
+            mask[:rim, middle_x].mean(axis=1),
+            mask[-rim:, middle_x].mean(axis=1)[::-1],
+            mask[middle_y, :rim].mean(axis=0),
+            mask[middle_y, -rim:].mean(axis=0)[::-1],
+        )
+
+    blue_bands = [np.flatnonzero(side >= 0.78) for side in sides(outer)]
+    if any(len(band) < 2 for band in blue_bands):
+        return "unknown"
+    sash_sides = []
+    for side, band in zip(sides(inner), blue_bands):
+        green_band = side[band[-1] + 1:] >= 0.72
+        sash_sides.append(bool((green_band[:-1] & green_band[1:]).any()))
+    core = rgb[h // 3:2*h // 3, w // 3:2*w // 3]
+    white_center = ((core > 245).all(axis=-1)).mean() >= 0.62
+    if all(sash_sides):
+        if pane[h // 3:2*h // 3, w // 3:2*w // 3].mean() > 0.68:
+            return "opening_marker" if read_opening_marker_side(rgb) else "glass"
+        if white_center and pane.mean() < 0.015:
+            return "sash"
+    if not any(sash_sides) and white_center and pane.mean() < 0.015:
+        return "frame"
+    return "unknown"
+
+
+def observe_builder_stage(rgb: np.ndarray) -> str:
+    stage = read_builder_stage(rgb)
+    if stage == "unknown":
+        stage = read_builder_geometry(rgb)
+    return stage
+
+
 @dataclass(frozen=True)
 class ToolbarMatch:
     x: int

@@ -357,3 +357,41 @@ def test_active_mode_uses_the_verified_selected_draft_name(monkeypatch, capsys):
     assert live.build_selected_draft(object(), object(), "active", (1000, 1000), construction="ur") == 0
     assert binding == [("dokument21", check)]
     assert "WH_DRAFT_TARGET=dokument21" in capsys.readouterr().out
+
+
+def test_geometry_verifies_blue_frame_when_old_palette_ratios_cannot():
+    from app.agent.learning.windowhub_builder_replay import observe_builder_stage, read_builder_stage
+
+    drawing = np.full((280, 280, 3), 255, dtype=np.uint8)
+    for strip in (drawing[:12], drawing[-12:], drawing[:, :12], drawing[:, -12:]):
+        strip[:] = (0, 0, 255)
+    assert read_builder_stage(drawing) == "unknown"
+    assert observe_builder_stage(drawing) == "frame"
+    drawing[-12:, 12:-12] = 255
+    assert observe_builder_stage(drawing) == "unknown"
+
+
+def test_next_position_rechecks_completed_window_and_waits_for_owned_wizard(monkeypatch, capsys):
+    scope = NS(frame=200, child=203, pid=50)
+    api = NS(pid=lambda hwnd: 50, parent=lambda hwnd, kind: 200, owner=lambda hwnd: 200 if hwnd == 204 else 0)
+    completed, wizard = object(), object()
+    invoked = []
+    monkeypatch.setattr(live, "observe_workspace", lambda *args, **kwargs: (completed, None, None, None, "opening_marker"))
+    monkeypatch.setattr(live, "find_draft_add_button", lambda *args: NS(
+        iface_invoke=NS(Invoke=lambda: invoked.append(True)),
+    ))
+    monkeypatch.setattr(live, "owns_native_workspace", lambda *args: True)
+    monkeypatch.setattr(live, "inspect", lambda loop: wizard)
+    monkeypatch.setattr(live, "foreground_handle", lambda *args: 204)
+    monkeypatch.setattr(live, "active_mdi_child", lambda *args: 203)
+    monkeypatch.setattr(live, "stage_of", lambda *args: "position")
+    live.open_draft_next_position(object(), scope, api, 1, (1000, 1000), opening=True)
+    assert invoked == [True]
+    assert "WH_NEXT_POSITION=wizard_open" in capsys.readouterr().out
+
+
+def test_next_position_never_clicks_add_when_glazing_and_hardware_are_not_verified(monkeypatch):
+    monkeypatch.setattr(live, "observe_workspace", lambda *args, **kwargs: (None, None, None, None, "sash"))
+    monkeypatch.setattr(live, "find_draft_add_button", lambda *args: pytest.fail("must not find or click Add"))
+    with pytest.raises(live.WorkspaceBlocked, match="next_position_previous_construction_unverified"):
+        live.open_draft_next_position(object(), object(), object(), 1, (1000, 1000), opening=True)

@@ -84,8 +84,8 @@ def observe_workspace(loop, offer, api, number, size, *, opening=False):
     scene, rect, rgb = capture(loop, offer, api)
     drawing = read_position_drawing(rgb, number, size)
     if opening:
-        from app.agent.learning.windowhub_builder_replay import read_builder_stage
-        state = read_builder_stage(drawing.crop(rgb))
+        from app.agent.learning.windowhub_builder_replay import observe_builder_stage
+        state = observe_builder_stage(drawing.crop(rgb))
     else:
         state = fixed_window_stage(drawing.crop(rgb))
     return scene, rect, rgb, drawing, state
@@ -128,7 +128,7 @@ def tool_target(rgb, rect, hwnd, tool, *, api=None):
 
 def verify_editor_transition(scene, offer, api, number, size, *, opening):
     """Observe the wizard destination with the same vision that drives building."""
-    from app.agent.learning.windowhub_builder_replay import NEXT_STEP, read_builder_stage
+    from app.agent.learning.windowhub_builder_replay import NEXT_STEP, observe_builder_stage
     from app.agent.learning.windowhub_offer_editor import fixed_window_stage
     from app.wh.vision.mss_screenshot_engine import MSSScreenshotEngine
 
@@ -147,14 +147,14 @@ def verify_editor_transition(scene, offer, api, number, size, *, opening):
         if check is not None and not check(image):
             raise WorkspaceBlocked("visual_draft_tab_changed")
         drawing = read_position_drawing(image, number, size)
-        classify = read_builder_stage if opening else fixed_window_stage
+        classify = observe_builder_stage if opening else fixed_window_stage
         state = classify(drawing.crop(image))
-        if state not in {"empty", "frame", "sash"}:
+        allowed = {"empty", "frame", "sash", "glass", "opening_marker"} if opening else {"empty", "frame", "fixed_glazed"}
+        if state not in allowed:
             raise WorkspaceBlocked("unexpected_initial_drawing:" + state)
         step = (NEXT_STEP if opening else STEPS).get(state)
-        if step is None:
-            raise WorkspaceBlocked("unexpected_initial_drawing:" + state)
-        tool_target(image, rect, offer.frame, step[0], api=api)
+        if step is not None:
+            tool_target(image, rect, offer.frame, step[0], api=api)
     except (WorkspaceBlocked, OSError, RuntimeError, ValueError) as exc:
         reason = str(exc) if isinstance(exc, WorkspaceBlocked) else type(exc).__name__
         print("WH_EDITOR_EVIDENCE=" + reason, flush=True)
@@ -234,6 +234,10 @@ def apply_ur_hardware(loop, api, frame, child):
 
 def recovery_advice(reason):
     code = reason.split(":", 1)[0]
+    if code == "next_position_dialog_requires_review":
+        return "Sprawdź dialog otwarty przez Dodaj, np. wycenę. Zatwierdź go po sprawdzeniu warunków."
+    if code in {"draft_add_control_unverified", "next_position_transition_unverified"}:
+        return "Sprawdź przycisk Dodaj w tej samej pozycji oraz czy WindowHub otworzył kreator."
     if code in {"drawing_outline_unverified", "new_position_unverified"}:
         return "Odsłoń pole rysunku pod tabelą i sprawdź, czy widać cały obrys bieżącej pozycji."
     if code in {"selected_position_row_unverified", "selected_window_number_quantity_or_dimensions_unverified"}:
@@ -286,10 +290,12 @@ def build_construction(loop, offer, api, number, size, *, opening=False):
 
     current = observe()
     fresh_draft = isinstance(offer, NewOfferHandoff) and offer.visual_editor_child
-    initial_states = {"empty", "frame", "sash"} if fresh_draft and opening else {"empty"}
+    complete = "opening_marker" if opening else "fixed_glazed"
+    initial_states = {*steps, complete} if fresh_draft else {"empty"}
     if current[-1] not in initial_states:
         raise WorkspaceBlocked("new_position_unverified:" + current[-1])
-    complete = "opening_marker" if opening else "fixed_glazed"
+    if current[-1] != "empty":
+        print("WH_RESUME_DRAWING=" + current[-1], flush=True)
     for _ in steps:
         if current[-1] == complete:
             return current[0]
@@ -442,7 +448,68 @@ def observe_selected_draft_tab(scene, api, name=None):
     return observed_name, check
 
 
-def build_selected_draft(loop, api, name, size, *, construction):
+def find_draft_add_button(frame, child, api):
+    from pywinauto import Desktop
+    from app.agent.runtime.windowhub_mdi_native_probe import _win32_mdi_lineage
+
+    candidates = []
+    for wrapper in Desktop(backend="uia").window(handle=frame).wrapper_object().descendants(control_type="Button"):
+        try:
+            info = wrapper.element_info
+            if (info.name or "").strip().casefold() != "dodaj" or not info.visible or not info.enabled:
+                continue
+            lineage = _win32_mdi_lineage(wrapper, api)
+            if lineage is not None and lineage[1] == child:
+                candidates.append(wrapper)
+        except Exception:
+            continue
+    return candidates[0] if len(candidates) == 1 else None
+
+
+def open_draft_next_position(loop, offer, api, number, size, *, opening):
+    complete = "opening_marker" if opening else "fixed_glazed"
+    scene, rect, _, _, observed = observe_workspace(loop, offer, api, number, size, opening=opening)
+    if observed != complete:
+        raise WorkspaceBlocked("next_position_previous_construction_unverified")
+
+    try:
+        button = find_draft_add_button(offer.frame, offer.child, api)
+    except Exception as exc:
+        raise WorkspaceBlocked("draft_add_control_unverified") from exc
+    if button is None or not owns_native_workspace(scene, offer, api):
+        raise WorkspaceBlocked("draft_add_control_unverified")
+
+    try:
+        invoke = button.iface_invoke
+    except Exception:
+        invoke = None
+    if invoke is not None:
+        invoke.Invoke()
+    else:
+        bounds = button.rectangle()
+        point = ((bounds.left + bounds.right) // 2 - rect.left, (bounds.top + bounds.bottom) // 2 - rect.top)
+        click_owned(scene, rect, offer, api, point)
+    print("WH_NEXT_POSITION_ACTION=add", flush=True)
+
+    for attempt in range(8):
+        after = inspect(loop)
+        hwnd = foreground_handle(after, api)
+        if not hwnd or api.pid(hwnd) != offer.pid or active_mdi_child(offer.frame, api) != offer.child:
+            raise WorkspaceBlocked("next_position_document_changed")
+        if hwnd != offer.frame:
+            if offer.frame not in owner_chain(hwnd, api) and api.parent(hwnd, 3) != offer.frame:
+                raise WorkspaceBlocked("next_position_dialog_unowned")
+            if stage_of(after) == "position":
+                print("WH_NEXT_POSITION=wizard_open", flush=True)
+                return
+            print("WH_NEXT_POSITION_DIALOG=" + api.title(hwnd), flush=True)
+            raise WorkspaceBlocked("next_position_dialog_requires_review")
+        if attempt < 7:
+            time.sleep(0.25)
+    raise WorkspaceBlocked("next_position_transition_unverified")
+
+
+def build_selected_draft(loop, api, name, size, *, construction, next_position=False):
     scene = inspect(loop)
     take_active_draft = name.casefold() == "active"
     requested = None if take_active_draft else name
@@ -464,6 +531,8 @@ def build_selected_draft(loop, api, name, size, *, construction):
     build_construction(loop, scope, api, 1, size, opening=opening)
     print("WH_AUTONOMOUS_RESULT=verified_draft_positions:1", flush=True)
     print("WH_AUTONOMOUS_PRICE_AND_SAVE=not_verified", flush=True)
+    if next_position:
+        open_draft_next_position(loop, scope, api, 1, size, opening=opening)
     return 0
 
 
@@ -482,6 +551,8 @@ def main(argv=None):
                         help="Rodzaj konstrukcji. UR to jedno skrzydło rozwierno-uchylne.")
     parser.add_argument("--editor-draft", metavar="DokumentN|active",
                         help="Buduj pierwszą pozycję w podanym szkicu lub wybierz active dla zaznaczonego szkicu.")
+    parser.add_argument("--next-position", action="store_true",
+                        help="Po weryfikacji okna otwórz następną pozycję w tym samym szkicu.")
     parser.add_argument("--positions", type=int, choices=(1, 2), default=2)
     parser.add_argument("--window", action="append", type=window_size, metavar="SZERxWYS",
                         help="Wymiary okna w mm. Powtórz opcję dla drugiej pozycji.")
@@ -489,6 +560,8 @@ def main(argv=None):
     args = parser.parse_args(argv)
     if args.window and len(args.window) > 2:
         parser.error("test obsługuje najwyżej dwie pozycje")
+    if args.next_position and not args.editor_draft:
+        parser.error("--next-position wymaga --editor-draft")
     if args.editor_draft and len(args.window or ()) != 1:
         parser.error("--editor-draft wymaga dokładnie jednego --window SZERxWYS")
     positions = tuple(args.window) if args.window else POSITIONS[:args.positions]
@@ -530,6 +603,7 @@ def main(argv=None):
         if args.editor_draft:
             return build_selected_draft(
                 loop, api, args.editor_draft, positions[0], construction=args.construction,
+                next_position=args.next_position,
             )
         return run_from_start(
             loop, customer, api,
