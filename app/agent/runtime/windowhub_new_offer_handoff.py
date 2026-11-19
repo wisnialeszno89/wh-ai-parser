@@ -72,6 +72,7 @@ class NewOfferHandoff:
     child: int = 0
     offer: str | None = None
     visual_editor_child: int = 0
+    explicit_draft: str | None = None
 
     @classmethod
     def begin(cls, scene, api):
@@ -86,6 +87,20 @@ class NewOfferHandoff:
             if api.parent(child, 1) == host
         )
         return cls(hwnd, pid, active_mdi_child(hwnd, api), children, offer_title(api.title(hwnd)))
+
+    @classmethod
+    def bind_selected_draft(cls, scene, api, name):
+        """Bind only a named, already foreground, unnumbered test document."""
+        draft = _draft_name(name)
+        frame = foreground_handle(scene, api)
+        if not draft or not frame or stage_of(scene) != "windowhub_unmapped":
+            return None
+        child = active_mdi_child(frame, api)
+        pid = api.pid(frame)
+        if not child or not pid or api.pid(child) != pid:
+            return None
+        scope = cls(frame, pid, 0, frozenset(), None, child=child, explicit_draft=draft)
+        return scope if scope.editor_candidate(scene, api) == "eligible" else None
 
     def _owned(self, hwnd, api):
         if not hwnd or api.pid(hwnd) != self.pid or api.pid(self.frame) != self.pid:
@@ -107,7 +122,7 @@ class NewOfferHandoff:
         if active == self.child:
             return active
         if (
-            not observed_replacement or not active or active in self.previous_children
+            self.explicit_draft or not observed_replacement or not active or active in self.previous_children
             or api.pid(active) != self.pid or self.child in api.descendants(self.frame)
             or api.pid(self.child)
         ):
@@ -117,7 +132,7 @@ class NewOfferHandoff:
     def editor_candidate(self, scene, api, *, observed_replacement=False):
         """Check whether read-only visual verification may inspect this frame."""
         hwnd = foreground_handle(scene, api)
-        if not self.properties or not self.position or not self.child or hwnd != self.frame:
+        if not (self.explicit_draft or (self.properties and self.position)) or not self.child or hwnd != self.frame:
             return "not_bound_editor_frame"
         child = self._editor_child(api, observed_replacement=observed_replacement)
         if not self._owned(hwnd, api) or not child:
@@ -135,6 +150,13 @@ class NewOfferHandoff:
                 return "other_numbered_offer"
         child_draft = _draft_name(child_title)
         selected_draft = _draft_name(selected or "")
+        if self.explicit_draft and (
+            self.explicit_draft not in {child_draft, selected_draft}
+            or any(name and name != self.explicit_draft for name in (child_draft, selected_draft))
+            or (selected and not selected_draft)
+            or (child_title.strip() and not child_draft)
+        ):
+            return "explicit_draft_does_not_match"
         if child_draft and selected_draft and child_draft != selected_draft:
             return "other_selected_draft"
         return "eligible"
@@ -195,6 +217,8 @@ class NewOfferHandoff:
         """Return the evidence source, or a diagnostic explaining the block."""
         hwnd = foreground_handle(scene, api)
         stage = scoped_position_stage(scene, self, api)
+        if self.explicit_draft:
+            return "native_new_draft" if self.has_visual_editor(scene, api) else "explicit_draft_editor_unverified"
         if not self.properties or not self._owned(hwnd, api):
             return "foreground_or_native_owner_unverified"
         if hwnd == self.properties or (entry and stage not in {"position", "offer_document"}):

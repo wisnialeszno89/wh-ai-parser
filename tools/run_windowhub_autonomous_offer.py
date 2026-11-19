@@ -332,6 +332,20 @@ def run_offer(loop, offer, api, positions, *, construction="fix"):
     return 0
 
 
+def build_selected_draft(loop, api, name, size, *, construction):
+    scene = inspect(loop)
+    scope = NewOfferHandoff.bind_selected_draft(scene, api, name)
+    if scope is None:
+        raise WorkspaceBlocked("requested_editor_draft_not_selected")
+    opening = construction == "ur"
+    if not verify_editor_transition(scene, scope, api, 1, size, opening=opening):
+        raise WorkspaceBlocked("selected_editor_draft_not_verified")
+    build_construction(loop, scope, api, 1, size, opening=opening)
+    print("WH_AUTONOMOUS_RESULT=verified_draft_positions:1", flush=True)
+    print("WH_AUTONOMOUS_PRICE_AND_SAVE=not_verified", flush=True)
+    return 0
+
+
 def window_size(value):
     import re
     match = re.fullmatch(r"\s*([0-9]{3,4})\s*[xX×]\s*([0-9]{3,4})\s*", value)
@@ -345,6 +359,8 @@ def main(argv=None):
     parser.add_argument("--execute-live", action="store_true")
     parser.add_argument("--construction", choices=("fix", "ur"), default="fix",
                         help="Rodzaj konstrukcji. UR to jedno skrzydło rozwierno-uchylne.")
+    parser.add_argument("--editor-draft", metavar="DokumentN",
+                        help="Buduj tylko pierwszą pozycję w zaznaczonym szkicu.")
     parser.add_argument("--positions", type=int, choices=(1, 2), default=2)
     parser.add_argument("--window", action="append", type=window_size, metavar="SZERxWYS",
                         help="Wymiary okna w mm. Powtórz opcję dla drugiej pozycji.")
@@ -352,6 +368,8 @@ def main(argv=None):
     args = parser.parse_args(argv)
     if args.window and len(args.window) > 2:
         parser.error("test obsługuje najwyżej dwie pozycje")
+    if args.editor_draft and len(args.window or ()) != 1:
+        parser.error("--editor-draft wymaga dokładnie jednego --window SZERxWYS")
     positions = tuple(args.window) if args.window else POSITIONS[:args.positions]
     if os.name != "nt" or not args.execute_live or any(
         os.environ.get(name) != "1" for name in ("COMPUTER_USE_LIVE", "WH_REAL_WINDOWHUB")
@@ -369,25 +387,31 @@ def main(argv=None):
     except (ImportError, OSError, RuntimeError, ValueError) as exc:
         print("WH_AUTONOMOUS_STOP=editor_dependency_" + type(exc).__name__)
         return 4
-    try:
-        customer = input("Nazwa istniejącego klienta testowego: ").strip()
-    except (EOFError, KeyboardInterrupt):
-        return 4
-    if not customer or len(customer) > 100 or any(ord(char) < 32 for char in customer):
-        print("WH_AUTONOMOUS_STOP=invalid_test_customer")
-        return 4
+    if not args.editor_draft:
+        try:
+            customer = input("Nazwa istniejącego klienta testowego: ").strip()
+        except (EOFError, KeyboardInterrupt):
+            return 4
+        if not customer or len(customer) > 100 or any(ord(char) < 32 for char in customer):
+            print("WH_AUTONOMOUS_STOP=invalid_test_customer")
+            return 4
 
     from app.agent.runtime.windows_desktop_agent_control_loop import create_windows_desktop_agent_control_loop
     from app.agent.runtime.windowhub_window_activation import activate_windowhub_workflow_window
 
     print(f"Przejdź do WindowHub. Start za {args.start_delay} s.", flush=True)
     time.sleep(args.start_delay)
-    if not activate_windowhub_workflow_window()[0]:
+    if not args.editor_draft and not activate_windowhub_workflow_window()[0]:
         print("WH_AUTONOMOUS_STOP=windowhub_activation_failed")
         return 4
     try:
+        loop, api = create_windows_desktop_agent_control_loop(), _Win32Mdi()
+        if args.editor_draft:
+            return build_selected_draft(
+                loop, api, args.editor_draft, positions[0], construction=args.construction,
+            )
         return run_from_start(
-            create_windows_desktop_agent_control_loop(), customer, _Win32Mdi(),
+            loop, customer, api,
             require_customer_confirmation=True,
             on_offer_ready=lambda loop, offer, api: run_offer(
                 loop, offer, api, positions, construction=args.construction,

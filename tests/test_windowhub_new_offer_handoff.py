@@ -226,3 +226,22 @@ def test_editor_can_replace_destroyed_new_draft_handle_after_finish():
     native.pids[40] = 0
     assert scope.accept_visual_editor(workspace, native)
     assert scope.child == 41
+
+
+def test_editor_only_binds_exact_selected_unnumbered_draft_and_never_switches():
+    native = Native()
+    native.children.extend((40, 41))
+    native.active = 40
+    native.titles.update({10: "Okna -", 40: "Dokument15", 41: "Dokument16"})
+    workspace = native.observe(10, "Okna -", tab="Dokument15")
+
+    assert NewOfferHandoff.bind_selected_draft(workspace, native, "Dokument16") is None
+    assert NewOfferHandoff.bind_selected_draft(workspace, native, "OFR/17-") is None
+    scope = NewOfferHandoff.bind_selected_draft(workspace, native, "Dokument15")
+    assert scope is not None and scope.accept_visual_editor(workspace, native)
+    assert scope.verify(workspace, native) == "native_new_draft"
+
+    native.active = 41
+    changed = native.observe(10, "Okna -", tab="Dokument16")
+    assert not scope.accept_visual_editor(changed, native)
+    assert scope.verify(changed, native) == "explicit_draft_editor_unverified"

@@ -61,6 +61,21 @@ def selected_window_matches(lines, number, width, height):
     )
 
 
+def position_grid_bottom(dark, row):
+    """Find the position table's lower edge connected to its left border."""
+    left = max(0, row.x - 3)
+    right = min(dark.shape[1], row.x + 2)
+    region = dark[row.bottom:, row.x:row.right]
+    for offset in np.flatnonzero(region.mean(axis=1) >= 0.90)[::-1]:
+        if offset < 4:
+            continue
+        y = row.bottom + int(offset)
+        # A toolbar or drawing line alone cannot be the grid bottom.
+        if dark[row.bottom:y, left:right].mean(axis=0).max() >= 0.90:
+            return y
+    return None
+
+
 def find_drawing(rgb, row):
     """Locate one rectangular drawing below the recognized position list."""
     red, green, blue = np.moveaxis(rgb, -1, 0)
@@ -69,13 +84,16 @@ def find_drawing(rgb, row):
     dark = rgb.max(axis=2) < 90
     candidates = []
     height, width = rgb.shape[:2]
+    grid_bottom = position_grid_bottom(dark, row)
+    top = grid_bottom if grid_bottom is not None else row.bottom
+    gap = max(85, round(height * 0.10)) if grid_bottom is not None else max(180, round(height * 0.22))
     for box in _boxes(white | frame):
         x, y, w, h = box.x, box.y, box.width, box.height
         if not (
             min(w, h) >= 85 and 0.55 <= w / h <= 1.65
             and 2 <= x < row.x + min(240, row.width // 4)
             and box.right < width and box.bottom < height
-            and row.bottom + 4 < y <= row.bottom + max(180, round(height * 0.22))
+            and top + 4 < y <= top + gap
         ):
             continue
         # An empty drawing has a black perimeter; a built frame has a

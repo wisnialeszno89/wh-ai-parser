@@ -211,3 +211,43 @@ def test_editor_transition_uses_real_workspace_image_and_position_readback(monke
     assert tools == [GuiTool.FRAME]
     assert accepted
     assert "WH_EDITOR_EVIDENCE=verified_empty" in capsys.readouterr().out
+
+
+def test_selected_row_at_top_of_tall_grid_still_finds_drawing():
+    from app.agent.learning.windowhub_offer_editor import position_grid_bottom
+
+    rgb = frame("builder_01_empty.png")
+    row = selected_row_box(rgb)
+    drawing = find_drawing(rgb, row)
+    height = 300
+    insertion = row.bottom + 4
+    extension = np.repeat(rgb[insertion:insertion + 1], height, axis=0)
+    tall_grid = np.concatenate((rgb[:insertion], extension, rgb[insertion:]))
+    observed_row = selected_row_box(tall_grid)
+    assert observed_row == row
+    bottom_edge = position_grid_bottom(tall_grid.max(axis=2) < 90, row)
+    assert bottom_edge is not None and row.bottom + height < bottom_edge < drawing.y + height
+    found = find_drawing(tall_grid, row)
+    assert found is not None
+    assert (found.x, found.y, found.width, found.height) == (
+        drawing.x, drawing.y + height, drawing.width, drawing.height,
+    )
+    assert fixed_window_stage(found.crop(tall_grid)) == "empty"
+
+
+def test_selected_draft_build_keeps_document_and_checks_dimensions(monkeypatch):
+    scope = object()
+    calls = []
+    monkeypatch.setattr(live, "inspect", lambda loop: object())
+    monkeypatch.setattr(live.NewOfferHandoff, "bind_selected_draft", lambda *args: scope)
+    monkeypatch.setattr(live, "verify_editor_transition", lambda scene, offer, api, num, size, **kw: (
+        calls.append(("observe", offer, num, size, kw["opening"])) or True
+    ))
+    monkeypatch.setattr(live, "build_construction", lambda loop, offer, api, num, size, **kw: (
+        calls.append(("build", offer, num, size, kw["opening"]))
+    ))
+    assert live.build_selected_draft(object(), object(), "Dokument15", (1000, 1000), construction="ur") == 0
+    assert calls == [
+        ("observe", scope, 1, (1000, 1000), True),
+        ("build", scope, 1, (1000, 1000), True),
+    ]
