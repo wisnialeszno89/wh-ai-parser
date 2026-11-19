@@ -49,7 +49,11 @@ def capture(loop, offer, api):
     shot = MSSScreenshotEngine().capture(rect)
     if not owns_native_workspace(scene, offer, api):
         raise WorkspaceBlocked("active_offer_changed_during_capture")
-    return scene, rect, shot.image[:, :, 2::-1].copy()
+    rgb = shot.image[:, :, 2::-1].copy()
+    check = offer.visual_draft_check if isinstance(offer, NewOfferHandoff) else None
+    if check is not None and not check(rgb):
+        raise WorkspaceBlocked("visual_draft_tab_changed")
+    return scene, rect, rgb
 
 
 def read_position_drawing(rgb, number, size):
@@ -139,6 +143,9 @@ def verify_editor_transition(scene, offer, api, number, size, *, opening):
         return False
     try:
         image = MSSScreenshotEngine().capture(rect).image[:, :, 2::-1].copy()
+        check = getattr(offer, "visual_draft_check", None)
+        if check is not None and not check(image):
+            raise WorkspaceBlocked("visual_draft_tab_changed")
         drawing = read_position_drawing(image, number, size)
         classify = read_builder_stage if opening else fixed_window_stage
         state = classify(drawing.crop(image))
@@ -238,7 +245,7 @@ def recovery_advice(reason):
     if code in {"drawing_changed_after_tool_selection", "construction_effect_unverified"}:
         return "Sprawdź rysunek i ewentualny dialog WindowHub. Potwierdź efekt przed ponownym wykonaniem czynności."
     if code in {"active_offer_workspace_unverified", "active_offer_changed_during_capture",
-                "native_input_target_changed", "requested_editor_draft_not_selected"}:
+                "native_input_target_changed", "requested_editor_draft_not_selected", "visual_draft_tab_changed"}:
         return "Przywróć na pierwszy plan właściwy szkic i zaznacz pozycję wskazaną w poleceniu."
     return "Sprawdź ostatni komunikat WindowHub i stan bieżącej pozycji."
 
@@ -375,9 +382,70 @@ def run_offer(loop, offer, api, positions, *, construction="fix"):
     return 0
 
 
+def observe_selected_draft_tab(scene, api, name):
+    """Read only the visually selected tab and retain its image for rechecks."""
+    import re
+    import numpy as np
+    import cv2
+    from app.agent.learning.windowhub_offer_editor import selected_tab_crop_box
+    from app.agent.offers.windowhub_customer_visual_selection import _ocr_text_results
+    from app.wh.vision.mss_screenshot_engine import MSSScreenshotEngine
+
+    frame = foreground_handle(scene, api)
+    rect = scene.observation.metadata.get("window_rect")
+    if not frame or stage_of(scene) != "windowhub_unmapped" or rect is None:
+        print("WH_DRAFT_EVIDENCE=foreground_editor_unverified", flush=True)
+        return None
+    child = active_mdi_child(frame, api)
+    if not child or api.pid(frame) != api.pid(child):
+        print("WH_DRAFT_EVIDENCE=active_native_document_unverified", flush=True)
+        return None
+    image = MSSScreenshotEngine().capture(rect).image[:, :, 2::-1].copy()
+    box = selected_tab_crop_box(image)
+    if box is None:
+        print("WH_DRAFT_EVIDENCE=active_tab_shape_unverified", flush=True)
+        return None
+    crop = box.crop(image)
+    label = crop[:, 2 * box.height:]
+    if label.shape[1] < 25:
+        print("WH_DRAFT_EVIDENCE=active_tab_name_unverified", flush=True)
+        return None
+    gray = cv2.resize(cv2.cvtColor(label, cv2.COLOR_RGB2GRAY), None, fx=4, fy=4)
+    binary = cv2.threshold(gray, 100, 255, cv2.THRESH_BINARY)[1]
+    binary = cv2.copyMakeBorder(binary, 12, 12, 12, 12, cv2.BORDER_CONSTANT, value=255)
+
+    def normalize(value):
+        return re.sub(r"[\s*]+", "", value).casefold()
+    names = [
+        normalize(line.label) for line in (_ocr_text_results(binary, (0, 0)) or ())
+        if line.confidence >= 0.85 and re.fullmatch(r"dokument\s*\d+\s*\*?", line.label.strip(), re.IGNORECASE)
+    ]
+    if names != [normalize(name)]:
+        print("WH_DRAFT_EVIDENCE=" + ("different_active_draft" if len(names) == 1 else "active_tab_name_unverified"), flush=True)
+        return None
+    if foreground_handle(scene, api) != frame or active_mdi_child(frame, api) != child:
+        print("WH_DRAFT_EVIDENCE=active_document_changed", flush=True)
+        return None
+
+    def check(rgb):
+        return (
+            foreground_handle(scene, api) == frame and active_mdi_child(frame, api) == child
+            and selected_tab_crop_box(rgb) == box and np.array_equal(box.crop(rgb), crop)
+        )
+
+    print("WH_DRAFT_EVIDENCE=verified_visual_active_tab", flush=True)
+    return check
+
+
 def build_selected_draft(loop, api, name, size, *, construction):
     scene = inspect(loop)
     scope = NewOfferHandoff.bind_selected_draft(scene, api, name)
+    if scope is None:
+        check = observe_selected_draft_tab(scene, api, name)
+        if check is not None:
+            scope = NewOfferHandoff.bind_selected_draft(scene, api, name, visual_draft_check=check)
+            if scope is None:
+                print("WH_DRAFT_EVIDENCE=native_tab_conflicts_with_visual_name", flush=True)
     if scope is None:
         raise WorkspaceBlocked("requested_editor_draft_not_selected")
     opening = construction == "ur"

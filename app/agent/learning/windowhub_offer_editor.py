@@ -198,3 +198,37 @@ def toolbar_tool(gray, template):
     score, x, y = max(matches)
     rival = max((other for other, a, b in matches if abs(b - y) >= 12), default=-1)
     return (x, y) if score >= 0.82 and score - rival >= 0.045 else None
+
+
+def selected_tab_crop_box(rgb):
+    """Find where the active tab joins the colored document border."""
+    row = selected_row_box(rgb)
+    if row is None or row.x < 10:
+        return None
+    matches = []
+    start = max(0, row.x - 5)
+    end = min(rgb.shape[1], row.right)
+    if end - start < 300:
+        return None
+    for y in range(45, row.y - 8):
+        edge = rgb[y, start:end].astype(np.int16)
+        color = np.median(edge, axis=0)
+        if np.mean(np.max(abs(edge - color), axis=1) <= 2) < 0.95:
+            continue
+        if np.mean(np.max(abs(rgb[y + 1, start:end].astype(np.int16) - color), axis=1) <= 2) < 0.95:
+            continue
+        seam = rgb[y - 1, start:end].astype(np.int16)
+        neutral = np.median(seam, axis=0)
+        if np.ptp(neutral) > 14 or np.max(abs(neutral - color)) < 12:
+            continue
+        if np.mean(np.max(abs(seam - neutral), axis=1) <= 3) < 0.62:
+            continue
+        active = np.max(abs(seam - color), axis=1) <= 3
+        changes = np.flatnonzero(np.diff(np.r_[False, active, False]))
+        runs = [(left, right) for left, right in changes.reshape(-1, 2) if right - left >= 35]
+        if len(runs) != 1:
+            continue
+        left, right = runs[0]
+        if 0 < left < right < end - start and right - left <= 250:
+            matches.append(Box(start + left + 2, y - 20, right - left - 4, 19))
+    return matches[0] if len(matches) == 1 else None

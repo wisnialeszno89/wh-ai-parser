@@ -245,3 +245,19 @@ def test_editor_only_binds_exact_selected_unnumbered_draft_and_never_switches():
     changed = native.observe(10, "Okna -", tab="Dokument16")
     assert not scope.accept_visual_editor(changed, native)
     assert scope.verify(changed, native) == "explicit_draft_editor_unverified"
+
+
+def test_editor_only_uses_frame_caption_or_verified_visual_tab_without_overriding_conflicts():
+    native = Native()
+    native.active = 40
+    native.children.append(40)
+    native.titles.update({10: "Okna - Dokument15*", 40: ""})
+    scene = native.observe(10, "Okna - Dokument15*")
+    assert NewOfferHandoff.bind_selected_draft(scene, native, "Dokument15")
+    native.titles[10] = "Okna -"
+    scene = native.observe(10, "Okna -")
+    assert NewOfferHandoff.bind_selected_draft(scene, native, "Dokument15") is None
+    visual = lambda rgb: True
+    assert NewOfferHandoff.bind_selected_draft(scene, native, "Dokument15", visual_draft_check=visual)
+    scene = native.observe(10, "Okna -", tab="Dokument16")
+    assert NewOfferHandoff.bind_selected_draft(scene, native, "Dokument15", visual_draft_check=visual) is None

@@ -1,6 +1,7 @@
 """Follow the native ownership of one new-offer transaction across its dialogs."""
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 import re
 
@@ -8,7 +9,7 @@ from app.agent.learning.windowhub_demonstration import stage_of
 from app.agent.runtime.active_document_scope import selected_document_tab
 from app.agent.runtime.windowhub_mdi_native_probe import offer_caption_id, same_offer_id
 
-_DRAFT_TITLE = re.compile(r"(?:okna - )?(dokument\s*\d+)", re.IGNORECASE)
+_DRAFT_TITLE = re.compile(r"(?:okna - )?(dokument\s*\d+)\s*\*?", re.IGNORECASE)
 WIZARD_STAGES = {"position", "dimensions", "basic_parameters", "glazing", "hardware", "modifier"}
 
 
@@ -73,6 +74,7 @@ class NewOfferHandoff:
     offer: str | None = None
     visual_editor_child: int = 0
     explicit_draft: str | None = None
+    visual_draft_check: Callable | None = None
 
     @classmethod
     def begin(cls, scene, api):
@@ -89,7 +91,7 @@ class NewOfferHandoff:
         return cls(hwnd, pid, active_mdi_child(hwnd, api), children, offer_title(api.title(hwnd)))
 
     @classmethod
-    def bind_selected_draft(cls, scene, api, name):
+    def bind_selected_draft(cls, scene, api, name, *, visual_draft_check=None):
         """Bind only a named, already foreground, unnumbered test document."""
         draft = _draft_name(name)
         frame = foreground_handle(scene, api)
@@ -99,7 +101,8 @@ class NewOfferHandoff:
         pid = api.pid(frame)
         if not child or not pid or api.pid(child) != pid:
             return None
-        scope = cls(frame, pid, 0, frozenset(), None, child=child, explicit_draft=draft)
+        scope = cls(frame, pid, 0, frozenset(), None, child=child, explicit_draft=draft,
+                    visual_draft_check=visual_draft_check)
         return scope if scope.editor_candidate(scene, api) == "eligible" else None
 
     def _owned(self, hwnd, api):
@@ -141,7 +144,8 @@ class NewOfferHandoff:
             return "not_workspace_stage"
         selected, _ = selected_document_tab(scene)
         child_title = api.title(child)
-        for caption in (api.title(hwnd), child_title, selected or ""):
+        frame_title = api.title(hwnd)
+        for caption in (frame_title, child_title, selected or ""):
             normalized = caption.strip().casefold()
             if normalized.startswith(("okna - zlc/", "zlc/")) or normalized in {"start1", "okna - start1"}:
                 return "other_document_kind"
@@ -150,9 +154,10 @@ class NewOfferHandoff:
                 return "other_numbered_offer"
         child_draft = _draft_name(child_title)
         selected_draft = _draft_name(selected or "")
+        draft_names = {_draft_name(frame_title), child_draft, selected_draft}
         if self.explicit_draft and (
-            self.explicit_draft not in {child_draft, selected_draft}
-            or any(name and name != self.explicit_draft for name in (child_draft, selected_draft))
+            (self.explicit_draft not in draft_names and self.visual_draft_check is None)
+            or any(name and name != self.explicit_draft for name in draft_names)
             or (selected and not selected_draft)
             or (child_title.strip() and not child_draft)
         ):

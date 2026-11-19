@@ -301,3 +301,37 @@ def test_delayed_effect_recovers_and_continues_without_duplicate_click(monkeypat
     assert live.build_fixed(object(), "OFR/42-", object(), 1, (1000, 1000)) is scene
     assert len(clicks) == 4
     assert "WH_RECOVERY=effect_verified_after_2_reads" in capsys.readouterr().out
+
+
+def test_active_tab_crop_follows_border_gap_not_other_visible_tabs():
+    from app.agent.learning.windowhub_offer_editor import selected_tab_crop_box
+
+    rgb = frame("builder_01_empty.png")
+    row = selected_row_box(rgb)
+    rgb[100:174, :] = (238, 240, 252)
+    rgb[125:150, 120:310] = (220, 180, 200)
+    rgb[150:154, 40:1500] = (156, 193, 182)
+    rgb[149, 40:1500] = (171, 173, 179)
+    rgb[149, 210:310] = (156, 193, 182)
+    assert selected_row_box(rgb) == row
+    assert selected_tab_crop_box(rgb).x == 212
+    rgb[149, 120:180] = (156, 193, 182)
+    assert selected_tab_crop_box(rgb) is None
+
+
+def test_selected_draft_retries_binding_with_visual_proof(monkeypatch):
+    scope = object()
+    check = lambda rgb: True
+    binding = []
+    monkeypatch.setattr(live, "inspect", lambda loop: object())
+    monkeypatch.setattr(live, "observe_selected_draft_tab", lambda *args: check)
+
+    def bind(*args, visual_draft_check=None):
+        binding.append(visual_draft_check)
+        return scope if visual_draft_check is check else None
+
+    monkeypatch.setattr(live.NewOfferHandoff, "bind_selected_draft", bind)
+    monkeypatch.setattr(live, "verify_editor_transition", lambda *args, **kwargs: True)
+    monkeypatch.setattr(live, "build_construction", lambda *args, **kwargs: None)
+    assert live.build_selected_draft(object(), object(), "Dokument15", (1000, 1000), construction="ur") == 0
+    assert binding == [None, check]
