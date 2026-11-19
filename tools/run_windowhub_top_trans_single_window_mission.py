@@ -117,7 +117,7 @@ def handle_customer_lookup(scene):
 
 def progressive_customer_selection(
     loop, initial_scene, name, *, require_result_click=False,
-    visible_completions=None, replace_existing=False,
+    visible_completions=None, replace_existing=False, short_prefix_only=False,
 ):
     """Type in short chunks, observing BEFORE the final name is entered.
 
@@ -145,10 +145,12 @@ def progressive_customer_selection(
     user32 = ctypes.WinDLL("user32", use_last_error=True)
     user32.GetForegroundWindow.argtypes = []
     user32.GetForegroundWindow.restype = wintypes.HWND
-    for index, part in enumerate(parts):
-        if index:
-            if int(user32.GetForegroundWindow() or 0) != hwnd:
-                return False, "CUSTOMER_TYPING_WINDOW_CHANGED"
+    checkpoints = 3 if short_prefix_only else len(parts)
+    for index in range(checkpoints):
+        if int(user32.GetForegroundWindow() or 0) != hwnd:
+            return False, "CUSTOMER_TYPING_WINDOW_CHANGED"
+        if index and not short_prefix_only:
+            part = parts[index]
             try:
                 send_keys(part, with_spaces=True, pause=0.07)
             except Exception as exc:
@@ -157,7 +159,11 @@ def progressive_customer_selection(
         current = inspect(loop)
         if stage_of(current) != "document_properties":
             return False, "CUSTOMER_SEARCH_STAGE_CHANGED"
-        print("CUSTOMER_SEARCH_CHECKPOINT =", index + 1, "/", len(parts))
+        if current.observation.metadata.get("window_handle") != hwnd:
+            return False, "CUSTOMER_SEARCH_WINDOW_CHANGED"
+        print("CUSTOMER_SEARCH_CHECKPOINT =", index + 1, "/", checkpoints)
+        if short_prefix_only:
+            print("CUSTOMER_SEARCH_MODE=observe_short_prefix")
         if not require_result_click and customer_selected(current, name):
             return True, "CUSTOMER_VERIFIED_AFTER_TYPED_CHUNK"
         matched, reason = select_exact_customer_result(
@@ -192,6 +198,8 @@ def progressive_customer_selection(
                 print("CUSTOMER_COMMIT_VERIFIED_NATIVE = True")
                 return True, "CUSTOMER_VERIFIED_NATIVE_READBACK"
             return False, "CUSTOMER_CLICKED_BUT_SELECTION_UNVERIFIED_" + evidence.reason
+    if short_prefix_only:
+        return False, "CUSTOMER_NO_EXACT_RESULT_FOR_SHORT_PREFIX"
     return False, "CUSTOMER_NO_EXACT_SUGGESTION_DURING_TYPING"
 
 

@@ -339,6 +339,7 @@ def run_from_start(loop, customer, api, *, color_label=None, resume_document_pro
     code = run_document_core(
         customer_name=customer, fresh_document=True, on_confirmed=capture,
         confirm_similar_customer=True, replace_customer_filter=resume,
+        allow_test_blank_customer=True,
     )
     if code != 0:
         return stop("customer_prices_or_document_confirmation_unverified")

@@ -41,3 +41,44 @@ def test_ocr_text_inside_editor_excluded():
     region = (250, 311, 700, 800)
     rows = [VisualCustomerResult("Top Trans", .99, (285, 290, 465, 307))]
     assert match_visual_customer(rows, "Top Trans", region) == []
+
+
+def test_observe_only_short_prefix_never_appends_name(monkeypatch):
+    import ctypes
+    import sys
+    from types import SimpleNamespace as NS
+    from app.agent.offers import windowhub_customer_result_selection as native
+    from app.agent.offers import windowhub_customer_visual_selection as visual
+    from tools import run_windowhub_top_trans_single_window_mission as mission
+
+    calls = []
+
+    def initial(scene, prefix, **kwargs):
+        calls.append(("type", prefix))
+        return NS(status="search_submitted_unverified", reason="ok")
+
+    def foreground():
+        return 80
+
+    state = NS(active_application="Okna.exe", active_window_title="Właściwości dokumentu")
+    scene = NS(observation=NS(state=state, metadata={"window_handle": 80}))
+    monkeypatch.setattr(ctypes, "WinDLL", lambda *a, **k: NS(GetForegroundWindow=foreground), raising=False)
+    monkeypatch.setitem(sys.modules, "pywinauto.keyboard", NS(
+        send_keys=lambda *a, **k: (_ for _ in ()).throw(AssertionError("typed after the short prefix")),
+    ))
+    monkeypatch.setattr(mission.time, "sleep", lambda seconds: None)
+    monkeypatch.setattr(mission, "type_directly_into_customer_lookup", initial)
+    monkeypatch.setattr(mission, "inspect", lambda loop: scene)
+    monkeypatch.setattr(mission, "customer_selected", lambda *a: True)
+
+    def scan(scene, name, **kwargs):
+        calls.append(("scan", name))
+        return (len(calls) == 3, "native status")
+
+    monkeypatch.setattr(native, "select_exact_customer_result", scan)
+    monkeypatch.setattr(visual, "select_exact_visual_customer", lambda *a: (False, "not visible yet"))
+    result, _ = mission.progressive_customer_selection(
+        object(), scene, "Top Trans Artur Janik", require_result_click=True, short_prefix_only=True,
+    )
+    assert result
+    assert calls == [("type", "Top"), ("scan", "Top Trans Artur Janik"), ("scan", "Top Trans Artur Janik")]

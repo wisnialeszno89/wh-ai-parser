@@ -163,7 +163,8 @@ def test_customer_completion_requeries_approved_name_in_same_document(monkeypatc
         calls.append(name)
         if len(calls) == 1:
             options["visible_completions"].add("Top Trans Artur Janik")
-            return False, "CUSTOMER_NO_EXACT_SUGGESTION_DURING_TYPING"
+            assert options["short_prefix_only"] is True
+            return False, "CUSTOMER_NO_EXACT_RESULT_FOR_SHORT_PREFIX"
         assert options["replace_existing"] is True
         return True, "CUSTOMER_VERIFIED_AFTER_EXACT_RESULT_CLICK"
 
@@ -180,3 +181,44 @@ def test_customer_completion_requeries_approved_name_in_same_document(monkeypatc
     )
     assert result == 0
     assert calls == ["Top Trans", "Top Trans Artur Janik"]
+
+
+def test_blank_test_handoff_accepts_only_the_cleared_lookup(monkeypatch, capsys):
+    from types import SimpleNamespace as NS
+    from app.agent.runtime import windowhub_document_core as core
+    from app.agent.runtime import windowhub_window_activation as activation
+    from app.agent.runtime import windows_desktop_agent_control_loop as controls
+    from tools import run_windowhub_top_trans_single_window_mission as legacy
+    from tools import run_windowhub_new_offer_native_invoke_once as native
+
+    state = NS(active_application="Okna.exe", active_window_title="Właściwości dokumentu")
+    scene = NS(observation=NS(state=state, metadata={"window_handle": 80}))
+    picker = NS(metadata={"current_value": "Top"})
+    calls = []
+    monkeypatch.setattr(activation, "activate_windowhub_workflow_window", lambda: (True, "ok"))
+    monkeypatch.setattr(controls, "create_windows_desktop_agent_control_loop", object)
+    monkeypatch.setattr(legacy, "inspect", lambda loop: scene)
+    monkeypatch.setattr(legacy, "customer_selected", lambda *args: False)
+    monkeypatch.setattr(legacy, "progressive_customer_selection",
+                        lambda *args, **kwargs: (False, "CUSTOMER_NO_EXACT_RESULT_FOR_SHORT_PREFIX"))
+    monkeypatch.setattr(legacy, "matches", lambda *args, **kwargs: [picker])
+    monkeypatch.setattr(legacy, "verify_exclusion", lambda *args, **kwargs: True)
+
+    def confirm():
+        calls.append("OK")
+        state.active_window_title = "Okna - OFR/42-"
+
+    monkeypatch.setattr(native, "resolve_native_wrapper", lambda *args, **kwargs: NS(
+        iface_invoke=NS(Invoke=confirm),
+    ))
+    kwargs = dict(
+        customer_name="Top Trans", fresh_document=True, confirm_similar_customer=True,
+        allow_test_blank_customer=True, ask=lambda prompt: "BEZ KLIENTA",
+    )
+    assert core.run_document_core(**kwargs) == 6
+    assert calls == []
+
+    picker.metadata["current_value"] = ""
+    assert core.run_document_core(**kwargs) == 0
+    assert calls == ["OK"]
+    assert "DOCUMENT_CUSTOMER_ACCEPTANCE=human_confirmed_blank_test" in capsys.readouterr().out
