@@ -402,6 +402,16 @@ class _Win32Mdi:
         self.foreground = api.GetForegroundWindow
         self.foreground.argtypes = []
         self.foreground.restype = wintypes.HWND
+        self._owner = api.GetWindow
+        self._owner.argtypes = [wintypes.HWND, wintypes.UINT]
+        self._owner.restype = wintypes.HWND
+        self._window_pid = api.GetWindowThreadProcessId
+        self._window_pid.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.DWORD)]
+        self._window_pid.restype = wintypes.DWORD
+        self._child_callback = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+        self._enum_children = api.EnumChildWindows
+        self._enum_children.argtypes = [wintypes.HWND, self._child_callback, wintypes.LPARAM]
+        self._enum_children.restype = wintypes.BOOL
         self._class_name = api.GetClassNameW
         self._class_name.argtypes = [wintypes.HWND, wintypes.LPWSTR, ctypes.c_int]
         self._class_name.restype = ctypes.c_int
@@ -414,6 +424,31 @@ class _Win32Mdi:
             wintypes.UINT, wintypes.UINT, ctypes.POINTER(ctypes.c_size_t),
         ]
         self._send.restype = ctypes.c_ssize_t
+
+    def owner(self, hwnd):
+        return int(self._owner(hwnd, 4) or 0)  # GW_OWNER
+
+    def pid(self, hwnd):
+        import ctypes
+        from ctypes import wintypes
+        result = wintypes.DWORD()
+        return result.value if self._window_pid(hwnd, ctypes.byref(result)) else 0
+
+    def descendants(self, hwnd):
+        children = []
+
+        @self._child_callback
+        def inspect(child, _):
+            children.append(int(child))
+            return True
+
+        self._enum_children(hwnd, inspect, 0)
+        return tuple(children)
+
+    def mdi_hosts(self, frame):
+        return tuple(
+            child for child in self.descendants(frame) if self.class_name(child).casefold() == "mdiclient"
+        )
 
     def active_child(self, host):
         import ctypes

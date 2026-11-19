@@ -16,6 +16,7 @@ from app.agent.learning.windowhub_demonstration import stage_of
 from app.agent.runtime.windowhub_catalog_continuation import (
     catalog_options_for, dimensions_match, exact_selected,
 )
+from app.agent.runtime.windowhub_new_offer_handoff import NewOfferHandoff, VERIFIED_HANDOFF, scoped_position_stage
 from app.agent.runtime.windowhub_mdi_native_probe import _Win32Mdi, offer_caption_id, same_offer_id
 from tools.run_navimind_whokna_first_verified_step import test_offer_diagnostic as offer_diagnostic
 from tools.run_windowhub_new_offer_native_invoke_once import resolve_native_wrapper
@@ -70,6 +71,8 @@ def foreground_offer_caption(scene, api):
 
 
 def belongs_to_offer(scene, offer, api):
+    if isinstance(offer, NewOfferHandoff):
+        return offer.verify(scene, api) in VERIFIED_HANDOFF
     caption = foreground_offer_caption(scene, api)
     if not same_offer_id(caption, offer):
         return False
@@ -122,8 +125,13 @@ def confirm_stage(loop, scene, offer, api):
         return None
     for i in range(7):
         after = inspect(loop)
-        destination = stage_of(after)
-        owner_matches = belongs_to_offer(after, offer, api)
+        destination = scoped_position_stage(after, offer)
+        if isinstance(offer, NewOfferHandoff) and destination in allowed:
+            evidence = offer.verify(after, api, follows=scene.observation.metadata.get("window_handle"))
+            owner_matches = evidence in VERIFIED_HANDOFF
+            print("TEST_WIZARD_SCOPE=" + evidence)
+        else:
+            owner_matches = belongs_to_offer(after, offer, api) if not isinstance(offer, NewOfferHandoff) else False
         print(f"TEST_CONFIRM_OBSERVED={destination}:owner_match_{owner_matches}")
         if destination in allowed and owner_matches:
             print(f"TEST_CONFIRM_VERIFIED={stage}->{destination}")
@@ -133,7 +141,7 @@ def confirm_stage(loop, scene, offer, api):
         # Only a recognized destination with matching OFR can succeed.
         if destination not in {stage, "windowhub_unmapped"} and destination not in allowed:
             break
-        if destination == "offer_document" and not owner_matches:
+        if destination == "offer_document" and not owner_matches and not isinstance(offer, NewOfferHandoff):
             break
         if i < 6:
             time.sleep(0.4)
@@ -251,26 +259,36 @@ def run(
     from tools.run_windowhub_local_dimensions_once import run as set_dimensions
 
     scene = inspect(loop)
-    stage = stage_of(scene)
+    stage = scoped_position_stage(scene, offer)
     print("TEST_ENTRY_STAGE=" + str(stage))
     if not belongs_to_offer(scene, offer, api):
         return stop("requested_offer_or_wizard_owner_unverified")
     if stage == "offer_document":
+        if isinstance(offer, NewOfferHandoff) and offer.offer is None:
+            return stop("draft_workspace_add_requires_numbered_offer")
         opened = open_verified_position(loop, scene)
         if not opened and not allow_offer_workspace:
             return stop("add_unverified")
         scene = inspect(loop)
-        stage = stage_of(scene)
+        stage = scoped_position_stage(scene, offer)
+        if stage == "position" and isinstance(offer, NewOfferHandoff):
+            evidence = offer.verify(scene, api, entry=True)
+            print("TEST_WIZARD_SCOPE=" + evidence)
         if stage != "position" or not belongs_to_offer(scene, offer, api):
             return stop("position_wizard_owner_unverified")
+
+    def owned_step(scene):
+        return belongs_to_offer(scene, offer, api)
+
     if stage == "position":
         for name, action in (
-            ("window_type", lambda: select_window(live=True)),
-            ("quantity", lambda: set_quantity(QUANTITY, live=True)),
+            ("window_type", lambda: select_window(live=True, loop=loop, authorize=owned_step)),
+            ("quantity", lambda: set_quantity(QUANTITY, live=True, loop=loop, authorize=owned_step)),
         ):
             active = inspect(loop)
             if stage_of(active) != "position" or not belongs_to_offer(active, offer, api):
                 return stop("position_wizard_owner_changed")
+            print("TEST_WIZARD_ACTION=" + name)
             if action() != 0:
                 if not editor_first or handoff_scene(
                     loop, offer, api, {"position"},
@@ -301,12 +319,13 @@ def run(
         scene = confirm_or_handoff(loop, scene, offer, api, interactive=editor_first)
         if scene is None:
             return stop("position_confirmation_unverified")
-        stage = stage_of(scene)
+        stage = scoped_position_stage(scene, offer)
 
     if stage == "dimensions":
         if not belongs_to_offer(scene, offer, api):
             return stop("dimensions_wizard_owner_unverified")
-        if set_dimensions(width, height, execute_live=True) != 0:
+        print(f"TEST_WIZARD_ACTION=dimensions:{width}x{height}")
+        if set_dimensions(width, height, execute_live=True, loop=loop, authorize=owned_step) != 0:
             if not editor_first or handoff_scene(
                 loop, offer, api, {"dimensions"},
                 f"Wpisz ręcznie szerokość {width} mm i wysokość {height} mm, zostając w formularzu.",
@@ -318,7 +337,7 @@ def run(
         scene = confirm_or_handoff(loop, scene, offer, api, interactive=editor_first)
         if scene is None:
             return stop("dimensions_confirmation_unverified")
-        stage = stage_of(scene)
+        stage = scoped_position_stage(scene, offer)
 
     if strict_catalog:
         colors, glazing = catalog_options_for(outside="antracyt", inside="biały", glazing_panes=3)
@@ -354,7 +373,7 @@ def run(
         scene = confirm_or_handoff(loop, scene, offer, api, interactive=editor_first)
         if scene is None:
             return stop("basic_parameters_confirmation_unverified")
-        stage = stage_of(scene)
+        stage = scoped_position_stage(scene, offer)
 
     if stage == "glazing":
         if allow_offer_workspace:
@@ -379,7 +398,7 @@ def run(
         scene = confirm_or_handoff(loop, scene, offer, api, interactive=editor_first)
         if scene is None:
             return stop("glazing_confirmation_unverified")
-        stage = stage_of(scene)
+        stage = scoped_position_stage(scene, offer)
 
     if stage == "hardware":
         if not glazing_verified and not editor_first and not allow_offer_workspace:
@@ -404,7 +423,7 @@ def run(
             scene = confirm_or_handoff(loop, scene, offer, api, interactive=editor_first)
         if scene is None:
             return stop("hardware_confirmation_unverified")
-        stage = stage_of(scene)
+        stage = scoped_position_stage(scene, offer)
 
     print("TEST_FINAL_STAGE=" + str(stage))
     catalog_status = "TEST_CATALOG_CHECKPOINTS_COMPLETE=" if strict_catalog else "TEST_CATALOG_READBACK_COMPLETE="
@@ -436,8 +455,14 @@ def run_from_start(
     from app.agent.runtime.windowhub_document_core import run_document_core
     from tools.run_windowhub_new_offer_entry import main as open_offer
 
-    stage = stage_of(inspect(loop))
+    initial = inspect(loop)
+    stage = stage_of(initial)
     print("TEST_NEW_OFFER_ENTRY_STAGE=" + str(stage))
+    transaction = None
+    if require_customer_confirmation and stage in {"start", "offer_document"}:
+        transaction = NewOfferHandoff.begin(initial, api)
+        if transaction is None:
+            return stop("new_offer_source_workspace_unverified")
     resume = stage == "document_properties" and resume_document_properties
     if resume:
         print("TEST_RESUMING_OPEN_TEST_DOCUMENT=True")
@@ -449,6 +474,12 @@ def run_from_start(
     confirmed = []
 
     def capture(scene):
+        if transaction is not None:
+            evidence = transaction.verify(scene, api, entry=True)
+            print("TEST_OFFER_HANDOFF=" + evidence)
+            if evidence in VERIFIED_HANDOFF:
+                confirmed.append(transaction)
+            return
         caption = foreground_offer_caption(scene, api)
         if caption and belongs_to_offer(scene, caption, api):
             confirmed.append(caption)
@@ -458,6 +489,7 @@ def run_from_start(
         confirm_similar_customer=True, replace_customer_filter=resume,
         allow_test_blank_customer=not require_customer_confirmation,
         **({"require_customer_confirmation": True} if require_customer_confirmation else {}),
+        **({"before_confirm": lambda scene: transaction.before_confirm(scene, api)} if transaction else {}),
     )
     if code != 0:
         return stop("customer_prices_or_document_confirmation_unverified")
@@ -465,7 +497,10 @@ def run_from_start(
         return stop("created_offer_identity_unverified")
     offer = confirmed[0]
     print("TEST_DOCUMENT_CONFIRMED=True")
-    print("TEST_TARGET_OFFER=" + offer)
+    if isinstance(offer, NewOfferHandoff):
+        print("TEST_TARGET_OFFER=" + (offer.offer or "pending_native_document_binding"))
+    else:
+        print("TEST_TARGET_OFFER=" + offer)
     if on_offer_ready is not None:
         return on_offer_ready(loop, offer, api)
     return run(

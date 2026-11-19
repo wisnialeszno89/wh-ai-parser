@@ -68,7 +68,7 @@ def customer_confirmation_conflicts(picker_metadata, expected, *, allow_opaque_c
 
 def run_document_core(*, customer_name: str, fresh_document: bool,
                       interactive_handoff: bool = False,
-                      ask=input, on_confirmed=None,
+                      ask=input, on_confirmed=None, before_confirm=None,
                       confirm_similar_customer=False, replace_customer_filter=False,
                       allow_test_blank_customer=False, require_customer_confirmation=False) -> int:
     """Configure document, then confirm only after full evidence.
@@ -408,6 +408,9 @@ def run_document_core(*, customer_name: str, fresh_document: bool,
             final, label="OK", allowed_stages=("document_properties",),
         )
         native_invoke = getattr(wrapper, "iface_invoke", None)
+        if before_confirm is not None and not before_confirm(final):
+            print("DOCUMENT_CONFIRM=transaction_source_unverified")
+            return 6
         if native_invoke is not None:
             native_invoke.Invoke()
         else:

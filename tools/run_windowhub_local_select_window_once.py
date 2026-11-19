@@ -26,20 +26,21 @@ from app.agent.offers.windowhub_offer_form_plan import WindowHubPlannedField, Wi
 from app.agent.offers.windowhub_offer_form_map import WindowHubOfferFormMap
 
 
-def run(live=False):
+def run(live=False, *, loop=None, authorize=None):
     if os.name != "nt":
         print("STOP=windows_only")
         return 2
     if os.getenv("WH_REAL_WINDOWHUB") != "1" or os.getenv("COMPUTER_USE_LIVE") != "1":
         print("STOP=explicit_desktop_flags_required")
         return 2
-    activated, message = activate_windowhub_workflow_window()
-    print("WINDOWHUB_ACTIVATION=" + message)
-    if not activated:
-        return 3
-    loop = create_windows_desktop_agent_control_loop()
+    if loop is None:
+        activated, message = activate_windowhub_workflow_window()
+        print("WINDOWHUB_ACTIVATION=" + message)
+        if not activated:
+            return 3
+        loop = create_windows_desktop_agent_control_loop()
     scene = enrich_windowhub_scene(loop.observe_scene())
-    if stage_of(scene) != "position":
+    if stage_of(scene) != "position" or (authorize is not None and not authorize(scene)):
         print("STOP=expected_position_dialog")
         return 4
     snap = WindowHubOfferFormMap().inspect(scene)
@@ -71,6 +72,9 @@ def run(live=False):
         print("DRY_RUN_PASS=True")
         print("INPUT_EXECUTED=False")
         return 0
+    if authorize is not None and not authorize(scene):
+        print("STOP=authorized_offer_changed")
+        return 4
     try:
         result = WindowHubOfferFormActionExecutor.execute_prepared(
             prepared, scene, loop, request_message="Select only Window item type",

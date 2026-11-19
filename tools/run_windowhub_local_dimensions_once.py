@@ -23,7 +23,7 @@ from app.agent.runtime.windowhub_dimension_replace import (
 )
 
 
-def run(width: int, height: int, execute_live: bool) -> int:
+def run(width: int, height: int, execute_live: bool, *, loop=None, authorize=None) -> int:
     if os.name != "nt" or not all(
         isinstance(n, int) and not isinstance(n, bool) and 100 <= n <= 5000
         for n in (width, height)
@@ -33,13 +33,14 @@ def run(width: int, height: int, execute_live: bool) -> int:
     if any(os.getenv(k) != "1" for k in ("WH_REAL_WINDOWHUB", "COMPUTER_USE_LIVE")):
         print("STOP=desktop_authorization_flags_required")
         return 2
-    activated, message = activate_windowhub_workflow_window()
-    print("WINDOWHUB_ACTIVATION=" + message)
-    if not activated:
-        return 3
-    loop = create_windows_desktop_agent_control_loop()
+    if loop is None:
+        activated, message = activate_windowhub_workflow_window()
+        print("WINDOWHUB_ACTIVATION=" + message)
+        if not activated:
+            return 3
+        loop = create_windows_desktop_agent_control_loop()
     initial = loop.observe_scene()
-    if stage_of(initial) != "dimensions":
+    if stage_of(initial) != "dimensions" or (authorize is not None and not authorize(initial)):
         print("STOP=expected_dimensions_dialog")
         return 4
     desired = {"width_1": width, "height_1": height}
@@ -56,7 +57,7 @@ def run(width: int, height: int, execute_live: bool) -> int:
         print("INPUT_EXECUTED=False")
         return 0
     for field, target in desired.items():
-        outcome = replace_dimension_once(loop, field_name=field, desired=target)
+        outcome = replace_dimension_once(loop, field_name=field, desired=target, authorize=authorize)
         print("DIMENSION_" + field.upper() + "_STATUS=" + outcome.status)
         print("DIMENSION_" + field.upper() + "_REASON=" + outcome.reason)
         if outcome.status != "verified":

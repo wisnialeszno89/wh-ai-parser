@@ -13,6 +13,7 @@ if str(ROOT) not in sys.path:
 
 from app.agent.learning.windowhub_demonstration import stage_of
 from app.agent.runtime.windowhub_mdi_native_probe import _Win32Mdi
+from app.agent.runtime.windowhub_new_offer_handoff import NewOfferHandoff, scoped_position_stage
 from app.gui.enums.gui_tool import GuiTool
 from tools.run_windowhub_existing_offer_position_test import (
     belongs_to_offer, inspect, run, run_from_start,
@@ -36,7 +37,7 @@ def capture(loop, offer, api):
     from app.wh.vision.mss_screenshot_engine import MSSScreenshotEngine
 
     scene = inspect(loop)
-    if stage_of(scene) != "offer_document" or not belongs_to_offer(scene, offer, api):
+    if scoped_position_stage(scene, offer) != "offer_document" or not belongs_to_offer(scene, offer, api):
         raise WorkspaceBlocked("active_offer_workspace_unverified:" + str(stage_of(scene)))
     meta = scene.observation.metadata
     rect = meta.get("window_rect")
@@ -105,6 +106,8 @@ def owns_native_workspace(scene, offer, api):
     hwnd = scene.observation.metadata.get("window_handle")
     if not belongs_to_offer(scene, offer, api):
         return False
+    if isinstance(offer, NewOfferHandoff):
+        return hwnd == offer.frame
     live_title = api.title(hwnd).strip()
     return live_title.casefold().startswith("okna - ofr/") and same_offer_id(live_title[7:], offer)
 
@@ -163,6 +166,10 @@ def build_fixed(loop, offer, api, number, size):
 def run_offer(loop, offer, api, positions):
     for number, size in enumerate(positions, 1):
         if number > 1:
+            if isinstance(offer, NewOfferHandoff):
+                if not offer.offer:
+                    raise WorkspaceBlocked("next_position_requires_numbered_offer")
+                offer = offer.offer
             predecessor = inspect(loop)
             scene = open_next(loop, predecessor, offer, api)
             if scene is not None and owned_discount(scene, offer, api):
@@ -176,18 +183,35 @@ def run_offer(loop, offer, api, positions):
         )
         if status:
             raise WorkspaceBlocked(f"position_wizard_unverified:{number}")
+        if isinstance(offer, NewOfferHandoff):
+            workspace = inspect(loop)
+            if scoped_position_stage(workspace, offer) != "offer_document" or not belongs_to_offer(workspace, offer, api):
+                raise WorkspaceBlocked("workspace_after_wizard_unverified:" + str(stage_of(workspace)))
         build_fixed(loop, offer, api, number, size)
     print(f"WH_AUTONOMOUS_RESULT=verified_draft_positions:{len(positions)}", flush=True)
     print("WH_AUTONOMOUS_PRICE_AND_SAVE=not_verified", flush=True)
     return 0
 
 
+def window_size(value):
+    import re
+    match = re.fullmatch(r"\s*([0-9]{3,4})\s*[xX×]\s*([0-9]{3,4})\s*", value)
+    if not match or not all(100 <= int(n) <= 5000 for n in match.groups()):
+        raise argparse.ArgumentTypeError("podaj szerokość i wysokość FIX w mm, np. 1200x1000")
+    return tuple(map(int, match.groups()))
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--execute-live", action="store_true")
     parser.add_argument("--positions", type=int, choices=(1, 2), default=2)
+    parser.add_argument("--window", action="append", type=window_size, metavar="SZERxWYS",
+                        help="Wymiary okna stałego w mm. Powtórz opcję dla drugiej pozycji.")
     parser.add_argument("--start-delay", type=int, choices=range(0, 31), default=12, metavar="0..30")
     args = parser.parse_args(argv)
+    if args.window and len(args.window) > 2:
+        parser.error("test obsługuje najwyżej dwie pozycje")
+    positions = tuple(args.window) if args.window else POSITIONS[:args.positions]
     if os.name != "nt" or not args.execute_live or any(
         os.environ.get(name) != "1" for name in ("COMPUTER_USE_LIVE", "WH_REAL_WINDOWHUB")
     ):
@@ -224,7 +248,7 @@ def main(argv=None):
         return run_from_start(
             create_windows_desktop_agent_control_loop(), customer, _Win32Mdi(),
             require_customer_confirmation=True,
-            on_offer_ready=lambda loop, offer, api: run_offer(loop, offer, api, POSITIONS[:args.positions]),
+            on_offer_ready=lambda loop, offer, api: run_offer(loop, offer, api, positions),
         )
     except WorkspaceBlocked as exc:
         print("WH_AUTONOMOUS_STOP=" + str(exc), flush=True)
