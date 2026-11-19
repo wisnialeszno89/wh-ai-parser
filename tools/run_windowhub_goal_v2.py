@@ -498,8 +498,18 @@ def main(argv=None):
     except (ValueError, RuntimeError, OSError) as exc:
         print("STOP: document intake: " + str(exc))
         return 2
-    goal = "\n".join(
-        part for part in (args.goal or "", "Client request: " + file_text if file_text else "")
+    sales_mission = None
+    if args.sales_mission is not None:
+        try:
+            sales_mission = load_sales_mission(args.sales_mission)
+        except (ValueError, OSError) as exc:
+            print("STOP: invalid sales mission: " + str(exc))
+            return 2
+        if args.customer_name and args.customer_name.strip() != sales_mission["customer"]["exact_name"]:
+            print("STOP: customer name conflicts with mission.")
+            return 2
+        goal = "\n".join(
+        part for part in (mission_goal(sales_mission) if sales_mission else "", args.goal or "", "Client request: " + file_text if file_text else "")
         if part.strip()
     )
     if not goal.strip() or len(goal) > 16000:
