@@ -508,7 +508,7 @@ def main(argv=None):
         if args.customer_name and args.customer_name.strip() != sales_mission["customer"]["exact_name"]:
             print("STOP: customer name conflicts with mission.")
             return 2
-        goal = "\n".join(
+    goal = "\n".join(
         part for part in (mission_goal(sales_mission) if sales_mission else "", args.goal or "", "Client request: " + file_text if file_text else "")
         if part.strip()
     )
