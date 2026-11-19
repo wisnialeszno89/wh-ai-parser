@@ -24,11 +24,11 @@ def _draft_name(title):
     return re.sub(r"\s+", "", match[1]).casefold() if match else None
 
 
-def scoped_position_stage(scene, scope):
+def scoped_position_stage(scene, scope, api=None):
     stage = stage_of(scene)
     if stage == "windowhub_unmapped" and isinstance(scope, NewOfferHandoff):
         title = scene.observation.state.active_window_title or ""
-        if _draft_name(title):
+        if _draft_name(title) or (api is not None and scope.recognizes_editor(scene, api)):
             return "offer_document"
     return stage
 
@@ -101,6 +101,22 @@ class NewOfferHandoff:
         self.properties = hwnd
         return True
 
+    def recognizes_editor(self, scene, api):
+        """Recognize a title-less editor only for the already bound new MDI child."""
+        if not self.properties or not self.position or not self.child:
+            return False
+        hwnd = foreground_handle(scene, api)
+        if hwnd != self.frame or api.pid(hwnd) != self.pid or active_mdi_child(hwnd, api) != self.child:
+            return False
+        selected, _ = selected_document_tab(scene)
+        child_title = api.title(self.child).strip()
+        selected_draft = _draft_name(selected or "")
+        draft_tab_matches = selected_draft and (not child_title or selected_draft == _draft_name(child_title))
+        if not selected or not (same_offer_id(selected, self.offer) or (not self.offer and draft_tab_matches)):
+            return False
+        toolbar = getattr(api, "editor_toolbar", None)
+        return bool(toolbar and toolbar(hwnd))
+
     def _workspace(self, scene, api):
         """Match the selected tab and the linked native child or main caption."""
         selected, _ = selected_document_tab(scene)
@@ -114,12 +130,14 @@ class NewOfferHandoff:
                 or same_offer_id(offer_title(child_title), self.offer)
             )
         draft = _draft_name(child_title)
-        return bool(draft and draft == _draft_name(selected) and draft == _draft_name(frame_title))
+        return self.recognizes_editor(scene, api) or bool(
+            draft and draft == _draft_name(selected) and draft == _draft_name(frame_title)
+        )
 
     def verify(self, scene, api, *, entry=False, follows=None):
         """Return the evidence source, or a diagnostic explaining the block."""
         hwnd = foreground_handle(scene, api)
-        stage = scoped_position_stage(scene, self)
+        stage = scoped_position_stage(scene, self, api)
         if not self.properties or not self._owned(hwnd, api):
             return "foreground_or_native_owner_unverified"
         if hwnd == self.properties or (entry and stage not in {"position", "offer_document"}):

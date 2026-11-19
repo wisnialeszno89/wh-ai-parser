@@ -140,3 +140,46 @@ def test_offer_runs_both_wizards_and_both_builds_in_one_same_offer(monkeypatch):
         ("wizard", "OFR/42-", 1100, 1000),
         ("build", "OFR/42-", 2, (1100, 1000)),
     ]
+
+
+def test_sash_builder_consumes_archived_visual_decisions_and_verifies_marker(monkeypatch, capsys):
+    from tools.check_windowhub_opening_markers import CANVAS_CROP
+    from app.agent.learning.windowhub_builder_replay import read_builder_stage
+    from app.agent.learning.windowhub_offer_editor import Box
+
+    paths = sorted(FIXTURES.glob("builder_*.png"))
+    x, y, right, bottom = CANVAS_CROP
+    drawing = Box(x, y, right - x, bottom - y)
+    scene = NS(observation=NS(metadata={"window_handle": 200}))
+    frames = []
+    for path in paths:
+        rgb = frame(path.name)
+        frames.append((scene, None, rgb, drawing, read_builder_stage(drawing.crop(rgb))))
+
+    # One new observation after each toolbar selection and each placement.
+    observations = iter([frames[0], *[f for pair in zip(frames, frames[1:]) for f in pair]])
+    actions = []
+
+    def locate(rgb, rect, hwnd, tool):
+        actions.append(tool.name)
+        return 216, (5, 20)
+
+    monkeypatch.setattr(live, "observe_workspace", lambda *args, **kwargs: next(observations))
+    monkeypatch.setattr(live, "active_mdi_child", lambda hwnd, api: 14)
+    monkeypatch.setattr(live, "tool_target", locate)
+    monkeypatch.setattr(live, "click_owned", lambda *args, **kwargs: None)
+    monkeypatch.setattr(live, "apply_ur_hardware", lambda loop, api, hwnd, child: actions.append((hwnd, child)))
+    assert live.build_construction(object(), "OFR/42-", object(), 1, (1000, 1000), opening=True) is scene
+    assert actions == ["FRAME", "SASH", "GLASS", "HARDWARE", (200, 14)]
+    assert "WH_AUTONOMOUS_OPENING_MARKER=RIGHT" in capsys.readouterr().out
+
+
+def test_hardware_requires_catalog_ur_choice():
+    from app.agent.runtime.windowhub_hardware_dialog import choose_ur_option
+
+    standard = ("UR ACTIVPILOT", False, object())
+    configured = ("UR 8", True, object())
+    assert choose_ur_option([standard, configured]) is configured
+    assert choose_ur_option([standard, ("UR 8", False, object())]) is standard
+    assert choose_ur_option([("U 1", True, object()), ("Bez okuć", True, object())]) is None
+    assert choose_ur_option([("UR 2", False, object()), ("UR 8", False, object())]) is None

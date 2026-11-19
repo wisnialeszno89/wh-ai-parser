@@ -412,6 +412,12 @@ class _Win32Mdi:
         self._enum_children = api.EnumChildWindows
         self._enum_children.argtypes = [wintypes.HWND, self._child_callback, wintypes.LPARAM]
         self._enum_children.restype = wintypes.BOOL
+        self._is_visible = api.IsWindowVisible
+        self._is_visible.argtypes = [wintypes.HWND]
+        self._is_visible.restype = wintypes.BOOL
+        self._is_enabled = api.IsWindowEnabled
+        self._is_enabled.argtypes = [wintypes.HWND]
+        self._is_enabled.restype = wintypes.BOOL
         self._class_name = api.GetClassNameW
         self._class_name.argtypes = [wintypes.HWND, wintypes.LPWSTR, ctypes.c_int]
         self._class_name.restype = ctypes.c_int
@@ -449,6 +455,15 @@ class _Win32Mdi:
         return tuple(
             child for child in self.descendants(frame) if self.class_name(child).casefold() == "mdiclient"
         )
+
+    def editor_toolbar(self, frame):
+        candidates = [
+            hwnd for hwnd in self.descendants(frame)
+            if self.class_name(hwnd).casefold().startswith("afx:toolbar")
+            and self.title(hwnd).strip().casefold() == "narzędzia"
+            and self._is_visible(hwnd) and self._is_enabled(hwnd)
+        ]
+        return candidates[0] if len(candidates) == 1 else 0
 
     def active_child(self, host):
         import ctypes

@@ -13,13 +13,15 @@ if str(ROOT) not in sys.path:
 
 from app.agent.learning.windowhub_demonstration import stage_of
 from app.agent.runtime.windowhub_mdi_native_probe import _Win32Mdi
-from app.agent.runtime.windowhub_new_offer_handoff import NewOfferHandoff, scoped_position_stage
+from app.agent.runtime.windowhub_new_offer_handoff import (
+    NewOfferHandoff, active_mdi_child, foreground_handle, owner_chain, scoped_position_stage,
+)
 from app.gui.enums.gui_tool import GuiTool
 from tools.run_windowhub_existing_offer_position_test import (
     belongs_to_offer, inspect, run, run_from_start,
 )
 from tools.run_windowhub_two_position_live import (
-    complete_discount, open_next, owned_discount,
+    complete_discount, invoke_confirmation, open_next, owned_discount,
 )
 
 STEPS = {
@@ -37,7 +39,7 @@ def capture(loop, offer, api):
     from app.wh.vision.mss_screenshot_engine import MSSScreenshotEngine
 
     scene = inspect(loop)
-    if scoped_position_stage(scene, offer) != "offer_document" or not belongs_to_offer(scene, offer, api):
+    if scoped_position_stage(scene, offer, api) != "offer_document" or not belongs_to_offer(scene, offer, api):
         raise WorkspaceBlocked("active_offer_workspace_unverified:" + str(stage_of(scene)))
     meta = scene.observation.metadata
     rect = meta.get("window_rect")
@@ -49,7 +51,7 @@ def capture(loop, offer, api):
     return scene, rect, shot.image[:, :, 2::-1].copy()
 
 
-def observe_workspace(loop, offer, api, number, size):
+def observe_workspace(loop, offer, api, number, size, *, opening=False):
     import cv2
     from app.agent.learning.windowhub_offer_editor import (
         find_drawing, fixed_window_stage, selected_row_box, selected_window_matches,
@@ -67,7 +69,12 @@ def observe_workspace(loop, offer, api, number, size):
     drawing = find_drawing(rgb, row)
     if drawing is None:
         raise WorkspaceBlocked("drawing_outline_unverified")
-    return scene, rect, rgb, drawing, fixed_window_stage(drawing.crop(rgb))
+    if opening:
+        from app.agent.learning.windowhub_builder_replay import read_builder_stage
+        state = read_builder_stage(drawing.crop(rgb))
+    else:
+        state = fixed_window_stage(drawing.crop(rgb))
+    return scene, rect, rgb, drawing, state
 
 
 def tool_target(rgb, rect, hwnd, tool):
@@ -135,27 +142,87 @@ def click_owned(scene, rect, offer, api, point, *, toolbar=None):
     MouseController().click(x, y)
 
 
+def apply_ur_hardware(loop, api, frame, child):
+    import re
+    from app.agent.runtime.windowhub_hardware_dialog import choose_and_confirm_ur
+
+    for attempt in range(8):
+        scene = inspect(loop)
+        hwnd = foreground_handle(scene, api)
+
+        def still_owned():
+            return (
+                hwnd and hwnd != frame and child and api.foreground() == hwnd
+                and api.pid(hwnd) == api.pid(frame) and active_mdi_child(frame, api) == child
+                and (frame in owner_chain(hwnd, api) or api.parent(hwnd, 3) == frame)
+                and bool(re.fullmatch(r"wybór okuć(?:\s*:\s*\d+)?", api.title(hwnd).strip(), re.IGNORECASE))
+            )
+
+        if still_owned():
+            try:
+                applied = choose_and_confirm_ur(
+                    hwnd, still_owned=still_owned,
+                    confirm=lambda: invoke_confirmation(scene, {"ok"}, still_owned=still_owned),
+                )
+            except Exception as exc:
+                raise WorkspaceBlocked("hardware_catalog_" + type(exc).__name__) from exc
+            if applied:
+                return
+            raise WorkspaceBlocked("compatible_ur_option_or_confirmation_unverified")
+        if attempt < 7:
+            time.sleep(0.25)
+    raise WorkspaceBlocked("owned_hardware_dialog_not_observed")
+
+
 def build_fixed(loop, offer, api, number, size):
-    current = observe_workspace(loop, offer, api, number, size)
+    return build_construction(loop, offer, api, number, size)
+
+
+def build_construction(loop, offer, api, number, size, *, opening=False):
+    from app.agent.learning.windowhub_builder_replay import NEXT_STEP
+
+    steps = NEXT_STEP if opening else STEPS
+
+    def observe():
+        if opening:
+            return observe_workspace(loop, offer, api, number, size, opening=True)
+        return observe_workspace(loop, offer, api, number, size)
+
+    current = observe()
     if current[-1] != "empty":
         raise WorkspaceBlocked("new_position_not_empty:" + current[-1])
-    for _ in range(len(STEPS)):
+    for _ in steps:
         scene, rect, rgb, drawing, stage = current
-        tool, expected = STEPS[stage]
+        tool, expected = steps[stage]
         hwnd = scene.observation.metadata["window_handle"]
         toolbar, target = tool_target(rgb, rect, hwnd, tool)
         print(f"WH_AUTONOMOUS_ACTION={number}:{tool.name}", flush=True)
         click_owned(scene, rect, offer, api, target, toolbar=toolbar)
         # A toolbar click can alter the selected document, the visible row or
         # the canvas geometry. Authorize placement only after a fresh read.
-        active, active_rect, _, active_drawing, active_stage = observe_workspace(loop, offer, api, number, size)
+        active, active_rect, _, active_drawing, active_stage = observe()
         if active_stage != stage or active.observation.metadata["window_handle"] != hwnd:
             raise WorkspaceBlocked("drawing_changed_after_tool_selection")
+        hardware_child = active_mdi_child(hwnd, api) if tool is GuiTool.HARDWARE else None
+        if tool is GuiTool.HARDWARE and not hardware_child:
+            raise WorkspaceBlocked("hardware_document_scope_unverified")
         click_owned(active, active_rect, offer, api, active_drawing.center)
+        if tool is GuiTool.HARDWARE:
+            apply_ur_hardware(loop, api, hwnd, hardware_child)
         for attempt in range(5):
-            current = observe_workspace(loop, offer, api, number, size)
+            try:
+                current = observe()
+            except WorkspaceBlocked:
+                if attempt == 4:
+                    raise
+                time.sleep(0.25)
+                continue
             if current[-1] == expected:
                 print(f"WH_AUTONOMOUS_VERIFIED={number}:{expected}", flush=True)
+                if expected == "opening_marker":
+                    from app.agent.learning.windowhub_opening_marker import read_opening_marker_side
+                    direction = read_opening_marker_side(current[3].crop(current[2]))
+                    print(f"WH_AUTONOMOUS_OPENING_MARKER={direction}", flush=True)
                 break
             if current[-1] != stage or attempt == 4:
                 raise WorkspaceBlocked(f"unexpected_drawing_after_{tool.name}:{current[-1]}")
@@ -163,7 +230,7 @@ def build_fixed(loop, offer, api, number, size):
     return current[0]
 
 
-def run_offer(loop, offer, api, positions):
+def run_offer(loop, offer, api, positions, *, construction="fix"):
     for number, size in enumerate(positions, 1):
         if number > 1:
             if isinstance(offer, NewOfferHandoff):
@@ -185,9 +252,12 @@ def run_offer(loop, offer, api, positions):
             raise WorkspaceBlocked(f"position_wizard_unverified:{number}")
         if isinstance(offer, NewOfferHandoff):
             workspace = inspect(loop)
-            if scoped_position_stage(workspace, offer) != "offer_document" or not belongs_to_offer(workspace, offer, api):
+            if scoped_position_stage(workspace, offer, api) != "offer_document" or not belongs_to_offer(workspace, offer, api):
                 raise WorkspaceBlocked("workspace_after_wizard_unverified:" + str(stage_of(workspace)))
-        build_fixed(loop, offer, api, number, size)
+        if construction == "ur":
+            build_construction(loop, offer, api, number, size, opening=True)
+        else:
+            build_fixed(loop, offer, api, number, size)
     print(f"WH_AUTONOMOUS_RESULT=verified_draft_positions:{len(positions)}", flush=True)
     print("WH_AUTONOMOUS_PRICE_AND_SAVE=not_verified", flush=True)
     return 0
@@ -197,16 +267,18 @@ def window_size(value):
     import re
     match = re.fullmatch(r"\s*([0-9]{3,4})\s*[xX×]\s*([0-9]{3,4})\s*", value)
     if not match or not all(100 <= int(n) <= 5000 for n in match.groups()):
-        raise argparse.ArgumentTypeError("podaj szerokość i wysokość FIX w mm, np. 1200x1000")
+        raise argparse.ArgumentTypeError("podaj szerokość i wysokość w mm, np. 1200x1000")
     return tuple(map(int, match.groups()))
 
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--execute-live", action="store_true")
+    parser.add_argument("--construction", choices=("fix", "ur"), default="fix",
+                        help="Rodzaj konstrukcji. UR to jedno skrzydło rozwierno-uchylne.")
     parser.add_argument("--positions", type=int, choices=(1, 2), default=2)
     parser.add_argument("--window", action="append", type=window_size, metavar="SZERxWYS",
-                        help="Wymiary okna stałego w mm. Powtórz opcję dla drugiej pozycji.")
+                        help="Wymiary okna w mm. Powtórz opcję dla drugiej pozycji.")
     parser.add_argument("--start-delay", type=int, choices=range(0, 31), default=12, metavar="0..30")
     args = parser.parse_args(argv)
     if args.window and len(args.window) > 2:
@@ -248,7 +320,9 @@ def main(argv=None):
         return run_from_start(
             create_windows_desktop_agent_control_loop(), customer, _Win32Mdi(),
             require_customer_confirmation=True,
-            on_offer_ready=lambda loop, offer, api: run_offer(loop, offer, api, positions),
+            on_offer_ready=lambda loop, offer, api: run_offer(
+                loop, offer, api, positions, construction=args.construction,
+            ),
         )
     except WorkspaceBlocked as exc:
         print("WH_AUTONOMOUS_STOP=" + str(exc), flush=True)

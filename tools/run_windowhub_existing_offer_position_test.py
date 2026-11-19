@@ -125,7 +125,7 @@ def confirm_stage(loop, scene, offer, api):
         return None
     for i in range(7):
         after = inspect(loop)
-        destination = scoped_position_stage(after, offer)
+        destination = scoped_position_stage(after, offer, api)
         if isinstance(offer, NewOfferHandoff) and destination in allowed:
             evidence = offer.verify(after, api, follows=scene.observation.metadata.get("window_handle"))
             owner_matches = evidence in VERIFIED_HANDOFF
@@ -259,7 +259,7 @@ def run(
     from tools.run_windowhub_local_dimensions_once import run as set_dimensions
 
     scene = inspect(loop)
-    stage = scoped_position_stage(scene, offer)
+    stage = scoped_position_stage(scene, offer, api)
     print("TEST_ENTRY_STAGE=" + str(stage))
     if not belongs_to_offer(scene, offer, api):
         return stop("requested_offer_or_wizard_owner_unverified")
@@ -270,7 +270,7 @@ def run(
         if not opened and not allow_offer_workspace:
             return stop("add_unverified")
         scene = inspect(loop)
-        stage = scoped_position_stage(scene, offer)
+        stage = scoped_position_stage(scene, offer, api)
         if stage == "position" and isinstance(offer, NewOfferHandoff):
             evidence = offer.verify(scene, api, entry=True)
             print("TEST_WIZARD_SCOPE=" + evidence)
@@ -319,7 +319,7 @@ def run(
         scene = confirm_or_handoff(loop, scene, offer, api, interactive=editor_first)
         if scene is None:
             return stop("position_confirmation_unverified")
-        stage = scoped_position_stage(scene, offer)
+        stage = scoped_position_stage(scene, offer, api)
 
     if stage == "dimensions":
         if not belongs_to_offer(scene, offer, api):
@@ -337,7 +337,7 @@ def run(
         scene = confirm_or_handoff(loop, scene, offer, api, interactive=editor_first)
         if scene is None:
             return stop("dimensions_confirmation_unverified")
-        stage = scoped_position_stage(scene, offer)
+        stage = scoped_position_stage(scene, offer, api)
 
     if strict_catalog:
         colors, glazing = catalog_options_for(outside="antracyt", inside="biały", glazing_panes=3)
@@ -373,7 +373,7 @@ def run(
         scene = confirm_or_handoff(loop, scene, offer, api, interactive=editor_first)
         if scene is None:
             return stop("basic_parameters_confirmation_unverified")
-        stage = scoped_position_stage(scene, offer)
+        stage = scoped_position_stage(scene, offer, api)
 
     if stage == "glazing":
         if allow_offer_workspace:
@@ -398,7 +398,7 @@ def run(
         scene = confirm_or_handoff(loop, scene, offer, api, interactive=editor_first)
         if scene is None:
             return stop("glazing_confirmation_unverified")
-        stage = scoped_position_stage(scene, offer)
+        stage = scoped_position_stage(scene, offer, api)
 
     if stage == "hardware":
         if not glazing_verified and not editor_first and not allow_offer_workspace:
@@ -423,7 +423,7 @@ def run(
             scene = confirm_or_handoff(loop, scene, offer, api, interactive=editor_first)
         if scene is None:
             return stop("hardware_confirmation_unverified")
-        stage = scoped_position_stage(scene, offer)
+        stage = scoped_position_stage(scene, offer, api)
 
     print("TEST_FINAL_STAGE=" + str(stage))
     catalog_status = "TEST_CATALOG_CHECKPOINTS_COMPLETE=" if strict_catalog else "TEST_CATALOG_READBACK_COMPLETE="

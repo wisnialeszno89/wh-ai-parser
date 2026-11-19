@@ -141,3 +141,20 @@ def test_live_start_hands_off_directly_to_existing_position_runner(monkeypatch):
     assert position.run_from_start(
         object(), "Test", native, on_offer_ready=resume, require_customer_confirmation=True,
     ) == 0
+
+
+def test_main_editor_without_document_in_title_is_recognized_by_native_scope():
+    native = Native()
+    scope = approved(native)
+    native.children.append(40)
+    native.active = 40
+    assert scope.verify(native.observe(21, "Dodawanie nowej pozycji"), native, entry=True) == "native_new_draft"
+    native.titles[10] = "Okna -"
+    workspace = native.observe(10, "Okna -", tab="Dokument1")
+    assert scoped_position_stage(workspace, scope, native) == "windowhub_unmapped"
+    native.editor_toolbar = lambda hwnd: 282
+    assert scoped_position_stage(workspace, scope, native) == "offer_document"
+    assert scope.verify(workspace, native) == "native_new_draft"
+    assert scoped_position_stage(native.observe(10, "Okna -", tab="OFR/17-"), scope, native) == "windowhub_unmapped"
+    native.active = 31
+    assert scoped_position_stage(workspace, scope, native) == "windowhub_unmapped"
