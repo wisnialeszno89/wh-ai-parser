@@ -102,3 +102,44 @@ python -m pytest tests/test_windowhub_decision_policy.py -q
 
 Run Windows native acceptance only against a disposable OFR with explicit operator
 authorization and the appropriate `COMPUTER_USE_LIVE`/`WH_REAL_WINDOWHUB` gates.
+
+
+## Operator decisions — 2026-11-19 (supersede earlier questions)
+
+- The agent autonomously pursues the nearest **technically verified, functionally
+  suitable, live-available** substitute. It records exact original value,
+  substitute, and deviation for the salesperson. Mere textual similarity is not
+  technical compatibility.
+- When no valid substitute exists, the agent keeps a **dimensioned unfinished
+  position** where the editor truly supports it; otherwise it records a blocker.
+- The agent does **not SAVE** the offer before salesperson review, corrections
+  and approval. It leaves the offer on screen, reports work performed and
+  remaining gaps, and awaits salesperson intervention.
+- NaviMind combines current program observation, public WH Okna documentation
+  and guarded native actions. Web information must never be interpreted as a
+  guarantee of an option's availability in a particular dealer database.
+- Conversation and learning should avoid repetitive questions; request
+  demonstrations only for a genuine missing capability, then verify against
+  disposable test data before retaining a skill.
+
+## Implementation extension in this branch
+
+- `windowhub_decision_policy.py` ranks only verified alternative candidates
+  and marks substitutions for mandatory human review.
+- `windowhub_goal_v2_coordinator.py` rejects recognized save/send/order
+  conversion buttons, even if generic persistence approval is set.
+- `windowhub_salesperson_policy.py` records substitutions and emits a
+  salesperson-review-required report with `agent_save_performed=false`.
+- `run_windowhub_autonomous_offer.py` prints this review report at exit.
+
+**Limitations:** The candidate alternative catalog is not yet wired to a real
+supplier-native discovery driver. The no-save action guard covers identified
+semantic buttons but not every possible menu shortcut or other executor path;
+these require an explicit allowlist audit before any unsupervised live trial.
+No Windows end-to-end successful offer has been demonstrated by this branch.
+
+Pure regression candidates:
+
+```powershell
+python -m pytest tests/test_windowhub_decision_policy.py tests/test_windowhub_goal_v2_coordinator.py -q
+```
