@@ -1,0 +1,238 @@
+"""Build a test offer using WindowHub's in-document drawing workspace."""
+from __future__ import annotations
+
+import argparse
+from pathlib import Path
+import os
+import sys
+import time
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from app.agent.learning.windowhub_demonstration import stage_of
+from app.agent.runtime.windowhub_mdi_native_probe import _Win32Mdi
+from app.gui.enums.gui_tool import GuiTool
+from tools.run_windowhub_existing_offer_position_test import (
+    belongs_to_offer, inspect, run, run_from_start,
+)
+from tools.run_windowhub_two_position_live import (
+    complete_discount, open_next, owned_discount,
+)
+
+STEPS = {
+    "empty": (GuiTool.FRAME, "frame"),
+    "frame": (GuiTool.GLASS, "fixed_glazed"),
+}
+POSITIONS = ((1000, 1000), (1100, 1000))
+
+
+class WorkspaceBlocked(RuntimeError):
+    pass
+
+
+def capture(loop, offer, api):
+    from app.wh.vision.mss_screenshot_engine import MSSScreenshotEngine
+
+    scene = inspect(loop)
+    if stage_of(scene) != "offer_document" or not belongs_to_offer(scene, offer, api):
+        raise WorkspaceBlocked("active_offer_workspace_unverified:" + str(stage_of(scene)))
+    meta = scene.observation.metadata
+    rect = meta.get("window_rect")
+    if rect is None or min(rect.width, rect.height) <= 0:
+        raise WorkspaceBlocked("active_window_bounds_missing")
+    shot = MSSScreenshotEngine().capture(rect)
+    if not owns_native_workspace(scene, offer, api):
+        raise WorkspaceBlocked("active_offer_changed_during_capture")
+    return scene, rect, shot.image[:, :, 2::-1].copy()
+
+
+def observe_workspace(loop, offer, api, number, size):
+    import cv2
+    from app.agent.learning.windowhub_offer_editor import (
+        find_drawing, fixed_window_stage, selected_row_box, selected_window_matches,
+    )
+    from app.agent.offers.windowhub_customer_visual_selection import _ocr_text_results
+
+    scene, rect, rgb = capture(loop, offer, api)
+    row = selected_row_box(rgb)
+    if row is None:
+        raise WorkspaceBlocked("selected_position_row_unverified")
+    gray = cv2.cvtColor(row.crop(rgb), cv2.COLOR_RGB2GRAY)
+    gray = cv2.resize(255 - gray, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
+    if not selected_window_matches(_ocr_text_results(gray, (0, 0)), number, *size):
+        raise WorkspaceBlocked("selected_window_number_quantity_or_dimensions_unverified")
+    drawing = find_drawing(rgb, row)
+    if drawing is None:
+        raise WorkspaceBlocked("drawing_outline_unverified")
+    return scene, rect, rgb, drawing, fixed_window_stage(drawing.crop(rgb))
+
+
+def tool_target(rgb, rect, hwnd, tool):
+    import cv2
+    import numpy as np
+    from PIL import Image
+    from app.agent.learning.windowhub_offer_editor import Box, toolbar_tool
+    from demo.run_native_toolbar_button_probe_live import _find_toolbar, _get_window_rect
+    from tools.check_windowhub_builder_sequence import ARCHIVED_TEMPLATES
+
+    toolbar = _find_toolbar(hwnd)
+    if not toolbar:
+        raise WorkspaceBlocked("native_construction_toolbar_missing")
+    x, y, width, height = _get_window_rect(toolbar)
+    bounds = Box(x - rect.left, y - rect.top, width, height)
+    if (
+        bounds.x < 0 or bounds.y < 0 or bounds.right > rgb.shape[1]
+        or bounds.bottom > rgb.shape[0] or height <= 2 * width or width <= 0
+    ):
+        raise WorkspaceBlocked("native_construction_toolbar_bounds_unverified")
+    name, scale = ARCHIVED_TEMPLATES[tool]
+    with Image.open(ROOT / "templates" / name) as source:
+        template = source.convert("L").resize(
+            (round(source.width * scale), round(source.height * scale)), Image.Resampling.BILINEAR,
+        )
+    gray = cv2.cvtColor(bounds.crop(rgb), cv2.COLOR_RGB2GRAY)
+    hit = toolbar_tool(gray, np.asarray(template))
+    if hit is None:
+        raise WorkspaceBlocked("construction_tool_unverified:" + tool.name)
+    return toolbar, (bounds.x + hit[0], bounds.y + hit[1])
+
+
+def owns_native_workspace(scene, offer, api):
+    from app.agent.runtime.windowhub_mdi_native_probe import same_offer_id
+
+    hwnd = scene.observation.metadata.get("window_handle")
+    if not belongs_to_offer(scene, offer, api):
+        return False
+    live_title = api.title(hwnd).strip()
+    return live_title.casefold().startswith("okna - ofr/") and same_offer_id(live_title[7:], offer)
+
+
+def click_owned(scene, rect, offer, api, point, *, toolbar=None):
+    import ctypes
+    from ctypes import wintypes
+    from app.runtime.execution.mouse_controller import MouseController
+
+    if not (0 <= point[0] < rect.width and 0 <= point[1] < rect.height):
+        raise WorkspaceBlocked("point_outside_foreground_offer")
+    user32 = ctypes.WinDLL("user32", use_last_error=True)
+    hit_test = user32.WindowFromPoint
+    hit_test.argtypes = [wintypes.POINT]
+    hit_test.restype = wintypes.HWND
+    x, y = rect.left + point[0], rect.top + point[1]
+    hit = hit_test(wintypes.POINT(x, y))
+    hwnd = scene.observation.metadata["window_handle"]
+    if (
+        not hit or api.parent(hit, 2) != hwnd
+        or (toolbar is not None and hit != toolbar)
+        or not owns_native_workspace(scene, offer, api)
+    ):
+        raise WorkspaceBlocked("native_input_target_changed")
+    MouseController().click(x, y)
+
+
+def build_fixed(loop, offer, api, number, size):
+    current = observe_workspace(loop, offer, api, number, size)
+    if current[-1] != "empty":
+        raise WorkspaceBlocked("new_position_not_empty:" + current[-1])
+    for _ in range(len(STEPS)):
+        scene, rect, rgb, drawing, stage = current
+        tool, expected = STEPS[stage]
+        hwnd = scene.observation.metadata["window_handle"]
+        toolbar, target = tool_target(rgb, rect, hwnd, tool)
+        print(f"WH_AUTONOMOUS_ACTION={number}:{tool.name}", flush=True)
+        click_owned(scene, rect, offer, api, target, toolbar=toolbar)
+        # A toolbar click can alter the selected document, the visible row or
+        # the canvas geometry. Authorize placement only after a fresh read.
+        active, active_rect, _, active_drawing, active_stage = observe_workspace(loop, offer, api, number, size)
+        if active_stage != stage or active.observation.metadata["window_handle"] != hwnd:
+            raise WorkspaceBlocked("drawing_changed_after_tool_selection")
+        click_owned(active, active_rect, offer, api, active_drawing.center)
+        for attempt in range(5):
+            current = observe_workspace(loop, offer, api, number, size)
+            if current[-1] == expected:
+                print(f"WH_AUTONOMOUS_VERIFIED={number}:{expected}", flush=True)
+                break
+            if current[-1] != stage or attempt == 4:
+                raise WorkspaceBlocked(f"unexpected_drawing_after_{tool.name}:{current[-1]}")
+            time.sleep(0.25)
+    return current[0]
+
+
+def run_offer(loop, offer, api, positions):
+    for number, size in enumerate(positions, 1):
+        if number > 1:
+            predecessor = inspect(loop)
+            scene = open_next(loop, predecessor, offer, api)
+            if scene is not None and owned_discount(scene, offer, api):
+                scene = complete_discount(loop, scene, offer, api, interactive=False)
+            if scene is None or stage_of(scene) != "position" or not belongs_to_offer(scene, offer, api):
+                raise WorkspaceBlocked("next_position_or_discount_unverified")
+        print(f"WH_AUTONOMOUS_POSITION={number}:{size[0]}x{size[1]}", flush=True)
+        status = run(
+            loop, offer, api, stop_at_editor=True, width=size[0], height=size[1],
+            allow_offer_workspace=True, editor_glazing_fallback=True,
+        )
+        if status:
+            raise WorkspaceBlocked(f"position_wizard_unverified:{number}")
+        build_fixed(loop, offer, api, number, size)
+    print(f"WH_AUTONOMOUS_RESULT=verified_draft_positions:{len(positions)}", flush=True)
+    print("WH_AUTONOMOUS_PRICE_AND_SAVE=not_verified", flush=True)
+    return 0
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--execute-live", action="store_true")
+    parser.add_argument("--positions", type=int, choices=(1, 2), default=2)
+    parser.add_argument("--start-delay", type=int, choices=range(0, 31), default=12, metavar="0..30")
+    args = parser.parse_args(argv)
+    if os.name != "nt" or not args.execute_live or any(
+        os.environ.get(name) != "1" for name in ("COMPUTER_USE_LIVE", "WH_REAL_WINDOWHUB")
+    ):
+        print("WH_AUTONOMOUS_STOP=windows_and_explicit_live_test_required")
+        return 4
+    try:
+        import cv2
+        import mss
+        import pyautogui
+        from app.agent.offers.windowhub_customer_visual_selection import _ocr_engine
+
+        if _ocr_engine() is None:
+            raise ImportError("RapidOCR")
+    except (ImportError, OSError, RuntimeError, ValueError) as exc:
+        print("WH_AUTONOMOUS_STOP=editor_dependency_" + type(exc).__name__)
+        return 4
+    try:
+        customer = input("Nazwa istniejącego klienta testowego: ").strip()
+    except (EOFError, KeyboardInterrupt):
+        return 4
+    if not customer or len(customer) > 100 or any(ord(char) < 32 for char in customer):
+        print("WH_AUTONOMOUS_STOP=invalid_test_customer")
+        return 4
+
+    from app.agent.runtime.windows_desktop_agent_control_loop import create_windows_desktop_agent_control_loop
+    from app.agent.runtime.windowhub_window_activation import activate_windowhub_workflow_window
+
+    print(f"Przejdź do WindowHub. Start za {args.start_delay} s.", flush=True)
+    time.sleep(args.start_delay)
+    if not activate_windowhub_workflow_window()[0]:
+        print("WH_AUTONOMOUS_STOP=windowhub_activation_failed")
+        return 4
+    try:
+        return run_from_start(
+            create_windows_desktop_agent_control_loop(), customer, _Win32Mdi(),
+            require_customer_confirmation=True,
+            on_offer_ready=lambda loop, offer, api: run_offer(loop, offer, api, POSITIONS[:args.positions]),
+        )
+    except WorkspaceBlocked as exc:
+        print("WH_AUTONOMOUS_STOP=" + str(exc), flush=True)
+        return 4
+    except (OSError, RuntimeError, ValueError, ImportError) as exc:
+        print("WH_AUTONOMOUS_STOP=runtime_" + type(exc).__name__, flush=True)
+        return 4
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

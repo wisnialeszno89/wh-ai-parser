@@ -226,3 +226,12 @@ def test_handoff_resumes_only_in_the_requested_offer(monkeypatch):
         object(), "OFR/42-", native_owner("Okna - OFR/43-"), {"modifier"},
         "Przejdź do edytora.", ask=lambda prompt: "gotowe",
     ) is None
+
+
+def test_flexible_live_wizard_can_finish_directly_in_owned_offer(monkeypatch):
+    before, editor = scene("Podstawowe parametry okna"), scene("Okna - OFR/42-")
+    api = native_owner("Okna - OFR/42-")
+    monkeypatch.setattr(mission, "inspect", lambda loop: before)
+    monkeypatch.setattr(mission, "belongs_to_offer", lambda *args: True)
+    monkeypatch.setattr(mission, "confirm_stage", lambda *args: editor)
+    assert mission.run(object(), "OFR/42-", api, stop_at_editor=True, allow_offer_workspace=True) == 0

@@ -244,6 +244,7 @@ def stop(reason):
 def run(
     loop, offer, api, *, stop_at_editor=False, color_label=None, editor_first=False,
     width=WIDTH, height=HEIGHT, strict_catalog=False, editor_glazing_fallback=False,
+    allow_offer_workspace=False,
 ):
     from tools.run_windowhub_local_select_window_once import run as select_window
     from tools.run_windowhub_local_quantity_once import run as set_quantity
@@ -255,7 +256,8 @@ def run(
     if not belongs_to_offer(scene, offer, api):
         return stop("requested_offer_or_wizard_owner_unverified")
     if stage == "offer_document":
-        if not open_verified_position(loop, scene):
+        opened = open_verified_position(loop, scene)
+        if not opened and not allow_offer_workspace:
             return stop("add_unverified")
         scene = inspect(loop)
         stage = stage_of(scene)
@@ -331,50 +333,56 @@ def run(
         colors, glazing = catalog_options_for(outside="antracyt", inside="biały", glazing_panes=2)
     color_verified = glazing_verified = False
     if stage == "basic_parameters":
-        scene = catalog_or_handoff(
-            loop, scene, offer, api, "profile_color", colors, interactive=editor_first,
-            accepted_defaults=() if stop_at_editor or strict_catalog else (
-                "Biały", "Biały / Biały", "BIAŁY CZARNA USZCZELKA",
-            ),
-            allow_test_catalog_choice=not (stop_at_editor or strict_catalog),
-            manual_instruction=(
-                "Wybierz antracyt tylko od zewnątrz i biały od wewnątrz. "
-                "Zostaw ekran z widoczną wybraną opcją."
-            ) if strict_catalog else None,
-        )
-        if scene is None:
-            return stop("profile_color_selection_or_readback_unverified")
-        color_verified = True
-        print("TEST_PROFILE_COLOR_CHECKPOINT=True" if strict_catalog else "TEST_PROFILE_COLOR_VERIFIED=True")
+        if allow_offer_workspace:
+            print("TEST_CATALOG=windowhub_profile_defaults")
+        else:
+            scene = catalog_or_handoff(
+                loop, scene, offer, api, "profile_color", colors, interactive=editor_first,
+                accepted_defaults=() if stop_at_editor or strict_catalog else (
+                    "Biały", "Biały / Biały", "BIAŁY CZARNA USZCZELKA",
+                ),
+                allow_test_catalog_choice=not (stop_at_editor or strict_catalog),
+                manual_instruction=(
+                    "Wybierz antracyt tylko od zewnątrz i biały od wewnątrz. "
+                    "Zostaw ekran z widoczną wybraną opcją."
+                ) if strict_catalog else None,
+            )
+            if scene is None:
+                return stop("profile_color_selection_or_readback_unverified")
+            color_verified = True
+            print("TEST_PROFILE_COLOR_CHECKPOINT=True" if strict_catalog else "TEST_PROFILE_COLOR_VERIFIED=True")
         scene = confirm_or_handoff(loop, scene, offer, api, interactive=editor_first)
         if scene is None:
             return stop("basic_parameters_confirmation_unverified")
         stage = stage_of(scene)
 
     if stage == "glazing":
-        scene = catalog_or_handoff(
-            loop, scene, offer, api, "glazing_package", glazing, interactive=editor_first,
-            allow_test_catalog_choice=not strict_catalog and (editor_first or not stop_at_editor),
-            match_label=matches_required_glazing if stop_at_editor else None,
-            manual_instruction=(
-                "Wybierz pakiet trzyszybowy. Zostaw ekran z widoczną wybraną opcją."
-            ) if strict_catalog else None,
-        )
-        if scene is None:
-            return stop("glazing_selection_or_readback_unverified")
-        glazing_verified = True
-        print("TEST_GLAZING_CHECKPOINT=True" if strict_catalog else "TEST_GLAZING_VERIFIED=True")
-        if stop_at_editor:
-            from app.agent.runtime.windowhub_catalog_handoff import current_catalog_value
-            actual = current_catalog_value(scene, "glazing_package") or ""
-            print("TEST_REQUESTED_GLAZING_VERIFIED=" + str(matches_required_glazing(actual)))
+        if allow_offer_workspace:
+            print("TEST_CATALOG=windowhub_glazing_defaults")
+        else:
+            scene = catalog_or_handoff(
+                loop, scene, offer, api, "glazing_package", glazing, interactive=editor_first,
+                allow_test_catalog_choice=not strict_catalog and (editor_first or not stop_at_editor),
+                match_label=matches_required_glazing if stop_at_editor else None,
+                manual_instruction=(
+                    "Wybierz pakiet trzyszybowy. Zostaw ekran z widoczną wybraną opcją."
+                ) if strict_catalog else None,
+            )
+            if scene is None:
+                return stop("glazing_selection_or_readback_unverified")
+            glazing_verified = True
+            print("TEST_GLAZING_CHECKPOINT=True" if strict_catalog else "TEST_GLAZING_VERIFIED=True")
+            if stop_at_editor:
+                from app.agent.runtime.windowhub_catalog_handoff import current_catalog_value
+                actual = current_catalog_value(scene, "glazing_package") or ""
+                print("TEST_REQUESTED_GLAZING_VERIFIED=" + str(matches_required_glazing(actual)))
         scene = confirm_or_handoff(loop, scene, offer, api, interactive=editor_first)
         if scene is None:
             return stop("glazing_confirmation_unverified")
         stage = stage_of(scene)
 
     if stage == "hardware":
-        if not glazing_verified and not editor_first:
+        if not glazing_verified and not editor_first and not allow_offer_workspace:
             return stop("glazing_not_observed_before_hardware")
         # This test accepts the wizard's defaults. Require an observable
         # profile and group before committing those defaults.
@@ -382,12 +390,16 @@ def run(
         values = [current_catalog_value(scene, field) for field in ("hardware_profile", "hardware_group")]
         if not all(v and v.casefold() not in {"-", "—", "brak", "(brak)"} and
                    not v.casefold().startswith("wybierz") for v in values):
-            if not editor_first:
+            if not editor_first and not allow_offer_workspace:
                 return stop("hardware_defaults_unverified")
-            scene = handoff_scene(
-                loop, offer, api, _NEXT_STAGES["hardware"],
-                "Ustaw okucia w kreatorze i przejdź do edytora konstrukcji.",
-            )
+            if allow_offer_workspace:
+                print("TEST_CATALOG=windowhub_hardware_defaults")
+                scene = confirm_stage(loop, scene, offer, api)
+            else:
+                scene = handoff_scene(
+                    loop, offer, api, _NEXT_STAGES["hardware"],
+                    "Ustaw okucia w kreatorze i przejdź do edytora konstrukcji.",
+                )
         else:
             scene = confirm_or_handoff(loop, scene, offer, api, interactive=editor_first)
         if scene is None:
@@ -397,12 +409,12 @@ def run(
     print("TEST_FINAL_STAGE=" + str(stage))
     catalog_status = "TEST_CATALOG_CHECKPOINTS_COMPLETE=" if strict_catalog else "TEST_CATALOG_READBACK_COMPLETE="
     print(catalog_status + str(color_verified and glazing_verified))
-    if not glazing_verified and stage in {"modifier", "offer_document"}:
+    if not glazing_verified and not allow_offer_workspace and stage in {"modifier", "offer_document"}:
         print("TEST_GLAZING_WIZARD_NOT_OBSERVED=True")
     # Returning to the same offer proves navigation, but not an added row.
     # Modifier may open with an unbuilt frame. Do not accept an empty editor.
     if stage == "modifier":
-        if stop_at_editor and color_verified and belongs_to_offer(scene, offer, api):
+        if stop_at_editor and (color_verified or allow_offer_workspace) and belongs_to_offer(scene, offer, api):
             print("TEST_EDITOR_REACHED=True")
             if not glazing_verified and (not editor_first or strict_catalog) and not editor_glazing_fallback:
                 return stop("editor_reached_required_glazing_unverified")
@@ -410,13 +422,16 @@ def run(
             return 0
         return stop("construction_editor_reached_position_commit_unverified")
     if stage == "offer_document":
+        if allow_offer_workspace and belongs_to_offer(scene, offer, api):
+            print("TEST_RESULT=offer_workspace_requires_position_readback")
+            return 0
         return stop("returned_to_requested_offer_new_row_unverified")
     return stop("unsupported_stage")
 
 
 def run_from_start(
     loop, customer, api, *, color_label=None, resume_document_properties=False, editor_first=False,
-    on_offer_ready=None,
+    on_offer_ready=None, require_customer_confirmation=False,
 ):
     from app.agent.runtime.windowhub_document_core import run_document_core
     from tools.run_windowhub_new_offer_entry import main as open_offer
@@ -441,7 +456,8 @@ def run_from_start(
     code = run_document_core(
         customer_name=customer, fresh_document=True, on_confirmed=capture,
         confirm_similar_customer=True, replace_customer_filter=resume,
-        allow_test_blank_customer=True,
+        allow_test_blank_customer=not require_customer_confirmation,
+        **({"require_customer_confirmation": True} if require_customer_confirmation else {}),
     )
     if code != 0:
         return stop("customer_prices_or_document_confirmation_unverified")

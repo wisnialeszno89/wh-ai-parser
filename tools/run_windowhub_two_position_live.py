@@ -146,7 +146,7 @@ def ask_ready(instruction, *, ask=None):
     return True
 
 
-def complete_discount(loop, scene, offer, api):
+def complete_discount(loop, scene, offer, api, *, interactive=True):
     if not owned_discount(scene, offer, api):
         return None
     confirmation_attempted = False
@@ -177,7 +177,7 @@ def complete_discount(loop, scene, offer, api):
             if value_verified:
                 return after
 
-    if not ask_ready(
+    if not interactive or not ask_ready(
         "Sprawdź arkusz Rabat między pozycjami. Jeśli nadal jest otwarty, ustaw 18% "
         "i potwierdź. Wpisz „gotowe” po sprawdzeniu, że potwierdzono 18%."
     ):

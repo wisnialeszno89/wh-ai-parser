@@ -70,7 +70,7 @@ def run_document_core(*, customer_name: str, fresh_document: bool,
                       interactive_handoff: bool = False,
                       ask=input, on_confirmed=None,
                       confirm_similar_customer=False, replace_customer_filter=False,
-                      allow_test_blank_customer=False) -> int:
+                      allow_test_blank_customer=False, require_customer_confirmation=False) -> int:
     """Configure document, then confirm only after full evidence.
 
     When resuming an open dialog, never retype a previously clicked customer
@@ -100,6 +100,7 @@ def run_document_core(*, customer_name: str, fresh_document: bool,
         return 4
 
     customer_source = "native"
+    operator_approved = False
     allow_opaque_caption = False
     verified_customer = customer_selected(scene, customer_name)
     print("CUSTOMER_INITIAL_READBACK=" + str(verified_customer))
@@ -122,6 +123,7 @@ def run_document_core(*, customer_name: str, fresh_document: bool,
                 print("CUSTOMER_COMPLETION_STOP=not_approved")
                 return 6
             if approved is not _MANUAL_CUSTOMER:
+                operator_approved = True
                 customer_name = approved
                 focused, reason = activate_windowhub_workflow_window()
                 print("CUSTOMER_COMPLETION_REFOCUS=" + reason)
@@ -220,6 +222,7 @@ def run_document_core(*, customer_name: str, fresh_document: bool,
             customer_name = "" if blank else manual
             customer_source = "human_confirmed_blank_test" if blank else "human_confirmed_selection"
             matched = True
+            operator_approved = True
             print("CUSTOMER_VERIFICATION_SOURCE=" + customer_source)
 
         verified_customer = matched
@@ -228,6 +231,33 @@ def run_document_core(*, customer_name: str, fresh_document: bool,
     elif not verified_customer:
         print("CUSTOMER_LOOKUP_STATUS=already_open_no_blind_reselection")
         print("CUSTOMER_COMMIT_STATUS=unverified")
+
+    if require_customer_confirmation and verified_customer and not operator_approved:
+        selection = inspect(loop)
+        hwnd = selection.observation.metadata.get("window_handle")
+        if (
+            type(hwnd) is not int or hwnd <= 0 or stage_of(selection) != "document_properties"
+            or not customer_selected(selection, customer_name)
+        ):
+            print("CUSTOMER_APPROVAL_STOP=selection_unverified")
+            return 6
+        try:
+            answer = ask(f"Potwierdź klienta oferty '{customer_name}' [tak/N]: ")
+        except (EOFError, KeyboardInterrupt):
+            return 6
+        if answer.strip().casefold() not in {"tak", "t"}:
+            print("CUSTOMER_APPROVAL_STOP=declined")
+            return 6
+        focused, _ = activate_windowhub_workflow_window()
+        selection = inspect(loop) if focused else None
+        if (
+            selection is None or stage_of(selection) != "document_properties"
+            or selection.observation.metadata.get("window_handle") != hwnd
+            or not customer_selected(selection, customer_name)
+        ):
+            print("CUSTOMER_APPROVAL_STOP=selection_changed")
+            return 6
+        print("CUSTOMER_APPROVAL=confirmed")
 
     # Four checkboxes share one stable dialog. Inspect the entire form once,
     # invoke each *freshly rebound native* UIA TogglePattern only if required,
@@ -312,7 +342,10 @@ def run_document_core(*, customer_name: str, fresh_document: bool,
 
     # Fresh exact-value readback has priority. A previously observed native
     # verified selection may also count, but merely typing never does.
-    verified_customer = verified_customer or customer_selected(final, customer_name)
+    if require_customer_confirmation and customer_source == "native":
+        verified_customer = verified_customer and customer_selected(final, customer_name)
+    else:
+        verified_customer = verified_customer or customer_selected(final, customer_name)
     readiness = document_readiness(
         customer_verified=verified_customer, flags_verified=flags_ok
     )

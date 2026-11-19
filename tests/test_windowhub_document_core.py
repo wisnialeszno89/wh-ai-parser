@@ -311,3 +311,33 @@ def test_manual_registered_name_with_swapped_person_names_resumes(monkeypatch, c
     ) == 0
     assert len(prompts) == 1
     assert "DOCUMENT_CUSTOMER_ACCEPTANCE=human_confirmed_selection" in capsys.readouterr().out
+
+
+def test_native_customer_is_still_subject_to_operator_approval(monkeypatch):
+    from types import SimpleNamespace as NS
+
+    from app.agent.runtime import windowhub_document_core as core
+    from app.agent.runtime import windowhub_window_activation as activation
+    from app.agent.runtime import windows_desktop_agent_control_loop as control
+    from tools import run_windowhub_top_trans_single_window_mission as legacy
+
+    scene = NS(observation=NS(
+        state=NS(active_application="Okna.exe", active_window_title="Właściwości dokumentu"),
+        metadata={"window_handle": 200},
+    ))
+    monkeypatch.setattr(activation, "activate_windowhub_workflow_window", lambda: (True, "ok"))
+    monkeypatch.setattr(control, "create_windows_desktop_agent_control_loop", lambda: object())
+    monkeypatch.setattr(legacy, "inspect", lambda loop: scene)
+    monkeypatch.setattr(legacy, "customer_selected", lambda *a: True)
+
+    def unexpected_prices(*args, **kwargs):
+        raise AssertionError("prices changed before operator approved the customer")
+
+    monkeypatch.setattr(legacy, "toggle_price_once", unexpected_prices)
+    monkeypatch.setattr(legacy, "verify_exclusion", unexpected_prices)
+    prompts = []
+    assert core.run_document_core(
+        customer_name="Test", fresh_document=True, require_customer_confirmation=True,
+        ask=lambda prompt: prompts.append(prompt) or "nie",
+    ) == 6
+    assert len(prompts) == 1
