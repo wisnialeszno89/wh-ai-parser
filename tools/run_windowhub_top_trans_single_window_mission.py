@@ -119,6 +119,7 @@ def handle_customer_lookup(scene):
 def progressive_customer_selection(
     loop, initial_scene, name, *, require_result_click=False,
     visible_completions=None, replace_existing=False, short_prefix_only=False,
+    _alternate_attempt=False,
 ):
     """Type in short chunks, observing BEFORE the final name is entered.
 
@@ -204,6 +205,25 @@ def progressive_customer_selection(
             return False, "CUSTOMER_CLICKED_BUT_SELECTION_UNVERIFIED_" + reason
     if short_prefix_only:
         return False, "CUSTOMER_NO_EXACT_RESULT_FOR_SHORT_PREFIX"
+    # One bounded alternate spelling for legacy prefix filters: Top Trans ->
+    # Top-Trans. Re-observe and replace the whole query; never select a near
+    # match merely because the spelling differs. Full customer identity and
+    # fresh post-click verification still apply.
+    if not _alternate_attempt and " " in name:
+        company, _, suffix = name.partition(" ")
+        if company.isalpha() and suffix and "-" not in company:
+            alternate = company + "-" + suffix
+            fresh = inspect(loop)
+            if (stage_of(fresh) != "document_properties" or fresh.observation.metadata.get("window_handle") != hwnd:
+                return False, "CUSTOMER_ALTERNATE_SEARCH_CONTEXT_CHANGED"
+            print("CUSTOMER_SEARCH_FALLBACK=HYPHENATED_PREFIX")
+            return progressive_customer_selection(
+                loop, fresh, alternate,
+                require_result_click=require_result_click,
+                visible_completions=visible_completions,
+                replace_existing=True,
+                _alternate_attempt=True,
+            )
     return False, "CUSTOMER_NO_EXACT_SUGGESTION_DURING_TYPING"
 
 
