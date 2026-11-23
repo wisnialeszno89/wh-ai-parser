@@ -7,6 +7,20 @@ text typed into LookUpEdit is a selected business record.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import re
+import unicodedata
+
+
+def canonical_customer_name(value: str) -> str:
+    """Compare typography-only differences, never omit/reorder identity tokens.
+
+    Top-Trans Janik Artur == Top Trans Janik Artur, but Top-Trans alone
+    is NOT equal to the complete customer identity.
+    """
+    if not isinstance(value, str):
+        return ""
+    value = unicodedata.normalize("NFKC", value).casefold()
+    return " ".join(re.sub(r"[-‐‑‒–—―]+", " ", value).split())
 
 
 SELECTABLE_ROLES = frozenset({"dataitem", "listitem", "treeitem", "text", "custom"})
@@ -35,12 +49,12 @@ def nearby_lookup(rect: tuple[int, int, int, int], picker: tuple[int, int, int, 
 def exact_customer_candidates(candidates: list[Candidate], customer_name: str,
                               picker_rect: tuple[int, int, int, int]) -> list[int]:
     """Return candidate indices only for an exact unique non-editor match."""
-    expected = customer_name.strip().casefold()
+    expected = canonical_customer_name(customer_name)
     return [
         i for i, candidate in enumerate(candidates)
         if candidate.visible and candidate.enabled
         and candidate.role.casefold() in SELECTABLE_ROLES
-        and candidate.name.strip().casefold() == expected
+        and canonical_customer_name(candidate.name) == expected
         and nearby_lookup(candidate.rect, picker_rect)
         # Text displayed INSIDE the editor is the typed query, not a row.
         and candidate.rect[1] >= picker_rect[3]
@@ -144,7 +158,7 @@ def select_exact_customer_result(scene, customer_name: str, *, visible_completio
                 if role not in SELECTABLE_ROLES:
                     continue
                 name = str(info.name or "").strip()
-                if name.casefold() != customer_name.strip().casefold() and not (
+                if canonical_customer_name(name) != canonical_customer_name(customer_name) and not (
                     visible_completions is not None
                     and _customer_name_is_suggestion(name, customer_name)
                 ):
@@ -175,7 +189,7 @@ def select_exact_customer_result(scene, customer_name: str, *, visible_completio
         [item[1] for item in candidates], customer_name, picker_rect
     )
     print("CUSTOMER_EXACT_VISIBLE_MATCHES =", sum(
-        item[1].name.casefold() == customer_name.strip().casefold() for item in candidates
+        canonical_customer_name(item[1].name) == canonical_customer_name(customer_name) for item in candidates
     ))
     print("CUSTOMER_EXACT_NEARBY_RESULTS =", len(accepted))
     if len(accepted) > 1:

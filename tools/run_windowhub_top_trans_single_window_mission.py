@@ -22,6 +22,7 @@ from app.agent.perception.windowhub_semantic_world import enrich_windowhub_scene
 from app.agent.runtime.windowhub_window_activation import activate_windowhub_workflow_window
 from app.agent.runtime.windows_desktop_agent_control_loop import create_windows_desktop_agent_control_loop
 from app.agent.offers.windowhub_customer_search_action import type_directly_into_customer_lookup
+from app.agent.offers.windowhub_customer_result_selection import canonical_customer_name
 from app.agent.offers.windowhub_document_properties_action import (
     DOCUMENT_PRICE_AUTOMATION_IDS, prepare_price_exclusion,
 )
@@ -105,7 +106,7 @@ def customer_selected(scene, name=None):
         return False
     value = (candidates[0].metadata or {}).get("current_value")
     expected = CUSTOMER if name is None else name
-    return isinstance(value, str) and value.strip().casefold() == expected.strip().casefold()
+    return isinstance(value, str) and canonical_customer_name(value) == canonical_customer_name(expected)
 
 
 def handle_customer_lookup(scene):
@@ -118,6 +119,7 @@ def handle_customer_lookup(scene):
 def progressive_customer_selection(
     loop, initial_scene, name, *, require_result_click=False,
     visible_completions=None, replace_existing=False, short_prefix_only=False,
+    _alternate_attempt=False,
 ):
     """Type in short chunks, observing BEFORE the final name is entered.
 
@@ -203,6 +205,25 @@ def progressive_customer_selection(
             return False, "CUSTOMER_CLICKED_BUT_SELECTION_UNVERIFIED_" + reason
     if short_prefix_only:
         return False, "CUSTOMER_NO_EXACT_RESULT_FOR_SHORT_PREFIX"
+    # One bounded alternate spelling for legacy prefix filters: Top Trans ->
+    # Top-Trans. Re-observe and replace the whole query; never select a near
+    # match merely because the spelling differs. Full customer identity and
+    # fresh post-click verification still apply.
+    if not _alternate_attempt and " " in name:
+        company, _, suffix = name.partition(" ")
+        if company.isalpha() and suffix and "-" not in company:
+            alternate = company + "-" + suffix
+            fresh = inspect(loop)
+            if (stage_of(fresh) != "document_properties" or fresh.observation.metadata.get("window_handle") != hwnd):
+                return False, "CUSTOMER_ALTERNATE_SEARCH_CONTEXT_CHANGED"
+            print("CUSTOMER_SEARCH_FALLBACK=HYPHENATED_PREFIX")
+            return progressive_customer_selection(
+                loop, fresh, alternate,
+                require_result_click=require_result_click,
+                visible_completions=visible_completions,
+                replace_existing=True,
+                _alternate_attempt=True,
+            )
     return False, "CUSTOMER_NO_EXACT_SUGGESTION_DURING_TYPING"
 
 

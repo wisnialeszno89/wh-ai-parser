@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from app.agent.offers.windowhub_customer_result_selection import canonical_customer_name
+
 
 @dataclass(frozen=True)
 class CustomerCommitEvidence:
@@ -22,8 +24,8 @@ def decide_customer_commit(*, exact_row_was_clicked: bool,
                            customer_name: str,
                            popup_still_contains_exact_result: bool | None
                            ) -> CustomerCommitEvidence:
-    expected = customer_name.strip().casefold()
-    values = {v.strip().casefold() for v in native_values if isinstance(v, str) and v.strip()}
+    expected = canonical_customer_name(customer_name)
+    values = {canonical_customer_name(v) for v in native_values if isinstance(v, str) and v.strip()}
     native = expected in values
     if not exact_row_was_clicked:
         return CustomerCommitEvidence("unverified", "no_exact_row_click", native, popup_still_contains_exact_result)
