@@ -81,6 +81,16 @@ def windowhub_skill_knowledge() -> dict[str, object]:
             "If OCR recognizes the exact target but postcondition is unavailable, report a verification gap instead of guessing.",
             "Learn from the last action outcome, storing observed stage, selected control and failure cause; never store a guessed success.",
         ],
+        "commercial_quotation_routes": {
+            "catalogue": "Prefer verified construction when available, but it is not a prerequisite to quoting a non-standard product.",
+            "descriptive_placeholder": "A standard-dimension blank window may be a visual pricing placeholder, never a claim that the customer ordered those dimensions.",
+            "text_only": "Where the program supports a descriptive line, quote a non-catalogue item transparently.",
+            "description": "Use the position description for scope, specifications, constraints, exclusions, manufacturer warranty warnings and deviations.",
+            "photos": "Add user-authorized, relevant images only through a separately verified UI insertion capability; do not assume pasted content succeeded.",
+            "manual_price": "Use a supplied or salesperson-calculated amount only when the price field and later readback are verified; never invent totals.",
+            "technical_policy": "Manufacturer limits and warranties should be reported faithfully, not silently treated as a universal veto on preparing a draft quotation.",
+            "production_policy": "A commercial offer is not authorization to manufacture a technically unsuitable or out-of-warranty product. Salesperson retains approval.",
+        },
         "business_goal": "Follow the current user's specific objective. Existing offers and individual fields may be edited without opening a new offer or choosing a customer.",
         "known_stages": [
             "start", "document_properties", "new_customer", "offer_document", "order_document",
