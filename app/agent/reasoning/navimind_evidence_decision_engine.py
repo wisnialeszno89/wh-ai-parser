@@ -49,6 +49,7 @@ class ActionOption:
     requires_approval: bool = False
     persists_business_document: bool = False
     documentation_key: str | None = None
+    requires_live_catalogue: bool = False
 
 
 @dataclass(frozen=True)
@@ -137,6 +138,12 @@ def plan_next_step(ctx: DecisionContext) -> ReasonedStep:
         if option.requires_approval and not ctx.human_approval:
             blocked.append(option.key)
             continue
+        if option.requires_live_catalogue and not any(
+            f.verified and f.source == SourceKind.LIVE_UI
+            and f.key == "catalogue:" + option.key for f in ctx.knowledge
+        ):
+            blocked.append(option.key)
+            continue
         if option.documentation_key is not None:
             doc = facts.get(option.documentation_key)
             if doc is None:
@@ -204,6 +211,12 @@ def validate_model_proposal(ctx: DecisionContext, proposed_action_key: str) -> R
     # Allow explicit inspection to resolve missing information, not editing.
     if missing and not proposed_action_key.startswith("inspect:"):
         return ReasonedStep(NextStep.CONSULT, None, "missing_evidence_before_model_action", unresolved=missing)
+    if option.requires_live_catalogue and not any(
+        f.verified and f.source == SourceKind.LIVE_UI
+        and f.key == "catalogue:" + option.key for f in ctx.knowledge
+    ):
+        return ReasonedStep(NextStep.CONSULT, None, "installed_catalogue_verification_required",
+                            unresolved=("catalogue:" + option.key,))
     if option.documentation_key is not None and option.documentation_key not in facts:
         return ReasonedStep(NextStep.CONSULT, None, "proposed_action_lacks_verified_rule",
                             unresolved=(option.documentation_key,))
