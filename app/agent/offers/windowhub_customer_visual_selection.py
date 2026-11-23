@@ -10,6 +10,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from functools import lru_cache
 
+from app.agent.offers.windowhub_customer_result_selection import canonical_customer_name
+
 
 @dataclass(frozen=True)
 class VisualCustomerResult:
@@ -31,11 +33,11 @@ def popup_bounds(picker_rect: tuple[int, int, int, int],
 def match_visual_customer(results: list[VisualCustomerResult],
                           name: str,
                           region: tuple[int, int, int, int]) -> list[VisualCustomerResult]:
-    target = " ".join(name.casefold().split())
+    target = canonical_customer_name(name)
     x1, y1, x2, y2 = region
     return [
         result for result in results
-        if " ".join(result.label.casefold().split()) == target
+        if canonical_customer_name(result.label) == target
         and result.confidence >= 0.85
         and x1 <= result.bounds[0] < result.bounds[2] <= x2
         and y1 <= result.bounds[1] < result.bounds[3] <= y2
