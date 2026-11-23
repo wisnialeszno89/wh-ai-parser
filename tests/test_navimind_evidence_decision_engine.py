@@ -156,3 +156,18 @@ def test_inspection_does_not_bypass_save_guard_or_repeat_guard():
         attempted_without_progress=("inspect:catalogue",),
     ))
     assert result.kind == NextStep.CONSULT
+
+
+def test_installed_catalogue_gates_supplier_documentation():
+    doc = KnowledgeFact("hardware_rule", "fits", SourceKind.WINKHAUS_DOC,
+                        "Winkhaus-manual-section", verified=True)
+    proposed = option("select:hardware", documentation_key="hardware_rule",
+                      requires_live_catalogue=True)
+    context = ctx(capabilities=(proposed,), knowledge=(doc,))
+    assert validate_model_proposal(context, "select:hardware").kind == NextStep.CONSULT
+    assert plan_next_step(context).kind == NextStep.ASK
+    live = KnowledgeFact("catalogue:select:hardware", "compatible",
+                         SourceKind.LIVE_UI, "current-catalogue", verified=True)
+    approved = ctx(capabilities=(proposed,), knowledge=(doc, live))
+    assert validate_model_proposal(approved, "select:hardware").kind == NextStep.ACT
+    assert plan_next_step(approved).kind == NextStep.ACT
