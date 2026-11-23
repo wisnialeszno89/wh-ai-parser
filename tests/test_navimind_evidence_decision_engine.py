@@ -1,6 +1,6 @@
 from app.agent.reasoning.navimind_evidence_decision_engine import (
     ActionOption, DecisionContext, KnowledgeFact, NextStep, SourceKind,
-    plan_next_step,
+    plan_next_step, validate_model_proposal,
 )
 
 
@@ -110,3 +110,49 @@ def test_ambiguous_unavailable_or_confirmation_action_never_guessed():
     result = plan_next_step(ctx(capabilities=(option(unique_target=False),)))
     assert result.kind == NextStep.ASK
     assert plan_next_step(ctx(capabilities=(option(requires_approval=True),))).kind == NextStep.ASK
+
+
+def test_model_can_rank_multiple_safe_options_but_not_invent_target():
+    context = ctx(capabilities=(option("click:one"), option("click:two")))
+    result = validate_model_proposal(context, "click:two")
+    assert result.kind == NextStep.ACT
+    assert result.action_key == "click:two"
+    assert validate_model_proposal(context, "click:three").kind == NextStep.OBSERVE
+
+
+def test_model_cannot_override_unsafe_save_or_replayed_action():
+    assert validate_model_proposal(ctx(
+        capabilities=(option("save", persists_business_document=True),),
+    ), "save").kind == NextStep.ASK
+    assert validate_model_proposal(ctx(
+        capabilities=(option(),),
+        attempted_without_progress=("write:width",),
+    ), "write:width").kind == NextStep.OBSERVE
+
+
+def test_model_cannot_edit_without_required_source_fact():
+    result = validate_model_proposal(ctx(
+        capabilities=(option("hardware:select", documentation_key="compatible"),),
+        pending_unknowns=("compatible",),
+    ), "hardware:select")
+    assert result.kind == NextStep.CONSULT
+    fact = KnowledgeFact("compatible", "yes", SourceKind.LIVE_UI,
+                         "catalogue-current-session", verified=True)
+    assert validate_model_proposal(ctx(
+        capabilities=(option("hardware:select", documentation_key="compatible"),),
+        pending_unknowns=("compatible",), knowledge=(fact,),
+    ), "hardware:select").kind == NextStep.ACT
+
+
+def test_inspection_does_not_bypass_save_guard_or_repeat_guard():
+    result = plan_next_step(ctx(
+        pending_unknowns=("profile",),
+        capabilities=(option("inspect:danger", persists_business_document=True),),
+    ))
+    assert result.kind == NextStep.CONSULT
+    result = plan_next_step(ctx(
+        pending_unknowns=("profile",),
+        capabilities=(option("inspect:catalogue"),),
+        attempted_without_progress=("inspect:catalogue",),
+    ))
+    assert result.kind == NextStep.CONSULT
