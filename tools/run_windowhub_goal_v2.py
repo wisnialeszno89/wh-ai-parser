@@ -137,6 +137,50 @@ def request_human_resume(loop, *, timeout_seconds=60):
     print("HANDOFF_RESULT=accepted_reobserved")
     return True
 
+def request_explicit_customer_confirmation(loop, *, expected_name, initial_hwnd, timeout_seconds):
+    """Human-attested selection, distinct from automatic native readback."""
+    from app.agent.runtime.goal_task_supervisor import timed_salesperson_prompt
+    from app.agent.offers.windowhub_customer_confirmation_policy import valid_customer_attestation
+    from tools.run_windowhub_top_trans_single_window_mission import matches
+    from app.agent.perception.windowhub_semantic_world import enrich_windowhub_scene
+
+    typed = timed_salesperson_prompt(
+        "Sprawdz w WindowHub wybranego kontrahenta. Jesli na pewno jest to "
+        + expected_name + ", wpisz jego PELNA NAZWE (nie 'tak'). "
+        "Jesli wybrano zle, popraw wybor najpierw, potem wpisz pelna nazwe.",
+        timeout_seconds=timeout_seconds,
+    )
+    if typed is None:
+        print("CUSTOMER_HANDOFF_RESULT=timeout")
+        return False
+    if not typed.strip():
+        print("CUSTOMER_HANDOFF_RESULT=declined")
+        return False
+    focused, info = activate_windowhub_workflow_window()
+    print("CUSTOMER_HANDOFF_REFOCUS=" + info)
+    if not focused:
+        print("CUSTOMER_HANDOFF_RESULT=window_not_focused")
+        return False
+    fresh = enrich_windowhub_scene(loop.observe_scene())
+    customer_fields = matches(fresh, automation_id="IDC_ZAMAWIAJACY")
+    if len(customer_fields) != 1:
+        print("CUSTOMER_HANDOFF_RESULT=lookup_not_unique")
+        return False
+    observed_value = (customer_fields[0].metadata or {}).get("current_value")
+    if not isinstance(observed_value, str) or not observed_value.strip():
+        observed_value = None
+    approved = valid_customer_attestation(
+        typed_name=typed,
+        expected_name=expected_name,
+        stage=stage_of(fresh),
+        original_hwnd=initial_hwnd,
+        observed_hwnd=fresh.observation.metadata.get("window_handle"),
+        observed_customer_value=observed_value,
+    )
+    print("CUSTOMER_HANDOFF_RESULT=" + ("explicitly_attested" if approved else "rejected"))
+    return approved
+
+
 def run_goal(loop, *, goal, reasoner, mode, max_actions, experience=(),
              approved_persistent=False, show_window_title=False,
              customer_lookup_name=None, interactive_handoff=False,
@@ -224,19 +268,29 @@ def run_goal(loop, *, goal, reasoner, mode, max_actions, experience=(),
             if not verified:
                 print("CUSTOMER_REVIEW_NEEDED=exact_customer_not_verified")
                 print("CUSTOMER_REVIEW_GUIDANCE=Review the visible candidate and manually select the correct existing client in WindowHub; do not confirm a partial or ambiguous name.")
-                if interactive_handoff and request_human_resume(
-                    loop, timeout_seconds=handoff_timeout,
-                ):
-                    fresh = enrich_windowhub_scene(loop.observe_scene())
-                    from tools.run_windowhub_top_trans_single_window_mission import customer_selected
-                    if stage_of(fresh) == "document_properties" and customer_selected(fresh, customer_lookup_name):
-                        print("CUSTOMER_SKILL_STATUS=CUSTOMER_VERIFIED_AFTER_HUMAN_HANDOFF")
+                from app.agent.offers.windowhub_customer_confirmation_policy import (
+                    can_request_customer_attestation,
+                )
+                if interactive_handoff and can_request_customer_attestation(outcome):
+                    if request_explicit_customer_confirmation(
+                        loop,
+                        expected_name=customer_lookup_name,
+                        initial_hwnd=scene.observation.metadata.get("window_handle"),
+                        timeout_seconds=handoff_timeout,
+                    ):
+                        # This is explicit operator authorization, NOT an
+                        # independently verified native value. Continue only
+                        # in an unsaved draft, and retain its weaker provenance.
+                        print("CUSTOMER_SKILL_STATUS=CUSTOMER_OPERATOR_ATTESTED_READBACK_UNVERIFIED")
                         verified = True
                         feedback.append({
                             "source": "customer_human_handoff",
-                            "verified": True,
-                            "result": "exact_normalized_customer_readback",
+                            "verified": False,
+                            "operator_attested": True,
+                            "result": "explicit_full_name_confirmation_after_exact_row_click",
                         })
+                elif interactive_handoff:
+                    print("CUSTOMER_HANDOFF_RESULT=unavailable_without_exact_clicked_row")
                 if not verified:
                     print("STOP: customer selection requires additional visual/native verification.")
                     return 6
