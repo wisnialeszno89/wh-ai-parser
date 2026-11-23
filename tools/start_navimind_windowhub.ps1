@@ -140,6 +140,8 @@ if (-not (Test-NaviMindAuth)) {
 if ($TestOnly) { exit 0 }
 
 Set-Location $repoRoot
+# Avoid thousands of tiny .pyc writes on removable/low-space E: drive.
+$env:PYTHONDONTWRITEBYTECODE = "1"
 $env:COMPUTER_USE_LIVE = "1"
 $env:WH_REAL_WINDOWHUB = "1"
 try {
