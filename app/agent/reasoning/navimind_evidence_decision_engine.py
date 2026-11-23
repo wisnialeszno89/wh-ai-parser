@@ -104,11 +104,17 @@ def plan_next_step(ctx: DecisionContext) -> ReasonedStep:
     if missing:
         live_inspection_available = any(
             option.available and option.unique_target and option.key.startswith("inspect:")
+            and not option.persists_business_document
+            and (not option.requires_approval or ctx.human_approval)
+            and option.key not in ctx.attempted_without_progress
             for option in ctx.capabilities
         )
         if live_inspection_available:
             inspect = next(o for o in ctx.capabilities
-                           if o.available and o.unique_target and o.key.startswith("inspect:"))
+                           if o.available and o.unique_target and o.key.startswith("inspect:")
+                           and not o.persists_business_document
+                           and (not o.requires_approval or ctx.human_approval)
+                           and o.key not in ctx.attempted_without_progress)
             return ReasonedStep(NextStep.ACT, inspect.key, "inspect_installed_catalogue_before_decision",
                                 unresolved=missing)
         return ReasonedStep(NextStep.CONSULT, None, "retrieve_authorized_documentation_or_live_catalogue",
@@ -159,3 +165,50 @@ def plan_next_step(ctx: DecisionContext) -> ReasonedStep:
         return ReasonedStep(NextStep.ASK, None, "no_safe_unique_action_after_recovery",
                             unresolved=tuple(blocked))
     return ReasonedStep(NextStep.CONSULT, None, "no_action_affordance_observed")
+
+
+def validate_model_proposal(ctx: DecisionContext, proposed_action_key: str) -> ReasonedStep:
+    """Validate one language-model suggestion against fresh, local evidence.
+
+    The model ranks UI possibilities but cannot create new capabilities,
+    override a blocked action, infer successful execution, or authorize
+    persistent business changes. This is a *proposal*, not GUI execution.
+    """
+    if not isinstance(proposed_action_key, str) or not proposed_action_key:
+        return ReasonedStep(NextStep.ASK, None, "missing_model_proposal")
+    if ctx.requested_result_verified:
+        return ReasonedStep(NextStep.COMPLETE, None, "independent_postcondition_verified")
+    if ctx.stage in ("order_document", "unknown", "windowhub_unmapped"):
+        return ReasonedStep(NextStep.STOP, None, "unsupported_or_read_only_stage")
+    if not ctx.observation_fresh or (ctx.stage != "start" and not ctx.exact_document_verified):
+        return ReasonedStep(NextStep.OBSERVE, None, "fresh_document_evidence_required")
+    chosen = [o for o in ctx.capabilities if o.key == proposed_action_key]
+    if len(chosen) != 1:
+        return ReasonedStep(NextStep.OBSERVE, None, "model_target_not_uniquely_offered")
+    option = chosen[0]
+    if (not option.available or not option.unique_target
+            or option.key in ctx.attempted_without_progress):
+        return ReasonedStep(NextStep.OBSERVE, None, "model_target_stale_ambiguous_or_repeated")
+    if option.persists_business_document:
+        return ReasonedStep(NextStep.ASK, None, "save_or_send_requires_separate_salesperson_review")
+    if option.requires_approval and not ctx.human_approval:
+        return ReasonedStep(NextStep.ASK, None, "explicit_approval_required")
+
+    facts = {
+        f.key: f for f in ctx.knowledge
+        if f.verified and f.source in (
+            SourceKind.WINKHAUS_DOC, SourceKind.LOCAL_RULE, SourceKind.LIVE_UI,
+        )
+    }
+    missing = tuple(key for key in ctx.pending_unknowns if key not in facts)
+    # Allow explicit inspection to resolve missing information, not editing.
+    if missing and not proposed_action_key.startswith("inspect:"):
+        return ReasonedStep(NextStep.CONSULT, None, "missing_evidence_before_model_action", unresolved=missing)
+    if option.documentation_key is not None and option.documentation_key not in facts:
+        return ReasonedStep(NextStep.CONSULT, None, "proposed_action_lacks_verified_rule",
+                            unresolved=(option.documentation_key,))
+    return ReasonedStep(
+        NextStep.ACT, option.key, "model_proposal_validated_against_local_evidence",
+        evidence_keys=((option.documentation_key,) if option.documentation_key else ()),
+        unresolved=missing,
+    )
