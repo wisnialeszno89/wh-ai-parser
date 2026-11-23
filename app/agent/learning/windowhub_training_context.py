@@ -39,6 +39,18 @@ def windowhub_skill_knowledge() -> dict[str, object]:
     return {
         "grounded_environment": windowhub_environment_knowledge(),
         "salesperson_decision_policy": decision_context(),
+        "decision_engine_v3_contract": {
+            "status": "offline_policy_available_live_integration_pending",
+            "cycle": ["understand_goal", "retrieve_authorized_knowledge", "observe_live_ui",
+                      "rank_model_actions", "validate_local_evidence", "act_once",
+                      "verify_business_postcondition", "recover_or_escalate"],
+            "source_kinds": ["request", "live_ui", "winkhaus_doc", "local_rule",
+                             "public_web", "model_inference", "human_correction"],
+            "knowledge_trust": "Public web and model inference inform research but never alone prove live WindowHub selections or installed-catalogue technical compatibility.",
+            "execution_authority": "Local V2 executor remains the only authorized desktop controller. Decision kernel may only propose next intent.",
+            "protected_business_actions": "No autonomous save, send, order conversion or unverifiable client mutation.",
+            "learning": "Human corrections remain proposals until evaluated against independently verified test outcomes.",
+        },
         "application": "WindowHub",
         "general_computer_skills": [
             "Observe the current window before acting; an earlier screenshot may be stale.",
