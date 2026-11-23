@@ -214,7 +214,7 @@ def progressive_customer_selection(
         if company.isalpha() and suffix and "-" not in company:
             alternate = company + "-" + suffix
             fresh = inspect(loop)
-            if (stage_of(fresh) != "document_properties" or fresh.observation.metadata.get("window_handle") != hwnd:
+            if (stage_of(fresh) != "document_properties" or fresh.observation.metadata.get("window_handle") != hwnd):
                 return False, "CUSTOMER_ALTERNATE_SEARCH_CONTEXT_CHANGED"
             print("CUSTOMER_SEARCH_FALLBACK=HYPHENATED_PREFIX")
             return progressive_customer_selection(
