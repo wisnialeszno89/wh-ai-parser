@@ -266,34 +266,66 @@ def run_goal(loop, *, goal, reasoner, mode, max_actions, experience=(),
                 "result": outcome,
             })
             if not verified:
-                print("CUSTOMER_REVIEW_NEEDED=exact_customer_not_verified")
-                print("CUSTOMER_REVIEW_GUIDANCE=Review the visible candidate and manually select the correct existing client in WindowHub; do not confirm a partial or ambiguous name.")
                 from app.agent.offers.windowhub_customer_confirmation_policy import (
-                    can_request_customer_attestation,
+                    can_continue_draft_after_exact_click,
+                    requires_manual_customer_selection,
                 )
-                if interactive_handoff and can_request_customer_attestation(outcome):
-                    if request_explicit_customer_confirmation(
-                        loop,
-                        expected_name=customer_lookup_name,
-                        initial_hwnd=scene.observation.metadata.get("window_handle"),
-                        timeout_seconds=handoff_timeout,
-                    ):
-                        # This is explicit operator authorization, NOT an
-                        # independently verified native value. Continue only
-                        # in an unsaved draft, and retain its weaker provenance.
-                        print("CUSTOMER_SKILL_STATUS=CUSTOMER_OPERATOR_ATTESTED_READBACK_UNVERIFIED")
-                        verified = True
+                if can_continue_draft_after_exact_click(outcome):
+                    # A uniquely exact result was clicked and popup closed.
+                    # This is sufficient to work on an UNSAVED draft. The
+                    # native committed value remains unverified and will be
+                    # disclosed to the salesperson before any finalization.
+                    fresh = enrich_windowhub_scene(loop.observe_scene())
+                    if (stage_of(fresh) == "document_properties"
+                            and fresh.observation.metadata.get("window_handle")
+                            == scene.observation.metadata.get("window_handle")):
+                        print("CUSTOMER_SKILL_STATUS=CUSTOMER_EXACT_RESULT_CLICKED_DRAFT_ONLY")
+                        print("CUSTOMER_REPORT_REQUESTED=" + customer_lookup_name)
+                        print("CUSTOMER_REPORT_SELECTION=exact_result_clicked_popup_closed")
+                        print("CUSTOMER_REPORT_COMMIT_VERIFIED=False")
+                        print("CUSTOMER_REPORT_REVIEW_BEFORE_SAVE=REQUIRED")
                         feedback.append({
-                            "source": "customer_human_handoff",
+                            "source": "windowhub_local_customer_skill",
+                            "result": "exact_row_clicked_popup_closed_native_commit_unverified",
                             "verified": False,
-                            "operator_attested": True,
-                            "result": "explicit_full_name_confirmation_after_exact_row_click",
+                            "draft_continuation_authorized": True,
+                            "customer_review_before_save": True,
                         })
-                elif interactive_handoff:
-                    print("CUSTOMER_HANDOFF_RESULT=unavailable_without_exact_clicked_row")
+                        verified = True
+                    else:
+                        print("CUSTOMER_REVIEW_NEEDED=window_or_stage_changed_after_click")
+                elif requires_manual_customer_selection(outcome):
+                    print("CUSTOMER_REVIEW_NEEDED=no_exact_customer_result")
+                    print("CUSTOMER_REVIEW_GUIDANCE=Select the correct existing client manually in WindowHub. Confirm by typing 'tak' only after selection.")
+                    if interactive_handoff and request_human_resume(
+                        loop, timeout_seconds=handoff_timeout,
+                    ):
+                        fresh = enrich_windowhub_scene(loop.observe_scene())
+                        if (stage_of(fresh) == "document_properties"
+                                and fresh.observation.metadata.get("window_handle")
+                                == scene.observation.metadata.get("window_handle")):
+                            print("CUSTOMER_SKILL_STATUS=CUSTOMER_MANUALLY_SELECTED_ATTESTED_DRAFT_ONLY")
+                            print("CUSTOMER_REPORT_REQUESTED=" + customer_lookup_name)
+                            print("CUSTOMER_REPORT_SELECTION=manual_operator_attestation")
+                            print("CUSTOMER_REPORT_COMMIT_VERIFIED=False")
+                            print("CUSTOMER_REPORT_REVIEW_BEFORE_SAVE=REQUIRED")
+                            verified = True
+                            feedback.append({
+                                "source": "customer_human_handoff",
+                                "verified": False,
+                                "manual_customer_selected_attested": True,
+                                "draft_continuation_authorized": True,
+                                "customer_review_before_save": True,
+                            })
+                else:
+                    print("CUSTOMER_REVIEW_NEEDED=unsafe_or_ambiguous_result")
                 if not verified:
-                    print("STOP: customer selection requires additional visual/native verification.")
+                    print("STOP: customer selection not established even for draft.")
                     return 6
+            else:
+                print("CUSTOMER_REPORT_REQUESTED=" + customer_lookup_name)
+                print("CUSTOMER_REPORT_SELECTION=" + outcome)
+                print("CUSTOMER_REPORT_COMMIT_VERIFIED=True")
             if revision + 1 >= max_actions:
                 print("STOP: customer skill verified but model action budget exhausted.")
                 return 4
