@@ -22,6 +22,7 @@ from app.agent.perception.windowhub_semantic_world import enrich_windowhub_scene
 from app.agent.runtime.windowhub_window_activation import activate_windowhub_workflow_window
 from app.agent.runtime.windows_desktop_agent_control_loop import create_windows_desktop_agent_control_loop
 from app.agent.offers.windowhub_customer_search_action import type_directly_into_customer_lookup
+from app.agent.offers.windowhub_customer_result_selection import canonical_customer_name
 from app.agent.offers.windowhub_document_properties_action import (
     DOCUMENT_PRICE_AUTOMATION_IDS, prepare_price_exclusion,
 )
@@ -105,7 +106,7 @@ def customer_selected(scene, name=None):
         return False
     value = (candidates[0].metadata or {}).get("current_value")
     expected = CUSTOMER if name is None else name
-    return isinstance(value, str) and value.strip().casefold() == expected.strip().casefold()
+    return isinstance(value, str) and canonical_customer_name(value) == canonical_customer_name(expected)
 
 
 def handle_customer_lookup(scene):
