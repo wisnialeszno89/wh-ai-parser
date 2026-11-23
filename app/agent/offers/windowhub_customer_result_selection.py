@@ -20,7 +20,7 @@ def canonical_customer_name(value: str) -> str:
     if not isinstance(value, str):
         return ""
     value = unicodedata.normalize("NFKC", value).casefold()
-    return " ".join(re.findall(r"[^\\W_]+", value, flags=re.UNICODE))
+    return " ".join(re.sub(r"[-‐‑‒–—―]+", " ", value).split())
 
 
 SELECTABLE_ROLES = frozenset({"dataitem", "listitem", "treeitem", "text", "custom"})
