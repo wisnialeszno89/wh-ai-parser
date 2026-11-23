@@ -39,3 +39,21 @@ def valid_customer_attestation(
     if observed_customer_value is not None and canonical_customer_name(observed_customer_value) != expected:
         return False
     return True
+
+
+def can_continue_draft_after_exact_click(outcome: str) -> bool:
+    """Allow work on an unsaved draft, NOT claim committed customer identity.
+
+    Only native or OCR exact-result click followed by a fresh observation
+    where the suggestion popup has disappeared qualifies. A query merely
+    typed into the lookup, a partial suggestion, or ambiguous matches do not.
+    """
+    return can_request_customer_attestation(outcome)
+
+
+def requires_manual_customer_selection(outcome: str) -> bool:
+    """Missing exact result may be resolved by the human in WindowHub."""
+    return outcome in {
+        "CUSTOMER_NO_EXACT_SUGGESTION_DURING_TYPING",
+        "CUSTOMER_NO_EXACT_RESULT_FOR_SHORT_PREFIX",
+    }
