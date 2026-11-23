@@ -222,8 +222,24 @@ def run_goal(loop, *, goal, reasoner, mode, max_actions, experience=(),
                 "result": outcome,
             })
             if not verified:
-                print("STOP: customer selection requires additional visual/native verification.")
-                return 6
+                print("CUSTOMER_REVIEW_NEEDED=exact_customer_not_verified")
+                print("CUSTOMER_REVIEW_GUIDANCE=Review the visible candidate and manually select the correct existing client in WindowHub; do not confirm a partial or ambiguous name.")
+                if interactive_handoff and request_human_resume(
+                    loop, timeout_seconds=handoff_timeout,
+                ):
+                    fresh = enrich_windowhub_scene(loop.observe_scene())
+                    from tools.run_windowhub_top_trans_single_window_mission import customer_selected
+                    if stage_of(fresh) == "document_properties" and customer_selected(fresh, customer_lookup_name):
+                        print("CUSTOMER_SKILL_STATUS=CUSTOMER_VERIFIED_AFTER_HUMAN_HANDOFF")
+                        verified = True
+                        feedback.append({
+                            "source": "customer_human_handoff",
+                            "verified": True,
+                            "result": "exact_normalized_customer_readback",
+                        })
+                if not verified:
+                    print("STOP: customer selection requires additional visual/native verification.")
+                    return 6
             if revision + 1 >= max_actions:
                 print("STOP: customer skill verified but model action budget exhausted.")
                 return 4
