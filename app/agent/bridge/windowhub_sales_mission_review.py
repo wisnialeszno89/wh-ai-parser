@@ -127,11 +127,10 @@ def build_review_report(mission: dict, evidence: tuple[ReviewEvidence, ...] = ()
         "positions": reviews,
         "verified_field_count": verified_fields,
         "unresolved": outstanding,
-        "ready_for_salesperson_review": True,
-        "ready_to_save": False,
-        "ready_to_send": False,
-        "offer_saved": False,
-        "offer_sent": False,
+        "report_available": True,
+        "mission_complete_verified": False,
+        "save_authorized": False,
+        "send_authorized": False,
         "disclaimer": "Only independent WindowHub live readback counts as verified. No application work is implied by this report.",
     }
 
@@ -148,5 +147,5 @@ def compact_review_summary(report: dict) -> str:
         + "Positions with all required fields verified: "
         + str(exact) + "/" + str(len(positions)) + "\n"
         + "Fields requiring review: " + str(len(report["unresolved"])) + "\n"
-        + "Offer saved: NO | sent: NO | requires salesperson review: YES"
+        + "Save/send authorized: NO | requires salesperson review: YES"
     )
