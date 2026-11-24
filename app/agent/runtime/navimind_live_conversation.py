@@ -27,6 +27,7 @@ class LiveMissionConversation:
         self._lock = RLock()
         self._running: Future | None = None
         self._last_error: str | None = None
+        self._queued: tuple[int, tuple[tuple[str, str], ...]] | None = None
         self._closed = False
 
     def status(self) -> ConversationStatus:
@@ -50,15 +51,25 @@ class LiveMissionConversation:
             ):
                 self._last_error = "stale_or_nonhuman_chat_message"
                 return False
-            if self._running is not None and not self._running.done():
-                self._last_error = "previous_reply_still_running"
-                return False
             self._last_error = None
-            self._running = self._pool.submit(
-                self._answer_in_worker, snapshot.mission_revision,
-                transcript_for_chat(snapshot),
-            )
+            latest = (snapshot.mission_revision, transcript_for_chat(snapshot))
+            if self._running is not None and not self._running.done():
+                # Replace any older pending turn instead of queuing a flood
+                # of outdated network calls.
+                self._queued = latest
+                return True
+            self._running = self._pool.submit(self._answer_loop, latest)
             return True
+
+    def _answer_loop(self, latest: tuple[int, tuple[tuple[str, str], ...]]) -> None:
+        while True:
+            self._answer_in_worker(*latest)
+            with self._lock:
+                if self._closed or self._queued is None:
+                    self._queued = None
+                    return
+                latest = self._queued
+                self._queued = None
 
     def _answer_in_worker(self, revision: int,
                           transcript: tuple[tuple[str, str], ...]) -> None:
@@ -81,4 +92,5 @@ class LiveMissionConversation:
     def close(self) -> None:
         with self._lock:
             self._closed = True
+            self._queued = None
         self._pool.shutdown(wait=False, cancel_futures=True)
