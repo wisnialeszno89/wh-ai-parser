@@ -88,10 +88,17 @@ class LiveMissionConversation:
                 raise ChatUnavailable("empty_chat_reply")
             if len(answer) > MissionChat.MAX_MESSAGE_CHARS:
                 raise ChatUnavailable("chat_response_too_large")
+        except ChatUnavailable as exc:
+            with self._lock:
+                if self.chat.snapshot().mission_revision == revision:
+                    # ChatUnavailable is a trusted, bounded diagnostic code.
+                    # Never print an arbitrary server exception or payload.
+                    self._last_error = str(exc)
+            return
         except Exception:
             with self._lock:
                 if self.chat.snapshot().mission_revision == revision:
-                    self._last_error = "chat_model_unavailable_or_invalid_response"
+                    self._last_error = "chat_unexpected_response_error"
             return
         # Do not publish after shutdown. Agent message itself checks
         # mission revision atomically against any concurrent user input.
