@@ -235,3 +235,9 @@ def test_string_flags_cannot_implicitly_grant_total_price_approval():
             approved_price_source="unverified source",
             explicit_salesperson_price_approval="True",
         )
+
+
+def test_catalogue_exclusion_must_not_be_missing_or_string():
+    from app.agent.offers.windowhub_commercial_quote_routes import QuoteRequest
+    with pytest.raises(ValueError, match="invalid_catalogue_exclusion_flag"):
+        QuoteRequest("Pozycja", 1, force_non_catalogue="False")
