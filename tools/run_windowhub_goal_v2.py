@@ -29,6 +29,7 @@ def parse_args(argv=None):
     parser.add_argument("--task-file", type=Path, help="Client request (.txt/.md/.pdf)")
     parser.add_argument("--sales-mission", type=Path, help="Validated multi-position sales mission JSON")
     parser.add_argument("--mode", choices=("inspect", "think", "execute"), default="inspect")
+    parser.add_argument("--decision-shadow", action="store_true", help="Read-only V3 comparison of V2 model proposals")
     parser.add_argument("--reasoner", choices=("navimind", "local-ollama"), default="navimind",
                         help="Choose existing NaviMind endpoint or local Ollama without Vercel")
     parser.add_argument("--require-stage", choices=("start", "offer_document", "order_document", "position", "dimensions", "basic_parameters", "glazing", "hardware"), help="Fail closed when observed WindowHub stage is not the required stage")
@@ -185,7 +186,8 @@ def run_goal(loop, *, goal, reasoner, mode, max_actions, experience=(),
              approved_persistent=False, show_window_title=False,
              customer_lookup_name=None, interactive_handoff=False,
              handoff_timeout=60, require_stage=None,
-             local_offer_add_once=False, expected_offer=None, sales_mission=None):
+             local_offer_add_once=False, expected_offer=None, sales_mission=None,
+             decision_shadow=False):
     session = ComputerUseV2ActionSession()
     from app.agent.runtime.goal_progress_memory import ProgressMemory
     progress = ProgressMemory()
@@ -439,6 +441,29 @@ def run_goal(loop, *, goal, reasoner, mode, max_actions, experience=(),
             return 5
         print(f"REASONER_DECISION={response['decision']} CONFIDENCE={response['confidence']}")
         print(f"REASONER_REASON={str(response['rationale'])[:300]}")
+        if decision_shadow:
+            # Advisory only; never changes response, V2 policy or executor.
+            try:
+                from app.agent.reasoning.navimind_v2_shadow_audit import (
+                    assess_v2_shadow, shadow_diagnostics,
+                )
+                exact_shadow_document = (
+                    stage == "offer_document"
+                    and isinstance(expected_offer, str)
+                    and bool(expected_offer)
+                    and (scene.observation.state.active_window_title or "").strip()
+                    == "Okna - " + expected_offer
+                )
+                shadow = assess_v2_shadow(
+                    stage=stage, actions=actions, response=response,
+                    exact_document_verified=exact_shadow_document,
+                    observation_fresh=True,
+                )
+                for key, value in shadow_diagnostics(shadow).items():
+                    print(str(key) + "=" + str(value))
+            except (ValueError, TypeError, KeyError) as exc:
+                print("NAVIMIND_SHADOW_ERROR=" + type(exc).__name__)
+                print("NAVIMIND_SHADOW_EXECUTION_AFFECTED=False")
         if response["decision"] == "done":
             # The editor stage alone is not proof that an arbitrary task is
             # finished. Never mark a document/customer/catalog operation done
@@ -792,6 +817,7 @@ def main(argv=None):
             local_offer_add_once=args.allow_local_offer_add_once,
             expected_offer=args.expected_offer,
             sales_mission=sales_mission,
+            decision_shadow=args.decision_shadow,
         )
     except Exception as exc:
         print("STOP: " + type(exc).__name__ + ": " + str(exc)[:200])
