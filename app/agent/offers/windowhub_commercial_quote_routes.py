@@ -38,6 +38,9 @@ class QuoteRequest:
     image_use_authorized: bool = False
     allow_placeholder: bool = True
     customer_requires_exact_geometry: bool = False
+    # A specific external item must never be assumed present merely because
+    # WindowHub supports other catalogue products in this scene.
+    force_non_catalogue: bool = False
 
     def __post_init__(self):
         if not self.description.strip():
@@ -129,7 +132,7 @@ def plan_commercial_quote(
         warnings.append("technical_compliance_not_checked")
         description += "\nStatus techniczny: niezweryfikowany."
 
-    if capabilities.exact_catalogue_construction_verified:
+    if capabilities.exact_catalogue_construction_verified and not request.force_non_catalogue:
         route = QuoteRoute.CATALOGUE
     elif (request.allow_placeholder and capabilities.placeholder_position_supported
           and capabilities.description_field_verified
