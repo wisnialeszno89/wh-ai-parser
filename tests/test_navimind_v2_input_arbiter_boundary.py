@@ -39,6 +39,19 @@ def patched_policy(monkeypatch):
     )
 
 
+def synthetic_scene():
+    return SimpleNamespace(
+        observation=SimpleNamespace(
+            state=SimpleNamespace(
+                active_application="Okna.exe",
+                active_window_title="Wielkość okna",
+            ),
+            metadata={},
+        ),
+        metadata={},
+    )
+
+
 def resolved():
     return SimpleNamespace(
         action=AgentAction(
@@ -54,7 +67,7 @@ def test_v2_executor_dispatches_through_current_arbiter_permit(monkeypatch):
     permit = gate.observe_document("OFR/1")
     loop = FakeLoop()
     result = execute_v2_step(
-        loop, object(), resolved(), input_arbiter=gate, input_permit=permit,
+        loop, synthetic_scene(), resolved(), input_arbiter=gate, input_permit=permit,
     )
     assert result.success
     assert loop.calls == 1
@@ -68,7 +81,7 @@ def test_v2_executor_does_not_run_when_human_took_over(monkeypatch):
     loop = FakeLoop()
     with pytest.raises(InputDenied):
         execute_v2_step(
-            loop, object(), resolved(), input_arbiter=gate, input_permit=permit,
+            loop, synthetic_scene(), resolved(), input_arbiter=gate, input_permit=permit,
         )
     assert loop.calls == 0
 
@@ -82,7 +95,7 @@ def test_v2_executor_does_not_run_when_old_permit_used_after_release(monkeypatch
     loop = FakeLoop()
     with pytest.raises(InputDenied):
         execute_v2_step(
-            loop, object(), resolved(), input_arbiter=gate, input_permit=stale,
+            loop, synthetic_scene(), resolved(), input_arbiter=gate, input_permit=stale,
         )
     assert loop.calls == 0
 
@@ -92,5 +105,5 @@ def test_v2_executor_rejects_missing_permit_when_gate_is_used(monkeypatch):
     gate = LocalInputArbiter()
     loop = FakeLoop()
     with pytest.raises(ValueError, match="v2_input_permit_required"):
-        execute_v2_step(loop, object(), resolved(), input_arbiter=gate)
+        execute_v2_step(loop, synthetic_scene(), resolved(), input_arbiter=gate)
     assert loop.calls == 0
