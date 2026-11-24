@@ -26,9 +26,6 @@ from app.agent.perception.explorer_tool_memory import (
     load_memory, merge_observations, select_for_learning,
 )
 from app.agent.runtime.desktop_explorer_focus import focus_application_for_exploration
-from app.agent.runtime.windows_desktop_agent_control_loop import (
-    create_windows_desktop_agent_control_loop,
-)
 
 INTERACTIVE_ROLES = frozenset({"button", "radiobutton", "checkbox"})
 UIA_SOURCES = frozenset({"windows_ui_automation", "windowhub_ui_automation"})
@@ -268,6 +265,11 @@ def explore(*, expected_process: str, limit: int, hover_seconds: float,
     if os.name != "nt":
         print("EXPLORER_STOP=windows_required")
         return 2
+    # Import native UIA and robot input only after checking the host OS.
+    # Pure discovery/image-analysis functions remain testable in Linux CI.
+    from app.agent.runtime.windows_desktop_agent_control_loop import (
+        create_windows_desktop_agent_control_loop,
+    )
     if not expected_process or "/" in expected_process or "\\" in expected_process:
         print("EXPLORER_STOP=invalid_process")
         return 2

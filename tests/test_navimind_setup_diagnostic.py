@@ -18,7 +18,8 @@ def test_valid_shared_endpoint_recognized_without_echoing_secrets():
     }, env_file_present=True)
     assert result["V1_URL"] == "format_valid"
     assert result["V1_SECRET"] == "set"
-    assert result["NEXT_ACTION"] == "deploy_navimind_v2_then_use_existing_shared_endpoint"
+    assert result["NEXT_ACTION"] == "verify_server_v2_then_use_existing_shared_endpoint"
+    assert result["V2_SERVER_DEPLOYED"] == "not_verified"
     assert url not in repr(result)
     assert secret not in repr(result)
 
@@ -46,3 +47,24 @@ def test_http_localhost_accepted_but_remote_http_blocked():
         "NAVIMIND_AGENT_URL": "http://navimind.example/api/agent/task",
     })
     assert remote["V1_URL"] == "not_secure_https"
+
+
+def test_valid_dedicated_v2_endpoint_requires_server_verification_not_redeployment():
+    result = evaluate_navimind_setup({
+        "NAVIMIND_AGENT_V2_URL": "https://navimind.example/api/agent/task",
+        "NAVIMIND_AGENT_V2_SECRET": "private-test-secret",
+    })
+    assert result["V2_URL"] == "format_valid"
+    assert result["V2_SECRET"] == "set"
+    assert result["V2_SERVER_DEPLOYED"] == "not_verified"
+    assert result["NEXT_ACTION"] == "verify_server_v2_then_use_dedicated_config"
+    assert "private-test-secret" not in repr(result)
+
+
+def test_locally_valid_endpoint_cannot_claim_remote_deployment():
+    result = evaluate_navimind_setup({
+        "NAVIMIND_AGENT_URL": "https://navimind.example/api/agent/task",
+        "NAVIMIND_AGENT_SECRET": "valid-but-remote-status-unknown",
+    })
+    assert result["V2_SERVER_DEPLOYED"] == "not_verified"
+    assert not result["NEXT_ACTION"].startswith("deploy_")
