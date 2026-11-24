@@ -171,10 +171,23 @@ def test_missing_image_must_never_verify_when_image_and_plan_are_both_none():
 
 
 def test_image_without_user_permission_is_not_verified_by_empty_values():
+    from app.agent.offers.windowhub_commercial_quote_routes import plan_commercial_quote
+
     item = position(image_reference="restricted.png", image_use_authorized=False)
     env = VirtualWindowHub("OFR/TEST", capabilities())
-    env.positions["1"] = VirtualPosition(route="descriptive_placeholder")
-    assert env.observe((item,))[0].image_verified is False
+    quote = plan_commercial_quote(item.request, env.capabilities, item.technical)
+    # Arrange a real pre-image state: exact active position and verified description.
+    # Otherwise the coordinator correctly stops earlier at the missing editor.
+    env.positions["1"] = VirtualPosition(
+        route=quote.route.value,
+        description=quote.proposed_description,
+    )
+    env.active_position_id = "1"
+    readback = env.observe((item,))[0]
+    assert readback.created_verified
+    assert readback.description_verified
+    assert readback.image_verified is False
     result = run_virtual_mission((item,), env)
     assert not result.finished
     assert "image_requirements_unresolved" in result.terminal_reason
+    assert env.positions["1"].image_reference is None
