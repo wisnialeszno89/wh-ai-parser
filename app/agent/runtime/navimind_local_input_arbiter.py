@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
+from secrets import token_urlsafe
 from threading import Event, RLock
 from typing import Callable, TypeVar
 
@@ -28,6 +29,7 @@ class InputDenied(RuntimeError):
 class ActionPermit:
     epoch: int
     document_key: str
+    nonce: str = ""
     # Permit represents a planning snapshot, NOT persistent GUI authority.
 
 
@@ -47,6 +49,7 @@ class LocalInputArbiter:
         self._owner = InputOwner.AGENT
         self._epoch = 0
         self._document_key: str | None = None
+        self._permit_nonce: str | None = None
         self._reobservation_required = True
 
     def takeover(self) -> int:
@@ -56,6 +59,7 @@ class LocalInputArbiter:
             self._epoch += 1
             self._owner = InputOwner.HUMAN
             self._document_key = None
+            self._permit_nonce = None
             self._reobservation_required = True
             return self._epoch
 
@@ -79,8 +83,9 @@ class LocalInputArbiter:
             if self._takeover_requested.is_set() or self._owner != InputOwner.AGENT:
                 raise InputDenied("human_controls_desktop")
             self._document_key = document_key
+            self._permit_nonce = token_urlsafe(24)
             self._reobservation_required = False
-            return ActionPermit(self._epoch, document_key)
+            return ActionPermit(self._epoch, document_key, self._permit_nonce)
 
     def invalidate_observation(self) -> None:
         """Any screen change means a new permit must be grounded."""
@@ -99,6 +104,9 @@ class LocalInputArbiter:
                 and type(permit.epoch) is int
                 and permit.epoch == self._epoch
                 and permit.document_key == self._document_key
+                and isinstance(permit.nonce, str)
+                and bool(self._permit_nonce)
+                and permit.nonce == self._permit_nonce
             )
 
     def dispatch(self, permit: ActionPermit, operation: Callable[[], T]) -> T:
