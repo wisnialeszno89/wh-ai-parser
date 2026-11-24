@@ -170,6 +170,11 @@ def next_mission_intent(
             reason = "image_rendering_not_independently_verified"
             data = dict(image_reference=plan.image_reference, warnings=plan.warnings,
                         missing=plan.pending)
+        elif plan.manual_unit_price is None and not actual.price_verified:
+            return MissionIntent(MissionAction.REVIEW, task.position_id,
+                                 "catalogue_or_external_price_requires_independent_readback",
+                                 proposed_route=plan.route, warnings=plan.warnings,
+                                 missing=plan.pending)
         elif plan.manual_unit_price is not None and not actual.price_verified:
             action = MissionAction.SET_MANUAL_PRICE
             reason = "manual_price_not_independently_verified"
@@ -204,8 +209,7 @@ def mission_progress_summary(tasks: tuple[PositionTask, ...],
         required = ["created", "description"]
         if task.request.image_reference:
             required.append("image")
-        if plan.manual_unit_price is not None:
-            required.append("price")
+        required.append("price")
         checks = {
             "created": actual.created_verified,
             "description": actual.description_verified,
