@@ -8,6 +8,7 @@ warranty, VAT, delivery, installation, stock or validity.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date
 from decimal import Decimal, InvalidOperation
 from enum import Enum
 from urllib.parse import urlsplit
@@ -50,8 +51,12 @@ class PriceReference:
             raise ValueError("incomplete_price_reference")
         if not self.currency.isalpha() or len(self.currency) != 3:
             raise ValueError("invalid_currency")
-        if len(self.checked_on) != 10 or self.checked_on[4] != "-" or self.checked_on[7] != "-":
-            raise ValueError("invalid_checked_date")
+        try:
+            if (len(self.checked_on) != 10 or date.fromisoformat(self.checked_on).isoformat()
+                    != self.checked_on):
+                raise ValueError("invalid_checked_date")
+        except (ValueError, TypeError) as exc:
+            raise ValueError("invalid_checked_date") from exc
         try:
             price = Decimal(self.observed_price)
         except (InvalidOperation, TypeError, ValueError) as exc:
