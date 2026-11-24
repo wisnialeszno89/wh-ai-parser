@@ -67,3 +67,37 @@ def test_owner_launcher_safely_exposes_explicit_inspect_mode():
     assert 'python "tools/inspect_navimind_windowhub.py"' in code
     assert '$env:COMPUTER_USE_LIVE = "0"' in code
     assert "$DiagnoseChat -and $InspectWindowHub" in code
+
+
+def test_uia_diagnostic_disambiguates_unmapped_controls_from_no_uia():
+    def element(kind, source, visible, enabled, identifier=None):
+        return SimpleNamespace(
+            kind=kind,
+            metadata={
+                "source": source, "uia_visible": visible,
+                "uia_enabled": enabled, "automation_id": identifier,
+            },
+        )
+    observed = scene(elements=[
+        element("button", "windows_ui_automation", True, True, "BTN_NEW"),
+        element("button", "windows_ui_automation", True, True, "IDC_NEW"),
+        element("text", "windows_ui_automation", True, False, None),
+        element("button", "windows_ui_automation", False, True, "IDC_HIDDEN"),
+        element("application_window", "windows_desktop_window", True, True),
+    ])
+    from tools.inspect_navimind_windowhub import summarize_uia_visibility
+    counts = summarize_uia_visibility(observed)
+    assert "WINDOWHUB_UIA_ELEMENTS=4" in counts
+    assert "WINDOWHUB_UIA_VISIBLE=3" in counts
+    assert "WINDOWHUB_UIA_ENABLED_VISIBLE=2" in counts
+    assert "WINDOWHUB_UIA_INTERACTIVE_VISIBLE=2" in counts
+    assert "WINDOWHUB_UIA_INTERACTIVE_WITH_ID=2" in counts
+    assert "WINDOWHUB_UIA_INTERACTIVE_MAPPED_ID=1" in counts
+    assert not any("BTN_NEW" in item for item in counts)
+
+
+def test_empty_uia_scene_reports_zero_counts():
+    counts = describe_windowhub_scene(scene())
+    assert "WINDOWHUB_UIA_ELEMENTS=0" in counts
+    assert "WINDOWHUB_UIA_INTERACTIVE_VISIBLE=0" in counts
+    assert "WINDOWHUB_NATIVE_ACTIONS=0" in counts
