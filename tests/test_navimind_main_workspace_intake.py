@@ -190,3 +190,36 @@ def test_arbitrary_exception_message_is_not_displayed():
     assert "supersecret" not in workspace.friendly_chat_error(
         "sensitive-bad-server-exception-supersecret"
     )
+
+
+@pytest.mark.parametrize("fraction,should_follow", [
+    (1.0, True),
+    (0.999, True),
+    (0.975, True),
+    (0.969, False),
+    (0.5, False),
+    (0.0, False),
+])
+def test_chat_history_follow_only_if_user_is_near_bottom(fraction, should_follow):
+    assert workspace.chat_view_near_bottom(fraction) is should_follow
+
+
+@pytest.mark.parametrize("wheel_delta,lines", [
+    (120, -1), (-120, 1), (240, -2), (-240, 2), (0, 0),
+])
+def test_chat_scroll_wheel_direction(wheel_delta, lines):
+    assert workspace.scroll_history_lines(wheel_delta) == lines
+
+
+def test_main_workspace_has_history_scrollbar_and_jump_button():
+    source = (
+        Path(__file__).resolve().parents[1]
+        / "tools" / "navimind_main_workspace.py"
+    ).read_text(encoding="utf-8")
+    assert 'self.history_scrollbar = tk.Scrollbar(' in source
+    assert 'yscrollcommand=self.history_scrollbar.set' in source
+    assert 'self.history_scrollbar.configure(command=self.history.yview)' in source
+    assert 'self.history.bind("<MouseWheel>", self._history_mousewheel)' in source
+    assert 'text="↓ Najnowsze"' in source
+    assert "if stay_at_bottom:" in source
+    assert "scrollbar.configure(command=area.yview)" in source
