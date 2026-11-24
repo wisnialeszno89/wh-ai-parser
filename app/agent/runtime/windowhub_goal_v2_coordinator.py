@@ -227,8 +227,32 @@ def enforce_v2_live_policy(scene, resolved, *, approved_persistent=False) -> Non
     verified_v2_outcome(resolved)
 
 
-def execute_v2_step(loop, scene, resolved, *, approved_persistent=False, expected_offer=None):
-    """Run exactly one model-proposed, locally checked action with verification."""
+def execute_v2_step(loop, scene, resolved, *, approved_persistent=False,
+                    expected_offer=None, pre_model_scene=None):
+    """Run one locally validated action with verified fresh-scene guard.
+
+    When a pre-model baseline is supplied by the real V2 runner, re-observe
+    the desktop after model latency and fail closed on any relevant change.
+    This guard does NOT replace a native input arbiter at the last GUI step.
+    """
+    if pre_model_scene is not None:
+        from app.agent.runtime.navimind_v2_preaction_scene_guard import (
+            verify_preaction_scene,
+        )
+        check, fresh_scene = verify_preaction_scene(loop, pre_model_scene)
+        if not check.safe:
+            raise ValueError(check.reason)
+        from app.agent.runtime.windowhub_mdi_native_probe import (
+            enrich_native_mdi_document_scope,
+        )
+        from app.agent.perception.windowhub_semantic_world import (
+            enrich_windowhub_scene,
+        )
+        # Re-apply local app scoping to the fresh observation. Do not use the
+        # snapshot presented to the model as a fresh execution authority.
+        scene = enrich_windowhub_scene(
+            enrich_native_mdi_document_scope(fresh_scene)
+        )
     action_target = resolved.action.target
     add_offer = None
     if (
@@ -241,7 +265,8 @@ def execute_v2_step(loop, scene, resolved, *, approved_persistent=False, expecte
         # clicking. Re-observe the actual foreground desktop and re-check
         # exact native runtime identity and MDI ownership, failing closed.
         add_offer = (scene.observation.state.active_window_title or "").strip()[7:]
-        scene = loop.observe_scene()
+        if pre_model_scene is None:
+            scene = loop.observe_scene()
         if (scene.observation.state.active_window_title or "").strip() != "Okna - " + add_offer:
             raise ValueError("v2_test_offer_changed_before_execution")
     if expected_offer is not None and (
