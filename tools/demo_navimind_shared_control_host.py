@@ -14,7 +14,7 @@ from app.agent.runtime.navimind_local_input_arbiter import InputDenied
 from app.agent.runtime.navimind_shared_control_host import NaviMindSharedHost
 
 
-def scene(*, offer="OFR/DEMO", width="1200"):
+def scene(*, offer="OFR/101", width="1200"):
     return SimpleNamespace(
         observation=SimpleNamespace(
             state=SimpleNamespace(active_application="Okna.exe",
@@ -37,7 +37,7 @@ def scene(*, offer="OFR/DEMO", width="1200"):
 
 
 def main() -> int:
-    host = NaviMindSharedHost("OFR/DEMO")
+    host = NaviMindSharedHost("OFR/101")
     print("HOST_CONNECTED=" + str(host.controller.snapshot().connected))
     print("INITIAL_HUMAN_CONTROL=" + str(host.controller.snapshot().human_controls))
     host.release_for_reobservation()
