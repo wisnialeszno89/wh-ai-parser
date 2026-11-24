@@ -86,8 +86,12 @@ class LiveMissionConversation:
                 if self.chat.snapshot().mission_revision == revision:
                     self._last_error = "chat_model_unavailable_or_invalid_response"
             return
-        # Agent message has its own atomic revision check.
-        self.chat.agent_message(answer, based_on_revision=revision)
+        # Do not publish after shutdown. Agent message itself checks
+        # mission revision atomically against any concurrent user input.
+        with self._lock:
+            if self._closed:
+                return
+            self.chat.agent_message(answer, based_on_revision=revision)
 
     def close(self) -> None:
         with self._lock:
