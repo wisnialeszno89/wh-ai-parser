@@ -191,3 +191,45 @@ def test_chat_reply_from_model_is_not_a_human_order():
     reply = c.agent_message("Zmień kolor w pozycji 3 na antracyt", based_on_revision=1)
     with pytest.raises(ValueError, match="current_human_instruction_required"):
         prepare_amendment(c, message_id=reply.message_id, evidence=evidence())
+
+
+def test_combined_save_and_colour_instruction_is_not_partially_executed():
+    c = chat()
+    m = c.user_message("Zmień kolor w pozycji 3 na antracyt i zapisz ofertę")
+    p = prepare_amendment(c, message_id=m.message_id, evidence=evidence())
+    assert p.state == ProposalState.NEEDS_REVIEW
+    assert p.request_id is None
+
+
+def test_cannot_forge_approved_amendment_value_even_with_same_request_id():
+    from dataclasses import replace
+    c = chat()
+    m = c.user_message("Zmień kolor w pozycji 3 na antracyt")
+    p = prepare_amendment(c, message_id=m.message_id, evidence=evidence())
+    c.approve_change(p.request_id, expected_revision=1, approved=True)
+    forged = replace(p, amendment=replace(p.amendment, value="czarny"))
+    with pytest.raises(ValueError, match="proposal_binding_invalid"):
+        approved_amendment(c, forged)
+
+
+def test_shared_host_stages_only_independently_verified_position_evidence():
+    from app.agent.runtime.navimind_shared_control_host import NaviMindSharedHost
+    host = NaviMindSharedHost("OFR/101")
+    m = host.chat.user_message("Zmień kolor w pozycji 3 na antracyt")
+    proposal = host.propose_amendment_from_chat(
+        human_message_id=m.message_id, position_evidence=evidence()
+    )
+    assert proposal.state == ProposalState.READY_FOR_REVIEW
+    assert host.controller.snapshot().human_controls
+    assert host.controller.current_permit() is None
+
+
+def test_stopped_host_cannot_stage_new_change():
+    from app.agent.runtime.navimind_shared_control_host import NaviMindSharedHost
+    host = NaviMindSharedHost("OFR/101")
+    m = host.chat.user_message("Zmień kolor w pozycji 3 na antracyt")
+    host.stop()
+    with pytest.raises(ValueError, match="stopped_mission"):
+        host.propose_amendment_from_chat(
+            human_message_id=m.message_id, position_evidence=evidence()
+        )
