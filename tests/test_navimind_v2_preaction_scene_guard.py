@@ -160,3 +160,16 @@ def test_unchanged_non_offer_wizard_may_pass_if_identity_and_uia_stable():
     before = scene(title="Wielkość okna", include_tab=False)
     after = deepcopy(before)
     assert compare_preaction_scenes(before, after).safe
+
+
+def test_enabled_state_change_blocks_even_if_field_value_is_same():
+    assert compare_preaction_scenes(
+        scene(control_enabled=True), scene(control_enabled=False)
+    ).reason == "preaction_uia_state_changed"
+
+
+def test_focus_change_blocks_even_if_field_value_is_same():
+    before = scene()
+    after = deepcopy(before)
+    after.elements[0].metadata["uia_focused"] = True
+    assert compare_preaction_scenes(before, after).reason == "preaction_uia_state_changed"
