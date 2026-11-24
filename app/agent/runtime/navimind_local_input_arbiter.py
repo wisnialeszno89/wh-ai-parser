@@ -71,6 +71,7 @@ class LocalInputArbiter:
             self._epoch += 1
             self._owner = InputOwner.AGENT
             self._document_key = None
+            self._permit_nonce = None
             self._reobservation_required = True
             self._takeover_requested.clear()
             return self._epoch
@@ -92,6 +93,7 @@ class LocalInputArbiter:
         with self._lock:
             self._epoch += 1
             self._document_key = None
+            self._permit_nonce = None
             self._reobservation_required = True
 
     def permit_current(self, permit: ActionPermit) -> bool:
