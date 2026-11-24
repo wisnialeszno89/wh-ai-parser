@@ -6,6 +6,12 @@ nor loads production customer records, nor sends requests to NaviMind/Vercel.
 from __future__ import annotations
 
 import json
+from pathlib import Path
+import sys
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 from app.agent.offers.windowhub_commercial_quote_routes import (
     QuoteCapabilities, QuoteRequest, TechnicalFinding, TechnicalStatus,
