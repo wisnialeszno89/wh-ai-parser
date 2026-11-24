@@ -71,7 +71,28 @@ def run(*, expected_offer: str) -> int:
         chat_provider = CompatibleChatProvider(config) if config is not None else None
     except (ValueError, TypeError):
         chat_provider = None
-    live_chat = LiveMissionConversation(host.chat, chat_provider)
+    # Ground the model in THIS launcher's verified capabilities, not in
+    # generic product aspirations or the untrusted customer prompt.
+    runtime_instructions = (
+        "NaviMind działa lokalnie na Windows. Program ma otwarty panel "
+        "rozmowy i dostępny obserwator UIA, który może w trybie tylko-odczyt "
+        "zweryfikować aktywny dokument WindowHub po kliknięciu Wznów pracę. "
+        "Czytanie aktywnego dokumentu wymaga niezależnej obserwacji; nie "
+        "twierdź, że aktualnie widzisz dowolne pola ani że znasz wybranego klienta. "
+        "W tym procesie wykonawca V2 NIE jest podłączony; nie możesz "
+        "teraz klikać w WindowHub, tworzyć okien, wpisywać parametrów, "
+        "zapisywać ani wysyłać ofert. To ograniczenie aktualnego trybu "
+        "uruchomienia, nie ogólna niemożliwość działania lokalnie. "
+        "Możesz rozmawiać, analizować tekst wpisany bezpośrednio do czatu "
+        "i przygotować konkretny plan dwóch pozycji. Dolne pole zapytania "
+        "i PDF są lokalne i NIE SĄ wysyłane do modelu. "
+        "Gdy użytkownik pyta o możliwość pracy lokalnej, wyjaśnij "
+        "istniejący obserwator, brak wykonawcy V2 i następny krok "
+        "integracyjny. Nie udawaj wykonania czynności."
+    )
+    live_chat = LiveMissionConversation(
+        host.chat, chat_provider, runtime_instructions=runtime_instructions,
+    )
     from app.agent.runtime.navimind_enquiry_inbox import LocalEnquiryInbox
     intake = LocalEnquiryInbox()
     panel.mount_main_workspace(
