@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from hashlib import sha256
+import re
 from typing import Any, Mapping
 
 from app.agent.reasoning.navimind_evidence_decision_engine import (
@@ -44,12 +45,24 @@ class ShadowAssessment:
 
 
 def _persist_label(action: Mapping[str, Any]) -> bool:
-    name = action.get("name")
-    description = action.get("description")
-    terms = " ".join(
-        x.casefold() for x in (name, description) if isinstance(x, str)
+    """Match operation words, never substrings of unrelated words.
+
+    E.g. 'unsaved quotation' is not an instruction to save. Recognize
+    separators in V2 action names and common camelCase action names.
+    German/Polish inflected command forms use explicit safe stems.
+    This is only a shadow diagnostic, not authorization to execute.
+    """
+    text = " ".join(
+        x for x in (action.get("name"), action.get("description"))
+        if isinstance(x, str)
     )
-    return any(term in terms for term in _PERSISTENCE_TERMS)
+    separated = re.sub(r"(?<=[a-z])(?=[A-Z])", " ", text)
+    tokens = re.findall(r"[^\W_]+", separated.casefold(), flags=re.UNICODE)
+    stems = ("bestell", "speicher", "lösch", "loesch", "zapis", "wysył", "wysyl", "zamów", "zamow")
+    return any(
+        token in _PERSISTENCE_TERMS or token.startswith(stems)
+        for token in tokens
+    )
 
 
 def _option_key(name: str, ref: str | None) -> str:
