@@ -8,6 +8,7 @@ trusted V2 integration; the initial desktop launcher NEVER executes input.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date
 from typing import Any, Callable
 
 from app.agent.runtime.navimind_local_input_arbiter import InputDenied
@@ -117,6 +118,31 @@ class NaviMindSharedHost:
         self.controller.stop()
         self._accepted_scene = None
         self.last_reason = "task_cancelled"
+
+    def research_price_for_chat(
+        self, *, human_message_id: int, request: Any,
+        provider: Any = None, today: date | None = None,
+    ) -> Any:
+        """Trusted host integration: public research remains advisory only.
+
+        Deliberately does NOT alter the arbiter, resume the agent or write
+        a quotation. Without a configured provider, it returns an honest
+        unavailable report to the same local mission chat.
+        """
+        from app.agent.runtime.navimind_price_search_workflow import (
+            publish_research_to_chat, search_price_for_current_chat,
+        )
+        if self.controller.snapshot().mode == PanelMode.STOPPED:
+            raise ValueError("stopped_mission_cannot_research")
+        report = search_price_for_current_chat(
+            chat=self.chat,
+            human_message_id=human_message_id,
+            request=request,
+            provider=provider,
+            today=today if today is not None else date.today(),
+        )
+        publish_research_to_chat(self.chat, report)
+        return report
 
     def guarded_dispatch(self, loop: Any, operation: Callable[[], Any]) -> Any:
         """Future V2 bridge: reobserve + check document + arbiter dispatch.
