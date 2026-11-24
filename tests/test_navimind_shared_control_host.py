@@ -205,3 +205,13 @@ def test_host_chat_tracks_exact_offer_and_requires_reverification_after_resume()
         title="Okna - OFR/102", selected="OFR/102"
     ))
     assert not wrong.verified
+
+
+def test_new_chat_instruction_blocks_old_mission_after_exact_offer_reobserved():
+    host = prepared_host()
+    host.chat.user_message("Zmień cenę pozycji 1")
+    host.release_for_reobservation()
+    result = host.inspect_fresh_scene(make_scene())
+    assert not result.verified
+    assert result.reason == "chat_instruction_requires_approved_replan"
+    assert host.controller.current_permit() is None
