@@ -82,7 +82,7 @@ def run(*, expected_offer: str) -> int:
         activeforeground="#FFFFFF", bd=0, relief="flat",
         font=("Segoe UI Semibold", 10), padx=12, pady=9,
         cursor="hand2",
-    ).place(x=28, y=568, width=384)
+    ).place(x=287, y=25, width=128)
 
     def pump():
         while True:
