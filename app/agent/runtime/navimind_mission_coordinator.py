@@ -42,6 +42,8 @@ class PositionTask:
     def __post_init__(self):
         if not self.position_id.strip():
             raise ValueError("position_id_required")
+        if type(self.allow_unpriced_draft) is not bool:
+            raise ValueError("invalid_unpriced_draft_permission")
 
 
 @dataclass(frozen=True)
