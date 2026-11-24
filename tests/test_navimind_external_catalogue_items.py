@@ -9,7 +9,7 @@ from app.agent.offers.navimind_external_catalogue_items import (
     ReferenceImage, build_external_draft,
 )
 from app.agent.offers.windowhub_commercial_quote_routes import (
-    QuoteCapabilities, TechnicalStatus,
+    QuoteCapabilities, QuoteRoute, TechnicalStatus, plan_commercial_quote,
 )
 from app.agent.runtime.navimind_virtual_windowhub import (
     VirtualWindowHub, run_virtual_mission,
@@ -198,3 +198,26 @@ def test_duplicate_component_labels_are_rejected():
     with pytest.raises(ValueError, match="duplicate_component"):
         spec(components=(ExternalComponent("Panel", "first"),
                          ExternalComponent("panel", "second")))
+
+
+def test_external_item_cannot_be_misclassified_as_catalogue_when_global_support_exists():
+    draft = build_external_draft(spec())
+    assert draft.task.request.force_non_catalogue
+    plan = plan_commercial_quote(
+        draft.task.request,
+        caps(exact_catalogue_construction_verified=True),
+        draft.task.technical,
+    )
+    assert plan.route == QuoteRoute.DESCRIPTIVE_PLACEHOLDER
+    assert plan.representative_geometry
+    assert plan.geometry_for_display == (1000, 1000)
+    assert "1100 x 2200 mm" in plan.proposed_description
+
+
+def test_existing_verified_normal_catalogue_quote_still_works():
+    from app.agent.offers.windowhub_commercial_quote_routes import QuoteRequest
+    regular = QuoteRequest("Okno katalogowe", 1,
+                           requested_width_mm=1400, requested_height_mm=1300)
+    external = build_external_draft(spec()).task.request
+    assert regular.force_non_catalogue is False
+    assert external.force_non_catalogue is True
