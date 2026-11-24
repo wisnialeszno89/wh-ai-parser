@@ -92,6 +92,11 @@ class NaviMindSharedHost:
         if self.controller.snapshot().mode != PanelMode.RESUME_PENDING:
             return HostObservation(None, "agent_not_waiting_for_observation",
                                    "unknown", False)
+        # A user message is not merely a pause: it creates a new mission
+        # revision. Re-observing the same offer cannot authorize an old plan.
+        if self.chat.snapshot().requires_replan:
+            return HostObservation(None, "chat_instruction_requires_approved_replan",
+                                   "unknown", False)
         result = verify_offer_observation(scene, self.expected_offer)
         self.last_reason = result.reason
         if not result.verified:
