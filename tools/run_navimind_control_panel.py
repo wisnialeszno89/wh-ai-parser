@@ -114,8 +114,10 @@ class NaviMindPanel(tk.Tk):
         )
 
     def _build(self):
-        outer = tk.Frame(self, bg=BG, padx=27, pady=22)
-        outer.pack(fill="both", expand=True)
+        self.main_area = tk.Frame(self, bg=BG)
+        self.main_area.pack(fill="both", expand=True)
+        outer = tk.Frame(self.main_area, bg=BG, padx=27, pady=22)
+        outer.pack(side="left", fill="y")
 
         brand = tk.Frame(outer, bg=BG)
         brand.pack(fill="x")
@@ -204,6 +206,23 @@ class NaviMindPanel(tk.Tk):
             outer, "Wznowienie wymaga sprawdzenia aktualnego dokumentu.",
             size=9, color=MUTED, wraplength=380,
         ).pack(anchor="w", pady=(6, 0))
+
+    def mount_main_workspace(self, *, chat, conversation, enquiry=None):
+        """Make chat and local enquiry intake part of the main control panel.
+
+        Standalone demo mode keeps the historic compact view. The shared
+        WindowHub host uses this larger layout but remains observation-only.
+        """
+        from tools.navimind_main_workspace import NaviMindMainWorkspace
+        self.geometry("1180x780")
+        self.minsize(1050, 725)
+        self.resizable(True, True)
+        self.main_workspace = NaviMindMainWorkspace(
+            self.main_area, chat=chat, conversation=conversation,
+            enquiry=enquiry,
+        )
+        self.main_workspace.pack(side="left", fill="both", expand=True)
+        return self.main_workspace
 
     def _update(self, state: PanelSnapshot):
         self.status.configure(text=state.title)
