@@ -2,7 +2,8 @@
 # Reads DPAPI credential at runtime, never stores a plaintext .env/API key.
 param(
     [ValidatePattern('^OFR/[0-9]+-?$')]
-    [string]$ExpectedOffer = "OFR/4811-"
+    [string]$ExpectedOffer = "OFR/4811-",
+    [switch]$DiagnoseChat
 )
 $ErrorActionPreference = "Stop"
 $secretFile = Join-Path $env:APPDATA "NaviMind\Secrets\owner-gateway.dpapi"
@@ -30,7 +31,12 @@ try {
     Write-Host "NAVIMIND_OWNER_GATEWAY_CONFIGURED=True" -ForegroundColor Green
     Write-Host "NAVIMIND_WINDOWHUB_OBSERVATION_ONLY=True"
     Write-Host "NAVIMIND_MODEL=openai/gpt-4o-mini"
-    python "tools/run_navimind_shared_control_center.py" --expected-offer $ExpectedOffer
+    if ($DiagnoseChat) {
+        Write-Host "NAVIMIND_OWNER_DIAGNOSIS_ONLY=True"
+        python "tools/diagnose_navimind_gateway_chat.py"
+    } else {
+        python "tools/run_navimind_shared_control_center.py" --expected-offer $ExpectedOffer
+    }
 }
 finally {
     Remove-Item Env:\NAVIMIND_CHAT_API_KEY -ErrorAction SilentlyContinue
