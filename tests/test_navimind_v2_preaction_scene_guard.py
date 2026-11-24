@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 from copy import deepcopy
+
+import pytest
 from types import SimpleNamespace
 
 from app.agent.runtime.navimind_v2_preaction_scene_guard import (
@@ -173,3 +175,43 @@ def test_focus_change_blocks_even_if_field_value_is_same():
     after = deepcopy(before)
     after.elements[0].metadata["uia_focused"] = True
     assert compare_preaction_scenes(before, after).reason == "preaction_uia_state_changed"
+
+
+def test_real_v2_dispatch_entry_blocks_changed_offer_before_any_executor_call():
+    from app.agent.runtime.windowhub_goal_v2_coordinator import execute_v2_step
+
+    class Loop:
+        def __init__(self):
+            self.run_calls = 0
+
+        def observe_scene(self):
+            return scene(title="Okna - OFR/OTHER", tab="OFR/OTHER")
+
+        def run(self, **kwargs):
+            self.run_calls += 1
+            raise AssertionError("executor must not be reached")
+
+    loop = Loop()
+    with pytest.raises(ValueError, match="preaction_foreground_or_document_changed"):
+        execute_v2_step(loop, scene(), None, pre_model_scene=scene())
+    assert loop.run_calls == 0
+
+
+def test_real_v2_dispatch_entry_blocks_field_edit_during_model_latency():
+    from app.agent.runtime.windowhub_goal_v2_coordinator import execute_v2_step
+
+    class Loop:
+        def __init__(self):
+            self.run_calls = 0
+
+        def observe_scene(self):
+            return scene(current_value="changed_by_operator")
+
+        def run(self, **kwargs):
+            self.run_calls += 1
+            raise AssertionError("executor must not be reached")
+
+    loop = Loop()
+    with pytest.raises(ValueError, match="preaction_uia_state_changed"):
+        execute_v2_step(loop, scene(), None, pre_model_scene=scene())
+    assert loop.run_calls == 0
