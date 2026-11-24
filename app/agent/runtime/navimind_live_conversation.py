@@ -20,9 +20,14 @@ class ConversationStatus:
 class LiveMissionConversation:
     """Text-only replies. Never grants an input permit or edits an offer."""
 
-    def __init__(self, chat: MissionChat, provider: ChatProvider | None):
+    def __init__(self, chat: MissionChat, provider: ChatProvider | None,
+                 *, runtime_instructions: str = ""):
         self.chat = chat
         self.provider = provider
+        # Trusted host-provided capabilities, never model/user/document asserted.
+        # No runtime instructions may grant native actions; local arbiter
+        # remains the actual execution authority.
+        self.runtime_instructions = runtime_instructions
         self._pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="navimind-chat")
         self._lock = RLock()
         self._running: Future | None = None
@@ -82,7 +87,12 @@ class LiveMissionConversation:
                           transcript: tuple[tuple[str, str], ...]) -> None:
         try:
             answer = self.provider.reply(
-                transcript=transcript, instructions=SYSTEM_INSTRUCTIONS,
+                transcript=transcript,
+                instructions=SYSTEM_INSTRUCTIONS + (
+                    "\n\nSTAN MOŻLIWOŚCI APLIKACJI (ustalony lokalnie przez host):\n"
+                    + self.runtime_instructions
+                    if self.runtime_instructions else ""
+                ),
             )
             if not isinstance(answer, str) or not answer.strip():
                 raise ChatUnavailable("empty_chat_reply")
