@@ -23,8 +23,10 @@ $env:NAVIMIND_CHAT_API_KEY = $secret
 $env:COMPUTER_USE_LIVE = "0"
 Remove-Variable secret, credential, secure -ErrorAction SilentlyContinue
 $root = Split-Path -Parent $PSScriptRoot
-Push-Location $root
+$pushed = $false
 try {
+    Push-Location $root
+    $pushed = $true
     Write-Host "NAVIMIND_OWNER_GATEWAY_CONFIGURED=True" -ForegroundColor Green
     Write-Host "NAVIMIND_WINDOWHUB_OBSERVATION_ONLY=True"
     Write-Host "NAVIMIND_MODEL=openai/gpt-4o-mini"
@@ -32,5 +34,5 @@ try {
 }
 finally {
     Remove-Item Env:\NAVIMIND_CHAT_API_KEY -ErrorAction SilentlyContinue
-    Pop-Location
+    if ($pushed) { Pop-Location }
 }
