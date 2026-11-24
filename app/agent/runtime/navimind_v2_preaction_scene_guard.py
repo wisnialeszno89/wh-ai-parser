@@ -55,11 +55,35 @@ def _identity(scene: Any) -> tuple:
     return application, _digest(title), hwnd, tuple(sorted(selected, key=repr))
 
 
+def _control_context(scene: Any) -> tuple:
+    """Hash sensitive labels/values but track focus, enabled and scope changes."""
+    tracked = []
+    for element in getattr(scene, "elements", ()) or ():
+        m = element.metadata or {}
+        if m.get("source") not in ("windows_ui_automation", "windowhub_ui_automation"):
+            continue
+        if m.get("uia_visible") is not True:
+            continue
+        value = m.get("current_value")
+        tracked.append((
+            element.kind,
+            m.get("automation_id"),
+            m.get("uia_runtime_id"),
+            _digest(element.label) if isinstance(element.label, str) else None,
+            _digest(value) if isinstance(value, str) else None,
+            m.get("uia_checked"),
+            m.get("uia_selected"),
+            m.get("uia_focused"),
+            m.get("uia_enabled"),
+            _digest(m.get("document_scope")) if m.get("document_scope") is not None else None,
+        ))
+    return tuple(sorted(tracked, key=repr))
+
+
 def _signature(scene: Any) -> tuple:
-    # compact_state includes a hashed UIA field value, checked/selected state,
-    # and identities of visible controls, without retaining raw customer data.
-    # Explicit stage does NOT replace window title for this signature.
-    return _identity(scene), _stage(scene), compact_state(scene)
+    # Include stable progress signature plus newly tracked focus/enabled/owner.
+    # No raw customer names or field values leave this function.
+    return compact_state(scene), _control_context(scene)
 
 
 def compare_preaction_scenes(before: Any, after: Any) -> SceneGuardResult:
@@ -81,7 +105,7 @@ def compare_preaction_scenes(before: Any, after: Any) -> SceneGuardResult:
             return SceneGuardResult(False, "preaction_foreground_or_document_changed")
         if old_stage != new_stage or old_stage == "unknown":
             return SceneGuardResult(False, "preaction_workflow_stage_changed_or_unknown")
-        if compact_state(before) != compact_state(after):
+        if _signature(before) != _signature(after):
             return SceneGuardResult(False, "preaction_uia_state_changed")
         # If the UI says an offer document is active, demand exactly one
         # selected document tab. Otherwise a same-caption sibling MDI item
