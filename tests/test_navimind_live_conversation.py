@@ -139,3 +139,34 @@ def test_closing_prevents_new_requests():
     engine.close()
     m = chat.user_message("Nowe zadanie")
     assert not engine.submit_current_message(m.message_id)
+
+
+def test_gateway_failure_reason_is_preserved_without_unsafe_raw_text():
+    from app.agent.runtime.navimind_conversational_provider import ChatUnavailable
+
+    class FailingProvider:
+        def reply(self, *, transcript, instructions):
+            raise ChatUnavailable("chat_authentication_failed_401")
+
+    chat, _ = create()
+    engine = LiveMissionConversation(chat, FailingProvider())
+    msg = chat.user_message("Czy możesz mi odpowiedzieć?")
+    assert engine.submit_current_message(msg.message_id)
+    await_idle(engine)
+    assert engine.status().last_error == "chat_authentication_failed_401"
+    assert not any(x.role.value == "agent" for x in chat.snapshot().messages)
+    engine.close()
+
+
+def test_unexpected_gateway_error_is_generic():
+    class FailingProvider:
+        def reply(self, *, transcript, instructions):
+            raise RuntimeError("DO_NOT_SHOW_SECRET")
+
+    chat, _ = create()
+    engine = LiveMissionConversation(chat, FailingProvider())
+    msg = chat.user_message("Cześć")
+    assert engine.submit_current_message(msg.message_id)
+    await_idle(engine)
+    assert engine.status().last_error == "chat_unexpected_response_error"
+    engine.close()

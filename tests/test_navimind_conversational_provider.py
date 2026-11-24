@@ -120,3 +120,37 @@ def test_configuration_refuses_missing_api_key():
 def test_conversation_instructions_do_not_claim_execution():
     assert "Nie twierdź, że wykonałeś" in SYSTEM_INSTRUCTIONS
     assert "Nie przedstawiaj nieznanych cen" in SYSTEM_INSTRUCTIONS
+
+
+@pytest.mark.parametrize("status,expected", [
+    (401, "chat_authentication_failed_401"),
+    (402, "chat_gateway_credits_or_budget_402"),
+    (403, "chat_gateway_access_denied_403"),
+    (404, "chat_model_or_endpoint_not_found_404"),
+    (429, "chat_gateway_rate_limited_429"),
+    (503, "chat_provider_unavailable_503"),
+    (504, "chat_provider_timeout_504"),
+    (599, "chat_http_error_other"),
+])
+def test_gateway_http_error_maps_to_safe_code_without_server_body(status, expected):
+    from app.agent.runtime.navimind_conversational_provider import safe_gateway_http_error
+    assert safe_gateway_http_error(status) == expected
+    assert "secret" not in safe_gateway_http_error(status)
+
+
+def test_http_response_does_not_echo_error_body(monkeypatch):
+    from urllib.error import HTTPError
+    from io import BytesIO
+    from app.agent.runtime.navimind_conversational_provider import _http_chat
+    import app.agent.runtime.navimind_conversational_provider as module
+
+    class Opener:
+        def open(self, request, timeout=None):
+            raise HTTPError(
+                request.full_url, 402, "secret-super-sensitive",
+                {}, BytesIO(b"Bearer secret-super-sensitive"),
+            )
+    monkeypatch.setattr(module, "build_opener", lambda *args: Opener())
+    with pytest.raises(ChatUnavailable, match="chat_gateway_credits_or_budget_402") as err:
+        _http_chat(configuration(), b"{}")
+    assert "secret-super-sensitive" not in str(err.value)

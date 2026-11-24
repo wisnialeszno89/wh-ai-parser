@@ -28,7 +28,25 @@ class ChatProvider(Protocol):
 
 
 class ChatUnavailable(RuntimeError):
-    pass
+    """Only a bounded diagnostic code, never a provider response containing a secret."""
+
+
+def safe_gateway_http_error(status: int) -> str:
+    """A stable code for the operator; response bodies may echo credentials."""
+    return {
+        400: "chat_request_rejected_400",
+        401: "chat_authentication_failed_401",
+        402: "chat_gateway_credits_or_budget_402",
+        403: "chat_gateway_access_denied_403",
+        404: "chat_model_or_endpoint_not_found_404",
+        408: "chat_gateway_timeout_408",
+        422: "chat_request_validation_failed_422",
+        429: "chat_gateway_rate_limited_429",
+        500: "chat_provider_server_error_500",
+        502: "chat_provider_gateway_error_502",
+        503: "chat_provider_unavailable_503",
+        504: "chat_provider_timeout_504",
+    }.get(status, "chat_http_error_other")
 
 
 @dataclass(frozen=True)
@@ -83,7 +101,11 @@ def _http_chat(config: ChatConfig, payload: bytes) -> dict[str, Any]:
             data = response.read(64 * 1024 + 1)
     except ChatUnavailable:
         raise
-    except (HTTPError, URLError, OSError, TimeoutError):
+    except HTTPError as exc:
+        # Never surface an HTTP error's body/URL/headers. Some providers
+        # return request payloads or authentication data in the body.
+        raise ChatUnavailable(safe_gateway_http_error(exc.code)) from None
+    except (URLError, OSError, TimeoutError):
         raise ChatUnavailable("chat_transport_unavailable") from None
     if len(data) > 64 * 1024:
         raise ChatUnavailable("chat_response_too_large")
