@@ -59,13 +59,11 @@ def run(*, expected_offer: str) -> int:
     stopped = Event()
     panel = NaviMindPanel(controller=host.controller)
     # Disclosure: connected host here means observation-only, never executor.
-    panel.title("NaviMind • Centrum sterowania — OBSERWACJA")
+    panel.title("NaviMind • Workspace / WindowHub — OBSERWACJA")
     panel.host_observation_only = True
     panel._update(host.controller.snapshot())
-    # A separate chat window shares exactly the same mission, controller
-    # and input arbiter. It cannot issue native clicks.
-    import tkinter as tk
-    from tools.navimind_chat_window import NaviMindChatWindow
+    # The larger main window hosts chat + local PDF intake together.
+    # Its control arbiter is shared with WindowHub observation.
     from app.agent.runtime.navimind_conversational_provider import ChatConfig, CompatibleChatProvider
     from app.agent.runtime.navimind_live_conversation import LiveMissionConversation
     try:
@@ -74,23 +72,14 @@ def run(*, expected_offer: str) -> int:
     except (ValueError, TypeError):
         chat_provider = None
     live_chat = LiveMissionConversation(host.chat, chat_provider)
-    conversation = {"window": None}
-
-    def open_chat():
-        existing = conversation["window"]
-        if existing is not None and existing.winfo_exists():
-            existing.lift()
-            existing.focus_force()
-            return
-        conversation["window"] = NaviMindChatWindow(panel, host.chat, live_chat)
-
-    tk.Button(
-        panel, text="💬  Rozmowa z agentem", command=open_chat,
-        bg="#29253A", fg="#E1D4FF", activebackground="#41335C",
-        activeforeground="#FFFFFF", bd=0, relief="flat",
-        font=("Segoe UI Semibold", 10), padx=12, pady=9,
-        cursor="hand2",
-    ).place(x=287, y=25, width=128)
+    from app.agent.runtime.navimind_enquiry_inbox import LocalEnquiryInbox
+    intake = LocalEnquiryInbox()
+    panel.mount_main_workspace(
+        chat=host.chat, conversation=live_chat, enquiry=intake,
+    )
+    print("NAVIMIND_MAIN_WORKSPACE_CONNECTED=True")
+    print("NAVIMIND_ENQUIRY_LOCAL_ONLY=True")
+    print("NAVIMIND_MICROPHONE_WINDOWS_DICTATION=True")
 
     def pump():
         while True:
