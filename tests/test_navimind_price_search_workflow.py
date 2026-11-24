@@ -11,6 +11,7 @@ from app.agent.runtime.navimind_mission_chat import MissionChat
 from app.agent.runtime.navimind_price_search_workflow import (
     ProviderObservation, ResearchStatus, explicit_price_search_intent,
     research_chat_summary, search_price_for_current_chat,
+    compose_price_research_chat_reply, publish_research_to_chat,
 )
 
 DATE = date(2026, 11, 24)
@@ -237,3 +238,32 @@ def test_unrelated_type_cannot_claim_it_authorized_research():
     with pytest.raises(ValueError, match="requires_salesperson_opt_in"):
         run(chat, msg, req, provider)
     assert provider.calls == []
+
+
+def test_source_price_and_warnings_are_explained_inside_chat():
+    chat, msg, req = setup()
+    report = run(chat, msg, req, FakeProvider((listing(),)))
+    reply = compose_price_research_chat_reply(report)
+    assert "840.00 PLN" in reply
+    assert "https://www.example.org/items/123" in reply
+    assert "Nie wpisałem żadnej ceny" in reply
+    assert publish_research_to_chat(chat, report)
+    assert chat.snapshot().messages[-1].text == reply
+
+
+def test_older_search_does_not_write_to_conversation_after_new_user_instruction():
+    chat, msg, req = setup()
+    report = run(chat, msg, req, FakeProvider((listing(),)))
+    chat.user_message("Nie szukaj więcej, przelicz pozycję 2")
+    previous = len(chat.snapshot().messages)
+    assert not publish_research_to_chat(chat, report)
+    assert len(chat.snapshot().messages) == previous
+
+
+def test_wrong_offer_cannot_receive_price_research_report():
+    chat, msg, req = setup()
+    report = run(chat, msg, req, FakeProvider((listing(),)))
+    another, _, _ = setup()
+    another.document_key = "OFR/OTHER"
+    with pytest.raises(ValueError, match="research_document_mismatch"):
+        publish_research_to_chat(another, report)
