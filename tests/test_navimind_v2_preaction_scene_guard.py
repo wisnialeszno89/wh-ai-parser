@@ -215,3 +215,10 @@ def test_real_v2_dispatch_entry_blocks_field_edit_during_model_latency():
     with pytest.raises(ValueError, match="preaction_uia_state_changed"):
         execute_v2_step(loop, scene(), None, pre_model_scene=scene())
     assert loop.run_calls == 0
+
+
+def test_selected_offer_must_match_foreground_even_when_both_observations_agree():
+    wrong = scene(title="Okna - OFR/101", tab="OFR/OTHER")
+    result = compare_preaction_scenes(wrong, deepcopy(wrong))
+    assert not result.safe
+    assert result.reason == "preaction_selected_offer_unverified"
