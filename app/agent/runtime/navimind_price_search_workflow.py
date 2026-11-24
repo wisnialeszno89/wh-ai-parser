@@ -13,7 +13,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date
 from enum import Enum
-from typing import Callable, Protocol
+from typing import Protocol
 import re
 
 from app.agent.offers.navimind_external_price_research import (
@@ -85,7 +85,7 @@ class ResearchReport:
 _PRICE_SEARCH = re.compile(
     r"\b(?:znajdź|znajdz|poszukaj|wyszukaj|sprawdź|sprawdz|"
     r"szukaj|porównaj|porownaj)\b.{0,100}"
-    r"\b(?:cenę|cene|ceny|cen|wycenę|wycene|ofertę|oferte)\b",
+    r"\b(?:cenę|cene|ceny|cen|wycenę|wycene|ofertę|oferte|oferty)\b",
     flags=re.IGNORECASE | re.DOTALL,
 )
 _NEGATION = re.compile(
