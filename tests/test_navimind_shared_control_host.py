@@ -172,3 +172,36 @@ def test_host_is_not_live_gui_executor():
     assert not hasattr(host, "click_screen")
     assert not hasattr(host, "send_offer")
     assert not hasattr(host, "approve_production")
+
+
+def test_chat_message_interrupts_shared_host_even_when_agent_ready():
+    host = prepared_host()
+    permit = host.controller.current_permit()
+    instruction = host.chat.user_message("Zmień opis pozycji 2")
+    assert instruction.mission_revision == 1
+    assert host.controller.snapshot().mode == PanelMode.HUMAN
+    assert host.controller.current_permit() is None
+    assert not host.controller.arbiter.permit_current(permit)
+
+
+def test_chat_queued_instruction_cannot_trigger_unapproved_native_edit():
+    host = prepared_host()
+    host.chat.user_message("Usuń wszystkie pozycje")
+    loop = Loop(make_scene())
+    with pytest.raises(InputDenied):
+        host.guarded_dispatch(loop, lambda: pytest.fail("unapproved edit"))
+    assert loop.calls == 0
+    assert host.chat.snapshot().requires_replan
+
+
+def test_host_chat_tracks_exact_offer_and_requires_reverification_after_resume():
+    host = prepared_host()
+    host.chat.user_message("Zmień szklenie")
+    assert host.chat.document_key == "OFR/101"
+    host.release_for_reobservation()
+    assert host.controller.current_permit() is None
+    assert host.controller.snapshot().mode == PanelMode.RESUME_PENDING
+    wrong = host.inspect_fresh_scene(make_scene(
+        title="Okna - OFR/102", selected="OFR/102"
+    ))
+    assert not wrong.verified
