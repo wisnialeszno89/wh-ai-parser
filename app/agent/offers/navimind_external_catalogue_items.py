@@ -59,6 +59,8 @@ class ReferenceImage:
     def __post_init__(self):
         if not self.path_or_reference.strip() or not self.description.strip() or not self.source.strip():
             raise ValueError("image_provenance_required")
+        if type(self.use_authorized) is not bool or type(self.representative_only) is not bool:
+            raise ValueError("explicit_image_authorization_boolean_required")
 
 
 @dataclass(frozen=True)
@@ -93,6 +95,8 @@ class ExternalItemSpec:
             raise ValueError("invalid_currency")
         if self.supplier_model and not self.supplier:
             raise ValueError("model_needs_supplier")
+        if type(self.explicit_salesperson_price_approval) is not bool:
+            raise ValueError("explicit_price_approval_boolean_required")
         if self.approved_total_unit_price is not None:
             _check_price(self.approved_total_unit_price)
             if not (self.explicit_salesperson_price_approval
