@@ -171,3 +171,22 @@ def test_unconfigured_provider_warning_is_visible_in_workspace_source():
     assert "MODEL AI: NIEPODŁĄCZONY" in source
     assert "Model AI nie jest podłączony" in source
     assert "messagebox.askyesno(" in source
+
+
+@pytest.mark.parametrize("code,contains", [
+    ("chat_authentication_failed_401", "401"),
+    ("chat_gateway_credits_or_budget_402", "402"),
+    ("chat_gateway_access_denied_403", "403"),
+    ("chat_gateway_rate_limited_429", "429"),
+    ("chat_transport_unavailable", "sieć"),
+])
+def test_chat_error_message_is_actionable_and_short(code, contains):
+    text = workspace.friendly_chat_error(code)
+    assert contains in text
+    assert len(text) < 180
+
+
+def test_arbitrary_exception_message_is_not_displayed():
+    assert "supersecret" not in workspace.friendly_chat_error(
+        "sensitive-bad-server-exception-supersecret"
+    )
