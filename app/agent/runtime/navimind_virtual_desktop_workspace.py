@@ -111,9 +111,9 @@ class PinnedMissionSession:
             if position_id in {task.position_id for task in self.tasks}
         }
         changed = [
-            key for key, observed in current_content.items()
-            if key in self.last_seen_content
-            and observed != self.last_seen_content[key]
+            key for key in self.last_seen_content
+            if key not in current_content
+            or current_content[key] != self.last_seen_content[key]
         ]
         if changed:
             self.completed = False
