@@ -29,11 +29,12 @@ class LiveMissionConversation:
         self._last_error: str | None = None
         self._queued: tuple[int, tuple[tuple[str, str], ...]] | None = None
         self._closed = False
+        self._busy = False
 
     def status(self) -> ConversationStatus:
         with self._lock:
             return ConversationStatus(
-                bool(self._running is not None and not self._running.done()),
+                self._busy,
                 self.chat.snapshot().mission_revision, self._last_error,
                 self.provider is not None,
             )
@@ -53,11 +54,12 @@ class LiveMissionConversation:
                 return False
             self._last_error = None
             latest = (snapshot.mission_revision, transcript_for_chat(snapshot))
-            if self._running is not None and not self._running.done():
+            if self._busy:
                 # Replace any older pending turn instead of queuing a flood
                 # of outdated network calls.
                 self._queued = latest
                 return True
+            self._busy = True
             self._running = self._pool.submit(self._answer_loop, latest)
             return True
 
@@ -67,6 +69,7 @@ class LiveMissionConversation:
             with self._lock:
                 if self._closed or self._queued is None:
                     self._queued = None
+                    self._busy = False
                     return
                 latest = self._queued
                 self._queued = None
@@ -97,4 +100,5 @@ class LiveMissionConversation:
         with self._lock:
             self._closed = True
             self._queued = None
+            self._busy = False
         self._pool.shutdown(wait=False, cancel_futures=True)
