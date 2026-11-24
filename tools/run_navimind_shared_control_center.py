@@ -62,6 +62,27 @@ def run(*, expected_offer: str) -> int:
     panel.title("NaviMind • Centrum sterowania — OBSERWACJA")
     panel.host_observation_only = True
     panel._update(host.controller.snapshot())
+    # A separate chat window shares exactly the same mission, controller
+    # and input arbiter. It cannot issue native clicks.
+    import tkinter as tk
+    from tools.navimind_chat_window import NaviMindChatWindow
+    conversation = {"window": None}
+
+    def open_chat():
+        existing = conversation["window"]
+        if existing is not None and existing.winfo_exists():
+            existing.lift()
+            existing.focus_force()
+            return
+        conversation["window"] = NaviMindChatWindow(panel, host.chat)
+
+    tk.Button(
+        panel, text="💬  Rozmowa z agentem", command=open_chat,
+        bg="#29253A", fg="#E1D4FF", activebackground="#41335C",
+        activeforeground="#FFFFFF", bd=0, relief="flat",
+        font=("Segoe UI Semibold", 10), padx=12, pady=9,
+        cursor="hand2",
+    ).place(x=28, y=568, width=384)
 
     def pump():
         while True:
