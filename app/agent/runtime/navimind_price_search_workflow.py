@@ -90,7 +90,7 @@ _PRICE_SEARCH = re.compile(
 )
 _NEGATION = re.compile(
     r"\b(?:nie|bez|zakaz|stop)\s+"
-    r"(?:proszę\s+)?(?:szukaj|poszukaj|wyszukuj|wyszukaj|sprawdzaj|sprawdź|sprawdz)\b",
+    r"(?:proszę\s+)?(?:znajdź|znajdz|szukaj|poszukaj|wyszukuj|wyszukaj|sprawdzaj|sprawdź|sprawdz|porównaj|porownaj)\b",
     flags=re.IGNORECASE,
 )
 
