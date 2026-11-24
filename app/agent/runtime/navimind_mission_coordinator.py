@@ -183,6 +183,16 @@ def next_mission_intent(
         else:
             continue
 
+        if action in {
+            MissionAction.WRITE_DESCRIPTION, MissionAction.INSERT_IMAGE,
+            MissionAction.SET_MANUAL_PRICE,
+        } and scene.active_position_id != task.position_id:
+            return MissionIntent(
+                MissionAction.OBSERVE, task.position_id,
+                "activate_exact_position_before_editing",
+                proposed_route=plan.route, warnings=plan.warnings, missing=plan.pending,
+            )
+
         # The caller must re-observe or escalate after no-progress. One
         # repeated attempt is not evidence and never implies task completion.
         attempt_id = task.position_id + ":" + action.value
