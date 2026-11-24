@@ -50,6 +50,18 @@ def friendly_chat_error(code: str | None) -> str:
                                     else "Błąd modelu AI — sprawdź konfigurację.")
 
 
+def chat_view_near_bottom(last_fraction: float, *, tolerance: float = 0.03) -> bool:
+    """Follow incoming messages only when the operator is already near bottom."""
+    return float(last_fraction) >= 1.0 - tolerance
+
+
+def scroll_history_lines(delta: int) -> int:
+    """Translate one Windows mouse wheel delta into Tk Text yview units."""
+    if delta == 0:
+        return 0
+    return -max(1, abs(delta) // 120) if delta > 0 else max(1, abs(delta) // 120)
+
+
 def windows_dictation_available() -> bool:
     """Windows' own Win+H dictation, not a custom or background audio listener."""
     return os.name == "nt"
@@ -122,12 +134,37 @@ class NaviMindMainWorkspace(tk.Frame):
             size=9, color="#93D9BE" if active else GOLD,
         )
         self.provider_indicator.pack(side="right")
+        history_box = tk.Frame(top, bg=CARD)
+        history_box.pack(fill="both", expand=True, padx=(5, 10), pady=4)
+        self.history_scrollbar = tk.Scrollbar(
+            history_box, orient="vertical", width=13, takefocus=True,
+        )
+        self.history_scrollbar.pack(side="right", fill="y")
         self.history = tk.Text(
-            top, wrap="word", bg=CARD, fg=FG, insertbackground=FG,
+            history_box, wrap="word", bg=CARD, fg=FG, insertbackground=FG,
             relief="flat", font=("Segoe UI", 10), state="disabled",
             padx=12, pady=8, height=8,
+            yscrollcommand=self.history_scrollbar.set,
+            takefocus=True,
         )
-        self.history.pack(fill="both", expand=True, padx=5, pady=4)
+        self.history.pack(side="left", fill="both", expand=True)
+        self.history_scrollbar.configure(command=self.history.yview)
+        self.history.bind("<MouseWheel>", self._history_mousewheel)
+        self.history.bind("<Button-4>", self._history_mousewheel_linux)
+        self.history.bind("<Button-5>", self._history_mousewheel_linux)
+        self.history.bind("<Control-End>", self._history_bottom_shortcut)
+        self.history.bind("<Control-Home>", self._history_top_shortcut)
+
+        history_actions = tk.Frame(top, bg=CARD)
+        history_actions.pack(fill="x", padx=12, pady=(0, 8))
+        self._label(
+            history_actions, "Przewijaj historię kółkiem myszy lub paskiem po prawej.",
+            size=8, color=MUTED,
+        ).pack(side="left")
+        tk.Button(
+            history_actions, text="↓ Najnowsze", command=self._history_to_bottom,
+            fg=FG, bg="#29253A", relief="flat", padx=10, pady=3,
+        ).pack(side="right")
 
         self._label(
             self, "Napisz lub podyktuj polecenie (Ctrl+Enter — wyślij)",
@@ -194,13 +231,38 @@ class NaviMindMainWorkspace(tk.Frame):
         self.notice.pack(fill="x", padx=18, pady=(8, 12))
         self.entry.focus_set()
 
+    def _history_to_bottom(self):
+        self.history.yview_moveto(1.0)
+
+    def _history_bottom_shortcut(self, event):
+        self._history_to_bottom()
+        return "break"
+
+    def _history_top_shortcut(self, event):
+        self.history.yview_moveto(0.0)
+        return "break"
+
+    def _history_mousewheel(self, event):
+        units = scroll_history_lines(event.delta)
+        if units:
+            self.history.yview_scroll(units, "units")
+        return "break"
+
+    def _history_mousewheel_linux(self, event):
+        self.history.yview_scroll(-3 if event.num == 4 else 3, "units")
+        return "break"
+
     def _append(self, author: str, content: str):
+        # Do not steal the user's position when reviewing an older answer.
+        # A fresh conversation initially follows incoming messages.
+        stay_at_bottom = chat_view_near_bottom(self.history.yview()[1])
         self.history.configure(state="normal")
         self.history.insert("end", author + "\n", ("author",))
         self.history.insert("end", content + "\n\n")
         self.history.tag_configure("author", foreground=PURPLE)
         self.history.configure(state="disabled")
-        self.history.see("end")
+        if stay_at_bottom:
+            self._history_to_bottom()
 
     def _keyboard_send(self, event):
         self._send()
@@ -325,11 +387,16 @@ class NaviMindMainWorkspace(tk.Frame):
         window = tk.Toplevel(self)
         window.title("NaviMind • Podgląd zapytania (tylko odczyt)")
         window.geometry("720x540")
+        frame = tk.Frame(window, bg=CARD)
+        frame.pack(fill="both", expand=True, padx=8, pady=8)
+        scrollbar = tk.Scrollbar(frame, orient="vertical")
+        scrollbar.pack(side="right", fill="y")
         area = tk.Text(
-            window, wrap="word", font=("Segoe UI", 10),
-            bg=CARD, fg=FG,
+            frame, wrap="word", font=("Segoe UI", 10),
+            bg=CARD, fg=FG, yscrollcommand=scrollbar.set,
         )
-        area.pack(fill="both", expand=True, padx=8, pady=8)
+        area.pack(side="left", fill="both", expand=True)
+        scrollbar.configure(command=area.yview)
         preview = self.enquiry.preview(limit=10_000)
         unsaved = self.enquiry_editor.get("1.0", "end-1c").strip()
         if unsaved and unsaved != self.enquiry.pasted_text:
