@@ -96,6 +96,7 @@ class LocalInputArbiter:
                 and self._owner == InputOwner.AGENT
                 and not self._takeover_requested.is_set()
                 and not self._reobservation_required
+                and type(permit.epoch) is int
                 and permit.epoch == self._epoch
                 and permit.document_key == self._document_key
             )
