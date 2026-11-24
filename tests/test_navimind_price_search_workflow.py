@@ -267,3 +267,47 @@ def test_wrong_offer_cannot_receive_price_research_report():
     another.document_key = "OFR/OTHER"
     with pytest.raises(ValueError, match="research_document_mismatch"):
         publish_research_to_chat(another, report)
+
+
+def test_shared_host_publishes_advisory_without_resuming_agent():
+    from app.agent.runtime.navimind_shared_control_host import NaviMindSharedHost
+    host = NaviMindSharedHost("OFR/101")
+    message = host.chat.user_message("Poszukaj ceny panelu EK-02-A")
+    report = host.research_price_for_chat(
+        human_message_id=message.message_id,
+        request=PriceResearchRequest(
+            "door_panel", True, "EK-02-A", 1100, 2200,
+        ),
+        provider=FakeProvider((listing(),)),
+        today=DATE,
+    )
+    assert report.status == ResearchStatus.SUGGESTIONS
+    assert host.controller.snapshot().human_controls
+    assert host.controller.current_permit() is None
+    assert host.chat.snapshot().messages[-1].role.value == "agent"
+    assert "840.00 PLN" in host.chat.snapshot().messages[-1].text
+
+
+def test_shared_host_without_provider_returns_clear_unsupported_answer():
+    from app.agent.runtime.navimind_shared_control_host import NaviMindSharedHost
+    host = NaviMindSharedHost("OFR/101")
+    message = host.chat.user_message("Znajdź cenę panela")
+    report = host.research_price_for_chat(
+        human_message_id=message.message_id,
+        request=PriceResearchRequest("door_panel", True),
+        provider=None, today=DATE,
+    )
+    assert report.status == ResearchStatus.NOT_AVAILABLE
+    assert not report.provider_invoked
+    assert "nie jest dostępne" in host.chat.snapshot().messages[-1].text
+
+
+def test_research_reply_is_bounded_for_long_marketplace_descriptions():
+    chat, msg, req = setup()
+    report = run(
+        chat, msg, req,
+        FakeProvider((listing(title="A" * 3500, seller="B" * 3500),)),
+    )
+    assert report.status == ResearchStatus.SUGGESTIONS
+    assert publish_research_to_chat(chat, report)
+    assert len(chat.snapshot().messages[-1].text) <= MissionChat.MAX_MESSAGE_CHARS
