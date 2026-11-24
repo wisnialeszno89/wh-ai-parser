@@ -185,6 +185,7 @@ def build_external_draft(spec: ExternalItemSpec) -> ExternalDraft:
             image_reference=image.path_or_reference if allow_image else None,
             image_use_authorized=allow_image,
             allow_placeholder=True,
+            force_non_catalogue=True,
         ),
         technical=TechnicalFinding(
             TechnicalStatus.NOT_CHECKED,
