@@ -45,6 +45,8 @@ class QuoteRequest:
     def __post_init__(self):
         if not self.description.strip():
             raise ValueError("description_required")
+        if type(self.force_non_catalogue) is not bool:
+            raise ValueError("invalid_catalogue_exclusion_flag")
         if type(self.quantity) is not int or self.quantity <= 0:
             raise ValueError("invalid_quantity")
         for value in (self.requested_width_mm, self.requested_height_mm):
