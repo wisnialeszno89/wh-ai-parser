@@ -14,6 +14,49 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 
+def summarize_uia_visibility(scene) -> tuple[str, ...]:
+    """Safe provider counts; zero mapped controls need not mean zero UIA objects.
+
+    Do not emit labels, customer names, HWNDs, runtime IDs or coordinates.
+    These counts diagnose whether provider traversal or the strict mapping
+    excluded visible Start1 controls.
+    """
+    elements = getattr(scene, "elements", ()) or ()
+    uia_sources = {"windows_ui_automation", "windowhub_ui_automation"}
+    native = 0
+    visible = 0
+    enabled = 0
+    interactive = 0
+    with_id = 0
+    mapped_id = 0
+    roles = {"button", "edit", "checkbox", "combobox", "radiobutton", "tabitem"}
+    for item in elements:
+        meta = getattr(item, "metadata", None) or {}
+        if meta.get("source") not in uia_sources:
+            continue
+        native += 1
+        if meta.get("uia_visible") is not True:
+            continue
+        visible += 1
+        if meta.get("uia_enabled") is True:
+            enabled += 1
+        if getattr(item, "kind", None) in roles:
+            interactive += 1
+            identifier = meta.get("automation_id")
+            if isinstance(identifier, str) and identifier.strip():
+                with_id += 1
+                if identifier.startswith("IDC_") or identifier.isdecimal():
+                    mapped_id += 1
+    return (
+        "WINDOWHUB_UIA_ELEMENTS=" + str(native),
+        "WINDOWHUB_UIA_VISIBLE=" + str(visible),
+        "WINDOWHUB_UIA_ENABLED_VISIBLE=" + str(enabled),
+        "WINDOWHUB_UIA_INTERACTIVE_VISIBLE=" + str(interactive),
+        "WINDOWHUB_UIA_INTERACTIVE_WITH_ID=" + str(with_id),
+        "WINDOWHUB_UIA_INTERACTIVE_MAPPED_ID=" + str(mapped_id),
+    )
+
+
 def describe_windowhub_scene(scene) -> tuple[str, ...]:
     from app.agent.learning.windowhub_demonstration import stage_of, semantic_snapshot
     try:
@@ -34,6 +77,7 @@ def describe_windowhub_scene(scene) -> tuple[str, ...]:
             "WINDOWHUB_FOREGROUND=True",
             "WINDOWHUB_STAGE=" + stage,
             "WINDOWHUB_SAFE_UIA_CONTROLS=" + str(min(control_count, 150)),
+            *summarize_uia_visibility(scene),
             "WINDOWHUB_DOCUMENT_CONTENT_EXPORTED=False",
             "WINDOWHUB_NATIVE_ACTIONS=0",
         )
