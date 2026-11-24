@@ -27,6 +27,29 @@ from app.agent.runtime.navimind_live_conversation import LiveMissionConversation
 from tools.run_navimind_control_panel import BG, CARD, FG, MUTED, PURPLE, GOLD, STROKE
 
 
+GATEWAY_ERROR_LABELS = {
+    "chat_authentication_failed_401": "Błąd AI 401: klucz Vercel Gateway nie został zaakceptowany.",
+    "chat_gateway_credits_or_budget_402": "Błąd AI 402: brak środków albo przekroczony budżet Gateway.",
+    "chat_gateway_access_denied_403": "Błąd AI 403: Vercel odmawia dostępu; sprawdź weryfikację konta.",
+    "chat_model_or_endpoint_not_found_404": "Błąd AI 404: model lub adres API jest niedostępny.",
+    "chat_gateway_rate_limited_429": "Błąd AI 429: limit żądań; spróbuj później.",
+    "chat_transport_unavailable": "Błąd połączenia AI: sieć, TLS lub przekroczony czas odpowiedzi.",
+    "chat_provider_unavailable_503": "Błąd AI 503: usługa modelu chwilowo niedostępna.",
+    "chat_provider_timeout_504": "Błąd AI 504: serwer modelu nie odpowiedział.",
+    "chat_model_unavailable_or_invalid_response": "Model nie zwrócił poprawnej odpowiedzi.",
+    "chat_unexpected_response_error": "Nieoczekiwany błąd odpowiedzi modelu.",
+}
+
+
+def friendly_chat_error(code: str | None) -> str:
+    """Show a useful, bounded diagnostic, never raw remote error content."""
+    if not code:
+        return ""
+    return GATEWAY_ERROR_LABELS.get(code, "Błąd modelu AI: " + code
+                                    if code.startswith("chat_") and len(code) < 70
+                                    else "Błąd modelu AI — sprawdź konfigurację.")
+
+
 def windows_dictation_available() -> bool:
     """Windows' own Win+H dictation, not a custom or background audio listener."""
     return os.name == "nt"
@@ -335,4 +358,9 @@ class NaviMindMainWorkspace(tk.Frame):
             status = self.conversation.status()
             if status.active:
                 self.notice.configure(text="NaviMind przygotowuje odpowiedź…")
+            elif status.last_error:
+                self.notice.configure(text=friendly_chat_error(status.last_error))
+                self.provider_indicator.configure(text="MODEL AI: BŁĄD ODPOWIEDZI", fg=GOLD)
+            elif status.provider_connected:
+                self.provider_indicator.configure(text="MODEL AI: GOTOWY", fg="#93D9BE")
         self.after(350, self._poll)
