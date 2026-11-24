@@ -96,6 +96,11 @@ def parse_bounded_instruction(message: str) -> tuple[StructuredAmendment | None,
         return None, "unbounded_or_empty_instruction"
     if _NEGATION.search(message):
         return None, "negated_instruction_requires_interpretation"
+    # Extra commands must never silently piggyback on a recognized edit.
+    if re.search(r"\b(?:zapisz|wyślij|wyslij|usuń|usun|zatwierdź|zatwierdz|"
+                 r"zmień klienta|zmien klienta|dodaj pozycję|dodaj pozycje)\b",
+                 message, re.I):
+        return None, "mixed_or_persistent_instruction_requires_review"
     positions = _POSITION.findall(message)
     if len(positions) != 1:
         return None, "exact_single_position_required"
@@ -221,4 +226,17 @@ def approved_amendment(chat: MissionChat, proposal: AmendmentProposal) -> Struct
     ]
     if len(matching) != 1:
         raise ValueError("explicit_salesperson_approval_required")
+    plan = proposal.quote_plan
+    if (plan is None or plan.target_document != chat.document_key
+            or len(plan.changes) != 1
+            or plan.changes[0].position_id != proposal.amendment.position_id
+            or plan.changes[0].after != proposal.amendment.value):
+        raise ValueError("proposal_binding_invalid")
+    original = plan.changes[0].before
+    expected_note = (
+        f"Poz. {proposal.amendment.position_id}: {proposal.amendment.field.value} "
+        f"{original!r} -> {proposal.amendment.value!r}; route={plan.route.value}"
+    )
+    if matching[0].proposed_change != expected_note:
+        raise ValueError("proposal_binding_invalid")
     return proposal.amendment
