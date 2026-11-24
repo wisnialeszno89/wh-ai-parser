@@ -81,10 +81,11 @@ class MissionChat:
         with self._lock:
             return ChatState(
                 self._revision, tuple(self._messages),
-                tuple(self._changes), any(
-                    c.state in (ChangeState.PENDING, ChangeState.APPROVED)
-                    and c.revision == self._revision
-                    for c in self._changes
+                tuple(self._changes), (
+                    any(m.role == MessageRole.HUMAN and m.mission_revision == self._revision
+                        for m in self._messages)
+                    or any(c.state in (ChangeState.PENDING, ChangeState.APPROVED)
+                           and c.revision == self._revision for c in self._changes)
                 ),
             )
 
