@@ -79,7 +79,9 @@ def extract_local_pdf(path: str | Path) -> EnquirySource:
                 results.append(page_text)
                 remaining -= len(page_text)
                 if remaining <= 0:
-                    truncated = index < pages - 1
+                    # Even if the final page exactly filled the limit,
+                    # additional pages make the extraction incomplete.
+                    truncated = truncated or index < pages - 1
                     break
     except EnquiryInputError:
         raise
