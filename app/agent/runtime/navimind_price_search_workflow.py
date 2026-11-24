@@ -231,3 +231,38 @@ def research_chat_summary(report: ResearchReport) -> str:
         "Sprawdź kody produktów, wymiary, walutę, VAT i koszty dostawy/montażu. "
         "Nie wpisałem żadnej ceny do oferty."
     )
+
+
+def compose_price_research_chat_reply(report: ResearchReport) -> str:
+    """Produce visible, attributable references without claiming a quote."""
+    summary = research_chat_summary(report)
+    if report.status != ResearchStatus.SUGGESTIONS:
+        return summary
+    lines = [summary]
+    for index, suggestion in enumerate(report.results, start=1):
+        r = suggestion.reference
+        # These are source descriptions, not executable instructions.
+        lines.extend((
+            f"{index}. {r.title} — {r.observed_price} {r.currency}",
+            f"   Sprzedawca: {r.seller}; sprawdzono: {r.checked_on}",
+            f"   Źródło: {r.source_url}",
+            f"   Porównanie: {suggestion.comparison}",
+            "   Zastrzeżenia: " + ", ".join(suggestion.warnings),
+        ))
+    lines.append("Cena całkowita nadal wymaga decyzji handlowca.")
+    return "\n".join(lines)
+
+
+def publish_research_to_chat(chat: MissionChat, report: ResearchReport) -> bool:
+    """Ignore stale research; append an advisory note in the pinned chat.
+
+    The chat itself rejects a response if the salesperson has since sent a
+    newer instruction. This routine cannot approve proposed price changes.
+    """
+    if report.document_key != chat.document_key:
+        raise ValueError("research_document_mismatch")
+    message = chat.agent_message(
+        compose_price_research_chat_reply(report),
+        based_on_revision=report.mission_revision,
+    )
+    return message is not None
