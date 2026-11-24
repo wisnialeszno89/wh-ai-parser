@@ -144,6 +144,24 @@ class NaviMindSharedHost:
         publish_research_to_chat(self.chat, report)
         return report
 
+    def propose_amendment_from_chat(
+        self, *, human_message_id: int, position_evidence: Any,
+    ) -> Any:
+        """Review-only, typed correction from a pinned chat message.
+
+        The caller must supply real independently observed position evidence.
+        This entrypoint never turns a model reply into a native operation.
+        """
+        from app.agent.runtime.navimind_chat_amendment_bridge import (
+            prepare_amendment,
+        )
+        if self.controller.snapshot().mode == PanelMode.STOPPED:
+            raise ValueError("stopped_mission_cannot_stage_amendment")
+        return prepare_amendment(
+            self.chat, message_id=human_message_id,
+            evidence=position_evidence,
+        )
+
     def guarded_dispatch(self, loop: Any, operation: Callable[[], Any]) -> Any:
         """Future V2 bridge: reobserve + check document + arbiter dispatch.
 
