@@ -109,7 +109,7 @@ def test_no_provider_means_no_internet_or_fake_price():
     report = run(chat, msg, req, None)
     assert report.status == ResearchStatus.NOT_AVAILABLE
     assert report.results == ()
-    assert not report.internet_searched
+    assert not report.provider_invoked
     assert not report.quoted_price_written
     assert "nie jest dostępne" in research_chat_summary(report)
 
