@@ -196,8 +196,11 @@ def run_goal(loop, *, goal, reasoner, mode, max_actions, experience=(),
     customer_lookup_attempted = False
     for revision in range(max_actions if mode == "execute" else 1):
         from app.agent.runtime.windowhub_mdi_native_probe import enrich_native_mdi_document_scope
+        # Keep the pre-model raw observation for a fresh, independent
+        # comparison after remote reasoning and before native input.
+        pre_model_scene = loop.observe_scene()
         scene = enrich_windowhub_scene(
-            enrich_native_mdi_document_scope(loop.observe_scene())
+            enrich_native_mdi_document_scope(pre_model_scene)
         )
         stage = stage_of(scene)
         if stage is None:
@@ -550,6 +553,7 @@ def run_goal(loop, *, goal, reasoner, mode, max_actions, experience=(),
             execute_v2_step(
                 loop, scene, action, approved_persistent=approved_persistent,
                 expected_offer=expected_offer if local_offer_add_once else None,
+                pre_model_scene=pre_model_scene,
             )
         except (ValueError, RuntimeError) as exc:
             print("ACTION_OUTCOME=blocked_or_unverified")
