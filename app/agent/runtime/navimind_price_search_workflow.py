@@ -76,7 +76,7 @@ class ResearchReport:
     # Research never gives a license to alter prices or files.
     quoted_price_written: bool = False
     gui_actions_performed: bool = False
-    internet_searched: bool = False
+    provider_invoked: bool = False
 
 
 # Strict enough to exclude incidental references to price, including
@@ -182,7 +182,7 @@ def search_price_for_current_chat(
         return ResearchReport(
             ResearchStatus.NOT_AVAILABLE, chat.document_key, revision,
             human_message_id, (), ("trusted_search_provider_failed",),
-            internet_searched=True,
+            provider_invoked=True,
         )
     # If the user changed the mission while an internet lookup was running,
     # never surface stale comparisons as though current.
@@ -190,13 +190,13 @@ def search_price_for_current_chat(
         return ResearchReport(
             ResearchStatus.REQUIRES_REVIEW, chat.document_key, revision,
             human_message_id, (), ("mission_changed_during_price_search",),
-            internet_searched=True,
+            provider_invoked=True,
         )
     if not isinstance(observations, (tuple, list)):
         return ResearchReport(
             ResearchStatus.REQUIRES_REVIEW, chat.document_key, revision,
             human_message_id, (), ("provider_results_malformed",),
-            internet_searched=True,
+            provider_invoked=True,
         )
     parsed = []
     invalid = 0
@@ -214,7 +214,7 @@ def search_price_for_current_chat(
     return ResearchReport(
         ResearchStatus.SUGGESTIONS if suggestions else ResearchStatus.NO_MATCH,
         chat.document_key, revision, human_message_id,
-        suggestions, tuple(reasons), internet_searched=True,
+        suggestions, tuple(reasons), provider_invoked=True,
     )
 
 
