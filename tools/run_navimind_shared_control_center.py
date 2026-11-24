@@ -10,7 +10,7 @@ Windows: python tools/run_navimind_shared_control_center.py --expected-offer "OF
 from __future__ import annotations
 
 import argparse
-from queue import Empty, Queue
+from queue import Empty, Full, Queue
 from threading import Event, Thread
 from pathlib import Path
 import os
@@ -31,12 +31,21 @@ def inspect_offer_in_background(*, observe, host, output: Queue, stop: Event,
     while not stop.wait(wake_interval):
         if host.controller.snapshot().mode != PanelMode.RESUME_PENDING:
             continue
+        observation_epoch = host.controller.arbiter.epoch
         try:
             observed = observe()
+            item = ("scene", observation_epoch, observed)
         except Exception:
-            output.put(("error", "read_only_observation_failed"))
-        else:
-            output.put(("scene", observed))
+            item = ("error", observation_epoch, "read_only_observation_failed")
+        if (host.controller.snapshot().mode != PanelMode.RESUME_PENDING
+                or host.controller.arbiter.epoch != observation_epoch):
+            continue
+        try:
+            output.put_nowait(item)
+        except Full:
+            # A slow UI must never block the observer or accumulate stale
+            # screenshots. Next observation can replace this one.
+            pass
 
 
 def run(*, expected_offer: str) -> int:
@@ -64,10 +73,11 @@ def run(*, expected_offer: str) -> int:
     def pump():
         while True:
             try:
-                kind, payload = queue.get_nowait()
+                kind, observed_epoch, payload = queue.get_nowait()
             except Empty:
                 break
-            if host.controller.snapshot().mode != PanelMode.RESUME_PENDING:
+            if (host.controller.snapshot().mode != PanelMode.RESUME_PENDING
+                    or host.controller.arbiter.epoch != observed_epoch):
                 continue
             if kind == "scene":
                 try:
