@@ -233,3 +233,31 @@ def test_stopped_host_cannot_stage_new_change():
         host.propose_amendment_from_chat(
             human_message_id=m.message_id, position_evidence=evidence()
         )
+
+
+@pytest.mark.parametrize("message", [
+    "Zmień kolor w pozycji 3 i 4 na antracyt",
+    "Zmień kolor w pozycji 3 oraz 4 na antracyt",
+    "Zmień kolor w pozycji 3, 4 na antracyt",
+    "Zmień kolor w pozycji 3-4 na antracyt",
+    "Zmień kolor w pozycji 3/4 na antracyt",
+    "Zmień kolor w pozycji 3 i pozycji 4 na antracyt",
+    "Zmień kolor w pozycji 3 na antracyt i 4",
+    "Zmień kolor w pozycji 3 na antracyt oraz w 4",
+    "Zmień kolor w pozycji 3 na antracyt, a w pozycji 4 na biały",
+    "Ustaw szerokość w poz. 3 i 4 na 1500 mm",
+    "Zmień ilość w pozycji 3 na 2 szt. i zapisz ofertę",
+])
+def test_compound_positions_or_trailing_actions_never_become_single_position_edit(message):
+    parsed, reason = parse_bounded_instruction(message)
+    assert parsed is None
+    assert reason != "recognized"
+
+
+def test_multi_position_instruction_never_creates_a_partial_approved_plan():
+    c = chat()
+    msg = c.user_message("Zmień kolor w pozycji 3 i 4 na antracyt")
+    result = prepare_amendment(c, message_id=msg.message_id, evidence=evidence())
+    assert result.state == ProposalState.NEEDS_REVIEW
+    assert result.request_id is None
+    assert c.snapshot().changes == ()
