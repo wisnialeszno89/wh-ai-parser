@@ -95,6 +95,7 @@ class NaviMindPanel(tk.Tk):
     def __init__(self, controller: NaviMindPanelController | None = None):
         super().__init__()
         self.controller = controller or NaviMindPanelController()
+        self.host_observation_only = False
         self.title("NaviMind • Centrum sterowania")
         self.geometry("440x675")
         self.minsize(430, 650)
@@ -216,13 +217,27 @@ class NaviMindPanel(tk.Tk):
             PanelMode.STOPPED: RED,
         }[state.mode]
         self.dot.itemconfigure(1, fill=dot_color)
-        self.connection.configure(text="HOST" if state.connected else "DEMO")
-        self.notice.configure(
-            text=("POŁĄCZONY HOST • kontrola aktualnego dokumentu obowiązkowa"
-                  if state.connected else
-                  "TRYB DEMONSTRACYJNY • Brak połączenia z WindowHub"),
-            fg=GREEN if state.connected else GOLD,
+        read_only = self.host_observation_only
+        self.connection.configure(
+            text="OBSERWACJA" if read_only else ("HOST" if state.connected else "DEMO")
         )
+        if read_only:
+            self.notice.configure(
+                text="HOST OBSERWACYJNY • Nie uruchamia działań WindowHub",
+                fg=GOLD,
+            )
+            if state.mode == PanelMode.AGENT_READY:
+                self.status.configure(text="Oferta rozpoznana")
+                self.description.configure(
+                    text="Potwierdzono aktualny dokument. Sterowanie AI nadal wyłączone."
+                )
+        else:
+            self.notice.configure(
+                text=("POŁĄCZONY HOST • kontrola aktualnego dokumentu obowiązkowa"
+                      if state.connected else
+                      "TRYB DEMONSTRACYJNY • Brak połączenia z WindowHub"),
+                fg=GREEN if state.connected else GOLD,
+            )
         self.primary.set_enabled(state.can_takeover)
         self.secondary.set_enabled(state.can_resume)
         self.training_btn.configure(
