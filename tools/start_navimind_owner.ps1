@@ -3,7 +3,8 @@
 param(
     [ValidatePattern('^OFR/[0-9]+-?$')]
     [string]$ExpectedOffer = "OFR/4811-",
-    [switch]$DiagnoseChat
+    [switch]$DiagnoseChat,
+    [switch]$InspectWindowHub
 )
 $ErrorActionPreference = "Stop"
 $secretFile = Join-Path $env:APPDATA "NaviMind\Secrets\owner-gateway.dpapi"
@@ -31,9 +32,15 @@ try {
     Write-Host "NAVIMIND_OWNER_GATEWAY_CONFIGURED=True" -ForegroundColor Green
     Write-Host "NAVIMIND_WINDOWHUB_OBSERVATION_ONLY=True"
     Write-Host "NAVIMIND_MODEL=openai/gpt-4o-mini"
+    if ($DiagnoseChat -and $InspectWindowHub) {
+        throw "Wybierz jeden tryb: -DiagnoseChat lub -InspectWindowHub."
+    }
     if ($DiagnoseChat) {
         Write-Host "NAVIMIND_OWNER_DIAGNOSIS_ONLY=True"
         python "tools/diagnose_navimind_gateway_chat.py"
+    } elseif ($InspectWindowHub) {
+        Write-Host "NAVIMIND_OWNER_WINDOWHUB_READ_ONLY=True"
+        python "tools/inspect_navimind_windowhub.py"
     } else {
         python "tools/run_navimind_shared_control_center.py" --expected-offer $ExpectedOffer
     }
