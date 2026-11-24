@@ -66,6 +66,14 @@ def run(*, expected_offer: str) -> int:
     # and input arbiter. It cannot issue native clicks.
     import tkinter as tk
     from tools.navimind_chat_window import NaviMindChatWindow
+    from app.agent.runtime.navimind_conversational_provider import ChatConfig, CompatibleChatProvider
+    from app.agent.runtime.navimind_live_conversation import LiveMissionConversation
+    try:
+        config = ChatConfig.from_environment()
+        chat_provider = CompatibleChatProvider(config) if config is not None else None
+    except (ValueError, TypeError):
+        chat_provider = None
+    live_chat = LiveMissionConversation(host.chat, chat_provider)
     conversation = {"window": None}
 
     def open_chat():
@@ -74,7 +82,7 @@ def run(*, expected_offer: str) -> int:
             existing.lift()
             existing.focus_force()
             return
-        conversation["window"] = NaviMindChatWindow(panel, host.chat)
+        conversation["window"] = NaviMindChatWindow(panel, host.chat, live_chat)
 
     tk.Button(
         panel, text="💬  Rozmowa z agentem", command=open_chat,
@@ -110,6 +118,7 @@ def run(*, expected_offer: str) -> int:
     def close():
         stopped.set()
         host.takeover()
+        live_chat.close()
         old_close()
 
     panel.protocol("WM_DELETE_WINDOW", close)
@@ -144,6 +153,7 @@ def run(*, expected_offer: str) -> int:
     watcher.start()
     panel.after(250, pump)
     print("NAVIMIND_SHARED_PANEL_CONNECTED=True")
+    print("NAVIMIND_CONVERSATION_PROVIDER_CONNECTED=" + str(chat_provider is not None))
     print("NAVIMIND_V2_EXECUTOR_CONNECTED=False")
     print("NAVIMIND_GUI_INPUT_EXECUTED=False")
     panel.mainloop()

@@ -9,6 +9,7 @@ import tkinter as tk
 from tkinter import messagebox
 
 from app.agent.runtime.navimind_mission_chat import MissionChat, MessageRole
+from app.agent.runtime.navimind_live_conversation import LiveMissionConversation
 
 BG = "#101019"
 CARD = "#1B1B29"
@@ -19,9 +20,11 @@ GOLD = "#E6C789"
 
 
 class NaviMindChatWindow(tk.Toplevel):
-    def __init__(self, parent: tk.Misc, inbox: MissionChat):
+    def __init__(self, parent: tk.Misc, inbox: MissionChat,
+                 conversation: LiveMissionConversation | None = None):
         super().__init__(parent)
         self.inbox = inbox
+        self.conversation = conversation
         self.title("NaviMind • Rozmowa podczas zadania")
         self.geometry("480x565")
         self.minsize(425, 490)
@@ -29,6 +32,14 @@ class NaviMindChatWindow(tk.Toplevel):
         self.last_id = 0
         self._build()
         self._refresh()
+        if self.conversation is not None:
+            status = self.conversation.status()
+            self.hint.configure(
+                text="NaviMind przygotowuje odpowiedź…" if status.active
+                else ("Model rozmowy niedostępny — zadanie pozostaje bez zmian"
+                      if status.last_error and status.provider_connected else
+                      "Ctrl+Enter — wyślij")
+            )
         self.after(350, self._poll)
 
     def _label(self, parent, text, *, color=INK, size=10, bold=False, **kwargs):
@@ -68,8 +79,10 @@ class NaviMindChatWindow(tk.Toplevel):
         self.history.tag_configure("notice", foreground=MUTED,
                                    spacing3=8)
         self._append_system(
-            "To wersja lokalna. Wiadomości są zapisywane w pamięci zadania, "
-            "ale model AI jeszcze nie odpowiada automatycznie."
+            "Rozmowa AI aktywna w trybie doradczym — bez wykonywania akcji."
+            if self.conversation is not None
+            and self.conversation.status().provider_connected
+            else "Rozmowa lokalna. Aby otrzymać odpowiedzi AI, podłącz bezpieczny model w konfiguracji."
         )
 
         entry = tk.Frame(self, bg=BG, padx=18)
@@ -130,17 +143,19 @@ class NaviMindChatWindow(tk.Toplevel):
         if not contents:
             return
         try:
-            self.inbox.user_message(contents)
+            message = self.inbox.user_message(contents)
         except (ValueError, RuntimeError) as exc:
             messagebox.showwarning("Wiadomość nieprzyjęta", str(exc), parent=self)
             return
         self.input.delete("1.0", "end")
         self._refresh()
-        self._append_system(
-            "Polecenie przyjęte do kolejki zmian. Dotychczasowa decyzja AI "
-            "została unieważniona. Automatyczne wykonanie i odpowiedzi "
-            "AI nie są jeszcze podłączone."
-        )
+        if self.conversation is not None and self.conversation.submit_current_message(message.message_id):
+            self.hint.configure(text="NaviMind przygotowuje odpowiedź…")
+        else:
+            self._append_system(
+                "Instrukcja zapisana. Wykonanie w WindowHub jest wstrzymane. "
+                "Brak połączonego modelu rozmownego — możesz pisać dalej."
+            )
 
     def _poll(self):
         if not self.winfo_exists():
