@@ -197,3 +197,27 @@ def test_missing_foreground_pauses_safely():
     assert event.status == SessionStatus.PAUSED
     assert not session.report(workspace)["verified"]
     assert target.positions == {}
+
+
+def test_operator_deleted_position_requires_review_not_silent_recreation():
+    workspace, session, target, _ = setup()
+    assert finish(workspace, session).status == SessionStatus.COMPLETE
+    del target.positions["1"]
+    result = session.step(workspace)
+    assert result.status == SessionStatus.REVIEW
+    assert result.reason == "external_operator_edit_requires_review"
+    assert target.positions == {}
+    assert target.attempted_actions.count(("1", "create_position")) == 1
+
+
+def test_operator_edits_while_other_offer_active_are_detected_on_return():
+    workspace, session, target, other = setup()
+    assert finish(workspace, session).status == SessionStatus.COMPLETE
+    workspace.select_document("OFR/OTHER")
+    assert session.step(workspace).status == SessionStatus.PAUSED
+    target.positions["1"].unit_price = "3200.00"
+    workspace.select_document("OFR/OURS")
+    event = session.step(workspace)
+    assert event.status == SessionStatus.REVIEW
+    assert target.positions["1"].unit_price == "3200.00"
+    assert other.positions == {}
