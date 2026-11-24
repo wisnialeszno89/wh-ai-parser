@@ -9,7 +9,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from hashlib import sha256
-import json
 from typing import Any
 
 from app.agent.runtime.goal_progress_memory import compact_state
@@ -53,6 +52,18 @@ def _identity(scene: Any) -> tuple:
                 m.get("uia_runtime_id"),
             ))
     return application, _digest(title), hwnd, tuple(sorted(selected, key=repr))
+
+
+def _offer_tab_matches_foreground(scene: Any) -> bool:
+    from app.agent.runtime.active_document_scope import selected_document_tab
+    from app.agent.runtime.windowhub_mdi_native_probe import same_offer_id
+    selected, _ = selected_document_tab(scene)
+    title = (scene.observation.state.active_window_title or "").strip()
+    return (
+        title.casefold().startswith("okna - ofr/")
+        and selected is not None
+        and same_offer_id(selected, title[len("Okna - "):])
+    )
 
 
 def _control_context(scene: Any) -> tuple:
@@ -110,7 +121,11 @@ def compare_preaction_scenes(before: Any, after: Any) -> SceneGuardResult:
         # If the UI says an offer document is active, demand exactly one
         # selected document tab. Otherwise a same-caption sibling MDI item
         # could be mistaken for the originally selected offer.
-        if old_stage == "offer_document" and len(new_identity[3]) != 1:
+        if old_stage == "offer_document" and (
+            len(new_identity[3]) != 1
+            or not _offer_tab_matches_foreground(before)
+            or not _offer_tab_matches_foreground(after)
+        ):
             return SceneGuardResult(False, "preaction_selected_offer_unverified")
         return SceneGuardResult(True, "preaction_scene_unchanged")
     except (AttributeError, TypeError, ValueError, KeyError):
