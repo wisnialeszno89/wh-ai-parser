@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from typing import Any, Callable
 
 from app.agent.runtime.navimind_local_input_arbiter import InputDenied
+from app.agent.runtime.navimind_mission_chat import MissionChat
 from app.agent.runtime.navimind_panel_controller import NaviMindPanelController, PanelMode
 from app.agent.runtime.navimind_v2_preaction_scene_guard import (
     compare_preaction_scenes,
@@ -75,6 +76,11 @@ class NaviMindSharedHost:
         self.controller.connect_host()
         self._accepted_scene: Any = None
         self.last_reason = "human_control_default"
+        self.chat = MissionChat(
+            document_key=self.expected_offer,
+            arbiter=self.controller.arbiter,
+            on_takeover=self.takeover,
+        )
 
     def release_for_reobservation(self) -> None:
         self._accepted_scene = None
