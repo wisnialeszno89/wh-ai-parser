@@ -13,6 +13,16 @@ from tkinter import filedialog, messagebox
 
 from app.agent.runtime.navimind_enquiry_inbox import EnquiryInputError, LocalEnquiryInbox
 from app.agent.runtime.navimind_mission_chat import MessageRole, MissionChat
+
+
+def chat_intake_decision(text: str, *, max_chars: int = MissionChat.MAX_MESSAGE_CHARS) -> str:
+    """Choose a safe UI flow before handing free text to MissionChat."""
+    if not isinstance(text, str) or not text.strip():
+        return "empty"
+    if len(text.strip()) > max_chars:
+        return "long_enquiry"
+    return "chat"
+
 from app.agent.runtime.navimind_live_conversation import LiveMissionConversation
 from tools.run_navimind_control_panel import BG, CARD, FG, MUTED, PURPLE, GOLD, STROKE
 
@@ -79,9 +89,16 @@ class NaviMindMainWorkspace(tk.Frame):
 
         top = tk.Frame(self, bg=CARD)
         top.pack(fill="both", expand=True, padx=18, pady=(0, 10))
-        self._label(top, "ROZMOWA Z AGENTEM", size=9, color=GOLD, bold=True).pack(
-            fill="x", padx=12, pady=(9, 0)
+        chat_heading = tk.Frame(top, bg=CARD)
+        chat_heading.pack(fill="x", padx=12, pady=(9, 0))
+        self._label(chat_heading, "ROZMOWA Z AGENTEM", size=9, color=GOLD, bold=True).pack(side="left")
+        active = self.conversation is not None and self.conversation.status().provider_connected
+        self.provider_indicator = self._label(
+            chat_heading,
+            "MODEL AI: PODŁĄCZONY" if active else "MODEL AI: NIEPODŁĄCZONY",
+            size=9, color="#93D9BE" if active else GOLD,
         )
+        self.provider_indicator.pack(side="right")
         self.history = tk.Text(
             top, wrap="word", bg=CARD, fg=FG, insertbackground=FG,
             relief="flat", font=("Segoe UI", 10), state="disabled",
@@ -144,7 +161,13 @@ class NaviMindMainWorkspace(tk.Frame):
             actions, text="Podgląd danych", command=self._preview_enquiry,
             bg="#29253A", fg=FG, relief="flat", padx=12, pady=6,
         ).pack(side="right")
-        self.notice = self._label(self, "", size=9, color=MUTED)
+        self.notice = self._label(
+            self,
+            "Model rozmowny nie jest skonfigurowany — wiadomości są lokalne."
+            if not (self.conversation is not None and self.conversation.status().provider_connected)
+            else "Model rozmowny połączony. Załączone dokumenty nie są wysyłane automatycznie.",
+            size=9, color=MUTED,
+        )
         self.notice.pack(fill="x", padx=18, pady=(8, 12))
         self.entry.focus_set()
 
@@ -162,12 +185,59 @@ class NaviMindMainWorkspace(tk.Frame):
 
     def _send(self):
         text = self.entry.get("1.0", "end-1c").strip()
-        if not text:
+        decision = chat_intake_decision(text)
+        if decision == "empty":
+            return
+        if decision == "long_enquiry":
+            if len(text) > 100_000:
+                messagebox.showwarning(
+                    "Za długie zapytanie",
+                    "Zapytanie przekracza limit 100 000 znaków. Skróć je lub dodaj PDF. Tekst pozostaje w polu rozmowy.",
+                    parent=self,
+                )
+                return
+            if not messagebox.askyesno(
+                "Długie zapytanie klienta",
+                f"To {len(text)} znaków, a jedna wiadomość rozmowy może mieć maksymalnie "
+                f"{MissionChat.MAX_MESSAGE_CHARS}.\n\n"
+                "Przenieść pełną treść do sekcji ZAPYTANIE KLIENTA / PDF? "
+                "Nie zostanie wysłana do AI ani WindowHub.",
+                parent=self,
+            ):
+                return
+            # Do not silently overwrite a draft already present in the intake.
+            existing = self.enquiry_editor.get("1.0", "end-1c").strip()
+            if existing and existing != text:
+                self.enquiry_editor.insert("end", "\n\n" + text)
+            else:
+                self.enquiry_editor.delete("1.0", "end")
+                self.enquiry_editor.insert("1.0", text)
+            try:
+                self.enquiry.set_text(self.enquiry_editor.get("1.0", "end-1c"))
+            except EnquiryInputError as exc:
+                messagebox.showwarning(
+                    "Zapytanie nie zostało przeniesione",
+                    "Dane przekraczają limit schowka zapytań. Treść wiadomości pozostaje w polu. "
+                    + str(exc),
+                    parent=self,
+                )
+                return
+            self.entry.delete("1.0", "end")
+            self._update_sources()
+            self.notice.configure(
+                text="Pełne zapytanie przeniesione do dokumentów (lokalnie). "
+                     "W polu rozmowy wpisz krótkie polecenie."
+            )
             return
         try:
             message = self.chat.user_message(text)
         except (ValueError, RuntimeError) as exc:
-            messagebox.showwarning("Wiadomość nieprzyjęta", str(exc), parent=self)
+            messagebox.showwarning(
+                "Wiadomość nieprzyjęta",
+                "Nie udało się dodać wiadomości. Sprawdź tekst lub limit rozmowy. "
+                + str(exc),
+                parent=self,
+            )
             return
         self.entry.delete("1.0", "end")
         self._refresh_messages()
@@ -176,7 +246,7 @@ class NaviMindMainWorkspace(tk.Frame):
             self.notice.configure(text="NaviMind przygotowuje odpowiedź…")
         else:
             self.notice.configure(
-                text="Wiadomość przyjęta lokalnie. Brak skonfigurowanego modelu rozmowy."
+                text="Wiadomość zapisana. Model AI nie jest podłączony — nie otrzymasz jeszcze odpowiedzi."
             )
 
     def _dictate(self):
