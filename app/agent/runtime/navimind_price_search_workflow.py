@@ -261,8 +261,18 @@ def publish_research_to_chat(chat: MissionChat, report: ResearchReport) -> bool:
     """
     if report.document_key != chat.document_key:
         raise ValueError("research_document_mismatch")
+    reply = compose_price_research_chat_reply(report)
+    if len(reply) > MissionChat.MAX_MESSAGE_CHARS:
+        # Never drop an advisory silently or exceed chat limits because a
+        # marketplace sent an overlong title or tracking-heavy source URL.
+        reply = (
+            research_chat_summary(report)
+            + "\\nZnaleziono więcej danych, niż mieści pojedyncza wiadomość. "
+            + "Pełne porównania pozostają w raporcie do przeglądu. "
+            + "Ceny nie wpisano do oferty."
+        )
     message = chat.agent_message(
-        compose_price_research_chat_reply(report),
+        reply,
         based_on_revision=report.mission_revision,
     )
     return message is not None
