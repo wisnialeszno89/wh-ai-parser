@@ -112,3 +112,47 @@ def test_diagnostics_are_bounded_and_have_no_action_references():
     assert fields["NAVIMIND_SHADOW_EXECUTION_AFFECTED"] is False
     assert "private-id" not in str(fields)
     assert "Private client information" not in str(fields)
+
+
+def test_unsaved_draft_description_is_not_misclassified_as_save():
+    result = assessment(actions=[
+        action(description="Select item for an unsaved quotation"),
+        action("save_offer", "save-ref", description="Save quotation",
+               requires_confirmation=True),
+    ])
+    assert result.capability_count == 2
+    assert result.eligible_count == 1
+    assert result.v3_decision == "act"
+    assert result.proposal_decision == "act"
+    assert result.disagreement is False
+
+
+def test_real_save_send_and_order_words_remain_protected():
+    for name, description in (
+        ("save_offer", "Save quotation"),
+        ("sendToCustomer", "Send the order"),
+        ("submit_order", "Submit new order"),
+        ("Speichern", "Speichern des Angebots"),
+        ("Zapisz", "Zapisz dokument"),
+        ("bestellung_senden", "Bestellung senden"),
+        ("delete_position", "Delete item"),
+    ):
+        result = assessment(
+            actions=[action(name, "unsafe-ref", description=description)],
+            response={"decision": "act", "action": {
+                "name": name, "target_ref": "unsafe-ref"
+            }},
+        )
+        assert result.proposal_decision != "act", name
+        assert result.eligible_count == 0, name
+
+
+def test_unrelated_fragments_do_not_trigger_persistence_classifier():
+    for description in (
+        "Keep quotation unsaved until reviewed",
+        "Preserve and inspect available quotation fields",
+        "Select unordered items for a draft",
+    ):
+        result = assessment(actions=[action(description=description)])
+        assert result.proposal_decision == "act", description
+        assert result.eligible_count == 1, description
