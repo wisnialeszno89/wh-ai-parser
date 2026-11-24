@@ -155,3 +155,26 @@ def test_max_cycles_is_bounded():
     result = run_virtual_mission((position(),), env, max_cycles=1)
     assert not result.finished
     assert result.terminal_reason == "max_cycles_exhausted"
+
+
+
+def test_missing_image_must_never_verify_when_image_and_plan_are_both_none():
+    item = position(image_reference="required-photo.png", image_use_authorized=True)
+    env = VirtualWindowHub("OFR/TEST", capabilities(image_insert_supported=False))
+    env.positions["1"] = VirtualPosition(
+        route="descriptive_placeholder", description="Opis próbny",
+        image_reference=None, unit_price="3450.00",
+    )
+    proof = env.observe((item,))[0]
+    assert proof.image_verified is False
+    assert not run_virtual_mission((item,), env).finished
+
+
+def test_image_without_user_permission_is_not_verified_by_empty_values():
+    item = position(image_reference="restricted.png", image_use_authorized=False)
+    env = VirtualWindowHub("OFR/TEST", capabilities())
+    env.positions["1"] = VirtualPosition(route="descriptive_placeholder")
+    assert env.observe((item,))[0].image_verified is False
+    result = run_virtual_mission((item,), env)
+    assert not result.finished
+    assert "image_requirements_unresolved" in result.terminal_reason
