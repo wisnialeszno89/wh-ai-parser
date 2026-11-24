@@ -14,11 +14,9 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from app.agent.offers.navimind_external_price_research import PriceResearchRequest
-from app.agent.runtime.navimind_local_input_arbiter import LocalInputArbiter
-from app.agent.runtime.navimind_mission_chat import MissionChat
+from app.agent.runtime.navimind_shared_control_host import NaviMindSharedHost
 from app.agent.runtime.navimind_price_search_workflow import (
     ProviderObservation, ResearchStatus,
-    publish_research_to_chat, search_price_for_current_chat,
 )
 
 
@@ -44,7 +42,8 @@ class SyntheticSearchProvider:
 
 
 def main() -> int:
-    chat = MissionChat(document_key="OFR/101", arbiter=LocalInputArbiter())
+    host = NaviMindSharedHost("OFR/101")
+    chat = host.chat
     m = chat.user_message("Poszukaj ceny panelu EK-02-A")
     request = PriceResearchRequest(
         item_category="door_panel",
@@ -53,16 +52,17 @@ def main() -> int:
         width_mm=1100,
         height_mm=2200,
     )
-    unavailable = search_price_for_current_chat(
-        chat=chat, human_message_id=m.message_id,
+    unavailable = host.research_price_for_chat(
+        human_message_id=m.message_id,
         request=request, provider=None, today=date(2026, 11, 24),
     )
-    synthetic = search_price_for_current_chat(
-        chat=chat, human_message_id=m.message_id,
+    synthetic = host.research_price_for_chat(
+        human_message_id=m.message_id,
         request=request, provider=SyntheticSearchProvider(),
         today=date(2026, 11, 24),
     )
-    published = publish_research_to_chat(chat, synthetic)
+    published = bool(chat.snapshot().messages[-1].role.value == "agent"
+                     and "870.00" in chat.snapshot().messages[-1].text)
     print("RESEARCH_EXPLICITLY_REQUESTED=True")
     print("WITHOUT_PROVIDER=" + unavailable.status.value)
     print("WITH_SYNTHETIC_PROVIDER=" + synthetic.status.value)
