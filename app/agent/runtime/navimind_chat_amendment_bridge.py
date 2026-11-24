@@ -110,9 +110,9 @@ def parse_bounded_instruction(message: str) -> tuple[StructuredAmendment | None,
     # This stage deliberately supports only one change to one position.
     suffix = message[position_matches[0].end():]
     supported_suffix = (
-        r"\\s+(?:na|jako)\\s+"
+        r"\s+(?:na|jako)\s+"
         r"(?:antracyt|biały|bialy|czarny|szary|brązowy|brazowy|"
-        r"\\d{1,5}(?:\\s*mm|\\s*szt\\.?|\\s*sztuk)?)\\s*"
+        r"\d{1,5}(?:\s*mm|\s*szt\.?|\s*sztuk)?)\s*"
     )
     if not re.fullmatch(supported_suffix, suffix, re.I):
         return None, "ambiguous_multiple_positions_or_trailing_instruction"
