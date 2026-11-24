@@ -156,3 +156,20 @@ def test_human_takeover_does_not_grant_business_save_permission():
     assert gate.dispatch(permit, lambda: "synthetic test") == "synthetic test"
     assert not hasattr(gate, "approve_save")
     assert not hasattr(gate, "send_offer")
+
+
+def test_forged_same_epoch_document_key_without_issue_nonce_is_rejected():
+    gate, permit = setup()
+    forged = ActionPermit(permit.epoch, permit.document_key)
+    assert not gate.permit_current(forged)
+    with pytest.raises(InputDenied):
+        gate.dispatch(forged, lambda: pytest.fail("forged input must be blocked"))
+
+
+def test_renewed_observation_replaces_same_epoch_permit_nonce():
+    gate, first = setup()
+    second = gate.observe_document("OFR/1")
+    assert first.epoch == second.epoch
+    assert first.nonce != second.nonce
+    assert not gate.permit_current(first)
+    assert gate.permit_current(second)
