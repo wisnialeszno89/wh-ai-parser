@@ -170,3 +170,48 @@ def test_unexpected_gateway_error_is_generic():
     await_idle(engine)
     assert engine.status().last_error == "chat_unexpected_response_error"
     engine.close()
+
+
+def test_trusted_windows_host_capabilities_reach_model_as_instructions():
+    captured = []
+    class ProviderWithSpy:
+        def reply(self, *, transcript, instructions):
+            captured.append(instructions)
+            return "Mam obserwator, ale wykonawca V2 nie jest podłączony."
+    chat, gate = create()
+    engine = LiveMissionConversation(
+        chat, ProviderWithSpy(),
+        runtime_instructions="HOST_CONFIRMED_READ_ONLY=True; V2_EXECUTOR=False",
+    )
+    message = chat.user_message("Czy możesz pracować w WindowHub?")
+    assert engine.submit_current_message(message.message_id)
+    await_idle(engine)
+    assert len(captured) == 1
+    assert "HOST_CONFIRMED_READ_ONLY=True" in captured[0]
+    assert "V2_EXECUTOR=False" in captured[0]
+    assert gate.owner == InputOwner.HUMAN
+    engine.close()
+
+
+def test_default_conversation_does_not_invent_capability_context():
+    captured = []
+    class ProviderWithSpy:
+        def reply(self, *, transcript, instructions):
+            captured.append(instructions)
+            return "Nie wykonano działania."
+    chat, _ = create()
+    engine = LiveMissionConversation(chat, ProviderWithSpy())
+    message = chat.user_message("Cześć")
+    assert engine.submit_current_message(message.message_id)
+    await_idle(engine)
+    assert "STAN MOŻLIWOŚCI APLIKACJI" not in captured[0]
+    engine.close()
+
+
+def test_launcher_explicitly_discloses_nonexecuting_windows_capability():
+    from pathlib import Path
+    source = (Path(__file__).resolve().parents[1] / "tools" /
+              "run_navimind_shared_control_center.py").read_text(encoding="utf-8")
+    assert "runtime_instructions=runtime_instructions" in source
+    assert "wykonawca V2 NIE jest podłączony" in source
+    assert "NAVIMIND_V2_EXECUTOR_CONNECTED=False" in source
