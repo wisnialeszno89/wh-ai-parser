@@ -87,9 +87,12 @@ def _as_price(value: Any) -> str | None:
         n = Decimal(str(value))
     except (ValueError, InvalidOperation):
         return None
-    if not n.is_finite() or n <= 0:
+    if not n.is_finite() or n < Decimal("0.01") or n > Decimal("100000000"):
         return None
-    return format(n.quantize(Decimal("0.01")), "f")
+    try:
+        return format(n.quantize(Decimal("0.01")), "f")
+    except InvalidOperation:
+        return None
 
 
 def _currency_for_display(price: str, currency_requested: str) -> str | None:
@@ -211,7 +214,9 @@ class SerpApiShoppingProvider:
                 continue
             # Reject installment-only results and listings with no explicit
             # trustworthy currency indicator.
-            if result.get("installment") and result.get("extracted_price") in (0, 0.0, None):
+            if result.get("installment"):
+                # A headline price alongside credit/monthly-payment terms is
+                # insufficient evidence of a cash purchase unit price.
                 continue
             currency = _currency_for_display(display_price, query.requested_currency)
             if not currency:
