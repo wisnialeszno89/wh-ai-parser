@@ -66,6 +66,7 @@ class PinnedMissionSession:
     attempted_without_progress: set[str] = field(default_factory=set)
     history: list[SessionEvent] = field(default_factory=list)
     completed: bool = False
+    last_seen_content: dict[str, tuple] = field(default_factory=dict)
 
     def __post_init__(self):
         if not self.target_document.strip():
@@ -102,6 +103,25 @@ class PinnedMissionSession:
                 workspace.foreground_document, 0,
             )
 
+        # Detect independent operator edits between steps. An old agent
+        # target must not silently overwrite the salesperson's newer values.
+        current_content = {
+            position_id: (p.route, p.description, p.image_reference, p.unit_price)
+            for position_id, p in env.positions.items()
+            if position_id in {task.position_id for task in self.tasks}
+        }
+        changed = [
+            key for key, observed in current_content.items()
+            if key in self.last_seen_content
+            and observed != self.last_seen_content[key]
+        ]
+        if changed:
+            self.completed = False
+            return self._event(
+                SessionStatus.REVIEW, "none", "external_operator_edit_requires_review",
+                workspace.foreground_document, 0,
+            )
+        self.last_seen_content = current_content
         readbacks = env.observe(self.tasks)
         scene = env.scene()
         summary = mission_progress_summary(self.tasks, scene, readbacks)
@@ -153,6 +173,13 @@ class PinnedMissionSession:
                 "action_not_verified_no_blind_retry",
                 workspace.foreground_document, verified_count,
             )
+        # Track our own dispatched change so it is not mistaken for a later
+        # independent operator edit. Readback still occurs on the next cycle.
+        self.last_seen_content = {
+            position_id: (p.route, p.description, p.image_reference, p.unit_price)
+            for position_id, p in env.positions.items()
+            if position_id in {task.position_id for task in self.tasks}
+        }
         # A command accepted by the simulator is not the business postcondition.
         # Re-observe on the next step to independently determine progress.
         return self._event(
