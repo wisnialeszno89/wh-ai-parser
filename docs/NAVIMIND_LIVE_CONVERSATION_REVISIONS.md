@@ -20,6 +20,10 @@ misji, ale **nie jest** automatycznym pozwoleniem na nieodwracalne działanie.
 - nie uruchamia żadnego działania WindowHub.
 
 Stary wynik modelu, oparty na poprzedniej wersji zadania, jest odrzucany.
+Samo ponowne wybranie tego samego OFR nie odblokowuje sesji:
+`inspect_fresh_scene()` zwraca `chat_instruction_requires_approved_replan`.
+Dopóki silnik V2 nie przeliczy i nie potwierdzi nowego planu,
+obserwacyjny host nie przyzna zezwolenia na kontynuację.
 Proponowana poprawka ma osobny cykl: proposal → operator approve/reject →
 replan → niezależny readback → oznaczenie jako wykonana.
 
