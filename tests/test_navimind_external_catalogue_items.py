@@ -221,3 +221,17 @@ def test_existing_verified_normal_catalogue_quote_still_works():
     external = build_external_draft(spec()).task.request
     assert regular.force_non_catalogue is False
     assert external.force_non_catalogue is True
+
+
+def test_string_flags_cannot_implicitly_grant_photo_permission():
+    with pytest.raises(ValueError, match="explicit_image_authorization_boolean_required"):
+        ReferenceImage("path", "photo", "supplier", "False")
+
+
+def test_string_flags_cannot_implicitly_grant_total_price_approval():
+    with pytest.raises(ValueError, match="explicit_price_approval_boolean_required"):
+        spec(
+            approved_total_unit_price="4900.00",
+            approved_price_source="unverified source",
+            explicit_salesperson_price_approval="True",
+        )
