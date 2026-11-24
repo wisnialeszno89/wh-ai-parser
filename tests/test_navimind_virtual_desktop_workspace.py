@@ -107,39 +107,41 @@ def test_stale_observation_pauses_until_new_scene():
     assert finish(workspace, session).status == SessionStatus.COMPLETE
 
 
-def test_hand_edited_price_is_reverified_and_restored_in_draft():
+def test_hand_edited_price_is_not_overwritten_by_old_agent_price():
     workspace, session, target, _ = setup()
     assert finish(workspace, session).status == SessionStatus.COMPLETE
     target.positions["1"].unit_price = "5.00"
     action = session.step(workspace)
-    assert action.action == "set_manual_price"
-    assert action.status == SessionStatus.ACTION
-    assert target.positions["1"].unit_price == "3500.00"
-    assert session.step(workspace).status == SessionStatus.COMPLETE
+    assert action.status == SessionStatus.REVIEW
+    assert action.reason == "external_operator_edit_requires_review"
+    assert target.positions["1"].unit_price == "5.00"
     assert not target.saved
 
 
-def test_human_modified_description_is_repaired_only_when_correct_position_active():
+def test_human_modified_description_is_preserved_for_operator_review():
     workspace, session, target, _ = setup()
     assert finish(workspace, session).status == SessionStatus.COMPLETE
     target.positions["1"].description = "Ręczna korekta handlowca"
     target.active_position_id = None
     first = session.step(workspace)
-    assert first.reason == "description_editor:fresh_editor_observation_required"
-    assert first.status == SessionStatus.PAUSED
+    assert first.reason == "external_operator_edit_requires_review"
+    assert first.status == SessionStatus.REVIEW
     target.activate("1")
     second = session.step(workspace)
-    assert second.action == "write_description"
-    assert second.status == SessionStatus.ACTION
-    assert finish(workspace, session).status == SessionStatus.COMPLETE
+    assert second.status == SessionStatus.REVIEW
+    assert target.positions["1"].description == "Ręczna korekta handlowca"
 
 
 def test_switching_active_position_protects_other_item():
+    from app.agent.offers.windowhub_commercial_quote_routes import plan_commercial_quote
     workspace, session, target, _ = setup()
-    assert finish(workspace, session).status == SessionStatus.COMPLETE
-    target.positions["2"] = VirtualPosition(route="text_only", description="Do not edit", unit_price="999")
+    task = session.tasks[0]
+    plan = plan_commercial_quote(task.request, target.capabilities, task.technical)
+    target.positions["1"] = VirtualPosition(route=plan.route.value,
+                                            description=plan.proposed_description)
+    target.positions["2"] = VirtualPosition(route="text_only",
+                                            description="Do not edit", unit_price="999")
     target.active_position_id = "2"
-    target.positions["1"].unit_price = "12.00"
     event = session.step(workspace)
     assert event.action == "activate_position"
     assert target.active_position_id == "1"
