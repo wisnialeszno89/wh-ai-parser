@@ -64,15 +64,21 @@ class LiveMissionConversation:
             return True
 
     def _answer_loop(self, latest: tuple[int, tuple[tuple[str, str], ...]]) -> None:
-        while True:
-            self._answer_in_worker(*latest)
-            with self._lock:
-                if self._closed or self._queued is None:
+        try:
+            while True:
+                self._answer_in_worker(*latest)
+                with self._lock:
+                    if self._closed or self._queued is None:
+                        self._queued = None
+                        return
+                    latest = self._queued
                     self._queued = None
-                    self._busy = False
-                    return
-                latest = self._queued
-                self._queued = None
+        except Exception:
+            with self._lock:
+                self._last_error = "chat_worker_unavailable"
+        finally:
+            with self._lock:
+                self._busy = False
 
     def _answer_in_worker(self, revision: int,
                           transcript: tuple[tuple[str, str], ...]) -> None:
