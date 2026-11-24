@@ -227,8 +227,17 @@ class RuleMemoryStore:
         if len(encoded) > MAX_BYTES:
             raise ValueError("memory_too_large")
         # Validate complete candidate before touching existing memory file.
-        for rule in payload["rules"]:
-            _record_from_data(rule)
+        records = [_record_from_data(rule) for rule in payload["rules"]]
+        active = [r.candidate for r in records if r.state == RuleState.ACTIVE]
+        for i, one in enumerate(active):
+            for other in active[i + 1:]:
+                if (one.scope.application == other.scope.application
+                        and one.scope.workflow == other.scope.workflow
+                        and one.scope.field == other.scope.field
+                        and one.match_value == other.match_value
+                        and (set(one.scope.context_tags).issubset(other.scope.context_tags)
+                             or set(other.scope.context_tags).issubset(one.scope.context_tags))):
+                    raise ValueError("overlapping_active_rules")
         self.path.parent.mkdir(parents=True, exist_ok=True)
         if self.path.is_symlink():
             raise ValueError("memory_symlink_refused")
