@@ -77,8 +77,11 @@ class VirtualWindowHub:
                 created_verified=position.route == plan.route.value,
                 description_verified=position.description == plan.proposed_description,
                 image_verified=(
-                    position.image_reference == plan.image_reference
-                    if task.request.image_reference else False
+                    bool(task.request.image_reference)
+                    and plan.image_ready
+                    and plan.image_reference is not None
+                    and position.image_reference is not None
+                    and position.image_reference == plan.image_reference
                 ),
                 price_verified=(
                     position.unit_price == plan.manual_unit_price
