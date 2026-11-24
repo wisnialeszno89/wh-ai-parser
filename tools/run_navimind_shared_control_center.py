@@ -53,15 +53,8 @@ def run(*, expected_offer: str) -> int:
         print("NAVIMIND_SHARED_HOST_REQUIRES_WINDOWS=True")
         return 2
     host = NaviMindSharedHost(expected_offer)
-    try:
-        from app.agent.runtime.windows_desktop_agent_control_loop import (
-            create_windows_desktop_agent_control_loop,
-        )
-        loop = create_windows_desktop_agent_control_loop()
-    except Exception as exc:
-        print("NAVIMIND_OBSERVER_UNAVAILABLE=" + type(exc).__name__)
-        return 3
-
+    # Build the Windows UIA reader INSIDE its worker thread, not the Tk
+    # thread. Native COM objects must remain in the apartment that owns them.
     queue: Queue = Queue(maxsize=2)
     stopped = Event()
     panel = NaviMindPanel(controller=host.controller)
@@ -99,12 +92,34 @@ def run(*, expected_offer: str) -> int:
         old_close()
 
     panel.protocol("WM_DELETE_WINDOW", close)
-    watcher = Thread(
-        target=inspect_offer_in_background,
-        kwargs={"observe": loop.observe_scene, "host": host,
-                "output": queue, "stop": stopped},
-        daemon=True,
-    )
+    def observer_worker():
+        com_initialized = False
+        try:
+            try:
+                import pythoncom
+                pythoncom.CoInitialize()
+                com_initialized = True
+            except ImportError:
+                pythoncom = None
+            from app.agent.runtime.windows_desktop_agent_control_loop import (
+                create_windows_desktop_agent_control_loop,
+            )
+            loop = create_windows_desktop_agent_control_loop()
+            inspect_offer_in_background(
+                observe=loop.observe_scene, host=host,
+                output=queue, stop=stopped,
+            )
+        except Exception as exc:
+            try:
+                queue.put_nowait(("error", host.controller.arbiter.epoch,
+                                  "observer_unavailable:" + type(exc).__name__))
+            except Full:
+                pass
+        finally:
+            if com_initialized:
+                pythoncom.CoUninitialize()
+
+    watcher = Thread(target=observer_worker, daemon=True)
     watcher.start()
     panel.after(250, pump)
     print("NAVIMIND_SHARED_PANEL_CONNECTED=True")
