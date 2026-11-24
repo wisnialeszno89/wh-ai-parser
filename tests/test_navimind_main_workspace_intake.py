@@ -138,3 +138,36 @@ def test_host_launcher_mounts_main_workspace_not_detached_chat():
     assert "NaviMindChatWindow(" not in data
     assert "NAVIMIND_V2_EXECUTOR_CONNECTED=False" in data
     assert "NAVIMIND_GUI_INPUT_EXECUTED=False" in data
+
+
+@pytest.mark.parametrize("content,expected", [
+    ("", "empty"),
+    ("   ", "empty"),
+    ("Zrób wycenę, a jeśli czegoś nie wiesz — zapytaj.", "chat"),
+    ("X" * 4000, "chat"),
+    ("X" * 4001, "long_enquiry"),
+    ("Wir möchten Fenster anbieten.\\n" * 300, "long_enquiry"),
+])
+def test_chat_input_is_classified_before_mission_chat_limit(content, expected):
+    assert workspace.chat_intake_decision(content) == expected
+
+
+def test_chat_limit_does_not_silently_truncate_customer_enquiry():
+    content = "Reihenmittelhaus: Fenster, Türen, Rollläden. " * 110
+    assert len(content) > 4000
+    assert workspace.chat_intake_decision(content) == "long_enquiry"
+    inbox = LocalEnquiryInbox()
+    inbox.set_text(content)
+    assert inbox.pasted_text == content.strip()
+    assert inbox.status()["transmitted_to_model"] is False
+
+
+def test_unconfigured_provider_warning_is_visible_in_workspace_source():
+    source = (
+        Path(__file__).resolve().parents[1]
+        / "tools"
+        / "navimind_main_workspace.py"
+    ).read_text(encoding="utf-8")
+    assert "MODEL AI: NIEPODŁĄCZONY" in source
+    assert "Model AI nie jest podłączony" in source
+    assert "messagebox.askyesno(" in source
