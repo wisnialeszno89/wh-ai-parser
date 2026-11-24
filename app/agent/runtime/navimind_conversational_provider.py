@@ -11,13 +11,13 @@ history is bounded and stale model replies are rejected by MissionChat.
 from __future__ import annotations
 
 from dataclasses import dataclass
-import ipaddress
 import json
 import os
 from typing import Any, Callable, Protocol
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
-from urllib.request import Request, urlopen
+from urllib.request import Request, build_opener, HTTPSHandler, HTTPRedirectHandler
+import ssl
 
 from app.agent.runtime.navimind_mission_chat import ChatState, MessageRole
 
@@ -61,16 +61,28 @@ class ChatConfig:
         return cls(url, model, key)
 
 
+class _NeverRedirect(HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        raise ChatUnavailable("chat_redirect_refused")
+
+
 def _http_chat(config: ChatConfig, payload: bytes) -> dict[str, Any]:
-    """Dedicated POST, no arbitrary URL from user prompt."""
+    """Dedicated POST, no redirects or tool execution."""
     request = Request(
         config.url, data=payload, method="POST",
         headers={"Content-Type": "application/json", "Accept": "application/json",
                  "Authorization": "Bearer " + config.api_key},
     )
+    opener = build_opener(
+        HTTPSHandler(context=ssl.create_default_context()), _NeverRedirect()
+    )
     try:
-        with urlopen(request, timeout=config.timeout_seconds) as response:
+        with opener.open(request, timeout=config.timeout_seconds) as response:
+            if response.status != 200:
+                raise ChatUnavailable("chat_response_not_ok")
             data = response.read(64 * 1024 + 1)
+    except ChatUnavailable:
+        raise
     except (HTTPError, URLError, OSError, TimeoutError):
         raise ChatUnavailable("chat_transport_unavailable") from None
     if len(data) > 64 * 1024:
