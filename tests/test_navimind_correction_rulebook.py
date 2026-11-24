@@ -169,6 +169,8 @@ def test_second_conflicting_active_rule_cannot_be_enabled():
                  two.replacement_value, True),
         RuleCase("two", scope("out_of_warranty", "extra"), two.match_value,
                  two.replacement_value, True),
+        RuleCase("outside", scope("normal"), two.match_value,
+                 two.match_value, True),
     )
     book.test(two.rule_id, two_cases)
     with pytest.raises(ValueError, match="conflicting_active_rule"):
@@ -186,3 +188,25 @@ def test_proposal_is_never_direct_gui_action_or_permission_to_save():
     assert len(suggestion) == 2
     assert not hasattr(book, "execute_windows")
     assert not hasattr(book, "save_offer")
+
+
+def test_positive_only_passes_cannot_promote_without_scope_boundary():
+    rule = propose_rule(corrected(), rule_id="warning-1")
+    book = RuleBook()
+    book.propose(rule)
+    report = book.test(rule.rule_id, cases()[:2])
+    assert report.passed == 2
+    assert report.positive_passed == 2
+    assert report.boundary_passed == 0
+    assert not report.eligible_for_promotion
+
+
+def test_negative_only_passes_cannot_promote_without_positive_examples():
+    rule = propose_rule(corrected(), rule_id="warning-1")
+    book = RuleBook()
+    book.propose(rule)
+    report = book.test(rule.rule_id, cases()[2:])
+    assert report.passed == 3
+    assert report.positive_passed == 0
+    assert report.boundary_passed == 3
+    assert not report.eligible_for_promotion
