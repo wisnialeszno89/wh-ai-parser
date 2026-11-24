@@ -34,6 +34,10 @@ class PositionTask:
     position_id: str
     request: QuoteRequest
     technical: TechnicalFinding
+    # Explicit mission-level permission to leave an unpriced item in a
+    # clearly marked unfinished draft and continue to the next position.
+    # This NEVER authorizes a zero price, save, send or final quotation.
+    allow_unpriced_draft: bool = False
 
     def __post_init__(self):
         if not self.position_id.strip():
@@ -118,7 +122,9 @@ def next_mission_intent(
                                  "quotation_route_requires_salesperson",
                                  proposed_route=plan.route, warnings=plan.warnings,
                                  missing=plan.pending)
-        if plan.manual_unit_price is None and task.request.manual_unit_price is not None:
+        if (plan.manual_unit_price is None
+                and task.request.manual_unit_price is not None
+                and not task.allow_unpriced_draft):
             return MissionIntent(MissionAction.REVIEW, task.position_id,
                                  "requested_manual_price_field_unavailable",
                                  proposed_route=plan.route, warnings=plan.warnings,
@@ -171,10 +177,19 @@ def next_mission_intent(
             data = dict(image_reference=plan.image_reference, warnings=plan.warnings,
                         missing=plan.pending)
         elif plan.manual_unit_price is None and not actual.price_verified:
+            if task.allow_unpriced_draft:
+                # No verified source or no verified input field. Leave this
+                # position unpriced and continue, without retrying blindly.
+                # Final summary still reports it as INCOMPLETE.
+                continue
+            reason = (
+                "requested_manual_price_field_unavailable"
+                if task.request.manual_unit_price is not None
+                else "catalogue_or_external_price_requires_independent_readback"
+            )
             return MissionIntent(MissionAction.REVIEW, task.position_id,
-                                 "catalogue_or_external_price_requires_independent_readback",
-                                 proposed_route=plan.route, warnings=plan.warnings,
-                                 missing=plan.pending)
+                                 reason, proposed_route=plan.route,
+                                 warnings=plan.warnings, missing=plan.pending)
         elif plan.manual_unit_price is not None and not actual.price_verified:
             action = MissionAction.SET_MANUAL_PRICE
             reason = "manual_price_not_independently_verified"
@@ -203,6 +218,18 @@ def next_mission_intent(
         return MissionIntent(action, task.position_id, reason,
                              requires_v2_executor=True, **data)
 
+    pending_prices = [
+        task.position_id for task in tasks
+        if task.allow_unpriced_draft
+        and not _trusted_readback(task, scene, readbacks).price_verified
+    ]
+    if pending_prices:
+        return MissionIntent(
+            MissionAction.COMPLETE, None,
+            "draft_partially_prepared_unpriced_positions",
+            missing=tuple("price_unverified:" + p for p in pending_prices),
+            verified_completed=False,
+        )
     return MissionIntent(MissionAction.COMPLETE, None,
                          "all_required_position_fields_verified_for_quotation_draft",
                          verified_completed=True)
@@ -235,12 +262,34 @@ def mission_progress_summary(tasks: tuple[PositionTask, ...],
                                          and not (task.request.manual_unit_price is not None
                                                   and plan.manual_unit_price is None),
             "warnings": list(plan.warnings),
-            "pending": list(plan.pending),
+            "pending": list(dict.fromkeys(
+                list(plan.pending)
+                + (["price_unverified_requires_salesperson"] if (
+                    task.allow_unpriced_draft and not actual.price_verified
+                ) else [])
+            )),
+            "price_status": (
+                "verified" if actual.price_verified else
+                "deferred_unverified" if task.allow_unpriced_draft else
+                "unverified"
+            ),
         })
     return {
         "document": scene.document_id if scene.document_identity_verified else None,
         "positions": result,
         "all_position_requirements_verified": bool(result) and all(
+            item["quotation_position_complete"] for item in result
+        ),
+        "draft_positions_prepared": sum(
+            bool(item["verified"].get("created"))
+            and bool(item["verified"].get("description"))
+            for item in result
+        ),
+        "unpriced_position_ids": [
+            item["position_id"] for item in result
+            if item["price_status"] == "deferred_unverified"
+        ],
+        "ready_for_final_customer_quote": bool(result) and all(
             item["quotation_position_complete"] for item in result
         ),
         "agent_authorized_to_save": False,
