@@ -84,11 +84,14 @@ class RuleTestReport:
     passed: int
     failed: int
     unverified: int
+    positive_passed: int
+    boundary_passed: int
     cases: tuple[str, ...]
 
     @property
     def eligible_for_promotion(self) -> bool:
-        return self.passed >= 2 and self.failed == 0 and self.unverified == 0
+        return (self.positive_passed >= 2 and self.boundary_passed >= 1
+                and self.failed == 0 and self.unverified == 0)
 
 
 @dataclass
@@ -130,7 +133,7 @@ def evaluate_rule(candidate: RuleCandidate,
     """
     if len({item.case_id for item in cases}) != len(cases):
         raise ValueError("duplicate_test_cases")
-    passed = failed = unverified = 0
+    passed = failed = unverified = positive_passed = boundary_passed = 0
     for case in cases:
         if not case.independently_verified:
             unverified += 1
@@ -143,11 +146,19 @@ def evaluate_rule(candidate: RuleCandidate,
         )
         if actual == case.expected_value:
             passed += 1
+            eligible_context = (
+                scope_matches(candidate.scope, case.scope)
+                and case.input_value == candidate.match_value
+            )
+            if eligible_context:
+                positive_passed += 1
+            else:
+                boundary_passed += 1
         else:
             failed += 1
     return RuleTestReport(
         candidate.rule_id, passed, failed, unverified,
-        tuple(item.case_id for item in cases),
+        positive_passed, boundary_passed, tuple(item.case_id for item in cases),
     )
 
 
