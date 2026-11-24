@@ -101,9 +101,21 @@ def parse_bounded_instruction(message: str) -> tuple[StructuredAmendment | None,
                  r"zmień klienta|zmien klienta|dodaj pozycję|dodaj pozycje)\b",
                  message, re.I):
         return None, "mixed_or_persistent_instruction_requires_review"
-    positions = _POSITION.findall(message)
-    if len(positions) != 1:
+    position_matches = list(_POSITION.finditer(message))
+    if len(position_matches) != 1:
         return None, "exact_single_position_required"
+    # Parse the WHOLE suffix after the position, not just a matching prefix.
+    # Otherwise "pozycji 3 i 4 na antracyt" gets silently reduced to
+    # position 3, and "pozycji 3 na antracyt i 4" is ignored as well.
+    # This stage deliberately supports only one change to one position.
+    suffix = message[position_matches[0].end():]
+    supported_suffix = (
+        r"\\s+(?:na|jako)\\s+"
+        r"(?:antracyt|biały|bialy|czarny|szary|brązowy|brazowy|"
+        r"\\d{1,5}(?:\\s*mm|\\s*szt\\.?|\\s*sztuk)?)\\s*"
+    )
+    if not re.fullmatch(supported_suffix, suffix, re.I):
+        return None, "ambiguous_multiple_positions_or_trailing_instruction"
     found: list[tuple[Field, str]] = []
     for pattern, field in (
         (_COLOUR, Field.COLOUR),
@@ -127,7 +139,7 @@ def parse_bounded_instruction(message: str) -> tuple[StructuredAmendment | None,
             return None, "dimension_outside_supported_range"
     if field == Field.QUANTITY and not 1 <= int(value) <= 99:
         return None, "quantity_outside_supported_range"
-    return StructuredAmendment(positions[0], field, value), "recognized"
+    return StructuredAmendment(position_matches[0].group(1), field, value), "recognized"
 
 
 def prepare_amendment(
