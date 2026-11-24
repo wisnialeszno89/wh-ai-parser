@@ -228,7 +228,8 @@ def enforce_v2_live_policy(scene, resolved, *, approved_persistent=False) -> Non
 
 
 def execute_v2_step(loop, scene, resolved, *, approved_persistent=False,
-                    expected_offer=None, pre_model_scene=None):
+                    expected_offer=None, pre_model_scene=None,
+                    input_arbiter=None, input_permit=None):
     """Run one locally validated action with verified fresh-scene guard.
 
     When a pre-model baseline is supplied by the real V2 runner, re-observe
@@ -293,7 +294,19 @@ def execute_v2_step(loop, scene, resolved, *, approved_persistent=False,
         steps=(ActionStep(index=1, action=action),),
         confidence=1.0,
     )
-    result = loop.run(plan=plan, context=context)
+    if input_arbiter is not None:
+        # The native dispatcher must see the *same* ownership epoch as the
+        # observed plan. Never obtain a new permit on behalf of a stale action.
+        from app.agent.runtime.navimind_local_input_arbiter import ActionPermit
+        if not isinstance(input_permit, ActionPermit):
+            raise ValueError("v2_input_permit_required")
+        result = input_arbiter.dispatch(
+            input_permit, lambda: loop.run(plan=plan, context=context),
+        )
+    else:
+        if input_permit is not None:
+            raise ValueError("v2_input_permit_without_arbiter")
+        result = loop.run(plan=plan, context=context)
     execution_loop = result.last_execution_result
     attempt = execution_loop.last_attempt if execution_loop is not None else None
     execution = attempt.execution_result if attempt is not None else None
