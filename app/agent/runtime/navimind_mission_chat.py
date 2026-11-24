@@ -83,6 +83,7 @@ class MissionChat:
                 self._revision, tuple(self._messages),
                 tuple(self._changes), any(
                     c.state in (ChangeState.PENDING, ChangeState.APPROVED)
+                    and c.revision == self._revision
                     for c in self._changes
                 ),
             )
