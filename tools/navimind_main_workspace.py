@@ -1,0 +1,268 @@
+"""Integrated NaviMind workspace: chat, enquiry/PDF intake and Windows dictation.
+
+Every submission goes to the same MissionChat / LiveMissionConversation as
+the verified WindowHub host. No uploaded document is sent anywhere merely by
+being attached. Native control remains observation-only in the current host.
+"""
+from __future__ import annotations
+
+import ctypes
+import os
+import tkinter as tk
+from tkinter import filedialog, messagebox
+
+from app.agent.runtime.navimind_enquiry_inbox import EnquiryInputError, LocalEnquiryInbox
+from app.agent.runtime.navimind_mission_chat import MessageRole, MissionChat
+from app.agent.runtime.navimind_live_conversation import LiveMissionConversation
+from tools.run_navimind_control_panel import BG, CARD, FG, MUTED, PURPLE, GOLD, STROKE
+
+
+def windows_dictation_available() -> bool:
+    """Windows' own Win+H dictation, not a custom or background audio listener."""
+    return os.name == "nt"
+
+
+def start_windows_dictation(widget, *, hotkey=None) -> bool:
+    """Explicit click activates Windows dictation for the focused chat entry.
+
+    No automatic recording, microphone permission escalation, or captured
+    audio goes through NaviMind. The user reviews/edit text before sending.
+    Windows online speech processing and permissions follow system settings.
+    """
+    if not windows_dictation_available():
+        return False
+    widget.focus_set()
+    if hotkey is not None:
+        hotkey()
+        return True
+    # Keybd_event is used only after the user clicks the microphone button.
+    # Press+release Win+H. No WindowHub control or arbitrary shortcuts.
+    user32 = ctypes.windll.user32
+    VK_LWIN, VK_H, KEYEVENTF_KEYUP = 0x5B, 0x48, 0x0002
+    user32.keybd_event(VK_LWIN, 0, 0, 0)
+    user32.keybd_event(VK_H, 0, 0, 0)
+    user32.keybd_event(VK_H, 0, KEYEVENTF_KEYUP, 0)
+    user32.keybd_event(VK_LWIN, 0, KEYEVENTF_KEYUP, 0)
+    return True
+
+
+class NaviMindMainWorkspace(tk.Frame):
+    """Embedded directly in the main NaviMind control window."""
+
+    def __init__(self, parent, *, chat: MissionChat,
+                 conversation: LiveMissionConversation | None,
+                 enquiry: LocalEnquiryInbox | None = None):
+        super().__init__(parent, bg=BG)
+        self.chat = chat
+        self.conversation = conversation
+        self.enquiry = enquiry or LocalEnquiryInbox()
+        self.last_id = 0
+        self._build()
+        self._poll()
+
+    def _label(self, parent, value, *, size=10, color=FG, bold=False):
+        return tk.Label(
+            parent, text=value, bg=parent.cget("bg"), fg=color,
+            font=("Segoe UI Semibold" if bold else "Segoe UI", size),
+            anchor="w",
+        )
+
+    def _build(self):
+        tk.Label(
+            self, text="NaviMind • Workspace", bg=BG, fg=FG,
+            font=("Segoe UI Semibold", 17), anchor="w",
+        ).pack(fill="x", padx=18, pady=(15, 2))
+        self._label(
+            self, "Rozmowa i dokumenty klienta w jednym miejscu • bez automatycznej edycji WindowHub",
+            size=9, color=MUTED,
+        ).pack(fill="x", padx=18, pady=(0, 10))
+
+        top = tk.Frame(self, bg=CARD)
+        top.pack(fill="both", expand=True, padx=18, pady=(0, 10))
+        self._label(top, "ROZMOWA Z AGENTEM", size=9, color=GOLD, bold=True).pack(
+            fill="x", padx=12, pady=(9, 0)
+        )
+        self.history = tk.Text(
+            top, wrap="word", bg=CARD, fg=FG, insertbackground=FG,
+            relief="flat", font=("Segoe UI", 10), state="disabled",
+            padx=12, pady=8, height=8,
+        )
+        self.history.pack(fill="both", expand=True, padx=5, pady=4)
+
+        self._label(
+            self, "Napisz lub podyktuj polecenie (Ctrl+Enter — wyślij)",
+            size=9, color=MUTED,
+        ).pack(fill="x", padx=18)
+        self.entry = tk.Text(
+            self, wrap="word", bg="#252535", fg=FG, height=3,
+            insertbackground=FG, font=("Segoe UI", 10), relief="flat",
+            padx=10, pady=7,
+        )
+        self.entry.pack(fill="x", padx=18, pady=(5, 7))
+        self.entry.bind("<Control-Return>", self._keyboard_send)
+
+        buttons = tk.Frame(self, bg=BG)
+        buttons.pack(fill="x", padx=18, pady=(0, 8))
+        self.mic = tk.Button(
+            buttons, text="🎙 Dyktuj (Win+H)", command=self._dictate,
+            fg=FG, bg="#29253A", relief="flat",
+            font=("Segoe UI Semibold", 10), padx=10, pady=7,
+        )
+        self.mic.pack(side="left")
+        if not windows_dictation_available():
+            self.mic.configure(state="disabled")
+        tk.Button(
+            buttons, text="Wyślij", command=self._send,
+            fg="#151020", bg=PURPLE, relief="flat",
+            font=("Segoe UI Semibold", 10), padx=18, pady=7,
+        ).pack(side="right")
+
+        tk.Frame(self, height=1, bg=STROKE).pack(fill="x", padx=18, pady=(2, 7))
+        heading = tk.Frame(self, bg=BG)
+        heading.pack(fill="x", padx=18)
+        self._label(
+            heading, "ZAPYTANIE KLIENTA / PDF", size=9, color=GOLD, bold=True,
+        ).pack(side="left")
+        self.source_status = self._label(heading, "Brak dokumentów", size=9, color=MUTED)
+        self.source_status.pack(side="right")
+        self.enquiry_editor = tk.Text(
+            self, height=5, wrap="word", bg=CARD, fg=FG, insertbackground=FG,
+            relief="flat", font=("Segoe UI", 10), padx=10, pady=8,
+        )
+        self.enquiry_editor.pack(fill="x", padx=18, pady=(8, 6))
+        actions = tk.Frame(self, bg=BG)
+        actions.pack(fill="x", padx=18)
+        tk.Button(
+            actions, text="Dodaj PDF", command=self._attach_pdf,
+            bg="#29253A", fg=FG, relief="flat", padx=12, pady=6,
+        ).pack(side="left")
+        tk.Button(
+            actions, text="Zapisz treść lokalnie", command=self._save_enquiry,
+            bg="#29253A", fg=FG, relief="flat", padx=12, pady=6,
+        ).pack(side="left", padx=(8, 0))
+        tk.Button(
+            actions, text="Podgląd danych", command=self._preview_enquiry,
+            bg="#29253A", fg=FG, relief="flat", padx=12, pady=6,
+        ).pack(side="right")
+        self.notice = self._label(self, "", size=9, color=MUTED)
+        self.notice.pack(fill="x", padx=18, pady=(8, 12))
+        self.entry.focus_set()
+
+    def _append(self, author: str, content: str):
+        self.history.configure(state="normal")
+        self.history.insert("end", author + "\n", ("author",))
+        self.history.insert("end", content + "\n\n")
+        self.history.tag_configure("author", foreground=PURPLE)
+        self.history.configure(state="disabled")
+        self.history.see("end")
+
+    def _keyboard_send(self, event):
+        self._send()
+        return "break"
+
+    def _send(self):
+        text = self.entry.get("1.0", "end-1c").strip()
+        if not text:
+            return
+        try:
+            message = self.chat.user_message(text)
+        except (ValueError, RuntimeError) as exc:
+            messagebox.showwarning("Wiadomość nieprzyjęta", str(exc), parent=self)
+            return
+        self.entry.delete("1.0", "end")
+        self._refresh_messages()
+        if (self.conversation is not None
+                and self.conversation.submit_current_message(message.message_id)):
+            self.notice.configure(text="NaviMind przygotowuje odpowiedź…")
+        else:
+            self.notice.configure(
+                text="Wiadomość przyjęta lokalnie. Brak skonfigurowanego modelu rozmowy."
+            )
+
+    def _dictate(self):
+        try:
+            if not start_windows_dictation(self.entry):
+                self.notice.configure(text="Dyktowanie Windows dostępne wyłącznie na Windows.")
+                return
+            self.notice.configure(
+                text="Dyktowanie Windows: mów do mikrofonu, sprawdź tekst i kliknij Wyślij."
+            )
+        except (OSError, AttributeError, RuntimeError) as exc:
+            self.notice.configure(
+                text="Dyktowanie Windows niedostępne: " + type(exc).__name__
+            )
+
+    def _save_enquiry(self):
+        text = self.enquiry_editor.get("1.0", "end-1c")
+        try:
+            self.enquiry.set_text(text)
+        except EnquiryInputError as exc:
+            messagebox.showwarning("Treść zapytania", str(exc), parent=self)
+            return
+        self._update_sources()
+        self.notice.configure(text="Zapytanie zapisane w pamięci sesji, bez wysyłania do AI.")
+
+    def _attach_pdf(self):
+        path = filedialog.askopenfilename(
+            parent=self, title="Dodaj zapytanie PDF",
+            filetypes=[("Dokument PDF", "*.pdf")],
+        )
+        if not path:
+            return
+        try:
+            source = self.enquiry.add_pdf(path)
+        except (EnquiryInputError, OSError) as exc:
+            messagebox.showwarning("PDF nieodczytany", str(exc), parent=self)
+            return
+        self._update_sources()
+        if source.needs_ocr or source.truncated:
+            self.notice.configure(
+                text="PDF dodany częściowo. Wymagana kontrola brakujących/skanowanych stron."
+            )
+        else:
+            self.notice.configure(text="PDF odczytany lokalnie. Treść nie została wysłana do AI.")
+
+    def _update_sources(self):
+        stats = self.enquiry.status()
+        self.source_status.configure(
+            text=f"{stats['pdf_count']} PDF · {stats['characters']} znaków"
+        )
+
+    def _preview_enquiry(self):
+        window = tk.Toplevel(self)
+        window.title("NaviMind • Podgląd zapytania (tylko odczyt)")
+        window.geometry("720x540")
+        area = tk.Text(
+            window, wrap="word", font=("Segoe UI", 10),
+            bg=CARD, fg=FG,
+        )
+        area.pack(fill="both", expand=True, padx=8, pady=8)
+        preview = self.enquiry.preview(limit=10_000)
+        unsaved = self.enquiry_editor.get("1.0", "end-1c").strip()
+        if unsaved and unsaved != self.enquiry.pasted_text:
+            preview = "[NIEZAPISANA TREŚĆ W POLU — użyj 'Zapisz treść lokalnie']\n\n" + preview
+        area.insert("1.0", preview)
+        area.configure(state="disabled")
+
+    def _refresh_messages(self):
+        snapshot = self.chat.snapshot()
+        for message in snapshot.messages:
+            if message.message_id <= self.last_id:
+                continue
+            name = {
+                MessageRole.HUMAN: "Ty",
+                MessageRole.AGENT: "NaviMind",
+                MessageRole.SYSTEM: "System",
+            }[message.role]
+            self._append(name, message.text)
+            self.last_id = message.message_id
+
+    def _poll(self):
+        if not self.winfo_exists():
+            return
+        self._refresh_messages()
+        if self.conversation is not None:
+            status = self.conversation.status()
+            if status.active:
+                self.notice.configure(text="NaviMind przygotowuje odpowiedź…")
+        self.after(350, self._poll)
