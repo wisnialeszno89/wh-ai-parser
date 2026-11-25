@@ -13,6 +13,46 @@ import re
 
 MAX_POSITIONS = 80
 
+_CATALOG_LABELS = {
+    "profil": "profile",
+    "profile": "profile",
+    "profilsystem": "profile",
+    "system profili": "profile",
+    "farbe innen": "color_inside",
+    "kolor wewnętrzny": "color_inside",
+    "kolor wewnetrzny": "color_inside",
+    "farbe außen": "color_outside",
+    "farbe aussen": "color_outside",
+    "kolor zewnętrzny": "color_outside",
+    "kolor zewnetrzny": "color_outside",
+    "verglasung": "glazing",
+    "pakiet szybowy": "glazing",
+    "szyby": "glazing",
+    "beschlag": "hardware",
+    "okucia": "hardware",
+    "ramka dystansowa": "spacer",
+}
+
+
+def extract_explicit_catalog_requirements(
+    source_lines: tuple[str, ...] | list[str],
+) -> tuple[tuple[str, str], ...]:
+    """Source-scoped labelled requirements, not inferred WH database codes."""
+    values: dict[str, set[str]] = {}
+    for line in source_lines:
+        for clause in str(line).split(";"):
+            if ":" not in clause:
+                continue
+            label, value = clause.split(":", 1)
+            key = _CATALOG_LABELS.get(" ".join(label.strip().casefold().split()))
+            value = " ".join(value.strip().split())
+            if key and 1 <= len(value) <= 100:
+                values.setdefault(key, set()).add(value)
+    return tuple(
+        (key, next(iter(entries)) if len(entries) == 1 else "")
+        for key, entries in sorted(values.items())
+    )
+
 
 @dataclass(frozen=True)
 class SourcePosition:
@@ -27,6 +67,7 @@ class SourcePosition:
     source_fingerprint: str
     snippet: str
     issues: tuple[str, ...] = ()
+    catalogue_requirements: tuple[tuple[str, str], ...] = ()
 
     @property
     def ready_for_geometry(self) -> bool:
@@ -119,7 +160,12 @@ def build_position_manifest(inbox) -> PositionManifest:
             height = match.get("height_mm")
             qty = match.get("quantity")
             opening = match.get("opening")
+            catalog = extract_explicit_catalog_requirements(
+                tuple(str(line) for line in lines)
+            )
             issues = []
+            if any(not value for _, value in catalog):
+                issues.append("conflicting_catalogue_requirements")
             if product != "window":
                 issues.append("product_requires_separate_catalogue_route")
             if type(width) is not int or type(height) is not int:
@@ -148,6 +194,7 @@ def build_position_manifest(inbox) -> PositionManifest:
                 source_fingerprint=fingerprint,
                 snippet=snippet,
                 issues=tuple(issues),
+                catalogue_requirements=catalog,
             ))
         if overflow:
             break
@@ -225,6 +272,10 @@ def position_prompt(position: SourcePosition, *, index: int, total: int) -> str:
         f"ilość={position.quantity}; "
         f"otwieranie={position.opening or 'nieokreślone'}.\n"
         f"DOWÓD ZE ŹRÓDŁA {position.source_index}: {position.snippet}\n"
+        "WYMAGANIA KATALOGOWE (jawnie opisane w źródle): "
+        + (", ".join(f"{name}={value}" for name, value in
+                     position.catalogue_requirements) or "nieokreślone")
+        + "\n"
         "Nie przenoś danych z innych pozycji. "
         "Nie uznawaj pozycji za wykonaną bez niezależnego odczytu "
         "konstrukcji i ilości. Nie zapisuj ani nie wysyłaj oferty."
