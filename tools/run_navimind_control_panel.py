@@ -215,8 +215,8 @@ class NaviMindPanel(tk.Tk):
         WindowHub host uses this larger layout but remains observation-only.
         """
         from tools.navimind_main_workspace import NaviMindMainWorkspace
-        self.geometry("1280x830")
-        self.minsize(1080, 740)
+        self.geometry("1280x910")
+        self.minsize(1080, 800)
         self.resizable(True, True)
         self.main_workspace = NaviMindMainWorkspace(
             self.main_area, chat=chat, conversation=conversation,
