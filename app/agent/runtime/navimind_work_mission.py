@@ -362,6 +362,22 @@ class WorkStepResult:
     field_receipt: PositionFieldReceipt | None = None
 
 
+def safe_reasoner_failure_result(reasoner: Any) -> WorkStepResult:
+    """Surface only allowlisted HTTP codes, never secret-bearing error text."""
+    safe_codes = {
+        "navimind_http_401": "v2_http_401_check_vercel_sso_or_agent_secret",
+        "navimind_http_403": "v2_http_403_access_forbidden",
+        "navimind_http_429": "v2_http_429_rate_limited",
+    }
+    return WorkStepResult(
+        "paused",
+        safe_codes.get(
+            getattr(reasoner, "last_error", None),
+            "v2_reasoner_unavailable",
+        ),
+    )
+
+
 def bounded_v2_mission_goal(mission: WorkMission) -> str:
     """Preserve the human request and bound approved evidence to V2 contract."""
     # V2 contract enforces MAX_TEXT_LENGTH = 8000 on the entire goal,
@@ -636,22 +652,7 @@ def plan_or_execute_windowhub_step(
     except Exception:
         decision = None
     if decision is None:
-        # Only a fixed, non-sensitive status is surfaced. Never print the
-        # response body, request payload, endpoint URL, client or token.
-        error = getattr(reasoner, "last_error", None)
-        if error == "navimind_http_401":
-            return WorkStepResult(
-                "paused", "v2_http_401_check_vercel_sso_or_agent_secret",
-            )
-        if error == "navimind_http_403":
-            return WorkStepResult(
-                "paused", "v2_http_403_access_forbidden",
-            )
-        if error == "navimind_http_429":
-            return WorkStepResult(
-                "paused", "v2_http_429_rate_limited",
-            )
-        return WorkStepResult("paused", "v2_reasoner_unavailable")
+        return safe_reasoner_failure_result(reasoner)
     if decision.get("decision") == "done":
         return WorkStepResult(
             "review",
