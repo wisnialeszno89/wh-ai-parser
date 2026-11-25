@@ -733,10 +733,21 @@ def plan_or_execute_windowhub_step(
         if not source_valid:
             return WorkStepResult("review", source_reason)
         verified_field_name = fields[0]
+    catalogue_pick = None
     if name == "click_screen_element":
-        # Multi-position tasks may move only through known verified wizard
-        # controls. Catalogue selections are never inferred from the PDF.
-        if ledger is not None:
+        # Only exact options in a native, uniquely identified combobox may
+        # be selected from the active position's explicit source catalogue
+        # requirements. Modal/popup lists without ancestry remain blocked.
+        if ledger is not None and getattr(target, "role", None) == "listitem":
+            from app.agent.runtime.navimind_catalogue_selection import (
+                prepare_exact_catalogue_pick,
+            )
+            catalogue_pick, click_reason = prepare_exact_catalogue_pick(
+                scene, ledger.active, target,
+            )
+            if catalogue_pick is None:
+                return WorkStepResult("review", click_reason)
+        elif ledger is not None:
             from app.agent.runtime.navimind_position_click_policy import (
                 verify_position_navigation_readback,
             )
@@ -787,6 +798,17 @@ def plan_or_execute_windowhub_step(
     try:
         after_scene = loop.observe_scene()
         new_stage = stage_of(after_scene) or "unknown"
+        if catalogue_pick is not None:
+            from app.agent.runtime.navimind_catalogue_selection import (
+                verify_exact_catalogue_readback,
+            )
+            catalogue_ok, catalogue_reason = verify_exact_catalogue_readback(
+                after_scene, catalogue_pick,
+            )
+            if not catalogue_ok:
+                return WorkStepResult(
+                    "review", catalogue_reason, name, False,
+                )
         if verified_field_name is not None:
             from app.agent.runtime.navimind_field_readback import (
                 verify_written_field,
