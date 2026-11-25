@@ -348,6 +348,10 @@ class NaviMindSharedHost:
         # Explicit manual takeover or PDF revocation invalidates all draft
         # ancestry. Only the controlled picker handoff may retain it.
         self._draft_native_scope = None
+        if self._draft_phase is not None:
+            # Starting a new chat mission after human takeover must
+            # begin from a fresh Start1, never an orphaned picker dialog.
+            self._draft_phase = "start"
         self.controller.takeover()
         self._accepted_scene = None
         self.last_reason = "human_takeover"
@@ -355,6 +359,7 @@ class NaviMindSharedHost:
     def stop(self) -> None:
         self._approved_work_revision = None
         self._workflow_scope = None
+        self._draft_native_scope = None
         self.controller.stop()
         self._accepted_scene = None
         self.last_reason = "task_cancelled"
