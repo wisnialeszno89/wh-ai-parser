@@ -227,6 +227,12 @@ def run(*, expected_offer: str) -> int:
         host.chat, max_cycles=8,
         document_snapshot_provider=approved_document_for_work,
     )
+    if host._draft_phase is not None:
+        # The shared host calls this ONLY after selected OFR title/tab/handle
+        # have been observed. No model or PDF may choose the document ID.
+        host.draft_document_bound_callback = (
+            work_coordinator.bind_verified_new_offer
+        )
     work_events: Queue = Queue(maxsize=16)
 
     def on_work_result(mission, result):
@@ -244,10 +250,19 @@ def run(*, expected_offer: str) -> int:
                 + ". Ponownie sprawdzam ekran przed dalszą pracą."
             )
         elif result.kind == "paused":
-            message = (
-                "Wstrzymałem zadanie: " + result.reason
-                + ". Nie wykonuję kliknięć bez aktualnego ekranu i zgody."
-            )
+            if result.reason == "draft_customer_selection_required":
+                message = (
+                    "Otworzyłem i zweryfikowałem okno wyboru klienta. "
+                    "Wskaż dokładnie właściwą firmę w WindowHub i przejdź "
+                    "ręcznie do roboczej oferty OFR. Kiedy oferta będzie "
+                    "widoczna, kliknij lokalnie Wznów pracę. Wtedy zweryfikuję "
+                    "numer OFR i będę mógł wprowadzać konstrukcje."
+                )
+            else:
+                message = (
+                    "Wstrzymałem zadanie: " + result.reason
+                    + ". Nie wykonuję kliknięć bez aktualnego ekranu i zgody."
+                )
         else:
             message = (
                 "Zadanie wymaga weryfikacji handlowca: " + result.reason
@@ -384,6 +399,12 @@ def run(*, expected_offer: str) -> int:
                     text="Tryb planowania. Wykonywanie na komputerze jest wyłączone."
                 )
                 return
+            if (mission.stage == WorkStage.PAUSED
+                    and mission.reason == "draft_customer_selection_required"):
+                panel.main_workspace.notice.configure(
+                    text="Weryfikuję aktywną ofertę po ręcznym wyborze klienta. "
+                         "Numer OFR musi zgadzać się z wybraną zakładką."
+                )
             if not host.approve_current_work_for_resume(
                 revision=mission.revision, task_id=mission.task_id,
                 coordinator=work_coordinator,
@@ -541,10 +562,20 @@ def run(*, expected_offer: str) -> int:
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(description="Read-only NaviMind shared Windows panel")
-    parser.add_argument("--expected-offer", required=True,
-                        help="Exact disposable OFR document caption, e.g. OFR/4687-")
+    parser = argparse.ArgumentParser(
+        description="NaviMind local chat-to-WindowHub draft/control panel"
+    )
+    target = parser.add_mutually_exclusive_group(required=True)
+    target.add_argument("--expected-offer",
+                        help="Exact existing OFR document ID, e.g. OFR/4687-")
+    target.add_argument("--new-offer", action="store_true",
+                        help="Start from WindowHub Start1; no OFR is invented.")
     args = parser.parse_args(argv)
+    if args.new_offer:
+        from app.agent.runtime.navimind_draft_bootstrap import (
+            DRAFT_DOCUMENT_KEY,
+        )
+        return run(expected_offer=DRAFT_DOCUMENT_KEY)
     return run(expected_offer=args.expected_offer)
 
 
