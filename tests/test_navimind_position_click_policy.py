@@ -78,3 +78,79 @@ def test_other_product_type_is_never_borrowed_as_window():
         current_position=NS(position_id="S01-P001", product_type="sliding_door"),
     )
     assert not permitted and reason == "product_type_not_supported_by_pilot"
+
+
+def native_scene(title, fields):
+    from app.agent.environment.environment_observation import EnvironmentObservation
+    from app.agent.environment.environment_state import EnvironmentState
+    from app.agent.perception.screen_scene import ScreenScene
+    from app.agent.perception.screen_element import ScreenElement
+    elements = tuple(
+        ScreenElement(kind="edit", label=label, metadata={
+            "source": "windowhub_ui_automation",
+            "automation_id": automation_id,
+            "uia_runtime_id": "rid-" + field,
+            "uia_visible": True, "uia_enabled": True,
+            "current_value": value,
+            "current_value_source": "get_value",
+        })
+        for field, label, automation_id, value in fields
+    )
+    return ScreenScene(
+        observation=EnvironmentObservation(
+            state=EnvironmentState(
+                active_application="Okna.exe", active_window_title=title,
+            ),
+        ), elements=elements,
+    )
+
+
+def test_position_next_rechecks_native_quantity_not_just_cached_receipt():
+    from app.agent.runtime.navimind_position_click_policy import (
+        verify_position_navigation_readback,
+    )
+    button = target("Dalej >", "button", "12324")
+    current = NS(position_id="S01-P001", product_type="window")
+    receipts = (proof("quantity_input", "2"),)
+    okay = native_scene(
+        "Dodawanie nowej pozycji",
+        (("quantity_input", "Ile sztuk", "1001", "2"),),
+    )
+    changed = native_scene(
+        "Dodawanie nowej pozycji",
+        (("quantity_input", "Ile sztuk", "1001", "3"),),
+    )
+    assert verify_position_navigation_readback(
+        okay, stage="position", target=button,
+        current_position=current, field_receipts=receipts,
+    )[0]
+    assert not verify_position_navigation_readback(
+        changed, stage="position", target=button,
+        current_position=current, field_receipts=receipts,
+    )[0]
+
+
+def test_dimensions_next_rechecks_both_native_values_after_human_change():
+    from app.agent.runtime.navimind_position_click_policy import (
+        verify_position_navigation_readback,
+    )
+    button = target("Dalej >", "button", "12324")
+    current = NS(position_id="S01-P001", product_type="window")
+    receipts = (proof("width_1", "1500"), proof("height_1", "1400"))
+    base = (
+        ("width_1", "Szerokość", "1000", "1500"),
+        ("height_1", "Wysokość", "1001", "1400"),
+    )
+    okay = native_scene("Wielkość okna", base)
+    changed = native_scene("Wielkość okna", (
+        ("width_1", "Szerokość", "1000", "1500"),
+        ("height_1", "Wysokość", "1001", "1450"),
+    ))
+    assert verify_position_navigation_readback(
+        okay, stage="dimensions", target=button,
+        current_position=current, field_receipts=receipts,
+    )[0]
+    assert not verify_position_navigation_readback(
+        changed, stage="dimensions", target=button,
+        current_position=current, field_receipts=receipts,
+    )[0]
