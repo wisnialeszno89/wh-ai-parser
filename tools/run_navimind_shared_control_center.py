@@ -1,9 +1,10 @@
-"""One-process, observation-only NaviMind Windows control center.
+"""Single-process NaviMind conversation, documents and Windows work host.
 
-The panel and WindowHub observer share the same NaviMindSharedHost instance.
-This launcher never starts the V2 executor, sends model requests or performs
-native inputs. To verify an offer after clicking Resume, bring WindowHub's
-correct OFR document to foreground. UI remains responsive and human-first.
+Model-selected tools prepare local V2 missions in the background. Native input
+is DISABLED by default; live dispatch additionally requires both existing
+Windows live flags, an exact pinned OFR and explicit operator Resume.
+Every native step passes through shared arbiter, V2 policy and readback.
+No autonomous save, order conversion or offer send is authorized.
 
 Windows: python tools/run_navimind_shared_control_center.py --expected-offer "OFR/1234-"
 """
@@ -58,8 +59,8 @@ def run(*, expected_offer: str) -> int:
     queue: Queue = Queue(maxsize=2)
     stopped = Event()
     panel = NaviMindPanel(controller=host.controller)
-    # Disclosure: connected host here means observation-only, never executor.
-    panel.title("NaviMind • Workspace / WindowHub — OBSERWACJA")
+    # This host is a planning workspace unless explicitly armed for live V2.
+    panel.title("NaviMind • Workspace / WindowHub")
     panel.host_observation_only = True
     panel._update(host.controller.snapshot())
     # The larger main window hosts chat + local PDF intake together.
@@ -371,6 +372,11 @@ def run(*, expected_offer: str) -> int:
                 # permit before requesting a fresh screen for the next step.
                 host.controller.takeover()
                 host.release_for_reobservation()
+            elif outcome in ("review", "paused") and (
+                host.controller.snapshot().mode == PanelMode.AGENT_READY
+            ):
+                # A blocker means stop and return ownership to the user.
+                host.takeover()
 
             try:
                 kind, observed_epoch, payload = queue.get_nowait()
