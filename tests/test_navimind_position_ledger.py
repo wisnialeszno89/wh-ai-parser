@@ -457,3 +457,35 @@ def test_conflicting_explicit_catalogue_colors_block_source_automaticity():
     assert len(manifest.positions) == 2
     assert not manifest.positions[0].ready_for_geometry
     assert "conflicting_catalogue_requirements" in manifest.positions[0].issues
+
+
+def test_direct_human_chat_two_windows_can_be_source_without_pdf_consent():
+    from app.agent.runtime.navimind_position_ledger import (
+        direct_chat_position_manifest,
+    )
+    message = (
+        "Przygotuj nową niezapisaną ofertę:\n"
+        "Pos. 1: 1 Stk Fenster 1500x1400\n"
+        "Profil: Veka Perfectline\n"
+        "Pos. 2: 1 Stk Fenster 1300x1200\n"
+        "Profil: Veka Softline 82"
+    )
+    manifest = direct_chat_position_manifest(message)
+    assert manifest is not None
+    assert manifest.safe_to_sequence
+    assert len(manifest.positions) == 2
+    assert [p.position_id for p in manifest.positions] == [
+        "S01-P001", "S01-P002"
+    ]
+    assert dict(manifest.positions[0].catalogue_requirements)["profile"] == "Veka Perfectline"
+    assert dict(manifest.positions[1].catalogue_requirements)["profile"] == "Veka Softline 82"
+
+
+def test_direct_chat_without_window_line_is_not_fabricated():
+    from app.agent.runtime.navimind_position_ledger import (
+        direct_chat_position_manifest,
+    )
+    assert direct_chat_position_manifest(
+        "Utwórz mi dwie pozycje według PDF, który jest gdzieś na pulpicie"
+    ) is None
+    assert direct_chat_position_manifest("x" * 4001) is None
