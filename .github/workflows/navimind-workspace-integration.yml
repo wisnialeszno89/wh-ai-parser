@@ -16,6 +16,7 @@ on:
       - 'app/agent/runtime/navimind_draft_spec_guard.py'
       - 'tests/test_navimind_offer_preflight.py'
       - 'tools/run_navimind_offer_preflight.py'
+      - 'tools/inspect_navimind_catalogues_live.py'
       - 'tests/test_navimind_catalogue_readiness.py'
       - 'app/agent/runtime/navimind_catalogue_readiness.py'
       - 'tests/test_navimind_position_click_policy.py'
