@@ -65,6 +65,47 @@ def run_discovery(*, inventory=None, output=print) -> int:
         return 1
 
 
+def diagnose_uia_root(scene, *, desktop_factory=None) -> tuple[str, ...]:
+    """Read-only root diagnostics, reporting no window titles, IDs or values.
+
+    Existing generic UIA provider silently returns () for missing pywinauto,
+    wrong foreground handle, mismatched window title and traversal failure.
+    This diagnostic separates the first three without clicking or reading
+    descendants, so it is safe even with large WindowHub MDI trees.
+    """
+    metadata = getattr(scene.observation, "metadata", None) or {}
+    hwnd = metadata.get("window_handle")
+    if type(hwnd) is not int or hwnd <= 0:
+        return ("WINDOWHUB_UIA_ROOT=HANDLE_MISSING",)
+    try:
+        if desktop_factory is None:
+            from pywinauto import Desktop
+            desktop = Desktop(backend="uia")
+        else:
+            desktop = desktop_factory()
+    except ImportError:
+        return ("WINDOWHUB_UIA_ROOT=PYWINAUTO_MISSING",)
+    except Exception:
+        return ("WINDOWHUB_UIA_ROOT=DESKTOP_UNAVAILABLE",)
+    try:
+        window = desktop.window(handle=hwnd).wrapper_object()
+    except Exception as exc:
+        return ("WINDOWHUB_UIA_ROOT=LOOKUP_FAILED",
+                "WINDOWHUB_UIA_ERROR_TYPE=" + type(exc).__name__)
+    try:
+        same_title = window.window_text() == (
+            scene.observation.state.active_window_title or ""
+        )
+    except Exception as exc:
+        return ("WINDOWHUB_UIA_ROOT=TITLE_READ_FAILED",
+                "WINDOWHUB_UIA_ERROR_TYPE=" + type(exc).__name__)
+    return (
+        "WINDOWHUB_UIA_ROOT=REACHABLE",
+        "WINDOWHUB_UIA_TITLE_MATCH=" + str(same_title),
+        "WINDOWHUB_UIA_ROOT_ACTIONS=0",
+    )
+
+
 def summarize_uia_visibility(scene) -> tuple[str, ...]:
     """Safe provider counts; zero mapped controls need not mean zero UIA objects.
 
@@ -160,8 +201,12 @@ def run_inspection(*, observe=None, output=print) -> int:
         output("WINDOWHUB_INSPECT=OBSERVATION_FAILED")
         output("WINDOWHUB_NATIVE_ACTIONS=0")
         return 1
-    for line in describe_windowhub_scene(scene):
+    lines = describe_windowhub_scene(scene)
+    for line in lines:
         output(line)
+    if observe is None and "WINDOWHUB_FOREGROUND=True" in lines:
+        for line in diagnose_uia_root(scene):
+            output(line)
     return 0
 
 
