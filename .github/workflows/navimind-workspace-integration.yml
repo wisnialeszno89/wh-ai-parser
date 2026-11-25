@@ -12,6 +12,8 @@ on:
       - 'tests/test_navimind_main_workspace_intake.py'
       - 'tests/test_navimind_live_conversation.py'
       - 'tests/test_navimind_ai_tool_selection.py'
+      - 'tests/test_navimind_draft_bootstrap.py'
+      - 'app/agent/runtime/navimind_draft_bootstrap.py'
       - 'tests/test_navimind_work_mission.py'
       - 'tests/test_navimind_local_teaching_session.py'
       - 'app/agent/runtime/navimind_local_teaching_session.py'
@@ -42,4 +44,4 @@ jobs:
       - name: Verify AI tool routing and local PDF consent
         shell: pwsh
         run: |
-          python -m pytest -q tests/test_navimind_unified_document_engine.py tests/test_navimind_main_workspace_intake.py tests/test_navimind_live_conversation.py tests/test_navimind_ai_tool_selection.py tests/test_navimind_background_windowhub_reader.py tests/test_navimind_windowhub_one_shot_inspect.py tests/test_navimind_work_mission.py tests/test_navimind_shared_control_host.py tests/test_navimind_local_teaching_session.py tests/test_navimind_panel_controller.py
+          python -m pytest -q tests/test_navimind_unified_document_engine.py tests/test_navimind_main_workspace_intake.py tests/test_navimind_live_conversation.py tests/test_navimind_ai_tool_selection.py tests/test_navimind_background_windowhub_reader.py tests/test_navimind_windowhub_one_shot_inspect.py tests/test_navimind_draft_bootstrap.py tests/test_navimind_work_mission.py tests/test_navimind_shared_control_host.py tests/test_navimind_local_teaching_session.py tests/test_navimind_panel_controller.py
