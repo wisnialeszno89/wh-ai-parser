@@ -156,6 +156,58 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
 
         return tuple(elements)
 
+    def perceive_catalogue_bounded(
+        self, observation: EnvironmentObservation, *,
+        max_descendants: int = 350,
+    ) -> tuple[ScreenElement, ...]:
+        """Read current explicitly targeted WH wizard with a strict size cap.
+
+        A complete mapping is never claimed from a truncated UIA tree;
+        missing/slow/oversized dialogs fail closed. No screen capture or input.
+        """
+        if (type(max_descendants) is not int
+                or not 1 <= max_descendants <= 800):
+            raise ValueError("catalogue_uia_limit_invalid")
+        if self._desktop_factory is None and __import__("os").name != "nt":
+            return ()
+        hwnd = observation.metadata.get("window_handle")
+        if type(hwnd) is not int or hwnd <= 0:
+            return ()
+        try:
+            desktop = (
+                self._desktop_factory()
+                if self._desktop_factory is not None
+                else self._default_desktop()
+            )
+            window = self._active_window(
+                desktop, observation, allow_test_factory_fallback=False,
+            )
+            title = observation.state.active_window_title
+            if not title or window.window_text() != title:
+                return ()
+            # A wizard is usually shallow. Do not recursively scan a whole
+            # WindowHub MDI frame if a stale HWND happens to be supplied.
+            descendants = tuple(window.descendants(depth=5))
+            if len(descendants) > max_descendants:
+                return ()
+            rect = observation.metadata.get("window_rect")
+            origin_x = int(getattr(rect, "left", 0))
+            origin_y = int(getattr(rect, "top", 0))
+            labels = self._collect_label_candidates(
+                descendants, origin_x=origin_x, origin_y=origin_y,
+            )
+            results = []
+            for item in descendants:
+                found = self._to_screen_element(
+                    item=item, origin_x=origin_x, origin_y=origin_y,
+                    tracked_objects=(), label_candidates=labels,
+                )
+                if found is not None:
+                    results.append(found)
+            return tuple(results)
+        except Exception:
+            return ()
+
     @staticmethod
     def _default_desktop():
         from pywinauto import Desktop
