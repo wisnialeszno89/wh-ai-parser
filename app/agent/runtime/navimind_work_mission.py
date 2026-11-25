@@ -355,10 +355,19 @@ class BackgroundWorkMission:
                 self.loop_factory() if self.loop_factory
                 else create_windows_desktop_agent_control_loop()
             )
-            reasoner = (
-                self.reasoner_factory() if self.reasoner_factory
-                else NaviMindTaskReasonerV2()
-            )
+            if self.reasoner_factory:
+                reasoner = self.reasoner_factory()
+            else:
+                import os
+                if os.environ.get("NAVIMIND_AGENT_V2_URL", "").strip():
+                    reasoner = NaviMindTaskReasonerV2()
+                else:
+                    # Use the already configured, contract-compatible /api/agent/task.
+                    # Do not require a second secret solely for the V2 protocol.
+                    from tools.run_windowhub_goal_v2 import shared_endpoint_v2_config
+                    reasoner = NaviMindTaskReasonerV2(
+                        config=shared_endpoint_v2_config()
+                    )
             result = plan_or_execute_windowhub_step(
                 mission=current, loop=loop, reasoner=reasoner,
                 host=self.host, execute=execute,
