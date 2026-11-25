@@ -559,6 +559,18 @@ def plan_or_execute_windowhub_step(
         experience=(*verified_experience, *human_demonstrations[:8]),
     )
     prepared.request_payload["metadata"]["verified_windowhub_stage"] = stage
+    if ledger is not None:
+        # Advisory model metadata only. Native authority remains local,
+        # pinned to this coordinator's immutable manifest and revision.
+        prepared.request_payload["metadata"]["active_position_id"] = (
+            ledger.active.position_id
+        )
+        prepared.request_payload["metadata"]["active_position_index"] = (
+            ledger.active_index
+        )
+        prepared.request_payload["metadata"]["position_count"] = (
+            len(ledger.manifest.positions)
+        )
     # In the offer document, the remote reasoner must only see the Add
     # capability when its exact active MDI ownership is locally proven.
     if stage == "offer_document":
