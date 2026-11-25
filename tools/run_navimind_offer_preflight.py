@@ -40,10 +40,11 @@ def inspect_local_preflight(*, environ=None, module_probe=None,
     v2_endpoint = str(env.get("NAVIMIND_AGENT_V2_URL") or "").strip()
     shared_endpoint = str(env.get("NAVIMIND_AGENT_URL") or "").strip()
     reasoner_url_present = bool(v2_endpoint or shared_endpoint)
-    secret_present = bool(str(
-        env.get("NAVIMIND_AGENT_V2_SECRET")
-        if v2_endpoint else env.get("NAVIMIND_AGENT_SECRET")
-    or "").strip())
+    selected_secret = (
+        env.get("NAVIMIND_AGENT_V2_SECRET") if v2_endpoint
+        else env.get("NAVIMIND_AGENT_SECRET")
+    )
+    secret_present = bool(str(selected_secret or "").strip())
     protection_bypass_present = bool(str(
         env.get("NAVIMIND_VERCEL_PROTECTION_BYPASS") or ""
     ).strip())
