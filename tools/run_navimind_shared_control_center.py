@@ -195,7 +195,22 @@ def run(*, expected_offer: str) -> int:
     from app.agent.runtime.navimind_work_mission import (
         BackgroundWorkMission, WorkMissionCoordinator, WorkStage,
     )
-    work_coordinator = WorkMissionCoordinator(host.chat, max_cycles=8)
+    def approved_document_for_work():
+        # The mission gets a consistent consent epoch plus only the material
+        # already explicitly approved by the salesperson for model analysis.
+        version, snapshot = live_chat.document_access_snapshot()
+        if not snapshot:
+            return version, ""
+        from app.agent.runtime.navimind_enquiry_evidence_bridge import (
+            summarize_full_approved_inbox,
+        )
+        digest = summarize_full_approved_inbox(intake, approved=True, limit=2800)
+        return version, (digest + "\\n\\n" + snapshot)[:7500]
+
+    work_coordinator = WorkMissionCoordinator(
+        host.chat, max_cycles=8,
+        document_snapshot_provider=approved_document_for_work,
+    )
     work_events: Queue = Queue(maxsize=16)
 
     def on_work_result(mission, result):
@@ -236,6 +251,17 @@ def run(*, expected_offer: str) -> int:
         work_coordinator, host=host, callback=on_work_result,
     )
 
+    def prepare_work_from_chat():
+        if (intake.status()["has_enquiry"]
+                and not live_chat.document_context_active()):
+            return (
+                "Widzę dodane lokalne zapytanie/PDF, ale nie mam zgody na "
+                "przekazanie jego danych silnikowi V2. "
+                "Wybierz w panelu Udostępnij AI, przejrzyj zakres i ponów "
+                "polecenie. Nie rozpoczynam pracy na niepełnych danych."
+            )
+        return background_work.queue_and_plan()
+
     tool_registry = {
         "prepare_windowhub_work": ReadOnlyTool(
             "prepare_windowhub_work",
@@ -244,7 +270,7 @@ def run(*, expected_offer: str) -> int:
             "przekaż bieżące dosłowne polecenie do lokalnego koordynatora V2. "
             "Koordynator wykona tylko analizę i przygotowanie następnego kroku. "
             "Nie kliknie ani nie zapisze nic bez osobnego lokalnego wznowienia.",
-            background_work.queue_and_plan,
+            prepare_work_from_chat,
         ),
         "workspace_overview": ReadOnlyTool(
             "workspace_overview",
