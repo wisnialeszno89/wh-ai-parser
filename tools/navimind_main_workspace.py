@@ -127,13 +127,14 @@ class NaviMindMainWorkspace(tk.Frame):
     def __init__(self, parent, *, chat: MissionChat,
                  conversation: LiveMissionConversation | None,
                  enquiry: LocalEnquiryInbox | None = None,
-                 discover_windowhub=None):
+                 discover_windowhub=None, on_document_revoke=None):
         super().__init__(parent, bg=BG)
         self.chat = chat
         self.conversation = conversation
         self.enquiry = enquiry or LocalEnquiryInbox()
         self.last_id = 0
         self.discover_windowhub = discover_windowhub
+        self.on_document_revoke = on_document_revoke
         self._build()
         self._poll()
 
@@ -499,9 +500,15 @@ class NaviMindMainWorkspace(tk.Frame):
                 text="Nie można ponowić analizy. Dokument nie został wysłany."
             )
 
-    def _revoke_document_access(self):
+    def _drop_document_consent(self):
+        """Revoke provider context AND any previously armed native work."""
         if self.conversation is not None:
             self.conversation.revoke_document_context()
+        if self.on_document_revoke is not None:
+            self.on_document_revoke()
+
+    def _revoke_document_access(self):
+        self._drop_document_consent()
         self.notice.configure(
             text="Dostęp AI do dokumentów cofnięty dla kolejnych wiadomości. "
                  "Wcześniejszych żądań wysłanych do Gateway nie można wycofać."
@@ -553,7 +560,7 @@ class NaviMindMainWorkspace(tk.Frame):
             self.conversation.approve_document_context(context)
             message = self.chat.user_message(prompt)
         except (ValueError, RuntimeError):
-            self.conversation.revoke_document_context()
+            self._drop_document_consent()
             self.notice.configure(text="Nie udało się rozpocząć analizy dokumentu.")
             return
         self._refresh_messages()
@@ -563,7 +570,7 @@ class NaviMindMainWorkspace(tk.Frame):
                      "analizy i kolejnych pytań w tej sesji."
             )
         else:
-            self.conversation.revoke_document_context()
+            self._drop_document_consent()
             self.notice.configure(text="Nie udało się wysłać dokumentu do analizy AI.")
 
     def _paste_windows_clipboard(self):
@@ -593,7 +600,7 @@ class NaviMindMainWorkspace(tk.Frame):
         self.enquiry_editor.insert("1.0", validated)
         self.enquiry.set_text(validated)
         if self.conversation is not None:
-            self.conversation.revoke_document_context()
+            self._drop_document_consent()
         self._update_sources()
         self.notice.configure(
             text="Tekst ze schowka skopiowany lokalnie. Nie został wysłany do modelu."
@@ -607,7 +614,7 @@ class NaviMindMainWorkspace(tk.Frame):
             messagebox.showwarning("Treść zapytania", str(exc), parent=self)
             return
         if self.conversation is not None:
-            self.conversation.revoke_document_context()
+            self._drop_document_consent()
         self._update_sources()
         self.notice.configure(text="Zapytanie zapisane lokalnie. Udostępnij je AI tylko świadomie.")
 
@@ -624,7 +631,7 @@ class NaviMindMainWorkspace(tk.Frame):
             messagebox.showwarning("PDF nieodczytany", str(exc), parent=self)
             return
         if self.conversation is not None:
-            self.conversation.revoke_document_context()
+            self._drop_document_consent()
         self._update_sources()
         if source.needs_ocr or source.truncated:
             self.notice.configure(
