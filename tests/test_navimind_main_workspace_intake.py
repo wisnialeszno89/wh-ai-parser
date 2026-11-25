@@ -295,6 +295,32 @@ def test_local_pdf_model_context_is_bounded_and_marks_truncation():
     assert inbox.status()["transmitted_to_model"] is False
 
 
+def test_multiple_long_pdfs_all_remain_visible_in_approved_bounded_context():
+    from app.agent.runtime.navimind_enquiry_inbox import EnquirySource
+
+    inbox = LocalEnquiryInbox()
+    inbox.set_text("DRAFT_BEGIN " + "X" * 9000)
+    inbox._sources = [
+        EnquirySource("private-customer-one.pdf", "pdf",
+                      "FIRST_PDF_WIDTH_990 " + "A" * 9000,
+                      3, False, False),
+        EnquirySource("private-customer-two.pdf", "pdf",
+                      "SECOND_PDF_WIDTH_1400 " + "B" * 9000,
+                      2, False, False),
+    ]
+    context = inbox.model_context(max_chars=1200)
+    assert len(context) <= 1200
+    assert "DRAFT_BEGIN" in context
+    assert "FIRST_PDF_WIDTH_990" in context
+    assert "SECOND_PDF_WIDTH_1400" in context
+    assert "PDF 1 (stron: 3)" in context
+    assert "PDF 2 (stron: 2)" in context
+    assert "fragmenty źródeł skrócono" in context
+    assert "private-customer-one.pdf" not in context
+    assert "private-customer-two.pdf" not in context
+    assert inbox.status()["transmitted_to_model"] is False
+
+
 def test_scanned_pdf_context_never_claims_full_ocr(tmp_path):
     fitz = pytest.importorskip("fitz")
     path = tmp_path / "scan.pdf"
