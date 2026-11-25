@@ -205,7 +205,7 @@ def run(*, expected_offer: str) -> int:
             summarize_full_approved_inbox,
         )
         digest = summarize_full_approved_inbox(intake, approved=True, limit=2800)
-        return version, (digest + "\\n\\n" + snapshot)[:7500]
+        return version, (digest + "\n\n" + snapshot)[:7500]
 
     work_coordinator = WorkMissionCoordinator(
         host.chat, max_cycles=8,
