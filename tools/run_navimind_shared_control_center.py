@@ -280,6 +280,13 @@ def run(*, expected_offer: str) -> int:
                 + ". Nie ponawiam niepewnej czynności."
             )
         ledger = mission.position_ledger
+        if ledger is not None and result.kind == "review":
+            from app.agent.runtime.navimind_position_ledger import (
+                manifest_blocker_summary,
+            )
+            details = manifest_blocker_summary(ledger.manifest)
+            if details != "brak blokad źródłowych":
+                message += " Braki w zapytaniu: " + details
         if ledger is not None:
             active = ledger.active
             if active is not None:
