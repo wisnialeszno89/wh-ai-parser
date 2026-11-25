@@ -364,3 +364,20 @@ def two_window_test_gate(inbox) -> tuple[bool, str]:
     if len({p.position_id for p in manifest.positions}) != 2:
         return False, "two_window_position_identity_not_unique"
     return True, "exactly_two_source_scoped_windows_ready_for_review"
+
+
+def direct_chat_position_manifest(message_text: str) -> PositionManifest | None:
+    """A user's explicit chat message may itself be the complete enquiry.
+
+    This avoids forcing a duplicate paste into the PDF inbox. The same
+    immutable source parser applies; no file or hidden clipboard is read.
+    """
+    if (not isinstance(message_text, str)
+            or not message_text.strip()
+            or len(message_text) > 4000):
+        return None
+    from app.agent.runtime.navimind_enquiry_inbox import LocalEnquiryInbox
+    inbox = LocalEnquiryInbox()
+    inbox.set_text(message_text)
+    manifest = build_position_manifest(inbox)
+    return manifest if manifest.positions else None
