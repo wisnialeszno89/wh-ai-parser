@@ -124,6 +124,9 @@ class NaviMindSharedHost:
         from app.agent.runtime.navimind_work_mission import WorkStage
         if item.stage not in {WorkStage.READY, WorkStage.PAUSED}:
             return False
+        if (item.stage == WorkStage.PAUSED
+                and item.reason != "one_native_step_verified_reobserve_next"):
+            return False
         self._approved_work_revision = revision
         return True
 
