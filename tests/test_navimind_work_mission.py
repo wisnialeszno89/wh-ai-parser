@@ -74,7 +74,9 @@ def test_background_planning_delivers_verified_advisory_without_executor(monkeyp
     results = []
     executions = []
 
-    def fake_step(*, mission, loop, reasoner, host, execute):
+    def fake_step(*, mission, loop, reasoner, host, execute,
+                  is_mission_current=None):
+        assert is_mission_current is not None and is_mission_current()
         executions.append(execute)
         return WorkStepResult("ready", "safe_plan", "write_text")
 
