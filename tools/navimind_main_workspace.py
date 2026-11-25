@@ -7,6 +7,8 @@ being attached. Native control remains observation-only in the current host.
 from __future__ import annotations
 
 import ctypes
+from queue import Empty, Queue
+from threading import Thread
 import os
 import tkinter as tk
 from tkinter import filedialog, messagebox
@@ -96,12 +98,16 @@ class NaviMindMainWorkspace(tk.Frame):
 
     def __init__(self, parent, *, chat: MissionChat,
                  conversation: LiveMissionConversation | None,
-                 enquiry: LocalEnquiryInbox | None = None):
+                 enquiry: LocalEnquiryInbox | None = None,
+                 discover_windowhub=None):
         super().__init__(parent, bg=BG)
         self.chat = chat
         self.conversation = conversation
         self.enquiry = enquiry or LocalEnquiryInbox()
         self.last_id = 0
+        self.discover_windowhub = discover_windowhub
+        self._discovery_queue = Queue(maxsize=1)
+        self._discovery_active = False
         self._build()
         self._poll()
 
@@ -165,6 +171,21 @@ class NaviMindMainWorkspace(tk.Frame):
             history_actions, text="↓ Najnowsze", command=self._history_to_bottom,
             fg=FG, bg="#29253A", relief="flat", padx=10, pady=3,
         ).pack(side="right")
+
+        discovery_row = tk.Frame(self, bg=BG)
+        discovery_row.pack(fill="x", padx=18, pady=(0, 8))
+        self.discovery_button = tk.Button(
+            discovery_row, text="Znajdź WindowHub", command=self._start_discovery,
+            bg="#29253A", fg=FG, relief="flat", padx=12, pady=5,
+        )
+        self.discovery_button.pack(side="left")
+        if self.discover_windowhub is None:
+            self.discovery_button.configure(state="disabled")
+        self.discovery_status = self._label(
+            discovery_row, "Wyszukiwanie bez przejmowania pulpitu",
+            size=9, color=MUTED,
+        )
+        self.discovery_status.pack(side="left", padx=(10, 0))
 
         self._label(
             self, "Napisz lub podyktuj polecenie (Ctrl+Enter — wyślij)",
@@ -230,6 +251,49 @@ class NaviMindMainWorkspace(tk.Frame):
         )
         self.notice.pack(fill="x", padx=18, pady=(8, 12))
         self.entry.focus_set()
+
+    def _start_discovery(self):
+        """Explicit discovery button; Win32 inventory runs off Tk thread."""
+        if self._discovery_active or self.discover_windowhub is None:
+            return
+        self._discovery_active = True
+        self.discovery_button.configure(state="disabled")
+        self.discovery_status.configure(text="Wyszukiwanie…")
+
+        def worker():
+            try:
+                # Only the bounded, nonsecret report crosses thread boundary.
+                lines = tuple(self.discover_windowhub())
+            except Exception:
+                lines = ("WINDOWHUB_DISCOVERY=FAILED",)
+            try:
+                self._discovery_queue.put_nowait(lines)
+            except Exception:
+                pass
+
+        Thread(target=worker, daemon=True).start()
+
+    def _poll_discovery(self):
+        try:
+            lines = self._discovery_queue.get_nowait()
+        except Empty:
+            return
+        self._discovery_active = False
+        self.discovery_button.configure(
+            state="normal" if self.discover_windowhub is not None else "disabled"
+        )
+        if "WINDOWHUB_DISCOVERY=FOUND" in lines:
+            foreground = "WINDOWHUB_IS_FOREGROUND=True" in lines
+            self.discovery_status.configure(
+                text="WindowHub znaleziony • aktywny"
+                if foreground else "WindowHub znaleziony • w tle"
+            )
+        elif "WINDOWHUB_DISCOVERY=NOT_FOUND" in lines:
+            self.discovery_status.configure(
+                text="WindowHub nie znaleziony. Uruchom program i sprawdź ponownie."
+            )
+        else:
+            self.discovery_status.configure(text="Nie udało się odczytać listy okien.")
 
     def _history_to_bottom(self):
         self.history.yview_moveto(1.0)
@@ -421,6 +485,7 @@ class NaviMindMainWorkspace(tk.Frame):
         if not self.winfo_exists():
             return
         self._refresh_messages()
+        self._poll_discovery()
         if self.conversation is not None:
             status = self.conversation.status()
             if status.active:
