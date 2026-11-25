@@ -66,7 +66,9 @@ def test_owner_launcher_safely_exposes_explicit_inspect_mode():
     assert "[switch]$InspectWindowHub" in code
     assert 'python "tools/inspect_navimind_windowhub.py"' in code
     assert '$env:COMPUTER_USE_LIVE = "0"' in code
-    assert "$DiagnoseChat -and $InspectWindowHub" in code
+    assert "[switch]$DiagnoseChat" in code
+    assert "[switch]$FindWindowHub" in code
+    assert "([int][bool]$DiagnoseChat + [int][bool]$InspectWindowHub + [int][bool]$FindWindowHub) -gt 1" in code
 
 
 def test_uia_diagnostic_disambiguates_unmapped_controls_from_no_uia():
