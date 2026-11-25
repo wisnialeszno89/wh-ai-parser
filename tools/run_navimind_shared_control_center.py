@@ -195,17 +195,25 @@ def run(*, expected_offer: str) -> int:
     from app.agent.runtime.navimind_work_mission import (
         BackgroundWorkMission, WorkMissionCoordinator, WorkStage,
     )
+    approved_work_cache: dict[str, object] = {"version": None, "evidence": ""}
+
     def approved_document_for_work():
-        # The mission gets a consistent consent epoch plus only the material
-        # already explicitly approved by the salesperson for model analysis.
+        # Consent version changes on approve and revoke; recompute the full
+        # local PDF digest once per approval, not at every live-action guard.
         version, snapshot = live_chat.document_access_snapshot()
+        if approved_work_cache["version"] == version:
+            return version, str(approved_work_cache["evidence"])
+        approved_work_cache["version"] = version
+        approved_work_cache["evidence"] = ""
         if not snapshot:
             return version, ""
         from app.agent.runtime.navimind_enquiry_evidence_bridge import (
             summarize_full_approved_inbox,
         )
         digest = summarize_full_approved_inbox(intake, approved=True, limit=2800)
-        return version, (digest + "\n\n" + snapshot)[:7500]
+        evidence = (digest + "\n\n" + snapshot)[:7500]
+        approved_work_cache["evidence"] = evidence
+        return version, evidence
 
     work_coordinator = WorkMissionCoordinator(
         host.chat, max_cycles=8,
