@@ -292,3 +292,24 @@ def manifest_blocker_summary(manifest: PositionManifest) -> str:
     if not manifest.positions:
         problems.append("brak pozycji rozpoznanych z zatwierdzonych źródeł")
     return "; ".join(problems)[:900] if problems else "brak blokad źródłowych"
+
+
+def two_window_test_gate(inbox) -> tuple[bool, str]:
+    """Fail closed unless source approval can represent exactly two windows.
+
+    Use after operator has saved local text/PDF; this function is read-only
+    and never grants document/model consent or GUI action permission.
+    """
+    manifest = build_position_manifest(inbox)
+    if not manifest.safe_to_sequence:
+        return False, "two_window_source_incomplete_or_unparsed"
+    if len(manifest.positions) != 2:
+        return False, "two_window_position_count_not_two"
+    if any(
+        p.product_type != "window" or not p.ready_for_geometry
+        for p in manifest.positions
+    ):
+        return False, "two_window_position_geometry_or_quantity_ambiguous"
+    if len({p.position_id for p in manifest.positions}) != 2:
+        return False, "two_window_position_identity_not_unique"
+    return True, "exactly_two_source_scoped_windows_ready_for_review"
