@@ -103,6 +103,7 @@ def prepare_exact_catalogue_pick(
             if isinstance(node, dict)
             and node.get("control_type") == "combobox"
             and node.get("automation_id") == combo_automation.casefold()
+            and node.get("runtime_id") == combo_runtime
         ]
         if len(parents) != 1:
             continue
