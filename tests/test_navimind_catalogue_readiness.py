@@ -101,3 +101,62 @@ def test_foreground_app_and_step_must_be_known():
         application="Notepad.exe",
     )).status == "catalogue_wizard_not_foreground"
     assert inspect_catalogue_scene(scene("Okna - Start1")).controls == ()
+
+
+def test_local_list_peek_never_attributed_to_one_catalogue_without_owner_proof():
+    from app.agent.runtime.navimind_catalogue_readiness import (
+        visible_unattributed_catalogue_items,
+    )
+    from tools.inspect_navimind_catalogues_live import run_probe
+    item = ScreenElement(
+        kind="listitem", label="Sensitive producer article",
+        metadata={
+            "source": "windowhub_ui_automation",
+            "uia_visible": True, "uia_enabled": True,
+            "uia_runtime_id": "list-row-1",
+        },
+    )
+    current = scene(
+        "Podstawowe parametry okna",
+        combobox("Wybierz kolor profili", "1054"), item,
+    )
+    assert visible_unattributed_catalogue_items(current) == 1
+    assert visible_unattributed_catalogue_items(
+        current, include_labels=True,
+    ) == ("Sensitive producer article",)
+    safe = run_probe(observe=lambda: current)
+    assert safe["visible_unattributed_items"] == 1
+    assert safe["options_owned_by_specific_field"] is False
+    assert "Sensitive producer article" not in repr(safe)
+    local_only = run_probe(
+        observe=lambda: current, show_local_options=True,
+    )
+    assert local_only["unattributed_local_option_labels"] == [
+        "Sensitive producer article"
+    ]
+    assert not local_only["input_performed"]
+    assert not local_only["data_sent_to_cloud"]
+
+
+def test_unrelated_window_cannot_dump_list_item_labels():
+    from app.agent.runtime.navimind_catalogue_readiness import (
+        visible_unattributed_catalogue_items,
+    )
+    from tools.inspect_navimind_catalogues_live import run_probe
+    item = ScreenElement(
+        kind="listitem", label="Private client name",
+        metadata={
+            "source": "windows_ui_automation",
+            "uia_visible": True, "uia_enabled": True,
+            "uia_runtime_id": "secret-row",
+        },
+    )
+    wrong_app = scene(
+        "Podstawowe parametry okna", item, application="Notepad.exe",
+    )
+    assert visible_unattributed_catalogue_items(
+        wrong_app, include_labels=True,
+    ) == ()
+    assert "Private client name" not in repr(
+        run_probe(observe=lambda: wrong_app, show_local_options=True)
+    )
