@@ -22,7 +22,7 @@ def test_fully_configured_flags_are_report_only_not_execution_permission():
     env = {
         "WH_REAL_WINDOWHUB": "1", "COMPUTER_USE_LIVE": "1",
         "NAVIMIND_AGENT_V2_URL": "https://gateway.example.invalid/api",
-        "NAVIMIND_AGENT_SECRET": "secret",
+        "NAVIMIND_AGENT_V2_SECRET": "NAVI_TEST_ONLY_CREDENTIAL_ABC123",
     }
     report = inspect_local_preflight(
         environ=env, module_probe=lambda _: True,
@@ -32,7 +32,7 @@ def test_fully_configured_flags_are_report_only_not_execution_permission():
     assert report["live_flags_both_enabled"]
     assert report["read_only_preflight"]
     assert report["network_checked"] is False
-    assert env["NAVIMIND_AGENT_SECRET"] not in repr(report)
+    assert env["NAVIMIND_AGENT_V2_SECRET"] not in repr(report)
     assert "gateway.example.invalid" not in repr(report)
 
 
