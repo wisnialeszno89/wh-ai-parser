@@ -29,6 +29,8 @@ class CatalogueControlStatus:
     state: str
     native_value_readable: bool = False
     native_value_present: bool = False
+    native_expand_pattern_available: bool = False
+    native_selection_pattern_available: bool = False
     choice_items_independently_observed: bool = False
     safe_to_select: bool = False
 
@@ -88,12 +90,21 @@ def inspect_catalogue_scene(scene: Any) -> CatalogueReadiness:
             value = metadata.get("current_value")
             value_source = metadata.get("current_value_source")
             readable = native and isinstance(value, str) and bool(value_source)
+            patterns = metadata.get("uia_native_pattern_support")
+            if not isinstance(patterns, dict):
+                patterns = {}
             entries.append(CatalogueControlStatus(
                 field_name=name,
                 state=("mapped_native_unique" if native else
                        "mapped_but_native_identity_unverified"),
                 native_value_readable=bool(readable),
                 native_value_present=bool(readable and value.strip()),
+                native_expand_pattern_available=(
+                    native and patterns.get("expand_collapse") is True
+                ),
+                native_selection_pattern_available=(
+                    native and patterns.get("selection_item") is True
+                ),
                 choice_items_independently_observed=False,
                 safe_to_select=False,
             ))
@@ -117,11 +128,15 @@ def summarize_catalogue_readiness(audit: CatalogueReadiness) -> str:
     readable = sum(c.native_value_readable for c in audit.controls)
     missing = sum(c.state == "not_found" for c in audit.controls)
     ambiguous = sum(c.state == "ambiguous" for c in audit.controls)
+    expandable = sum(c.native_expand_pattern_available for c in audit.controls)
+    selection = sum(c.native_selection_pattern_available for c in audit.controls)
     return (
         f"KATALOG_WH_STAGE={audit.stage}; STATUS={audit.status}; "
         f"FIELDS={len(audit.controls)}; NATIVE_MAPPED={mapped}; "
         f"CURRENT_SELECTION_READABLE={readable}; "
         f"MISSING={missing}; AMBIGUOUS={ambiguous}; "
+        f"NATIVE_EXPAND_PATTERN={expandable}; "
+        f"NATIVE_SELECTION_PATTERN={selection}; "
         "CATALOGUE_ITEMS_ENUMERATED=False; "
         "CATALOGUE_SELECTION_EXECUTABLE=False; "
         "SCENE_PII_EXPORTED=False"
