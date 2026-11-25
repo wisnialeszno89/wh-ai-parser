@@ -1,10 +1,10 @@
 """Safe local WH Okna catalogue probe; no click, focus, save, SQL or API.
 
-Use in a local Windows session with one WH Okna wizard in the foreground:
+Use in a local Windows session with one visible WH Okna wizard (foreground not required):
   python tools/inspect_navimind_catalogues_live.py
   python tools/inspect_navimind_catalogues_live.py --show-local-options
 
-The operator may MANUALLY open a dropdown before the second call. Output
+The operator may MANUALLY open a dropdown before the second call. A native popup may close when focus changes, so lack of rows is not proof of an empty catalogue. Output
 labels are shown locally only and are NOT sent to a server by this script.
 They are NOT asserted to belong to a particular dropdown until native
 ancestry and a selection readback are separately proven.
@@ -23,13 +23,18 @@ def run_probe(*, show_local_options=False, observe=None):
         visible_unattributed_catalogue_items,
     )
     if observe is None:
-        if os.name != "nt":
-            return {"error": "requires_local_windows_session"}
-        from app.agent.runtime.windows_desktop_agent_control_loop import (
-            create_windows_desktop_agent_control_loop,
+        from app.agent.runtime.navimind_catalogue_background_probe import (
+            read_catalogue_window_without_focus,
         )
-        observe = create_windows_desktop_agent_control_loop().observe_scene
-    scene = observe()
+        scene, reason = read_catalogue_window_without_focus()
+        if scene is None:
+            return {
+                "error": reason,
+                "input_performed": False,
+                "foreground_changed": False,
+            }
+    else:
+        scene = observe()
     audit = inspect_catalogue_scene(scene)
     result = {
         "summary": summarize_catalogue_readiness(audit),
