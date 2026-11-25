@@ -36,6 +36,9 @@ def requested_local_tool(text: str) -> str | None:
     )
     if not target:
         return None
+    if words.intersection({"internet", "internecie", "online", "www", "google",
+                           "informacje", "dokumentacje", "instrukcje"}):
+        return None
     if words.intersection({"otworz", "uruchom", "wlacz", "zainstaluj",
                            "usun", "zamknij", "kliknij", "wpisz",
                            "zrob", "utworz", "stworz", "zapisz"}):
