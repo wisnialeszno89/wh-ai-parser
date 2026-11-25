@@ -326,12 +326,28 @@ class NaviMindSharedHost:
         self._approved_work_revision = revision
         return True
 
+    def pause_for_draft_customer(self) -> None:
+        """Release native input while retaining read-only Start1 provenance.
+
+        Called only after verified picker opening; user manually identifies
+        the customer. Any later manual Takeover/revoke destroys ancestry.
+        """
+        if (self._draft_phase != "awaiting_customer_selection"
+                or self._draft_native_scope is None):
+            self.takeover()
+            return
+        self._approved_work_revision = None
+        self.controller.takeover()
+        self._accepted_scene = None
+        self._workflow_scope = None
+        self.last_reason = "manual_customer_selection_pending"
+
     def takeover(self) -> None:
         self._approved_work_revision = None
         self._workflow_scope = None
-        if self._draft_phase not in ("awaiting_customer_selection",):
-            # Deliberate takeover does not invent a new ownership proof.
-            self._draft_native_scope = None
+        # Explicit manual takeover or PDF revocation invalidates all draft
+        # ancestry. Only the controlled picker handoff may retain it.
+        self._draft_native_scope = None
         self.controller.takeover()
         self._accepted_scene = None
         self.last_reason = "human_takeover"
