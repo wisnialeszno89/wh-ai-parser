@@ -240,6 +240,16 @@ def validate_bound_position_entry(
     """
     if not position.ready_for_geometry or type(position.quantity) is not int:
         return False, "active_source_position_incomplete"
+    if field_name == "description_input":
+        # Only a verbatim fragment from THIS position, not a generated
+        # description borrowed from a neighbouring window or customer.
+        if not isinstance(proposed_value, str):
+            return False, "description_value_not_text"
+        text = " ".join(proposed_value.casefold().split())
+        source = " ".join(position.snippet.casefold().split())
+        if 4 <= len(text) <= 160 and text in source:
+            return True, "description_verbatim_active_position_source"
+        return False, "description_not_found_in_active_source"
     expected = {
         "width_1": position.width_mm,
         "height_1": position.height_mm,
