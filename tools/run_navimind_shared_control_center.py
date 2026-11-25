@@ -75,17 +75,17 @@ def run(*, expected_offer: str) -> int:
     # generic product aspirations or the untrusted customer prompt.
     runtime_instructions = (
         "NaviMind działa lokalnie na Windows. Program ma otwarty panel "
-        "rozmowy i dostępny obserwator UIA, który może w trybie tylko-odczyt "
-        "zweryfikować aktywny dokument WindowHub po kliknięciu Wznów pracę. "
-        "Czytanie aktywnego dokumentu wymaga niezależnej obserwacji; nie "
+        "rozmowy i odczyt struktury UIA WindowHub także gdy okno jest w tle. "
+        "To obserwacja jedynie etapu i liczby kontrolek, bez czytania "
+        "wartości konstrukcji i bez robienia screenshotów w tle. Nie "
         "twierdź, że aktualnie widzisz dowolne pola ani że znasz wybranego klienta. "
         "W tym procesie wykonawca V2 NIE jest podłączony; nie możesz "
         "teraz klikać w WindowHub, tworzyć okien, wpisywać parametrów, "
         "zapisywać ani wysyłać ofert. To ograniczenie aktualnego trybu "
         "uruchomienia, nie ogólna niemożliwość działania lokalnie. "
         "Na podstawie polecenia użytkownika możesz wybrać zaufane "
-        "narzędzie do odnalezienia WindowHub, sprawdzenia aktywnego "
-        "okna lub katalogu możliwości. Dobierasz narzędzie na podstawie "
+        "narzędzie do odnalezienia WindowHub, sprawdzenia jego struktury "
+        "także w tle lub katalogu możliwości. Dobierasz narzędzie na podstawie "
         "znaczenia wypowiedzi, a wynik podaje lokalny host, nie model. "
         "Nie twierdź, że uruchomiłeś program. "
         "Możesz rozmawiać, analizować tekst wpisany bezpośrednio do czatu "
@@ -96,9 +96,7 @@ def run(*, expected_offer: str) -> int:
         "integracyjny. Nie udawaj wykonania czynności."
     )
     from app.agent.runtime.navimind_tool_router import ReadOnlyTool
-    from tools.inspect_navimind_windowhub import (
-        describe_windowhub_scene, locate_windowhub_windows,
-    )
+    from tools.inspect_navimind_windowhub import locate_windowhub_windows
 
     def discover_windowhub_read_only():
         # Fresh Win32 inventory, including background windows. No focus change.
@@ -116,22 +114,9 @@ def run(*, expected_offer: str) -> int:
         from tools.navimind_main_workspace import windowhub_discovery_answer
         return windowhub_discovery_answer(tuple(discover_windowhub_read_only()))
 
-    def inspect_active_windowhub_for_chat() -> str:
-        from app.agent.environment.windows_desktop_environment_adapter import (
-            WindowsDesktopEnvironmentAdapter,
-        )
-        adapter = WindowsDesktopEnvironmentAdapter()
-        foreground = adapter._capture_foreground_window()
-        process = (foreground.active_application or "").replace(
-            "\\\\", "/",
-        ).rsplit("/", 1)[-1].casefold()
-        if process != "okna.exe":
-            return (
-                "WindowHub nie jest aktualnie na pierwszym planie. "
-                "Mogę go znaleźć w tle, ale bieżący obserwator UIA "
-                "nie odczytuje jeszcze ukrytego formularza bez "
-                "przełączenia aktywnego okna."
-            )
+    def inspect_windowhub_without_focus_switch() -> str:
+        # UIA COM apartments are thread-specific. The tool is executed in
+        # the conversation worker and never touches tkinter widgets.
         com_initialized = False
         try:
             try:
@@ -140,26 +125,10 @@ def run(*, expected_offer: str) -> int:
                 com_initialized = True
             except ImportError:
                 pythoncom = None
-            from app.agent.runtime.windows_desktop_agent_control_loop import (
-                create_windows_desktop_agent_control_loop,
+            from app.agent.runtime.navimind_background_windowhub_reader import (
+                inspect_windowhub_background,
             )
-            scene = create_windows_desktop_agent_control_loop().observe_scene()
-            lines = describe_windowhub_scene(scene)
-            stage = next(
-                (line.partition("=")[2] for line in lines
-                 if line.startswith("WINDOWHUB_STAGE=")), "unknown",
-            )
-            count = next(
-                (line.partition("=")[2] for line in lines
-                 if line.startswith("WINDOWHUB_UIA_ELEMENTS=")), "0",
-            )
-            if "WINDOWHUB_FOREGROUND=True" not in lines:
-                return "Nie potwierdziłem aktywnego okna WindowHub. Niczego nie zmieniłem."
-            return (
-                "Sprawdziłem aktywny WindowHub. Etap: " + stage
-                + "; wykryte elementy UIA: " + count
-                + ". To obserwacja tylko do odczytu — oferta nie została zmieniona."
-            )
+            return inspect_windowhub_background()
         finally:
             if com_initialized:
                 pythoncom.CoUninitialize()
@@ -167,8 +136,9 @@ def run(*, expected_offer: str) -> int:
     def describe_engine_capabilities() -> str:
         return (
             "Z silnika NaviMind są dostępne: lokalne wyszukiwanie "
-            "uruchomionego WindowHub, obserwacja aktywnego ekranu WindowHub "
-            "(UIA/obraz, bez wykonywania kliknięć) i rozmowa przez AI Gateway. "
+            "uruchomionego WindowHub, ograniczony odczyt UIA otwartego "
+            "WindowHub także w tle (bez obrazu i danych klienta), "
+            "i rozmowa przez AI Gateway. "
             "W repozytorium są też moduły: AgentControlLoop, ExecutionEngine, "
             "OCR, kontrola właściciela wejścia, weryfikacja zmian sceny, "
             "analiza PDF i korekty ofert. Nie wszystkie są obecnie "
@@ -198,11 +168,13 @@ def run(*, expected_offer: str) -> int:
             "również gdy okno jest w tle. Nie otwiera programu.",
             detect_windowhub_for_chat,
         ),
-        "inspect_active_windowhub": ReadOnlyTool(
-            "inspect_active_windowhub",
-            "Sprawdź etap i liczbę kontrolek UIA aktywnego okna WindowHub; "
-            "nie działa dla WH ukrytego w tle, niczego nie klika.",
-            inspect_active_windowhub_for_chat,
+        "inspect_windowhub": ReadOnlyTool(
+            "inspect_windowhub",
+            "Sprawdź, jaki ekran WindowHub/WH jest otwarty i czy dostępne "
+            "są kontrolki, również gdy użytkownik pracuje w innej aplikacji; "
+            "odczyt tylko struktury UIA bez przejmowania aktywnego okna, "
+            "bez danych klienta, bez obrazów i bez kliknięć.",
+            inspect_windowhub_without_focus_switch,
         ),
         "enquiry_status": ReadOnlyTool(
             "enquiry_status",
