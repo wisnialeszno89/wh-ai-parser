@@ -262,6 +262,8 @@ class NaviMindPanel(tk.Tk):
         self.primary.set_enabled(state.can_takeover)
         self.secondary.set_enabled(state.can_resume)
         self.training_btn.configure(
+            text=("■  Zakończ naukę" if state.mode == PanelMode.LEARNING
+                  else "✦  Tryb nauki"),
             state="normal" if state.can_learn else "disabled"
         )
         self.stop_btn.configure(
