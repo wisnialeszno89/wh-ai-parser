@@ -117,7 +117,7 @@ def test_shared_host_reobserves_start_and_verified_properties_scope():
     ).verified
 
 
-def test_host_adopts_exact_selected_OFR_only_after_customer_handoff_and_callback():
+def test_host_adopts_exact_selected_OFR_only_after_customer_handoff_and_callback(monkeypatch):
     host = NaviMindSharedHost(DRAFT_DOCUMENT_KEY)
     host.chat.user_message("Nowa oferta z oknami.")
     coordinator = WorkMissionCoordinator(host.chat)
@@ -127,6 +127,13 @@ def test_host_adopts_exact_selected_OFR_only_after_customer_handoff_and_callback
         reason="draft_customer_selection_required",
     )
     host._draft_phase = "awaiting_customer_selection"
+    class NativeProof:
+        offer = "OFR/7000-"
+        def verify(self, _scene, _api):
+            return "native_offer"
+    host._draft_native_scope = NativeProof()
+    import app.agent.runtime.windowhub_mdi_native_probe as mdi
+    monkeypatch.setattr(mdi, "_Win32Mdi", lambda: object())
     host.draft_document_bound_callback = coordinator.bind_verified_new_offer
     assert host.approve_current_work_for_resume(
         revision=mission.revision, task_id=mission.task_id,
@@ -167,6 +174,16 @@ def test_draft_start_action_calls_only_shared_arbiter_and_native_invoke(monkeypa
         native, "resolve_native_control",
         lambda _scene, **kwargs: Invoke(),
     )
+    monkeypatch.setenv("WH_REAL_WINDOWHUB", "1")
+    monkeypatch.setenv("COMPUTER_USE_LIVE", "1")
+    import app.agent.runtime.windowhub_new_offer_handoff as native_scope
+    import app.agent.runtime.windowhub_mdi_native_probe as mdi
+    class Handoff:
+        def before_confirm(self, _scene, _api):
+            return True
+    monkeypatch.setattr(native_scope.NewOfferHandoff, "begin",
+                        lambda _scene, _api: Handoff())
+    monkeypatch.setattr(mdi, "_Win32Mdi", lambda: object())
     class Loop:
         def __init__(self):
             self.steps = [initial, scene("Właściwości dokumentu", hwnd=25)]
@@ -190,6 +207,9 @@ def test_draft_pick_customer_requires_new_window_and_never_selects_row(monkeypat
     mission = coordinator.queue_current()
     coordinator.transition(mission.task_id, WorkStage.READY)
     host._draft_phase = "properties"
+    host._draft_native_scope = SimpleNamespace(properties=25)
+    monkeypatch.setenv("WH_REAL_WINDOWHUB", "1")
+    monkeypatch.setenv("COMPUTER_USE_LIVE", "1")
     assert host.approve_current_work_for_resume(
         revision=msg.mission_revision, task_id=mission.task_id,
         coordinator=coordinator,
@@ -221,3 +241,57 @@ def test_draft_pick_customer_requires_new_window_and_never_selects_row(monkeypat
     assert calls == ["picker_only"]
     assert host._draft_phase == "awaiting_customer_selection"
     assert host.controller.current_permit() is None
+
+
+def test_unsaved_native_position_handoff_continues_without_OFR_number(monkeypatch):
+    import app.agent.runtime.windowhub_mdi_native_probe as mdi
+    monkeypatch.setattr(mdi, "_Win32Mdi", lambda: object())
+    host = NaviMindSharedHost(DRAFT_DOCUMENT_KEY)
+    msg = host.chat.user_message("Przygotuj niezapisaną ofertę.")
+    coordinator = WorkMissionCoordinator(host.chat)
+    mission = coordinator.queue_current()
+    coordinator.transition(
+        mission.task_id, WorkStage.PAUSED,
+        reason="draft_customer_selection_required",
+    )
+    class Handoff:
+        def verify(self, _scene, _api, **_kwargs):
+            return "owned_position_transaction"
+    host._draft_native_scope = Handoff()
+    host._draft_phase = "awaiting_customer_selection"
+    host.draft_unnumbered_ready_callback = (
+        coordinator.begin_verified_unnumbered_draft
+    )
+    assert host.approve_current_work_for_resume(
+        revision=msg.mission_revision, task_id=mission.task_id,
+        coordinator=coordinator,
+    )
+    host.controller.resume()
+    editor = scene("Dodawanie nowej pozycji", hwnd=35)
+    assert host.inspect_fresh_scene(editor).verified
+    assert host._draft_phase == "unsaved_position"
+    assert host.expected_offer == DRAFT_DOCUMENT_KEY
+    assert coordinator.current().stage == WorkStage.READY
+    assert host.controller.current_permit() is not None
+
+
+def test_unrelated_existing_offer_cannot_be_adopted_without_native_provenance():
+    host = NaviMindSharedHost(DRAFT_DOCUMENT_KEY)
+    msg = host.chat.user_message("Nowa oferta.")
+    coordinator = WorkMissionCoordinator(host.chat)
+    mission = coordinator.queue_current()
+    coordinator.transition(
+        mission.task_id, WorkStage.PAUSED,
+        reason="draft_customer_selection_required",
+    )
+    host._draft_phase = "awaiting_customer_selection"
+    host.draft_document_bound_callback = coordinator.bind_verified_new_offer
+    assert host.approve_current_work_for_resume(
+        revision=msg.mission_revision, task_id=mission.task_id,
+        coordinator=coordinator,
+    )
+    host.controller.resume()
+    assert not host.inspect_fresh_scene(
+        scene("Okna - OFR/888-", selected="OFR/888-"),
+    ).verified
+    assert host.expected_offer == DRAFT_DOCUMENT_KEY
