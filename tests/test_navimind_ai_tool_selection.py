@@ -182,3 +182,64 @@ def test_model_can_select_capability_catalog_without_exec():
     assert "Dostępne: obserwacja" in chat.snapshot().messages[-1].text
     assert calls == []
     engine.close()
+
+
+def test_exact_markdown_json_fence_is_recoverable():
+    decision = parse_model_tool_decision(
+        '```json\n{"kind":"tool","tool":"find_windowhub"}\n```',
+        tools(lambda: "FOUND"),
+    )
+    assert decision.kind == "tool"
+    assert decision.tool == "find_windowhub"
+
+
+def test_freeform_text_with_embedded_json_is_not_executable():
+    with pytest.raises(ValueError):
+        parse_model_tool_decision(
+            'Kliknij tutaj: {"kind":"tool","tool":"find_windowhub"}',
+            tools(lambda: "FOUND"),
+        )
+
+
+def test_invalid_first_reply_repaired_once_and_only_one_tool_executes():
+    choices = [
+        "Sprawdzam to w plikach PDF.",
+        '{"kind":"tool","tool":"engine_capabilities"}',
+    ]
+    called = []
+    class Provider:
+        def reply(self, *, transcript, instructions):
+            called.append(instructions)
+            return choices.pop(0)
+    chat, _ = new_chat()
+    engine = LiveMissionConversation(
+        chat, Provider(), read_only_tools=tools(lambda: "FOUND")
+    )
+    msg = chat.user_message("Pokaż możliwości silnika")
+    assert engine.submit_current_message(msg.message_id)
+    wait(engine)
+    assert len(called) == 2
+    assert "Dostępne: obserwacja" in chat.snapshot().messages[-1].text
+    engine.close()
+
+
+def test_second_invalid_reply_fails_closed_no_tool_calls():
+    called = []
+    class Provider:
+        def reply(self, *, transcript, instructions):
+            called.append(1)
+            return "not-json"
+    chat, _ = new_chat()
+    invoked = []
+    engine = LiveMissionConversation(
+        chat, Provider(), read_only_tools=tools(
+            lambda: invoked.append("wrong") or "FOUND"
+        ),
+    )
+    msg = chat.user_message("Sprawdź PDF")
+    assert engine.submit_current_message(msg.message_id)
+    wait(engine)
+    assert len(called) == 2
+    assert invoked == []
+    assert "Nie wykonałem" in chat.snapshot().messages[-1].text
+    engine.close()

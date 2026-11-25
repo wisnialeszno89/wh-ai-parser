@@ -51,8 +51,16 @@ def tool_catalog_instructions(tools: Mapping[str, ReadOnlyTool]) -> str:
 def parse_model_tool_decision(raw: str, allowed: Mapping[str, ReadOnlyTool]) -> ModelToolDecision:
     if not isinstance(raw, str) or len(raw) > 3500:
         raise ValueError("tool_decision_invalid")
+    text = raw.strip()
+    # Some chat models surround otherwise valid JSON in a Markdown fence.
+    # Strip only an exact single fence; never search arbitrary prose for
+    # executable-looking JSON snippets.
+    if text.startswith("```json\n") and text.endswith("\n```"):
+        text = text[len("```json\n"):-len("\n```")].strip()
+    elif text.startswith("```\n") and text.endswith("\n```"):
+        text = text[len("```\n"):-len("\n```")].strip()
     try:
-        value = json.loads(raw.strip())
+        value = json.loads(text)
     except (TypeError, ValueError):
         raise ValueError("tool_decision_invalid_json") from None
     if not isinstance(value, dict):
