@@ -109,3 +109,27 @@ def test_no_model_result_can_resurrect_stale_work_from_previous_turn():
         old.task_id, WorkStage.READY, suggested_action="click_screen_element"
     ) is None
     assert queue.queue_current().goal == "Oferta B"
+
+
+def test_tk_event_pump_keeps_windowhub_observations_independent_of_work_events():
+    """No mission event should be needed for fresh UIA observation to resume."""
+    import ast
+    from pathlib import Path
+    source = (
+        Path(__file__).resolve().parents[1] /
+        "tools" / "run_navimind_shared_control_center.py"
+    ).read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    pumps = [
+        node for node in ast.walk(tree)
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and node.name == "pump"
+    ]
+    assert len(pumps) == 1
+    loops = [node for node in pumps[0].body if isinstance(node, ast.While)]
+    assert len(loops) == 2
+    first_text = ast.get_source_segment(source, loops[0])
+    second_text = ast.get_source_segment(source, loops[1])
+    assert "work_events.get_nowait()" in first_text
+    assert "queue.get_nowait()" in second_text
+    assert "queue.get_nowait()" not in first_text
