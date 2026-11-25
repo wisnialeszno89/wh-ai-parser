@@ -402,6 +402,8 @@ class BackgroundWorkMission:
                 reasoner = self.reasoner_factory()
             else:
                 import os
+                from dotenv import load_dotenv
+                load_dotenv()
                 if os.environ.get("NAVIMIND_AGENT_V2_URL", "").strip():
                     reasoner = NaviMindTaskReasonerV2()
                 else:
