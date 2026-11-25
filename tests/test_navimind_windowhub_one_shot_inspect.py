@@ -152,3 +152,43 @@ def test_owner_launcher_supports_discovery_without_previous_ofr():
     assert "[switch]$FindWindowHub" in code
     assert "run_discovery()" in code
     assert '$env:COMPUTER_USE_LIVE = "0"' in code
+
+
+def test_uia_root_diagnostic_reports_reachable_without_exposing_title():
+    from tools.inspect_navimind_windowhub import diagnose_uia_root
+    observed = scene(title="Okna - Start1")
+    observed.observation.metadata["window_handle"] = 991
+    class Root:
+        def window_text(self):
+            return "Okna - Start1"
+    class Spec:
+        def wrapper_object(self):
+            return Root()
+    class Desktop:
+        def window(self, *, handle):
+            assert handle == 991
+            return Spec()
+    result = diagnose_uia_root(observed, desktop_factory=Desktop)
+    assert "WINDOWHUB_UIA_ROOT=REACHABLE" in result
+    assert "WINDOWHUB_UIA_TITLE_MATCH=True" in result
+    assert "Okna" not in repr(result)
+
+
+def test_uia_root_diagnostic_refuses_bad_handle_before_access():
+    from tools.inspect_navimind_windowhub import diagnose_uia_root
+    assert "WINDOWHUB_UIA_ROOT=HANDLE_MISSING" in diagnose_uia_root(
+        scene(), desktop_factory=lambda: (_ for _ in ()).throw(AssertionError())
+    )
+
+
+def test_uia_root_diagnostic_sanitizes_lookup_error():
+    from tools.inspect_navimind_windowhub import diagnose_uia_root
+    observed = scene(title="Top Trans customer secret")
+    observed.observation.metadata["window_handle"] = 991
+    class Desktop:
+        def window(self, *, handle):
+            raise RuntimeError("Top Trans customer secret")
+    result = diagnose_uia_root(observed, desktop_factory=Desktop)
+    assert "WINDOWHUB_UIA_ROOT=LOOKUP_FAILED" in result
+    assert "WINDOWHUB_UIA_ERROR_TYPE=RuntimeError" in result
+    assert "Top Trans" not in repr(result)
