@@ -732,6 +732,19 @@ def plan_or_execute_windowhub_step(
             return WorkStepResult("review", source_reason)
         verified_field_name = fields[0]
     if name == "click_screen_element":
+        # Multi-position tasks may move only through known verified wizard
+        # controls. Catalogue selections are never inferred from the PDF.
+        if ledger is not None:
+            from app.agent.runtime.navimind_position_click_policy import (
+                allowed_position_click,
+            )
+            permitted, click_reason = allowed_position_click(
+                stage=stage, target=target,
+                current_position=ledger.active,
+                field_receipts=mission.field_receipts,
+            )
+            if not permitted:
+                return WorkStepResult("review", click_reason)
         # A locally visible control is not automatically a permissible
         # business action. Unknown/destructive buttons need salesperson
         # approval or a separately learned, audited skill.
