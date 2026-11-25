@@ -215,7 +215,7 @@ def run(*, expected_offer: str) -> int:
         return version, snapshot
 
     work_coordinator = WorkMissionCoordinator(
-        host.chat, max_cycles=8,
+        host.chat, max_cycles=20,
         document_snapshot_provider=approved_document_for_work,
     )
     if host._draft_phase is not None:
