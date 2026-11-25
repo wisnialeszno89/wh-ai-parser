@@ -547,6 +547,15 @@ def run(*, expected_offer: str) -> int:
                 )
                 if not ledger.manifest.safe_to_sequence:
                     position_status = " | zapytanie niepełne — wymaga przeglądu"
+                else:
+                    proven_fields = {
+                        x.field_name for x in shown_mission.field_receipts
+                        if ledger.active is not None
+                        and x.position_id == ledger.active.position_id
+                    }
+                    position_status += (
+                        f" | pola odczytane {len(proven_fields)}/3"
+                    )
             panel.task.configure(
                 text=(
                     f"V2: {phase} "
