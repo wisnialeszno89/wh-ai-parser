@@ -373,25 +373,13 @@ def run(*, expected_offer: str, initial_pdf: str | None = None,
     def prepare_work_from_chat():
         if exactly_two_windows:
             from app.agent.runtime.navimind_position_ledger import (
-                build_position_manifest,
+                two_window_test_gate,
             )
-            manifest = build_position_manifest(intake)
-            if not manifest.safe_to_sequence:
-                return (
-                    "TEST 2 OKIEN ZABLOKOWANY: nie udało się bezpiecznie "
-                    "wyodrębnić wszystkich pozycji z tekstu/PDF. "
-                    "Popraw zapytanie w panelu, sprawdź skany i zatwierdź "
-                    "ponownie dostęp do dokumentu."
-                )
-            if (len(manifest.positions) != 2
-                    or any(not p.ready_for_geometry
-                           or p.product_type != "window"
-                           for p in manifest.positions)):
-                return (
-                    "TEST 2 OKIEN ZABLOKOWANY: zapytanie musi zawierać "
-                    "dokładnie dwie rozpoznane pozycje OKNO z jednoznaczną "
-                    "ilością i wymiarami. Wykryto "
-                    + str(len(manifest.positions)) + " pozycji."
+            accepted, gate_reason = two_window_test_gate(intake)
+            if not accepted:
+                return "TEST 2 OKIEN ZABLOKOWANY: " + gate_reason + (
+                    ". Sprawdź PDF, skany, liczbę pozycji oraz ilości "
+                    "i wymiary; popraw zapytanie i zatwierdź źródło ponownie."
                 )
         if (intake.status()["has_enquiry"]
                 and not live_chat.document_context_active()):
