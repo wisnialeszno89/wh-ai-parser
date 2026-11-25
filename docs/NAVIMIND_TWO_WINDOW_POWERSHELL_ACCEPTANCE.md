@@ -37,7 +37,7 @@ albo:
 .\tools\Start-NaviMind-TwoWindows.ps1 -RequestFile "C:\Oferty\dwa-okna.txt"
 ```
 
-NaviMind wczyta wskazany PDF/TXT wyłącznie do pamięci lokalnego procesu i pokaże panel; nie wysyła automatycznie pliku AI. Jeśli uruchomiono bez pliku, **wpisz dwie pozycje w sekcji ZAPYTANIE KLIENTA / PDF i naciśnij „Zapisz treść lokalnie”**.
+NaviMind wczyta wskazany PDF/TXT wyłącznie do pamięci lokalnego procesu i pokaże panel; nie wysyła automatycznie pliku AI. Jeśli uruchomiono bez pliku, możesz **wpisać obie numerowane pozycje bezpośrednio w wiadomości czatu** razem z poleceniem utworzenia nowej oferty; wówczas pełna wysłana przez Ciebie wiadomość jest źródłem dwóch pozycji. Alternatywnie wpisz je w sekcji **ZAPYTANIE KLIENTA / PDF** i naciśnij `Zapisz treść lokalnie`, następnie zatwierdź zgodę na udostępnienie AI. Nie trzeba kopiować tekstu pomiędzy tymi wariantami.
 
 Przykładowa treść dwóch wierszy do przetestowania parsera, nie domyślna specyfikacja handlowa:
 
@@ -67,7 +67,7 @@ To **przykład składni zapytania**, nie twierdzenie, że podane produkty są do
 
 Profil, kolor, rodzaj szklenia, otwieranie, okucia oraz widok od wewnątrz/zewnątrz doprecyzuj w zapytaniu własnym lub PDF. Jeśli tych danych brak, agent nie powinien wymyślać ich jako pewnych. Niejasna ilość albo rozmiary blokują test.
 
-W panelu sprawdź źródło, zatwierdź **Udostępnij AI** (osobna zgoda na przekazanie fragmentów tekstu), potem wpisz w czacie:
+Jeśli używasz **PDF/TXT w lokalnym schowku**, w panelu sprawdź źródło, zatwierdź **Udostępnij AI** (osobna zgoda na przekazanie fragmentów tekstu), potem wpisz w czacie:
 
 > Przygotuj nową niezapisaną ofertę w WindowHub dla dokładnie dwóch pozycji z zatwierdzonego zapytania. Wybierz tylko rzeczywiście dostępny profil, kolor, pakiet szybowy i okucia. Jeśli nie możesz zweryfikować listy w moim WindowHub, zatrzymaj się, wyjaśnij brak i poproś o pokazanie czynności w trybie nauki. Nie zapisuj ani nie wysyłaj oferty.
 
