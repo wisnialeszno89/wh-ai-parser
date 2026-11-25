@@ -378,6 +378,9 @@ def run(*, expected_offer: str) -> int:
                 # A blocker means stop and return ownership to the user.
                 host.takeover()
 
+        # A separate loop is mandatory: lack of mission events must not
+        # prevent the observer from delivering fresh WindowHub scene proofs.
+        while True:
             try:
                 kind, observed_epoch, payload = queue.get_nowait()
             except Empty:
