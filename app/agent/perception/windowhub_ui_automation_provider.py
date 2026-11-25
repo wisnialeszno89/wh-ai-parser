@@ -1103,6 +1103,13 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
                                 getattr(info, "automation_id", None)
                             ) or ""
                         ).casefold(),
+                        # Exact runtime parent identity is required to safely
+                        # attribute an opened list item to its combobox.
+                        # AutomationId alone can repeat across MDI siblings.
+                        "runtime_id": (
+                            WindowHubUIAutomationProvider._runtime_id(current)
+                            or ""
+                        ),
                     }
                 )
             except Exception:
