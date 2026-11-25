@@ -207,3 +207,68 @@ def test_coordinator_rejects_unverified_next_position_and_accepts_trusted_readba
     )
     assert queue.current().position_ledger.active.position_id == "S01-P002"
     assert queue.current().stage == WorkStage.READY
+
+
+def test_v2_large_enquiry_prompt_contains_only_active_position_not_all_pdf_sizes():
+    from app.agent.runtime.navimind_work_mission import scoped_v2_mission_goal
+    from dataclasses import replace
+    manifest = build_position_manifest(
+        inbox_with(
+            "2 Stk Fenster 1500x1400\n"
+            "3 Stk Fenster 1300x1200\n"
+            "1 Stk Fenster 1800x1700"
+        )
+    )
+    chat = MissionChat(
+        document_key="OFR/101", arbiter=LocalInputArbiter()
+    )
+    chat.user_message("Zrób ofertę według zatwierdzonego PDF.")
+    queue = WorkMissionCoordinator(
+        chat,
+        document_snapshot_provider=lambda: (1, "1500x1400, 1300x1200, 1800x1700"),
+        position_manifest_provider=lambda: (1, manifest),
+    )
+    mission = queue.queue_current()
+    first = scoped_v2_mission_goal(mission)
+    assert "S01-P001" in first
+    assert "1500" in first and "1400" in first
+    assert "1300" not in first and "1800" not in first
+    next_ledger = replace(mission.position_ledger, active_index=1)
+    second = scoped_v2_mission_goal(replace(mission, position_ledger=next_ledger))
+    assert "S01-P002" in second
+    assert "1300" in second and "1200" in second
+    assert "1500" not in second and "1800" not in second
+
+
+def test_verified_next_position_resets_step_budget_but_preserves_total_count():
+    manifest = build_position_manifest(
+        inbox_with("2 Stk Fenster 1500x1400\n1 Stk Fenster 1300x1200")
+    )
+    chat = MissionChat(document_key="OFR/101", arbiter=LocalInputArbiter())
+    chat.user_message("Przygotuj ofertę.")
+    coordinator = WorkMissionCoordinator(
+        chat, max_cycles=2,
+        document_snapshot_provider=lambda: (1, "PDF"),
+        position_manifest_provider=lambda: (1, manifest),
+    )
+    mission = coordinator.queue_current()
+    for index in range(2):
+        updated = coordinator.transition(
+            mission.task_id, WorkStage.PAUSED,
+            count_step=True, signature=f"verified-{index}",
+        )
+        assert updated is not None
+    assert updated.cycles == 2
+    assert updated.total_verified_actions == 2
+    assert coordinator.record_independent_position_readback(
+        task_id=mission.task_id,
+        checkpoint=PositionCheckpoint(
+            "S01-P001", "OFR/101", 1500, 1400, 2,
+            True, True, "independent-native-readback",
+        ),
+        pinned_document="OFR/101",
+    )
+    following = coordinator.current()
+    assert following.cycles == 0
+    assert following.total_verified_actions == 2
+    assert following.position_ledger.active.position_id == "S01-P002"
