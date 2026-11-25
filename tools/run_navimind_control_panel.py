@@ -208,7 +208,7 @@ class NaviMindPanel(tk.Tk):
         ).pack(anchor="w", pady=(6, 0))
 
     def mount_main_workspace(self, *, chat, conversation, enquiry=None,
-                             discover_windowhub=None):
+                             discover_windowhub=None, on_document_revoke=None):
         """Make chat and local enquiry intake part of the main control panel.
 
         Standalone demo mode keeps the historic compact view. The shared
@@ -221,6 +221,7 @@ class NaviMindPanel(tk.Tk):
         self.main_workspace = NaviMindMainWorkspace(
             self.main_area, chat=chat, conversation=conversation,
             enquiry=enquiry, discover_windowhub=discover_windowhub,
+            on_document_revoke=on_document_revoke,
         )
         self.main_workspace.pack(side="left", fill="both", expand=True)
         return self.main_workspace
