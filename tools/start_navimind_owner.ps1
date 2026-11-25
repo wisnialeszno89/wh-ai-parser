@@ -33,7 +33,7 @@ try {
     Write-Host "NAVIMIND_OWNER_GATEWAY_CONFIGURED=True" -ForegroundColor Green
     Write-Host "NAVIMIND_WINDOWHUB_OBSERVATION_ONLY=True"
     Write-Host "NAVIMIND_MODEL=openai/gpt-4o-mini"
-    if (@($DiagnoseChat, $InspectWindowHub, $FindWindowHub | Where-Object { $_ }).Count -gt 1) {
+    if (([int][bool]$DiagnoseChat + [int][bool]$InspectWindowHub + [int][bool]$FindWindowHub) -gt 1) {
         throw "Wybierz tylko jeden tryb diagnostyki."
     }
     if ($DiagnoseChat) {
