@@ -319,13 +319,13 @@ def test_field_receipts_are_position_scoped_reject_other_values_and_reset_after_
     assert coordinator.transition(
         mission.task_id, WorkStage.PAUSED, count_step=True,
         field_receipt=PositionFieldReceipt(
-            "S01-P002", "width_1", "1300", "wrong-position",
+            "S01-P002", "width_1", "1300", "wrong-position", "width-ui",
         ),
     ) is None
     assert coordinator.transition(
         mission.task_id, WorkStage.PAUSED, count_step=True,
         field_receipt=PositionFieldReceipt(
-            "S01-P001", "width_1", "1300", "wrong-value",
+            "S01-P001", "width_1", "1300", "wrong-value", "width-ui",
         ),
     ) is None
     for field, value in [
@@ -336,7 +336,7 @@ def test_field_receipts_are_position_scoped_reject_other_values_and_reset_after_
             mission.task_id, WorkStage.PAUSED, count_step=True,
             signature=field,
             field_receipt=PositionFieldReceipt(
-                "S01-P001", field, value, f"fresh-native-{field}",
+                "S01-P001", field, value, f"fresh-native-{field}", f"rid-{field}",
             ),
         )
         assert updated is not None
