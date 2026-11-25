@@ -275,3 +275,25 @@ def test_approved_pdf_mission_snapshot_is_immutable_even_if_local_inbox_changes(
     v3, erased = engine.document_access_snapshot()
     assert v3 > v2 and erased is None
     engine.close()
+
+
+def test_protected_vercel_v2_reports_only_allowlisted_outage_code():
+    from app.agent.runtime.navimind_work_mission import (
+        safe_reasoner_failure_result,
+    )
+    assert safe_reasoner_failure_result(SimpleNamespace(
+        last_error="navimind_http_401",
+    )).reason == "v2_http_401_check_vercel_sso_or_agent_secret"
+    assert safe_reasoner_failure_result(SimpleNamespace(
+        last_error="navimind_http_403",
+    )).reason == "v2_http_403_access_forbidden"
+    assert safe_reasoner_failure_result(SimpleNamespace(
+        last_error="navimind_http_429",
+    )).reason == "v2_http_429_rate_limited"
+    # API errors may include a token, URL or customer body: never report them.
+    injected = safe_reasoner_failure_result(SimpleNamespace(
+        last_error="api_error secret=abc customer=PRIVATE url=secret.invalid",
+    ))
+    assert injected.reason == "v2_reasoner_unavailable"
+    assert "PRIVATE" not in injected.reason
+    assert injected.kind == "paused"
