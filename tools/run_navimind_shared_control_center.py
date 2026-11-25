@@ -351,6 +351,7 @@ def run(*, expected_offer: str) -> int:
     )
     panel.mount_main_workspace(
         chat=host.chat, conversation=live_chat, enquiry=intake,
+        on_document_revoke=host.takeover,
     )
     live_allowed = (
         os.environ.get("COMPUTER_USE_LIVE") == "1"
