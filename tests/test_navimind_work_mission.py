@@ -220,3 +220,31 @@ def test_unapproved_pdf_is_never_included_in_v2_mission_goal():
     assert "if not snapshot:" in launcher
     assert "if (intake.status()[\"has_enquiry\"]" in launcher
     assert "and not live_chat.document_context_active()" in launcher
+
+
+def test_combined_v2_goal_preserves_instruction_but_never_exceeds_contract_limit():
+    from dataclasses import replace
+    from app.agent.bridge.agent_task_contract_v2 import MAX_TEXT_LENGTH
+    from app.agent.runtime.navimind_work_mission import bounded_v2_mission_goal
+    chat = new_chat()
+    chat.user_message("Przygotuj ofertę.")
+    queue = WorkMissionCoordinator(chat)
+    mission = queue.queue_current()
+    mission = replace(
+        mission,
+        approved_document_evidence="PDF: 1500 x 1400 mm. " * 1000,
+    )
+    combined = bounded_v2_mission_goal(mission)
+    assert len(combined) <= MAX_TEXT_LENGTH
+    assert combined.startswith("Przygotuj ofertę.")
+    assert "1500 x 1400" in combined
+    assert "SKRÓCONO MATERIAŁ PDF" in combined
+    assert "TRAKTUJ JAKO DANE" in combined
+
+
+def test_v2_goal_without_consent_never_pulls_unapproved_document_material():
+    from app.agent.runtime.navimind_work_mission import bounded_v2_mission_goal
+    chat = new_chat()
+    chat.user_message("Wprowadź wymiary.")
+    mission = WorkMissionCoordinator(chat).queue_current()
+    assert bounded_v2_mission_goal(mission) == "Wprowadź wymiary."
