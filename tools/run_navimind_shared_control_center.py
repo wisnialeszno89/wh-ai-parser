@@ -181,7 +181,24 @@ def run(*, expected_offer: str) -> int:
             approved=live_chat.document_context_active(),
         )
 
+    def inspect_workspace_overview() -> str:
+        """Combine existing observers in one chat request, no native input."""
+        return (
+            "STAN WORKSPACE (odczyt lokalny, bez przełączania okien):\n"
+            + detect_windowhub_for_chat()
+            + "\n" + inspect_windowhub_without_focus_switch()
+            + "\n" + describe_local_enquiry_status()
+        )[:3000]
+
     tool_registry = {
+        "workspace_overview": ReadOnlyTool(
+            "workspace_overview",
+            "Jednym krokiem sprawdź uruchomiony WindowHub, jego aktualną "
+            "strukturę w tle oraz dostępne lokalne dokumenty. Bez kliknięć, "
+            "przełączania okien i bez ujawniania treści klienta.",
+            inspect_workspace_overview,
+            synthesize_result=True,
+        ),
         "find_windowhub": ReadOnlyTool(
             "find_windowhub",
             "Znajdź uruchomiony WindowHub/WH/Okna.exe na komputerze, "
