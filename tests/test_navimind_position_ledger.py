@@ -355,3 +355,26 @@ def test_field_receipts_are_position_scoped_reject_other_values_and_reset_after_
     assert after.position_ledger.active.position_id == "S01-P002"
     assert after.field_receipts == ()
     assert after.total_verified_actions == 3
+
+
+def test_description_can_be_copied_from_one_source_position_but_not_invented():
+    manifest = build_position_manifest(
+        inbox_with("2 Stk Fenster 1500x1400\n1 Stk Fenster 1300x1200")
+    )
+    first, second = manifest.positions
+    assert validate_bound_position_entry(
+        first, field_name="description_input",
+        proposed_value="Fenster 1500x1400",
+    )[0]
+    assert not validate_bound_position_entry(
+        first, field_name="description_input",
+        proposed_value="Fenster 1300x1200",
+    )[0]
+    assert validate_bound_position_entry(
+        second, field_name="description_input",
+        proposed_value="Fenster 1300x1200",
+    )[0]
+    assert not validate_bound_position_entry(
+        first, field_name="description_input",
+        proposed_value="Premiumfenster mit Montage",
+    )[0]
