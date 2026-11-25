@@ -74,6 +74,52 @@ def draft_offer_candidate(scene) -> str | None:
     return None
 
 
+
+def verified_new_offer_from_native_transaction(scene, handoff, *, native_api=None) -> str | None:
+    """Native MDI provenance AND exact visible selected OFR are required."""
+    if handoff is None:
+        return None
+    candidate = draft_offer_candidate(scene)
+    if candidate is None:
+        return None
+    try:
+        from app.agent.runtime.windowhub_mdi_native_probe import _Win32Mdi
+        api = native_api if native_api is not None else _Win32Mdi()
+        source = handoff.verify(scene, api)
+        if source != "native_offer":
+            return None
+        from app.agent.runtime.windowhub_mdi_native_probe import same_offer_id
+        if not same_offer_id(handoff.offer, candidate):
+            return None
+        return candidate
+    except Exception:
+        return None
+
+
+def verified_unnumbered_position_from_native_transaction(
+    scene, handoff, *, native_api=None, entry: bool = False,
+    previous_hwnd: int | None = None,
+) -> bool:
+    """Verify position editor as a child of THIS new-offer transaction."""
+    if handoff is None:
+        return False
+    try:
+        from app.agent.learning.windowhub_demonstration import stage_of
+        from app.agent.runtime.windowhub_mdi_native_probe import _Win32Mdi
+        if stage_of(scene) not in {
+            "position", "dimensions", "basic_parameters",
+            "glazing", "hardware", "modifier",
+        }:
+            return False
+        api = native_api if native_api is not None else _Win32Mdi()
+        result = handoff.verify(
+            scene, api, entry=entry, follows=previous_hwnd,
+        )
+        return result in {"native_new_draft", "owned_position_transaction"}
+    except Exception:
+        return False
+
+
 def safe_native_start_action(loop, host, *, mission_revision: int) -> DraftProof:
     """One guarded native UIA InvokePattern call, never mouse fallback.
 
@@ -87,6 +133,10 @@ def safe_native_start_action(loop, host, *, mission_revision: int) -> DraftProof
     from tools.run_windowhub_new_offer_native_invoke_once import (
         resolve_native_control,
     )
+    import os
+    if (os.environ.get("WH_REAL_WINDOWHUB") != "1"
+            or os.environ.get("COMPUTER_USE_LIVE") != "1"):
+        raise InputDenied("draft_live_flags_required")
     if host.expected_offer != DRAFT_DOCUMENT_KEY:
         raise InputDenied("draft_host_not_in_bootstrap_mode")
     if host._approved_work_revision != mission_revision:
@@ -102,12 +152,22 @@ def safe_native_start_action(loop, host, *, mission_revision: int) -> DraftProof
         before = verify_draft_start(fresh)
         if not before.valid:
             raise InputDenied(before.reason)
+        # Snapshot real MDI child inventory BEFORE creating the draft. This
+        # prevents an existing offer selected later from being mistaken for
+        # the document this mission started.
+        from app.agent.runtime.windowhub_mdi_native_probe import _Win32Mdi
+        from app.agent.runtime.windowhub_new_offer_handoff import NewOfferHandoff
+        native_api = _Win32Mdi()
+        handoff = NewOfferHandoff.begin(fresh, native_api)
+        if handoff is None:
+            raise InputDenied("draft_start_native_mdi_inventory_unverified")
         invoke = resolve_native_control(
             fresh, label="NOWA OFERTA",
             allowed_stages=("start",),
         )
         # A native call is potentially non-idempotent even when it raises.
         host.controller.arbiter.dispatch(permit, invoke.Invoke)
+        host._draft_native_scope = handoff
     finally:
         host.controller.arbiter.invalidate_observation()
         host._accepted_scene = None
@@ -126,6 +186,10 @@ def safe_native_start_action(loop, host, *, mission_revision: int) -> DraftProof
             sleep(0.2)
     if not after.valid:
         raise RuntimeError("draft_start_action_effect_not_verified_no_retry")
+    # Same-process native owner proof, not merely a matching dialog caption.
+    from app.agent.runtime.windowhub_mdi_native_probe import _Win32Mdi
+    if not host._draft_native_scope.before_confirm(observed, _Win32Mdi()):
+        raise RuntimeError("draft_properties_native_owner_unverified_no_retry")
     if not host.note_verified_workflow_step(observed, revision=mission_revision):
         raise RuntimeError("draft_properties_scope_unverified_no_retry")
     host._draft_phase = "properties"
@@ -142,8 +206,13 @@ def safe_native_open_customer_picker(loop, host, *, mission_revision: int) -> Dr
     from tools.run_windowhub_new_offer_native_invoke_once import (
         resolve_native_wrapper,
     )
+    import os
+    if (os.environ.get("WH_REAL_WINDOWHUB") != "1"
+            or os.environ.get("COMPUTER_USE_LIVE") != "1"):
+        raise InputDenied("draft_live_flags_required")
     if (host.expected_offer != DRAFT_DOCUMENT_KEY
             or host._draft_phase != "properties"
+            or host._draft_native_scope is None
             or host._approved_work_revision != mission_revision):
         raise InputDenied("draft_properties_not_authorized")
     permit = host.controller.current_permit()
@@ -161,6 +230,8 @@ def safe_native_open_customer_picker(loop, host, *, mission_revision: int) -> Dr
         if not proof.verified or proof.stage != "document_properties":
             raise InputDenied("draft_properties_scope_not_verified")
         previous_hwnd = (scene.observation.metadata or {}).get("window_handle")
+        if host._draft_native_scope.properties != previous_hwnd:
+            raise InputDenied("draft_native_properties_identity_changed")
         button = resolve_native_wrapper(
             scene, label="Wybierz istniejącego klienta",
             automation_id="IDC_ZAMAWIAJACY",
