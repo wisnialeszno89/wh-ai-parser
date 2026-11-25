@@ -294,3 +294,66 @@ def test_v2_bridge_rejects_scene_changed_during_reasoning(monkeypatch):
             Loop(make_scene(width="2222")), "STALE_PLAN"
         )
     assert host.controller.current_permit() is None
+
+
+def test_verified_native_wizard_requires_exact_witnessed_dialog_identity():
+    host = prepared_approved_host()
+    revision = host.chat.snapshot().mission_revision
+    wizard = make_scene(title="Dodawanie nowej pozycji", hwnd=700, include_tab=False)
+    assert host.note_verified_workflow_step(wizard, revision=revision)
+    host.controller.takeover()
+    host.release_for_reobservation()
+    proof = host.inspect_fresh_scene(wizard)
+    assert proof.verified
+    assert proof.reason == "verified_pinned_workflow_dialog"
+    assert proof.document_key == "OFR/101"
+    assert host.controller.current_permit() is not None
+
+
+def test_unwitnessed_dialog_and_changed_window_never_grant_permission():
+    host = prepared_approved_host()
+    host.controller.takeover()
+    host.release_for_reobservation()
+    dialog = make_scene(title="Dodawanie nowej pozycji", hwnd=700, include_tab=False)
+    assert not host.inspect_fresh_scene(dialog).verified
+    host = prepared_approved_host()
+    revision = host.chat.snapshot().mission_revision
+    assert host.note_verified_workflow_step(dialog, revision=revision)
+    host.controller.takeover()
+    host.release_for_reobservation()
+    for scene in (
+        make_scene(title="Dodawanie nowej pozycji", hwnd=701, include_tab=False),
+        make_scene(title="Wielkość okna", hwnd=700, include_tab=False),
+        make_scene(title="Dodawanie nowej pozycji", hwnd=700,
+                   include_tab=False, app="notepad.exe"),
+    ):
+        assert not host.inspect_fresh_scene(scene).verified
+        assert host.controller.current_permit() is None
+
+
+def test_operator_takeover_revokes_wizard_provenance():
+    host = prepared_approved_host()
+    revision = host.chat.snapshot().mission_revision
+    dialog = make_scene(title="Wielkość okna", hwnd=700, include_tab=False)
+    assert host.note_verified_workflow_step(dialog, revision=revision)
+    host.takeover()
+    host.release_for_reobservation()
+    assert not host.inspect_fresh_scene(dialog).verified
+
+
+def test_verified_wizard_v2_executor_does_not_require_offer_caption(monkeypatch):
+    from app.agent.runtime import windowhub_goal_v2_coordinator
+    host = prepared_approved_host()
+    revision = host.chat.snapshot().mission_revision
+    dialog = make_scene(title="Wielkość okna", hwnd=700, include_tab=False)
+    assert host.note_verified_workflow_step(dialog, revision=revision)
+    host.controller.takeover()
+    host.release_for_reobservation()
+    assert host.inspect_fresh_scene(dialog).verified
+    expected = []
+    def fake_executor(_loop, _scene, _resolved, **kwargs):
+        expected.append(kwargs["expected_offer"])
+        return "verified"
+    monkeypatch.setattr(windowhub_goal_v2_coordinator, "execute_v2_step", fake_executor)
+    assert host.execute_one_verified_v2_action(Loop(dialog), "ACTION") == "verified"
+    assert expected == [None]
