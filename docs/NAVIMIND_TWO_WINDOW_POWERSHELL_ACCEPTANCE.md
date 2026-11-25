@@ -46,6 +46,25 @@ Pos. 1: 1 Stk Fenster 1500x1400
 Pos. 2: 1 Stk Fenster 1300x1200
 ```
 
+Do porównywania z katalogiem możesz również użyć jawnie oznaczonych, oddzielnych parametrów, np.:
+
+```text
+Pos. 1: 1 Stk Fenster 1500x1400
+Profil: Veka Perfectline
+Farbe innen: Weiss
+Farbe außen: Anthrazit
+Verglasung: 2-fach
+Beschlag: activPilot
+Pos. 2: 1 Stk Fenster 1300x1200
+Profil: Veka Perfectline
+Farbe innen: Weiss
+Farbe außen: Weiss
+Verglasung: 3-fach
+Beschlag: activPilot
+```
+
+To **przykład składni zapytania**, nie twierdzenie, że podane produkty są dostępne w Twojej bazie WH Okna. Agent zachowuje wymagania każdej pozycji oddzielnie. Nazwy nie mogą być automatycznie zastępowane podobnymi pozycjami katalogowymi bez zweryfikowanej relacji lub Twojego potwierdzenia.
+
 Profil, kolor, rodzaj szklenia, otwieranie, okucia oraz widok od wewnątrz/zewnątrz doprecyzuj w zapytaniu własnym lub PDF. Jeśli tych danych brak, agent nie powinien wymyślać ich jako pewnych. Niejasna ilość albo rozmiary blokują test.
 
 W panelu sprawdź źródło, zatwierdź **Udostępnij AI** (osobna zgoda na przekazanie fragmentów tekstu), potem wpisz w czacie:
