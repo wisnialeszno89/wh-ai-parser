@@ -223,3 +223,40 @@ def test_main_workspace_has_history_scrollbar_and_jump_button():
     assert 'text="↓ Najnowsze"' in source
     assert "if stay_at_bottom:" in source
     assert "scrollbar.configure(command=area.yview)" in source
+
+
+def test_workspace_discovery_reports_background_without_stealing_focus():
+    from queue import Queue
+    from types import SimpleNamespace
+    panel = workspace.NaviMindMainWorkspace.__new__(workspace.NaviMindMainWorkspace)
+    class Status:
+        def __init__(self):
+            self.message = None
+        def configure(self, **kwargs):
+            self.message = kwargs.get("text", self.message)
+    panel.discovery_status = Status()
+    panel.discovery_button = Status()
+    panel.discover_windowhub = lambda: ()
+    panel._discovery_queue = Queue()
+    panel._discovery_active = True
+    panel._discovery_queue.put((
+        "WINDOWHUB_DISCOVERY=FOUND",
+        "WINDOWHUB_IS_FOREGROUND=False",
+        "WINDOWHUB_NATIVE_ACTIONS=0",
+    ))
+    panel._poll_discovery()
+    assert panel.discovery_status.message == "WindowHub znaleziony • w tle"
+    assert panel._discovery_active is False
+
+
+def test_discovery_button_exists_but_not_an_input_authority():
+    from pathlib import Path
+    text = (Path(__file__).resolve().parents[1] / "tools" /
+            "navimind_main_workspace.py").read_text(encoding="utf-8")
+    assert 'text="Znajdź WindowHub"' in text
+    assert 'Thread(target=worker, daemon=True).start()' in text
+    assert 'self._poll_discovery()' in text
+    assert 'discover_windowhub_read_only' in (
+        Path(__file__).resolve().parents[1] / "tools" /
+        "run_navimind_shared_control_center.py"
+    ).read_text(encoding="utf-8")
