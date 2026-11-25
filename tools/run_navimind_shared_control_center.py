@@ -95,8 +95,22 @@ def run(*, expected_offer: str) -> int:
     )
     from app.agent.runtime.navimind_enquiry_inbox import LocalEnquiryInbox
     intake = LocalEnquiryInbox()
+    def discover_windowhub_read_only():
+        # Fresh Win32 top-level inventory; never changes active app or clicks.
+        from app.agent.environment.windows_desktop_environment_adapter import (
+            WindowsDesktopEnvironmentAdapter,
+        )
+        from tools.inspect_navimind_windowhub import locate_windowhub_windows
+        adapter = WindowsDesktopEnvironmentAdapter()
+        foreground = adapter._capture_foreground_window()
+        windows = adapter._capture_visible_windows(
+            foreground.handle, snapshot=foreground,
+        )
+        return locate_windowhub_windows(windows)
+
     panel.mount_main_workspace(
         chat=host.chat, conversation=live_chat, enquiry=intake,
+        discover_windowhub=discover_windowhub_read_only,
     )
     print("NAVIMIND_MAIN_WORKSPACE_CONNECTED=True")
     print("NAVIMIND_ENQUIRY_LOCAL_ONLY=True")
