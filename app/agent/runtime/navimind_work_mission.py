@@ -41,11 +41,12 @@ class WorkEvidence:
 
 @dataclass(frozen=True)
 class PositionFieldReceipt:
-    """A single fresh readback; NOT proof that a full position is finished."""
+    """A single fresh native readback; NOT a completed construction."""
     position_id: str
     field_name: str
     value: str
     signature: str
+    runtime_id: str = ""
 
 
 @dataclass(frozen=True)
@@ -201,7 +202,8 @@ class WorkMissionCoordinator:
                         or field_receipt.field_name not in {
                             "width_1", "height_1", "quantity_input"}
                         or not field_receipt.signature
-                        or not field_receipt.value):
+                        or not field_receipt.value
+                        or not field_receipt.runtime_id):
                     return None
                 from app.agent.runtime.navimind_position_ledger import (
                     validate_bound_position_entry,
@@ -815,6 +817,7 @@ def plan_or_execute_windowhub_step(
                     field_name=verified_field_name,
                     value=action.action.value,
                     signature=signature,
+                    runtime_id=expected_runtime_id,
                 )
         if not host.note_verified_workflow_step(
                 after_scene, revision=mission.revision):
