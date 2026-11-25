@@ -360,7 +360,7 @@ def test_operator_must_confirm_sharing_document_to_ai(monkeypatch):
         submissions = []
         def status(self):
             return SimpleNamespace(provider_connected=True)
-        def approve_document_context(self, context):
+        def approve_document_context(self, context, **kwargs):
             self.approved = context
         def revoke_document_context(self):
             self.approved = None
