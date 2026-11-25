@@ -17,6 +17,8 @@ class ReadOnlyTool:
     name: str
     description: str
     run: Callable[[], str]
+    requires_document_consent: bool = False
+    synthesize_result: bool = False
 
 
 @dataclass(frozen=True)
