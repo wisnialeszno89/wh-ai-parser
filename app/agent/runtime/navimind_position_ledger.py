@@ -205,3 +205,26 @@ def position_prompt(position: SourcePosition, *, index: int, total: int) -> str:
         "Nie uznawaj pozycji za wykonaną bez niezależnego odczytu "
         "konstrukcji i ilości. Nie zapisuj ani nie wysyłaj oferty."
     )
+
+
+def validate_bound_position_entry(
+    position: SourcePosition, *, field_name: str, proposed_value: str,
+) -> tuple[bool, str]:
+    """Bind every numeric write to exactly one source-scoped position.
+
+    Do not search for a matching number in the entire multi-position email.
+    """
+    if not position.ready_for_geometry or type(position.quantity) is not int:
+        return False, "active_source_position_incomplete"
+    expected = {
+        "width_1": position.width_mm,
+        "height_1": position.height_mm,
+        "quantity_input": position.quantity,
+    }
+    if field_name not in expected:
+        return False, "active_position_field_requires_manual_review"
+    if not isinstance(proposed_value, str):
+        return False, "proposed_value_is_not_text"
+    if proposed_value.strip() != str(expected[field_name]):
+        return False, "value_does_not_match_active_source_position"
+    return True, "value_matches_active_source_position"
