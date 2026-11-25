@@ -253,7 +253,7 @@ def test_chatted_mission_does_not_bypass_replan_without_operator_resume():
 def test_v2_bridge_rejects_unapproved_native_execution_before_observation():
     host = NaviMindSharedHost("OFR/101")
     loop = Loop(make_scene())
-    with pytest.raises(InputDenied, match="no_shared_host_agent_permission"):
+    with pytest.raises(InputDenied, match="work_mission_revision_not_operator_approved"):
         host.execute_one_verified_v2_action(loop, object())
     assert loop.calls == 0
 
