@@ -26,6 +26,9 @@ if ([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT) {
 if ($Pdf -and $RequestFile) {
   throw "Podaj -Pdf ALBO -RequestFile (nie oba jednocześnie)."
 }
+if ($Live -and $SkipPreflight) {
+  throw "Przy -Live nie można pominąć kontroli środowiska."
+}
 $Script = Join-Path $Root "tools\run_navimind_shared_control_center.py"
 $Preflight = Join-Path $Root "tools\run_navimind_offer_preflight.py"
 if (-not (Test-Path -LiteralPath $Script -PathType Leaf)) {
@@ -61,9 +64,25 @@ try {
   $env:COMPUTER_USE_LIVE = if ($Live) { "1" } else { "0" }
   $env:WH_REAL_WINDOWHUB = if ($Live) { "1" } else { "0" }
   if (-not $SkipPreflight) {
-    & $Python $Preflight
+    $PreflightOutput = & $Python $Preflight | Out-String
     if ($LASTEXITCODE -ne 0) {
       throw "Nie udało się wykonać bezpiecznego preflight."
+    }
+    $Report = $PreflightOutput | ConvertFrom-Json
+    $PreflightOutput | Write-Host
+    if ($Live) {
+      $MissingRuntime = (
+        -not $Report.dependencies.pywinauto -or
+        -not $Report.dependencies.pythoncom -or
+        -not $Report.reasoner_url_configured -or
+        -not $Report.reasoner_secret_configured
+      )
+      if ($Pdf -and -not $Report.dependencies.fitz) {
+        $MissingRuntime = $true
+      }
+      if ($MissingRuntime) {
+        throw "Brak wymaganych zależności Windows lub konfiguracji V2. Napraw ostrzeżenia preflight przed testem -Live."
+      }
     }
   }
   Write-Host ""
