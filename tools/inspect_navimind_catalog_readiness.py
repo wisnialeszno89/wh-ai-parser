@@ -30,7 +30,14 @@ def main(argv=None) -> int:
         "--observe", action="store_true",
         help="Read one local foreground desktop scene; no clicks or HTTP",
     )
+    parser.add_argument(
+        "--show-expanded-options", action="store_true",
+        help="LOCAL ONLY: print names of visible listitems after manual "
+             "dropdown expansion. No proof of parent combo or safe selection.",
+    )
     args = parser.parse_args(argv)
+    if args.show_expanded_options and not args.observe:
+        parser.error("--show-expanded-options requires --observe")
     if not args.observe:
         report = {
             "mode": "offline",
@@ -67,6 +74,20 @@ def main(argv=None) -> int:
             enrich_native_mdi_document_scope(loop.observe_scene())
         )
         report = audit_catalogue_scene(scene).safe_summary()
+        if args.show_expanded_options:
+            from app.agent.runtime.navimind_catalogue_readiness import (
+                visible_unattributed_catalogue_items,
+            )
+            report["visible_unattributed_options"] = list(
+                visible_unattributed_catalogue_items(
+                    scene, include_labels=True, limit=25,
+                )
+            )
+            report["option_warning"] = (
+                "Unattributed visible UIA items only. Does NOT verify "
+                "which combobox owns the popup, catalogue correctness "
+                "or permission to select. Keep local; inspect for PII."
+            )
         print(json.dumps(report, ensure_ascii=False, indent=2))
         return 0 if report["safe_observation"] else 3
     except Exception as exc:
