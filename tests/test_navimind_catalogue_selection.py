@@ -29,7 +29,7 @@ def scene(stage="Podstawowe parametry okna", *,
             "source": "windows_ui_automation",
             "uia_visible": True, "uia_enabled": True,
             "uia_runtime_id": "option-1",
-            "uia_ancestor_structure": (
+            "uia_ancestor_runtime_structure": (
                 {"control_type": "combobox", "automation_id": "1054",
                  "runtime_id": ("combo-wrong" if other_runtime else combo_rid)},
             ) if native_parent else (),
@@ -130,7 +130,7 @@ def catalogue_scene(title, field_label, field_id, option_label,
             "source": "windowhub_ui_automation",
             "uia_visible": True, "uia_enabled": True,
             "uia_runtime_id": "selected-option",
-            "uia_ancestor_structure": (
+            "uia_ancestor_runtime_structure": (
                 {"control_type": "combobox", "automation_id": field_id,
                  "runtime_id": "target-combo" if same_parent else "other"}
             ,),
