@@ -273,8 +273,27 @@ def run(*, expected_offer: str, initial_pdf: str | None = None,
         return version, snapshot
 
     def approved_positions_for_work():
-        # Exact same consent epoch as the frozen V2 text evidence.
-        return live_chat.position_manifest_snapshot()
+        # PDF/TXT source: exact same explicit consent epoch as frozen evidence.
+        epoch, approved = live_chat.position_manifest_snapshot()
+        if approved is not None:
+            return epoch, approved
+        if intake.status()["has_enquiry"]:
+            # Never fall back to unapproved PDF merely because chat mentions it.
+            return epoch, None
+        # A direct human chat message can itself contain the full two-window
+        # request. It is already user-submitted text, not a hidden PDF.
+        from app.agent.runtime.navimind_position_ledger import (
+            direct_chat_position_manifest,
+        )
+        snapshot = host.chat.snapshot()
+        humans = [
+            m for m in snapshot.messages
+            if getattr(m.role, "value", m.role) == "human"
+            and m.mission_revision == snapshot.mission_revision
+        ]
+        if not humans:
+            return epoch, None
+        return epoch, direct_chat_position_manifest(humans[-1].text)
 
     work_coordinator = WorkMissionCoordinator(
         host.chat, max_cycles=20,
@@ -374,8 +393,24 @@ def run(*, expected_offer: str, initial_pdf: str | None = None,
         if exactly_two_windows:
             from app.agent.runtime.navimind_position_ledger import (
                 two_window_test_gate,
+                direct_chat_position_manifest,
             )
-            accepted, gate_reason = two_window_test_gate(intake)
+            if intake.status()["has_enquiry"]:
+                accepted, gate_reason = two_window_test_gate(intake)
+            else:
+                _, direct_manifest = approved_positions_for_work()
+                accepted = bool(
+                    direct_manifest is not None
+                    and direct_manifest.safe_to_sequence
+                    and len(direct_manifest.positions) == 2
+                    and all(p.ready_for_geometry
+                            and p.product_type == "window"
+                            for p in direct_manifest.positions)
+                )
+                gate_reason = (
+                    "direct_chat_two_windows_not_explicitly_parsed"
+                    if not accepted else "direct_chat_two_windows_ready"
+                )
             if not accepted:
                 return "TEST 2 OKIEN ZABLOKOWANY: " + gate_reason + (
                     ". Sprawdź PDF, skany, liczbę pozycji oraz ilości "
