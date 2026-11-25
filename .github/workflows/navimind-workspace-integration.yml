@@ -21,6 +21,9 @@ on:
       - 'app/agent/runtime/navimind_catalogue_background_probe.py'
       - 'tests/test_navimind_catalogue_readiness.py'
       - 'app/agent/runtime/navimind_catalogue_readiness.py'
+      - 'tests/test_navimind_catalog_audit.py'
+      - 'app/agent/runtime/navimind_catalog_audit.py'
+      - 'tools/inspect_navimind_catalog_readiness.py'
       - 'tests/test_navimind_position_click_policy.py'
       - 'app/agent/runtime/navimind_position_click_policy.py'
       - 'tests/test_navimind_field_readback.py'
@@ -59,4 +62,4 @@ jobs:
       - name: Verify AI tool routing and local PDF consent
         shell: pwsh
         run: |
-          python -m pytest -q tests/test_navimind_unified_document_engine.py tests/test_navimind_main_workspace_intake.py tests/test_navimind_live_conversation.py tests/test_navimind_ai_tool_selection.py tests/test_navimind_background_windowhub_reader.py tests/test_navimind_windowhub_one_shot_inspect.py tests/test_navimind_offer_preflight.py tests/test_navimind_catalogue_background_probe.py tests/test_navimind_catalogue_readiness.py tests/test_navimind_position_click_policy.py tests/test_navimind_field_readback.py tests/test_navimind_position_ledger.py tests/test_navimind_draft_spec_guard.py tests/test_navimind_draft_bootstrap.py tests/test_navimind_work_mission.py tests/test_navimind_shared_control_host.py tests/test_navimind_local_teaching_session.py tests/test_navimind_panel_controller.py
+          python -m pytest -q tests/test_navimind_unified_document_engine.py tests/test_navimind_main_workspace_intake.py tests/test_navimind_live_conversation.py tests/test_navimind_ai_tool_selection.py tests/test_navimind_background_windowhub_reader.py tests/test_navimind_windowhub_one_shot_inspect.py tests/test_navimind_offer_preflight.py tests/test_navimind_catalogue_background_probe.py tests/test_navimind_catalogue_readiness.py tests/test_navimind_catalog_audit.py tests/test_navimind_position_click_policy.py tests/test_navimind_field_readback.py tests/test_navimind_position_ledger.py tests/test_navimind_draft_spec_guard.py tests/test_navimind_draft_bootstrap.py tests/test_navimind_work_mission.py tests/test_navimind_shared_control_host.py tests/test_navimind_local_teaching_session.py tests/test_navimind_panel_controller.py
