@@ -176,6 +176,21 @@ def run(*, expected_offer: str) -> int:
             "są w tym panelu wyłączone."
         )
 
+    from app.agent.runtime.navimind_enquiry_inbox import LocalEnquiryInbox
+    intake = LocalEnquiryInbox()
+
+    def describe_local_enquiry_status() -> str:
+        # Metadata only; the customer PDF text and filenames never leave RAM.
+        status = intake.status()
+        return (
+            "Lokalne zapytanie klienta: "
+            + ("dodane" if status["has_enquiry"] else "brak")
+            + "; liczba PDF: " + str(status["pdf_count"])
+            + "; wymagany przegląd/OCR: "
+            + ("tak" if status["requires_review"] else "nie")
+            + ". Treść PDF nie została wysłana do AI i nie zapisano oferty."
+        )
+
     tool_registry = {
         "find_windowhub": ReadOnlyTool(
             "find_windowhub",
@@ -189,6 +204,12 @@ def run(*, expected_offer: str) -> int:
             "nie działa dla WH ukrytego w tle, niczego nie klika.",
             inspect_active_windowhub_for_chat,
         ),
+        "enquiry_status": ReadOnlyTool(
+            "enquiry_status",
+            "Sprawdź, czy w lokalnym schowku NaviMind są zapytania klienta/PDF "
+            "oraz czy wymagają przeglądu; bez czytania lub wysyłania treści.",
+            describe_local_enquiry_status,
+        ),
         "engine_capabilities": ReadOnlyTool(
             "engine_capabilities",
             "Wyjaśnij rzeczywiście podłączone funkcje agenta i dostępne "
@@ -200,8 +221,6 @@ def run(*, expected_offer: str) -> int:
         host.chat, chat_provider, runtime_instructions=runtime_instructions,
         read_only_tools=tool_registry,
     )
-    from app.agent.runtime.navimind_enquiry_inbox import LocalEnquiryInbox
-    intake = LocalEnquiryInbox()
     panel.mount_main_workspace(
         chat=host.chat, conversation=live_chat, enquiry=intake,
     )
