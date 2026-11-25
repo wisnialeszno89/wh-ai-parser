@@ -83,6 +83,11 @@ def run(*, expected_offer: str) -> int:
         "teraz klikać w WindowHub, tworzyć okien, wpisywać parametrów, "
         "zapisywać ani wysyłać ofert. To ograniczenie aktualnego trybu "
         "uruchomienia, nie ogólna niemożliwość działania lokalnie. "
+        "Na podstawie polecenia użytkownika możesz wybrać zaufane "
+        "narzędzie do odnalezienia WindowHub, sprawdzenia aktywnego "
+        "okna lub katalogu możliwości. Dobierasz narzędzie na podstawie "
+        "znaczenia wypowiedzi, a wynik podaje lokalny host, nie model. "
+        "Nie twierdź, że uruchomiłeś program. "
         "Możesz rozmawiać, analizować tekst wpisany bezpośrednio do czatu "
         "i przygotować konkretny plan dwóch pozycji. Dolne pole zapytania "
         "i PDF są lokalne i NIE SĄ wysyłane do modelu. "
@@ -90,17 +95,16 @@ def run(*, expected_offer: str) -> int:
         "istniejący obserwator, brak wykonawcy V2 i następny krok "
         "integracyjny. Nie udawaj wykonania czynności."
     )
-    live_chat = LiveMissionConversation(
-        host.chat, chat_provider, runtime_instructions=runtime_instructions,
+    from app.agent.runtime.navimind_tool_router import ReadOnlyTool
+    from tools.inspect_navimind_windowhub import (
+        describe_windowhub_scene, locate_windowhub_windows,
     )
-    from app.agent.runtime.navimind_enquiry_inbox import LocalEnquiryInbox
-    intake = LocalEnquiryInbox()
+
     def discover_windowhub_read_only():
-        # Fresh Win32 top-level inventory; never changes active app or clicks.
+        # Fresh Win32 inventory, including background windows. No focus change.
         from app.agent.environment.windows_desktop_environment_adapter import (
             WindowsDesktopEnvironmentAdapter,
         )
-        from tools.inspect_navimind_windowhub import locate_windowhub_windows
         adapter = WindowsDesktopEnvironmentAdapter()
         foreground = adapter._capture_foreground_window()
         windows = adapter._capture_visible_windows(
@@ -108,9 +112,98 @@ def run(*, expected_offer: str) -> int:
         )
         return locate_windowhub_windows(windows)
 
+    def detect_windowhub_for_chat() -> str:
+        from tools.navimind_main_workspace import windowhub_discovery_answer
+        return windowhub_discovery_answer(tuple(discover_windowhub_read_only()))
+
+    def inspect_active_windowhub_for_chat() -> str:
+        from app.agent.environment.windows_desktop_environment_adapter import (
+            WindowsDesktopEnvironmentAdapter,
+        )
+        adapter = WindowsDesktopEnvironmentAdapter()
+        foreground = adapter._capture_foreground_window()
+        process = (foreground.active_application or "").replace(
+            "\\\\", "/",
+        ).rsplit("/", 1)[-1].casefold()
+        if process != "okna.exe":
+            return (
+                "WindowHub nie jest aktualnie na pierwszym planie. "
+                "Mogę go znaleźć w tle, ale bieżący obserwator UIA "
+                "nie odczytuje jeszcze ukrytego formularza bez "
+                "przełączenia aktywnego okna."
+            )
+        com_initialized = False
+        try:
+            try:
+                import pythoncom
+                pythoncom.CoInitialize()
+                com_initialized = True
+            except ImportError:
+                pythoncom = None
+            from app.agent.runtime.windows_desktop_agent_control_loop import (
+                create_windows_desktop_agent_control_loop,
+            )
+            scene = create_windows_desktop_agent_control_loop().observe_scene()
+            lines = describe_windowhub_scene(scene)
+            stage = next(
+                (line.partition("=")[2] for line in lines
+                 if line.startswith("WINDOWHUB_STAGE=")), "unknown",
+            )
+            count = next(
+                (line.partition("=")[2] for line in lines
+                 if line.startswith("WINDOWHUB_UIA_ELEMENTS=")), "0",
+            )
+            if "WINDOWHUB_FOREGROUND=True" not in lines:
+                return "Nie potwierdziłem aktywnego okna WindowHub. Niczego nie zmieniłem."
+            return (
+                "Sprawdziłem aktywny WindowHub. Etap: " + stage
+                + "; wykryte elementy UIA: " + count
+                + ". To obserwacja tylko do odczytu — oferta nie została zmieniona."
+            )
+        finally:
+            if com_initialized:
+                pythoncom.CoUninitialize()
+
+    def describe_engine_capabilities() -> str:
+        return (
+            "Z silnika NaviMind są dostępne: lokalne wyszukiwanie "
+            "uruchomionego WindowHub, obserwacja aktywnego ekranu WindowHub "
+            "(UIA/obraz, bez wykonywania kliknięć) i rozmowa przez AI Gateway. "
+            "W repozytorium są też moduły: AgentControlLoop, ExecutionEngine, "
+            "OCR, kontrola właściciela wejścia, weryfikacja zmian sceny, "
+            "analiza PDF i korekty ofert. Nie wszystkie są obecnie "
+            "podłączone jako narzędzia czatu. Native V2 i zapisywanie ofert "
+            "są w tym panelu wyłączone."
+        )
+
+    tool_registry = {
+        "find_windowhub": ReadOnlyTool(
+            "find_windowhub",
+            "Znajdź uruchomiony WindowHub/WH/Okna.exe na komputerze, "
+            "również gdy okno jest w tle. Nie otwiera programu.",
+            detect_windowhub_for_chat,
+        ),
+        "inspect_active_windowhub": ReadOnlyTool(
+            "inspect_active_windowhub",
+            "Sprawdź etap i liczbę kontrolek UIA aktywnego okna WindowHub; "
+            "nie działa dla WH ukrytego w tle, niczego nie klika.",
+            inspect_active_windowhub_for_chat,
+        ),
+        "engine_capabilities": ReadOnlyTool(
+            "engine_capabilities",
+            "Wyjaśnij rzeczywiście podłączone funkcje agenta i dostępne "
+            "moduły silnika oraz ograniczenia sterowania.",
+            describe_engine_capabilities,
+        ),
+    }
+    live_chat = LiveMissionConversation(
+        host.chat, chat_provider, runtime_instructions=runtime_instructions,
+        read_only_tools=tool_registry,
+    )
+    from app.agent.runtime.navimind_enquiry_inbox import LocalEnquiryInbox
+    intake = LocalEnquiryInbox()
     panel.mount_main_workspace(
         chat=host.chat, conversation=live_chat, enquiry=intake,
-        discover_windowhub=discover_windowhub_read_only,
     )
     print("NAVIMIND_MAIN_WORKSPACE_CONNECTED=True")
     print("NAVIMIND_ENQUIRY_LOCAL_ONLY=True")
