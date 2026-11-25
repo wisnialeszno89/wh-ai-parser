@@ -340,3 +340,77 @@ def test_clipboard_import_keeps_data_local_and_revokes_existing_consent():
     panel._paste_windows_clipboard()
     assert panel.enquiry.pasted_text == "Fenster 1200 x 1400 mm"
     assert panel.conversation.revoked is True
+
+
+def test_tool_chaining_completes_compound_query_without_duplicate_actions():
+    class SequencedProvider:
+        calls = 0
+        def reply(self, *, transcript, instructions):
+            self.calls += 1
+            if self.calls == 1:
+                return '{"kind":"tool","tool":"find_windowhub"}'
+            if self.calls == 2:
+                assert "Otwarty WindowHub" in repr(transcript)
+                return '{"kind":"tool","tool":"enquiry_status"}'
+            assert "PDF_COUNT=2" in repr(transcript)
+            return '{"kind":"answer","answer":"WindowHub otwarty. Dwa PDF."}'
+    provider = SequencedProvider()
+    actions = []
+    chat = new_chat()
+    conversation = LiveMissionConversation(
+        chat, provider,
+        read_only_tools={
+            "find_windowhub": ReadOnlyTool(
+                "find_windowhub", "Find local WindowHub",
+                lambda: actions.append("find") or "Otwarty WindowHub",
+            ),
+            "enquiry_status": ReadOnlyTool(
+                "enquiry_status", "Local document metadata",
+                lambda: actions.append("metadata") or "PDF_COUNT=2",
+            ),
+        },
+        allow_tool_chaining=True,
+    )
+    request = chat.user_message("Sprawdź WindowHub i liczbę dokumentów.")
+    assert conversation.submit_current_message(request.message_id)
+    await_idle(conversation)
+    assert actions == ["find", "metadata"]
+    assert "Dwa PDF" in chat.snapshot().messages[-1].text
+    assert provider.calls == 3
+    conversation.close()
+
+
+def test_tool_chaining_cannot_read_later_document_without_consent():
+    class SequencedProvider:
+        calls = 0
+        def reply(self, *, transcript, instructions):
+            self.calls += 1
+            if self.calls == 1:
+                return '{"kind":"tool","tool":"find_windowhub"}'
+            return '{"kind":"tool","tool":"read_approved_enquiry"}'
+    provider = SequencedProvider()
+    chat = new_chat()
+    executed = []
+    conversation = LiveMissionConversation(
+        chat, provider,
+        read_only_tools={
+            "find_windowhub": ReadOnlyTool(
+                "find_windowhub", "Find", lambda: executed.append("find") or "found",
+            ),
+            "read_approved_enquiry": ReadOnlyTool(
+                "read_approved_enquiry", "Sensitive PDF",
+                lambda: executed.append("document") or "SECRET",
+                requires_document_consent=True,
+            ),
+        },
+        allow_tool_chaining=True,
+    )
+    request = chat.user_message("Sprawdź WindowHub i PDF.")
+    conversation.submit_current_message(request.message_id)
+    await_idle(conversation)
+    assert executed == ["find"]
+    assert "SECRET" not in repr(chat.snapshot().messages)
+    assert conversation.take_pending_document_approval() == (
+        request.mission_revision, request.message_id,
+    )
+    conversation.close()
