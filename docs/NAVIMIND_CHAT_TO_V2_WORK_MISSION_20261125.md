@@ -63,3 +63,36 @@ Windows GitHub Actions uruchamia izolowane testy `tests/test_navimind_work_missi
 - **Wpisywanie danych:** tylko unikatowe, zmapowane kontrolki ofertowe, wstępnie pozycja/ilość/opis i pola pierwszej szerokości/wysokości, mogą otrzymać modelowe `write_text`. Istniejący wykonawca używa `Ctrl+A`, następnie sprawdza wartość; nie ma uprawnienia do swobodnej edycji danych klienta i cen. Zakończenie kreatora, zapis, wysyłka i konwersja w zamówienie wymagają ręcznego przeglądu.
 - **Tryb nauki:** lokalny, ręczny. Wciśnij `Tryb nauki`, pokaż kroki, a następnie `Zakończ naukę`. Obserwator analizuje ograniczone do 64 przejść semantyczne zmiany UIA; model może dostać do 8 nieprzyczynowych wskazówek z bieżącej sesji, nigdy surowe nazwy klientów, wpisane wartości, współrzędne lub native ID.
 - **Postęp:** panel pokazuje stan misji i wykonane, zweryfikowane kroki. Wstrzymanie po błędzie nie wykonuje automatycznego ponowienia, a przekroczony budżet powoduje przegląd.
+
+
+## Nowa oferta od Start1 — zintegrowana ścieżka robocza
+
+Uruchomienie panelu do **przygotowania** nowej oferty (domyślnie bez natywnych działań):
+
+```powershell
+python tools/run_navimind_shared_control_center.py --new-offer
+```
+
+Dotychczasowy tryb z przypiętą ofertą nadal działa:
+
+```powershell
+python tools/run_navimind_shared_control_center.py --expected-offer "OFR/1234-"
+```
+
+**Działanie tylko po odrębnej decyzji operatora:** silnik natywny wymaga `WH_REAL_WINDOWHUB=1`, `COMPUTER_USE_LIVE=1`, faktycznie działającego WindowHub oraz lokalnego `Wznów pracę`. Żaden fragment z PDF ani odpowiedź modelu nie przyznają sobie prawa do aktywowania okien.
+
+Nowa ścieżka zintegrowana z czatem:
+
+1. Handlowiec: `Utwórz nową ofertę roboczą na podstawie udostępnionego PDF.` Koordynator rejestruje dosłowną wiadomość oraz wersję zgody na dokument.
+2. Agent sprawdza Start1. Jeśli WindowHub jest w tle, nie przełącza aplikacji przy planowaniu; jawne `Wznów pracę` pozwala aktywować **wyłącznie jedno rozpoznane okno Start1**.
+3. Lokalny, pojedynczy `NOWA OFERTA` używa UIA InvokePattern i wspólnego `LocalInputArbiter`. Przed działaniem sprawdza aktualny ekran i bazową tożsamość MDI. Po działaniu wielokrotnie **czyta** (ale nie powtarza kliknięcia), aż zweryfikuje nowe `Właściwości dokumentu`, inny HWND i natywnego właściciela.
+4. Znane `IDC_ZAMAWIAJACY` otwiera wybór istniejącego klienta. Bez pewnego, jednoznacznego wyboru zostaje przekazane sterowanie człowiekowi; żaden podobny wynik klienta nie jest wybrany „na oko”.
+5. Po ręcznym wskazaniu klienta i przejściu do nowej roboczej oferty handlowiec wybiera `Wznów pracę`. Host wymaga zarówno niezmienionej, zapisanej w pamięci lokalnej transakcji `NewOfferHandoff` (PID/MDI/owner), jak i:
+   - dokładnego numeru OFR oraz unikalnej wybranej zakładki — wtedy dopiero przypina rzeczywisty numer do misji; **albo**
+   - pochodzącego z tej samej transakcji okna `Dodawanie nowej pozycji` bez numeru OFR — wtedy kontynuuje na **niezapisanym dokumencie** pod kluczem wewnętrznym `DRAFT/NEW`, nie generuje żadnego pozornego OFR.
+6. Kolejne znane kreatory wykonują po jednym działaniu przez istniejący kontrakt V2 i weryfikację natywną. Wstępne pola tekstowe (ilość, opis, pierwsza para wymiarów) otrzymują dodatkową kontrolę zgodności z dosłownym poleceniem albo zatwierdzoną treścią PDF. Nie ma automatycznego wpisywania niepopartych źródłem wartości.
+7. `Zakończ`, zapis, wysyłka, zamówienie i niejednoznaczny wybór katalogowy pozostają do przeglądu przez handlowca. Odpowiedź modelu `done` nie dowodzi ukończenia oferty.
+
+**Granice uczciwie utrzymane:** nie jest to jeszcze w pełni autonomiczna, sprawdzona ścieżka kompletnych wielopozycyjnych ofert. Brakuje niezależnego przypisania wszystkich parametrów do indeksów pozycji, sprawdzenia katalogu profili/szyb/okuć i końcowego podsumowania pozycji oraz cen. Zgoda na wykonanie w Windows pozostaje odłączona domyślnie, a testy GitHub Actions nie zastępują nadzorowanego testu rzeczywistego WindowHub.
+
+Pliki: `app/agent/runtime/navimind_draft_bootstrap.py`, `app/agent/runtime/navimind_draft_spec_guard.py`, `app/agent/runtime/navimind_shared_control_host.py`, `app/agent/runtime/navimind_work_mission.py`, `tools/run_navimind_shared_control_center.py`. Testy: `tests/test_navimind_draft_bootstrap.py` i `tests/test_navimind_draft_spec_guard.py`.
