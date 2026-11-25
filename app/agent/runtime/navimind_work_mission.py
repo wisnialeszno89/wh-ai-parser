@@ -28,6 +28,14 @@ class WorkStage(str, Enum):
 
 
 @dataclass(frozen=True)
+class WorkEvidence:
+    action: str
+    before_stage: str
+    after_stage: str
+    verified: bool = True
+
+
+@dataclass(frozen=True)
 class WorkMission:
     task_id: str
     revision: int
@@ -40,6 +48,7 @@ class WorkMission:
     suggested_action: str = ""
     last_verified_signature: str = ""
     last_verified_stage: str = ""
+    evidence: tuple[WorkEvidence, ...] = ()
 
 
 class WorkMissionCoordinator:
@@ -107,6 +116,7 @@ class WorkMissionCoordinator:
         reason: str = "", suggested_action: str = "",
         count_step: bool = False,
         signature: str = "", observed_stage: str = "",
+        action: str = "", after_stage: str = "",
     ) -> WorkMission | None:
         with self._lock:
             item = self._mission
@@ -129,6 +139,15 @@ class WorkMissionCoordinator:
                 last_verified_stage=(
                     observed_stage if count_step else item.last_verified_stage
                 ),
+                evidence=(
+                    (
+                        *item.evidence[-7:],
+                        WorkEvidence(
+                            action=action, before_stage=observed_stage,
+                            after_stage=after_stage,
+                        ),
+                    ) if count_step else item.evidence
+                ),
             )
             return self._mission
 
@@ -148,6 +167,7 @@ class WorkStepResult:
     verified: bool = False
     signature: str = ""
     observed_stage: str = ""
+    new_stage: str = ""
 
 
 def plan_or_execute_windowhub_step(
@@ -193,11 +213,26 @@ def plan_or_execute_windowhub_step(
     if stage == "order_document":
         return WorkStepResult("review", "order_document_not_authorized")
 
+    from app.agent.learning.windowhub_training_context import (
+        windowhub_skill_knowledge,
+    )
+    verified_experience = tuple(
+        {
+            "source": "local_verified_action",
+            "action_type": record.action,
+            "from_stage": record.before_stage,
+            "to_stage": record.after_stage,
+            "verified": record.verified,
+        }
+        for record in mission.evidence[-8:]
+    )
     prepared = ComputerUseV2ActionSession().prepare_cycle(
         scene, task_id=mission.task_id,
         session_id=mission.task_id, goal=mission.goal,
         world_revision=mission.cycles + 1, cycle=mission.cycles,
         max_cycles=20,
+        knowledge=windowhub_skill_knowledge(),
+        experience=verified_experience,
     )
     prepared.request_payload["metadata"]["verified_windowhub_stage"] = stage
     try:
@@ -253,9 +288,14 @@ def plan_or_execute_windowhub_step(
     except Exception:
         # An unverified action may have physically occurred. No blind retry.
         return WorkStepResult("review", "v2_input_blocked_or_postcondition_unverified", name)
+    try:
+        after_scene = loop.observe_scene()
+        new_stage = stage_of(after_scene) or "unknown"
+    except Exception:
+        new_stage = "unknown"
     return WorkStepResult(
         "action", "one_native_step_verified_reobserve_next",
-        name, True, signature, stage,
+        name, True, signature, stage, new_stage,
     )
 
 
@@ -385,6 +425,7 @@ class BackgroundWorkMission:
                 count_step=execute and result.kind == "action",
                 signature=result.signature,
                 observed_stage=result.observed_stage,
+                action=result.action, after_stage=result.new_stage,
             )
             if updated is not None and self.callback is not None:
                 self.callback(updated, result)
