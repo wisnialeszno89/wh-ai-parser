@@ -54,10 +54,10 @@ class PositionManifest:
 
 
 _NUMBERED_POSITION = re.compile(
-    r"^\\s*(?:pos(?:ition)?\\.?\\s*#?\\s*\\d+|\\d{1,3}[.)])"
-    r"\\s*[:.)-]?\\s*(?=(?:[1-9][0-9]?\\s*"
-    r"(?:stk\\.?|stück|szt\\.?)\\s+)?"
-    r"(?:fenster|haustür|haustuer|kippfenster|hst[- ]tür|psk[- ]tür)\\b)",
+    r"^\s*(?:pos(?:ition)?\.?\s*#?\s*\d+|\d{1,3}[.)])"
+    r"\s*[:.)-]?\s*(?=(?:[1-9][0-9]?\s*"
+    r"(?:stk\.?|stück|szt\.?)\s+)?"
+    r"(?:fenster|haustür|haustuer|kippfenster|hst[- ]tür|psk[- ]tür)\b)",
     re.IGNORECASE,
 )
 
@@ -71,7 +71,7 @@ def _normalize_numbered_headings(body: str) -> tuple[str, int]:
         if count:
             matched += 1
         lines.append(changed if count else line)
-    return "\\n".join(lines), matched
+    return "\n".join(lines), matched
 
 
 def build_position_manifest(inbox) -> PositionManifest:
