@@ -65,12 +65,10 @@ class LocalTeachingSession:
             if transition is None:
                 return False
             if len(self._records) >= self.max_records:
-                # Bounded memory. Stop rather than overwriting earlier
-                # demonstration history with an unrelated later sequence.
-                self._active = False
+                # Keep the session active but saturated until the operator
+                # ends learning. Never automatically restart and overwrite
+                # an earlier demonstration when max_records was reached.
                 self._previous = None
-                self._completed = demonstration_experience(self._records)
-                self._summary = demonstration_summary(self._records)
                 return False
             self._records.append({"type": "transition", "transition": transition})
             return True
