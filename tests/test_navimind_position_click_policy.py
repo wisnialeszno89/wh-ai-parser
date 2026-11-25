@@ -110,7 +110,10 @@ def test_position_next_rechecks_native_quantity_not_just_cached_receipt():
         verify_position_navigation_readback,
     )
     button = target("Dalej >", "button", "12324")
-    current = NS(position_id="S01-P001", product_type="window")
+    current = NS(
+        position_id="S01-P001", product_type="window",
+        quantity=2, width_mm=1500, height_mm=1400,
+    )
     receipts = (proof("quantity_input", "2"),)
     okay = native_scene(
         "Dodawanie nowej pozycji",
@@ -135,7 +138,10 @@ def test_dimensions_next_rechecks_both_native_values_after_human_change():
         verify_position_navigation_readback,
     )
     button = target("Dalej >", "button", "12324")
-    current = NS(position_id="S01-P001", product_type="window")
+    current = NS(
+        position_id="S01-P001", product_type="window",
+        quantity=2, width_mm=1500, height_mm=1400,
+    )
     receipts = (proof("width_1", "1500"), proof("height_1", "1400"))
     base = (
         ("width_1", "Szerokość", "1000", "1500"),
