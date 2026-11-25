@@ -120,4 +120,4 @@ def test_host_registers_background_inspector_as_ai_tool():
     assert '"inspect_windowhub": ReadOnlyTool(' in text
     assert "inspect_windowhub_background()" in text
     assert "pythoncom.CoInitialize()" in text
-    assert "NAVIMIND_V2_EXECUTOR_CONNECTED=False" in text
+    assert "NAVIMIND_V2_EXECUTOR_CONNECTED=" + str(live_allowed)" in text
