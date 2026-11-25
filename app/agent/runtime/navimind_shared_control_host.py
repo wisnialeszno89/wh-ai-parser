@@ -112,6 +112,11 @@ class NaviMindSharedHost:
         if not isinstance(expected_offer, str) or not expected_offer.strip():
             raise ValueError("expected_offer_required")
         self.expected_offer = expected_offer.strip()
+        from app.agent.runtime.navimind_draft_bootstrap import DRAFT_DOCUMENT_KEY
+        self._draft_phase = (
+            "start" if self.expected_offer == DRAFT_DOCUMENT_KEY else None
+        )
+        self.draft_document_bound_callback: Callable[[str], bool] | None = None
         self.controller = controller or NaviMindPanelController()
         self.controller.connect_host()
         self._accepted_scene: Any = None
@@ -142,7 +147,44 @@ class NaviMindSharedHost:
             return HostObservation(None, "chat_instruction_requires_approved_replan",
                                    "unknown", False)
         result = verify_offer_observation(scene, self.expected_offer)
-        if not result.verified:
+        if self._draft_phase is not None:
+            from app.agent.runtime.navimind_draft_bootstrap import (
+                DRAFT_DOCUMENT_KEY, verify_draft_start, draft_offer_candidate,
+            )
+            if self._draft_phase == "start":
+                check = verify_draft_start(scene)
+                result = HostObservation(
+                    DRAFT_DOCUMENT_KEY if check.valid else None,
+                    check.reason, check.stage, check.valid,
+                )
+            elif self._draft_phase == "awaiting_customer_selection":
+                # The operator has selected a customer manually and clicked
+                # Resume. Only adopt a truly selected, unique OFR document.
+                candidate = draft_offer_candidate(scene)
+                if (candidate is not None
+                        and self.draft_document_bound_callback is not None
+                        and self.draft_document_bound_callback(candidate)):
+                    self.expected_offer = candidate
+                    self.chat.document_key = candidate
+                    self._draft_phase = None
+                    self._workflow_scope = None
+                    result = verify_offer_observation(scene, candidate)
+                else:
+                    result = HostObservation(
+                        None, "draft_customer_or_new_offer_not_verified",
+                        "unknown", False,
+                    )
+            elif self._draft_phase == "properties":
+                result = verify_workflow_scope(
+                    scene, self._workflow_scope,
+                    expected_offer=DRAFT_DOCUMENT_KEY,
+                    revision=self.chat.snapshot().mission_revision,
+                )
+                if result.stage != "document_properties":
+                    result = HostObservation(
+                        None, "draft_properties_scope_required", "unknown", False,
+                    )
+        elif not result.verified:
             result = verify_workflow_scope(
                 scene, self._workflow_scope,
                 expected_offer=self.expected_offer,
@@ -201,8 +243,11 @@ class NaviMindSharedHost:
         from app.agent.runtime.navimind_work_mission import WorkStage
         if item.stage not in {WorkStage.READY, WorkStage.PAUSED}:
             return False
+        allowed_pauses = {"one_native_step_verified_reobserve_next"}
+        if self._draft_phase == "awaiting_customer_selection":
+            allowed_pauses.add("draft_customer_selection_required")
         if (item.stage == WorkStage.PAUSED
-                and item.reason != "one_native_step_verified_reobserve_next"):
+                and item.reason not in allowed_pauses):
             return False
         self._approved_work_revision = revision
         return True
@@ -286,6 +331,22 @@ class NaviMindSharedHost:
             self._accepted_scene = None
             raise InputDenied(comparison.reason)
         return self.controller.arbiter.dispatch(permit, operation)
+
+    def execute_draft_start_once(self, loop: Any, *, revision: int):
+        """Native Start1 action under the identical single-use input arbiter."""
+        from app.agent.runtime.navimind_draft_bootstrap import (
+            safe_native_start_action,
+        )
+        return safe_native_start_action(loop, self, mission_revision=revision)
+
+    def execute_draft_customer_picker_once(self, loop: Any, *, revision: int):
+        """Open exact known picker, never guess or mutate a customer record."""
+        from app.agent.runtime.navimind_draft_bootstrap import (
+            safe_native_open_customer_picker,
+        )
+        return safe_native_open_customer_picker(
+            loop, self, mission_revision=revision,
+        )
 
     def execute_one_verified_v2_action(
         self, loop: Any, resolved: Any, *, approved_persistent: bool = False,
