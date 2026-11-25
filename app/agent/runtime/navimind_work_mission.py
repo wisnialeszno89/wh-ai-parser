@@ -738,10 +738,10 @@ def plan_or_execute_windowhub_step(
         # controls. Catalogue selections are never inferred from the PDF.
         if ledger is not None:
             from app.agent.runtime.navimind_position_click_policy import (
-                allowed_position_click,
+                verify_position_navigation_readback,
             )
-            permitted, click_reason = allowed_position_click(
-                stage=stage, target=target,
+            permitted, click_reason = verify_position_navigation_readback(
+                scene, stage=stage, target=target,
                 current_position=ledger.active,
                 field_receipts=mission.field_receipts,
             )
