@@ -264,7 +264,8 @@ def test_host_tool_registry_contains_real_document_parser_and_consent():
     assert "summarize_full_approved_inbox(" in host
     assert "PDF_COUNT=" in host
     assert "runtime_status_provider=trusted_local_capability_state" in host
-    assert "NAVIMIND_V2_EXECUTOR_CONNECTED=False" in host
+    assert 'print("NAVIMIND_V2_EXECUTOR_CONNECTED=" + str(live_allowed))' in host
+    assert '"prepare_windowhub_work": ReadOnlyTool(' in host
 
 
 def test_pdf_is_not_sent_when_only_status_tool_is_called():
