@@ -630,6 +630,7 @@ def plan_or_execute_windowhub_step(
         )
     if name not in {"click_screen_element", "write_text"}:
         return WorkStepResult("review", "action_type_not_authorized_for_mission")
+    verified_field_name = None
     if name == "write_text":
         # Reject free-form model writing to customer, pricing or other fields.
         # A new editable field must first be mapped/learned and verified.
@@ -674,6 +675,7 @@ def plan_or_execute_windowhub_step(
             )
         if not source_valid:
             return WorkStepResult("review", source_reason)
+        verified_field_name = fields[0]
     if name == "click_screen_element":
         # A locally visible control is not automatically a permissible
         # business action. Unknown/destructive buttons need salesperson
@@ -714,6 +716,30 @@ def plan_or_execute_windowhub_step(
     try:
         after_scene = loop.observe_scene()
         new_stage = stage_of(after_scene) or "unknown"
+        if verified_field_name is not None:
+            from app.agent.runtime.navimind_field_readback import (
+                verify_written_field,
+            )
+            expected_runtime_id = getattr(target, "uia_runtime_id", None)
+            # V2 resolved target may be a ScreenElement (metadata) or
+            # a guarded reference wrapper; use only observed UIA identities.
+            if not isinstance(expected_runtime_id, str):
+                expected_runtime_id = (
+                    (getattr(target, "metadata", None) or {})
+                    .get("uia_runtime_id")
+                )
+            readback = verify_written_field(
+                after_scene,
+                field_name=verified_field_name,
+                expected_value=action.action.value,
+                expected_runtime_id=expected_runtime_id,
+                expected_stage=stage,
+            )
+            if not readback.verified:
+                return WorkStepResult(
+                    "review", readback.reason,
+                    name, False,
+                )
         if not host.note_verified_workflow_step(
                 after_scene, revision=mission.revision):
             return WorkStepResult(
