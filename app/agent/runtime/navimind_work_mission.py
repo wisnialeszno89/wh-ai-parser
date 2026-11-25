@@ -38,6 +38,8 @@ class WorkMission:
     cycles: int = 0
     reason: str = ""
     suggested_action: str = ""
+    last_verified_signature: str = ""
+    last_verified_stage: str = ""
 
 
 class WorkMissionCoordinator:
@@ -104,6 +106,7 @@ class WorkMissionCoordinator:
         self, task_id: str, stage: WorkStage, *,
         reason: str = "", suggested_action: str = "",
         count_step: bool = False,
+        signature: str = "", observed_stage: str = "",
     ) -> WorkMission | None:
         with self._lock:
             item = self._mission
@@ -120,6 +123,12 @@ class WorkMissionCoordinator:
                 reason=reason[:160],
                 suggested_action=suggested_action[:80],
                 cycles=item.cycles + (1 if count_step else 0),
+                last_verified_signature=(
+                    signature if count_step else item.last_verified_signature
+                ),
+                last_verified_stage=(
+                    observed_stage if count_step else item.last_verified_stage
+                ),
             )
             return self._mission
 
@@ -137,6 +146,8 @@ class WorkStepResult:
     reason: str
     action: str = ""
     verified: bool = False
+    signature: str = ""
+    observed_stage: str = ""
 
 
 def plan_or_execute_windowhub_step(
@@ -209,6 +220,19 @@ def plan_or_execute_windowhub_step(
     except (ValueError, RuntimeError, KeyError, TypeError):
         return WorkStepResult("review", "proposed_action_failed_local_policy")
     name = action.action.name
+    from hashlib import sha256
+    target = action.action.target
+    signature = sha256(repr((
+        stage, name,
+        getattr(target, "label", None),
+        getattr(target, "uia_runtime_id", None),
+        action.action.value,
+    )).encode("utf-8")).hexdigest()
+    if (execute and mission.last_verified_signature == signature
+            and mission.last_verified_stage == stage):
+        return WorkStepResult(
+            "review", "same_verified_action_on_unchanged_stage_blocked"
+        )
     if name not in {"click_screen_element", "write_text"}:
         return WorkStepResult("review", "action_type_not_authorized_for_mission")
     if action.action.requires_confirmation:
@@ -229,7 +253,10 @@ def plan_or_execute_windowhub_step(
     except Exception:
         # An unverified action may have physically occurred. No blind retry.
         return WorkStepResult("review", "v2_input_blocked_or_postcondition_unverified", name)
-    return WorkStepResult("action", "one_native_step_verified_reobserve_next", name, True)
+    return WorkStepResult(
+        "action", "one_native_step_verified_reobserve_next",
+        name, True, signature, stage,
+    )
 
 
 class BackgroundWorkMission:
@@ -283,6 +310,10 @@ class BackgroundWorkMission:
 
     def execute_one_authorized_step(self) -> bool:
         """Only trusted local UI invokes this after a verified operator resume."""
+        import os
+        if (os.environ.get("WH_REAL_WINDOWHUB") != "1"
+                or os.environ.get("COMPUTER_USE_LIVE") != "1"):
+            return False
         mission = self.coordinator.current()
         if mission is None or mission.stage not in {
             WorkStage.READY, WorkStage.PAUSED,
@@ -343,6 +374,8 @@ class BackgroundWorkMission:
                 reason=result.reason,
                 suggested_action=result.action,
                 count_step=execute and result.kind == "action",
+                signature=result.signature,
+                observed_stage=result.observed_stage,
             )
             if updated is not None and self.callback is not None:
                 self.callback(updated, result)
