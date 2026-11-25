@@ -13,17 +13,17 @@ from app.agent.runtime.navimind_panel_controller import (
     NaviMindPanelController, PanelMode, PanelSnapshot,
 )
 
-BG = "#101019"
-CARD = "#1B1B29"
-SURFACE = "#252535"
-STROKE = "#343348"
-FG = "#F5F1FA"
-MUTED = "#A6A1B7"
-PURPLE = "#A989F9"
-PURPLE_DARK = "#48336E"
-GOLD = "#E6C789"
-RED = "#FF9A9D"
-GREEN = "#93D9BE"
+BG = "#111319"
+CARD = "#1B1F28"
+SURFACE = "#262B36"
+STROKE = "#343A47"
+FG = "#F5F5F8"
+MUTED = "#A5ADBC"
+PURPLE = "#B7A2F5"
+PURPLE_DARK = "#413C5B"
+GOLD = "#D8BD85"
+RED = "#F0A1A4"
+GREEN = "#89D6BB"
 
 POLISH = {
     "takeover": "Przejmij kontrolę",
@@ -215,8 +215,8 @@ class NaviMindPanel(tk.Tk):
         WindowHub host uses this larger layout but remains observation-only.
         """
         from tools.navimind_main_workspace import NaviMindMainWorkspace
-        self.geometry("1180x780")
-        self.minsize(1050, 725)
+        self.geometry("1280x830")
+        self.minsize(1080, 740)
         self.resizable(True, True)
         self.main_workspace = NaviMindMainWorkspace(
             self.main_area, chat=chat, conversation=conversation,
