@@ -436,6 +436,21 @@ def run(*, expected_offer: str) -> int:
                     host.last_reason = "read_only_verification_refused"
             else:
                 host.last_reason = payload
+        # Keep a useful mission heartbeat in the original control panel.
+        # Tk widgets are touched only from this main-thread event pump.
+        shown_mission = work_coordinator.current()
+        if shown_mission is not None:
+            phase = {
+                WorkStage.QUEUED: "w kolejce",
+                WorkStage.THINKING: "analiza V2",
+                WorkStage.READY: "krok gotowy",
+                WorkStage.EXECUTING: "wykonywanie",
+                WorkStage.PAUSED: "oczekiwanie",
+                WorkStage.REVIEW: "przegląd handlowca",
+            }.get(shown_mission.stage, "niezweryfikowane")
+            panel.task.configure(
+                text=f"V2: {phase} ({shown_mission.cycles}/{work_coordinator.max_cycles})"
+            )
         # An accepted fresh observation can schedule exactly one V2 step.
         # No model reply or document body can grant the input permit.
         if live_allowed and host.controller.snapshot().mode == PanelMode.AGENT_READY:
