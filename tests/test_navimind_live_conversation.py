@@ -213,8 +213,9 @@ def test_launcher_explicitly_discloses_nonexecuting_windows_capability():
     source = (Path(__file__).resolve().parents[1] / "tools" /
               "run_navimind_shared_control_center.py").read_text(encoding="utf-8")
     assert "runtime_instructions=runtime_instructions" in source
-    assert "wykonawca V2 NIE jest podłączony" in source
-    assert "NAVIMIND_V2_EXECUTOR_CONNECTED=False" in source
+    assert "Silnik misji V2 jest podłączony" in source
+    assert "Zapis, wysyłka oraz zatwierdzanie oferty są zabronione" in source
+    assert "NAVIMIND_V2_EXECUTOR_CONNECTED=" + str(live_allowed)" in source
 
 
 def test_document_context_requires_explicit_approval_and_revocation():
