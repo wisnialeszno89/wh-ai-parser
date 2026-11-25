@@ -414,3 +414,46 @@ def test_two_window_powershell_gate_blocks_unreadable_pdf_and_unknown_quantity()
     assert not two_window_test_gate(inbox_with(
         "Fenster 1500x1400\nFenster 1300x1200"
     ))[0]
+
+
+def test_source_scoped_explicit_catalogue_requests_never_borrow_neighbour_values():
+    manifest = build_position_manifest(inbox_with(
+        "Pos. 1: 1 Stk Fenster 1500x1400\n"
+        "Profil: Veka Perfectline\n"
+        "Farbe innen: Weiss\n"
+        "Farbe außen: Anthrazit\n"
+        "Verglasung: 2-fach\n"
+        "Beschlag: activPilot\n"
+        "Pos. 2: 1 Stk Fenster 1300x1200\n"
+        "Profil: Veka Softline 82\n"
+        "Farbe innen: Weiss\n"
+        "Farbe außen: Weiss\n"
+        "Verglasung: 3-fach\n"
+        "Beschlag: proPilot"
+    ))
+    assert manifest.safe_to_sequence
+    assert len(manifest.positions) == 2
+    first, second = manifest.positions
+    assert dict(first.catalogue_requirements) == {
+        "profile": "Veka Perfectline",
+        "color_inside": "Weiss",
+        "color_outside": "Anthrazit",
+        "glazing": "2-fach",
+        "hardware": "activPilot",
+    }
+    assert dict(second.catalogue_requirements)["profile"] == "Veka Softline 82"
+    assert dict(second.catalogue_requirements)["glazing"] == "3-fach"
+    assert "Veka Softline" not in position_prompt(first, index=0, total=2)
+    assert "Veka Perfectline" not in position_prompt(second, index=1, total=2)
+
+
+def test_conflicting_explicit_catalogue_colors_block_source_automaticity():
+    manifest = build_position_manifest(inbox_with(
+        "Pos. 1: 1 Stk Fenster 1500x1400\n"
+        "Farbe außen: Anthrazit\n"
+        "Farbe außen: Weiss\n"
+        "Pos. 2: 1 Stk Fenster 1300x1200"
+    ))
+    assert len(manifest.positions) == 2
+    assert not manifest.positions[0].ready_for_geometry
+    assert "conflicting_catalogue_requirements" in manifest.positions[0].issues
