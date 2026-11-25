@@ -160,7 +160,10 @@ def run(*, expected_offer: str) -> int:
             + "; liczba PDF: " + str(status["pdf_count"])
             + "; wymagany przegląd/OCR: "
             + ("tak" if status["requires_review"] else "nie")
-            + ". Treść PDF nie została wysłana do AI i nie zapisano oferty."
+            + (". Kontekst dokumentu jest udostępniony modelowi AI w tej sesji."
+               if live_chat.document_context_active()
+               else ". Kontekst dokumentów nie został udostępniony modelowi AI.")
+            + " Nie zapisano oferty."
         )
 
     tool_registry = {
