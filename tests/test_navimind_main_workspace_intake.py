@@ -136,7 +136,7 @@ def test_host_launcher_mounts_main_workspace_not_detached_chat():
     data = source.read_text(encoding="utf-8")
     assert "panel.mount_main_workspace(" in data
     assert "NaviMindChatWindow(" not in data
-    assert "NAVIMIND_V2_EXECUTOR_CONNECTED=" + str(live_allowed)" in data
+    assert 'print("NAVIMIND_V2_EXECUTOR_CONNECTED=" + str(live_allowed))' in data
     assert "NAVIMIND_GUI_INPUT_EXECUTED=False" in data
 
 
