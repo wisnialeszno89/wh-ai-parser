@@ -431,6 +431,65 @@ class NaviMindMainWorkspace(tk.Frame):
                 text="Dyktowanie Windows niedostępne: " + type(exc).__name__
             )
 
+    def _handle_model_document_consent(self, request):
+        """Tk-thread approval of a tool requested by the LLM.
+
+        The model does NOT get the document until the operator confirms
+        sending the bounded excerpt to the configured external AI Gateway.
+        """
+        revision, message_id = request
+        if self.chat.snapshot().mission_revision != revision:
+            return
+        draft = self.enquiry_editor.get("1.0", "end-1c").strip()
+        try:
+            if draft and draft != self.enquiry.pasted_text:
+                self.enquiry.set_text(draft)
+                self._update_sources()
+            excerpt = self.enquiry.model_context()
+        except (EnquiryInputError, ValueError):
+            self.chat.agent_message(
+                "Nie ma jeszcze odczytanego dokumentu do analizy. "
+                "Dodaj PDF lub wklej zapytanie do lokalnego schowka.",
+                based_on_revision=revision,
+            )
+            self._refresh_messages()
+            return
+        stats = self.enquiry.status()
+        agreed = messagebox.askyesno(
+            "NaviMind potrzebuje dostępu do dokumentu",
+            "Poprosiłeś o analizę dokumentu. NaviMind znalazł go "
+            "w lokalnym schowku. Aby model mógł odczytać parametry, "
+            "wyślemy fragment odczytanego tekstu do dostawcy "
+            "AI Gateway. Może zawierać dane osobowe klienta.\n\n"
+            f"PDF: {stats['pdf_count']}; fragment: {len(excerpt)} znaków.\n\n"
+            "Zgoda obejmuje dalsze pytania w tej sesji, chyba że "
+            "wybierzesz „Cofnij dostęp AI”. Nie ma zapisu ani "
+            "sterowania WindowHub.\n\n"
+            "Udostępnić fragment do analizy?",
+            parent=self,
+        )
+        # Dialog can outlive the request: never approve a stale mission.
+        if self.chat.snapshot().mission_revision != revision:
+            return
+        if not agreed:
+            self.conversation.publish_document_consent_denied(revision)
+            self._refresh_messages()
+            return
+        try:
+            self.conversation.approve_document_context(excerpt)
+        except (RuntimeError, ValueError):
+            self.notice.configure(text="Nie udało się przyznać dostępu AI.")
+            return
+        if self.conversation.submit_current_message(message_id):
+            self.notice.configure(
+                text="Udostępniono fragment PDF; NaviMind analizuje źródło…"
+            )
+        else:
+            self.conversation.revoke_document_context()
+            self.notice.configure(
+                text="Nie można ponowić analizy. Dokument nie został wysłany."
+            )
+
     def _revoke_document_access(self):
         if self.conversation is not None:
             self.conversation.revoke_document_context()
@@ -574,6 +633,9 @@ class NaviMindMainWorkspace(tk.Frame):
             return
         self._refresh_messages()
         if self.conversation is not None:
+            pending = self.conversation.take_pending_document_approval()
+            if pending is not None:
+                self._handle_model_document_consent(pending)
             status = self.conversation.status()
             if status.active:
                 self.notice.configure(text="NaviMind przygotowuje odpowiedź…")
