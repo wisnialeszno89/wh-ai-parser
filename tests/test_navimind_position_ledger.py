@@ -1,0 +1,209 @@
+"""Offline large customer enquiries: no Windows input, model or API calls."""
+from __future__ import annotations
+
+from types import SimpleNamespace
+
+import pytest
+
+from app.agent.runtime.navimind_position_ledger import (
+    PositionCheckpoint, PositionLedger, build_position_manifest,
+    position_prompt, validate_bound_position_entry,
+)
+from app.agent.runtime.navimind_enquiry_inbox import LocalEnquiryInbox, EnquirySource
+from app.agent.runtime.navimind_work_mission import (
+    WorkMissionCoordinator, WorkStage,
+)
+from app.agent.runtime.navimind_local_input_arbiter import LocalInputArbiter
+from app.agent.runtime.navimind_mission_chat import MissionChat
+from app.agent.runtime.navimind_live_conversation import LiveMissionConversation
+
+
+def inbox_with(*sources):
+    inbox = LocalEnquiryInbox()
+    inbox.set_text(sources[0])
+    for index, body in enumerate(sources[1:], 1):
+        inbox._sources.append(EnquirySource(
+            f"customer-secret-{index}.pdf", "pdf", body,
+            2, False, False,
+        ))
+    return inbox
+
+
+def test_repeated_sizes_are_distinct_stable_source_positions_and_not_deduplicated():
+    inbox = inbox_with(
+        "2 Stk Fenster 1500x1400\n1 Stk Fenster 1500x1400",
+        "3 Stk Fenster 1200x1000",
+    )
+    manifest = build_position_manifest(inbox)
+    assert manifest.safe_to_sequence
+    assert len(manifest.positions) == 3
+    assert [p.position_id for p in manifest.positions] == [
+        "S01-P001", "S01-P002", "S02-P001",
+    ]
+    assert [p.quantity for p in manifest.positions] == [2, 1, 3]
+    assert manifest.positions[0].source_fingerprint != manifest.positions[1].source_fingerprint
+    assert "customer-secret" not in repr(manifest)
+
+
+def test_large_multi_source_input_has_all_position_ids_and_scoped_prompts():
+    source_a = "\n".join(
+        f"1 Stk Fenster {1000 + i * 10}x1400" for i in range(26)
+    )
+    source_b = "\n".join(
+        f"2 Stk Fenster {1600 + i * 10}x1500" for i in range(24)
+    )
+    manifest = build_position_manifest(inbox_with(source_a, source_b))
+    assert len(manifest.positions) == 50
+    assert manifest.safe_to_sequence
+    ledger = PositionLedger(manifest)
+    assert ledger.active.position_id == "S01-P001"
+    first_prompt = position_prompt(ledger.active, index=0, total=50)
+    assert "1000" in first_prompt
+    assert "1010" not in first_prompt
+    assert "S01-P001" in first_prompt
+    assert "1/50" in first_prompt
+
+
+def test_scoped_value_guard_never_borrows_size_or_quantity_from_next_position():
+    manifest = build_position_manifest(
+        inbox_with("2 Stk Fenster 1500x1400\n3 Stk Fenster 1300x1200")
+    )
+    first, second = manifest.positions
+    assert validate_bound_position_entry(
+        first, field_name="width_1", proposed_value="1500",
+    )[0]
+    assert not validate_bound_position_entry(
+        first, field_name="width_1", proposed_value="1300",
+    )[0]
+    assert not validate_bound_position_entry(
+        first, field_name="quantity_input", proposed_value="3",
+    )[0]
+    assert validate_bound_position_entry(
+        second, field_name="quantity_input", proposed_value="3",
+    )[0]
+    assert not validate_bound_position_entry(
+        first, field_name="description_input", proposed_value="HST",
+    )[0]
+
+
+def test_partial_scan_and_unparsed_pdf_block_sequence_without_silent_skipping():
+    inbox = inbox_with("1 Stk Fenster 1500x1400")
+    inbox._sources.append(EnquirySource(
+        "scan-secret.pdf", "pdf", "", 5, False, True,
+    ))
+    manifest = build_position_manifest(inbox)
+    assert len(manifest.positions) == 1
+    assert manifest.incomplete_sources
+    assert manifest.unparsed_sources
+    assert not manifest.safe_to_sequence
+
+
+def test_missing_quantity_and_conflicting_dimensions_cannot_be_filled_by_guess():
+    manifest = build_position_manifest(
+        inbox_with("Fenster 1500x1400\nFenster 1500x1400\n1300x1200")
+    )
+    assert len(manifest.positions) == 2
+    assert not manifest.positions[0].ready_for_geometry
+    assert not manifest.positions[1].ready_for_geometry
+    assert not validate_bound_position_entry(
+        manifest.positions[0], field_name="quantity_input",
+        proposed_value="1",
+    )[0]
+
+
+def test_ledger_rejects_model_completion_and_wrong_position_or_document():
+    manifest = build_position_manifest(
+        inbox_with("2 Stk Fenster 1500x1400\n1 Stk Fenster 1300x1200")
+    )
+    ledger = PositionLedger(manifest)
+    first = manifest.positions[0]
+    checkpoint = PositionCheckpoint(
+        first.position_id, "OFR/101", 1500, 1400, 2,
+        independent_readback=True, construction_verified=True,
+        signature="uia:exact-window:unique-readback",
+    )
+    invalid = [
+        PositionCheckpoint(
+            first.position_id, "OFR/OTHER", 1500, 1400, 2,
+            True, True, "proof",
+        ),
+        PositionCheckpoint(
+            "S01-P002", "OFR/101", 1500, 1400, 2,
+            True, True, "proof",
+        ),
+        PositionCheckpoint(
+            first.position_id, "OFR/101", 1500, 1400, 2,
+            True, False, "proof",
+        ),
+        PositionCheckpoint(
+            first.position_id, "OFR/101", 1500, 1400, 2,
+            True, True, "",
+        ),
+    ]
+    for other in invalid:
+        with pytest.raises(ValueError):
+            ledger.complete_verified(other, pinned_document="OFR/101")
+    updated = ledger.complete_verified(checkpoint, pinned_document="OFR/101")
+    assert updated.active.position_id == "S01-P002"
+    assert len(updated.completed) == 1
+    assert ledger.active.position_id == "S01-P001"
+    with pytest.raises(ValueError):
+        updated.complete_verified(checkpoint, pinned_document="OFR/101")
+
+
+def test_consent_epoch_pins_multi_position_manifest_and_revocation_invalidates_mission():
+    inbox = inbox_with(
+        "2 Stk Fenster 1500x1400\n1 Stk Fenster 1200x1000"
+    )
+    manifest = build_position_manifest(inbox)
+    chat = MissionChat(
+        document_key="OFR/101", arbiter=LocalInputArbiter()
+    )
+    conversation = LiveMissionConversation(chat, None)
+    conversation.approve_document_context(
+        "Zatwierdzona analiza PDF", mission_evidence="PDF klienta",
+        position_manifest=manifest,
+    )
+    chat.user_message("Utwórz dwie konstrukcje z PDF")
+    coordinator = WorkMissionCoordinator(
+        chat,
+        document_snapshot_provider=conversation.document_access_snapshot,
+        position_manifest_provider=conversation.position_manifest_snapshot,
+    )
+    mission = coordinator.queue_current()
+    assert len(mission.position_ledger.manifest.positions) == 2
+    assert coordinator.is_current(mission)
+    inbox.set_text("1 Stk Fenster 3000x1000")
+    assert coordinator.is_current(mission)
+    conversation.revoke_document_context()
+    assert not coordinator.is_current(mission)
+    assert coordinator.transition(mission.task_id, WorkStage.READY) is None
+    conversation.close()
+
+
+def test_coordinator_rejects_unverified_next_position_and_accepts_trusted_readback():
+    manifest = build_position_manifest(
+        inbox_with("2 Stk Fenster 1500x1400\n1 Stk Fenster 1300x1200")
+    )
+    chat = MissionChat(document_key="OFR/101", arbiter=LocalInputArbiter())
+    chat.user_message("Wprowadź okna")
+    queue = WorkMissionCoordinator(
+        chat, document_snapshot_provider=lambda: (1, "PDF"),
+        position_manifest_provider=lambda: (1, manifest),
+    )
+    mission = queue.queue_current()
+    queue.transition(mission.task_id, WorkStage.PAUSED)
+    proof = PositionCheckpoint(
+        "S01-P001", "OFR/101", 1500, 1400, 2, True, True,
+        "native-readable-proof",
+    )
+    assert not queue.record_independent_position_readback(
+        task_id=mission.task_id, checkpoint=proof,
+        pinned_document="OFR/DIFFERENT",
+    )
+    assert queue.record_independent_position_readback(
+        task_id=mission.task_id, checkpoint=proof,
+        pinned_document="OFR/101",
+    )
+    assert queue.current().position_ledger.active.position_id == "S01-P002"
+    assert queue.current().stage == WorkStage.READY
