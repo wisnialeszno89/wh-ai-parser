@@ -248,3 +248,37 @@ def test_no_keyword_dispatch_and_no_find_windowhub_button():
                 "run_navimind_shared_control_center.py").read_text(encoding="utf-8")
     assert "read_only_tools=tool_registry" in launcher
     assert '"find_windowhub": ReadOnlyTool(' in launcher
+
+
+@pytest.mark.parametrize("shift,expected", [
+    (False, "send"),
+    (True, "newline"),
+])
+def test_enter_and_shift_enter_actions(shift, expected):
+    assert workspace.chat_key_action(shift=shift) == expected
+
+
+def test_chat_entry_key_handlers_without_tk_window():
+    class UI:
+        sent = 0
+        def _send(self):
+            self.sent += 1
+    ui = UI()
+    enter = type("Key", (), {"state": 0})()
+    shift_enter = type("Key", (), {"state": 0x0001})()
+    assert workspace.NaviMindMainWorkspace._keyboard_enter(ui, enter) == "break"
+    assert ui.sent == 1
+    assert workspace.NaviMindMainWorkspace._keyboard_enter(ui, shift_enter) is None
+    assert ui.sent == 1
+    assert workspace.NaviMindMainWorkspace._keyboard_newline(ui, shift_enter) is None
+
+
+def test_workspace_styles_and_keys_are_connected():
+    source = (Path(__file__).resolve().parents[1] / "tools" /
+              "navimind_main_workspace.py").read_text(encoding="utf-8")
+    assert 'self.entry.bind("<Return>", self._keyboard_enter)' in source
+    assert 'self.entry.bind("<Shift-Return>", self._keyboard_newline)' in source
+    assert 'self.entry.bind("<KP_Enter>", self._keyboard_enter)' in source
+    assert 'self.entry.bind("<Control-Return>", self._keyboard_send)' in source
+    assert "NaviMind" in source and "Inteligentny workspace" in source
+    assert "DOKUMENTY KLIENTA" in source
