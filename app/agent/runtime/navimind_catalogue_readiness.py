@@ -89,7 +89,18 @@ def inspect_catalogue_scene(scene: Any) -> CatalogueReadiness:
             )
             value = metadata.get("current_value")
             value_source = metadata.get("current_value_source")
-            readable = native and isinstance(value, str) and bool(value_source)
+            # For a ComboBox, window_text may be merely its caption,
+            # not the item selected from the producer's catalogue.
+            trusted_sources = {
+                "selected_text", "get_value", "value", "legacy_value",
+            }
+            readable = (
+                native and isinstance(value, str)
+                and bool(value.strip())
+                and value_source in trusted_sources
+                and value.strip().casefold() != (element.label or "").strip().casefold()
+                and not value.strip().casefold().startswith(("wybierz ", "select "))
+            )
             patterns = metadata.get("uia_native_pattern_support")
             if not isinstance(patterns, dict):
                 patterns = {}
