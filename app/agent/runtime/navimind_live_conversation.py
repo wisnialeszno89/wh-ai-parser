@@ -42,6 +42,25 @@ def explicit_local_enquiry_read_request(text: str) -> bool:
 
 
 
+def explicit_offer_plan_request(text: str) -> bool:
+    """Route only explicit offer/work requests to the safe local planner."""
+    if not isinstance(text, str):
+        return False
+    request = text.casefold().strip()
+    if any(denial in request for denial in (
+        "nie przygotowuj", "nie twórz", "nie tworz", "nie planuj",
+        "bez tworzenia oferty", "nie wykonuj zadania",
+    )):
+        return False
+    offer = any(term in request for term in ("ofert", "wycen", "kalkulacj"))
+    action = any(term in request for term in (
+        "stwórz", "stworz", "utwórz", "utworz", "przygotuj", "zrób",
+        "zrob", "wyceń", "wycen", "zaplanuj", "rozpocznij",
+    ))
+    return offer and action
+
+
+
 @dataclass(frozen=True)
 class ConversationStatus:
     active: bool
@@ -298,10 +317,10 @@ class LiveMissionConversation:
                 )
                 decision = parse_model_tool_decision(answer, self.read_only_tools)
             except (ValueError, ChatUnavailable):
-                return (
-                    "Wykonałem lokalny odczyt, ale nie udało się poprawnie "
-                    "opracować jego wyniku. Nie zmieniłem danych."
-                )
+                # A model formatting failure must not hide a safe host result.
+                # Return only the already verified bounded tool output;
+                # do not infer missing fields or chain further actions.
+                return result
         if decision.kind == "answer":
             return decision.answer
         return (
@@ -401,6 +420,18 @@ class LiveMissionConversation:
                                 humans[-1].text)):
                             decision = ModelToolDecision(
                                 kind="tool", tool="read_approved_enquiry",
+                            )
+                    if (decision is None and current
+                            and "prepare_windowhub_work" in self.read_only_tools):
+                        humans = [
+                            item for item in self.chat.snapshot().messages
+                            if item.role == MessageRole.HUMAN
+                            and item.mission_revision == revision
+                        ]
+                        if (humans and explicit_offer_plan_request(
+                                humans[-1].text)):
+                            decision = ModelToolDecision(
+                                kind="tool", tool="prepare_windowhub_work",
                             )
                     if decision is None:
                         answer = (
