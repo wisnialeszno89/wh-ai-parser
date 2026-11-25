@@ -87,3 +87,42 @@ def test_injected_inventory_requires_explicit_win32_verifier():
         inventory=[wizard()], provider=provider(),
     )
     assert scene is None and reason == "injected_inventory_verifier_missing"
+
+
+def test_bounded_catalogue_reader_does_not_scan_unlimited_mdi_tree():
+    from app.agent.perception.windowhub_ui_automation_provider import (
+        WindowHubUIAutomationProvider,
+    )
+    from app.agent.environment.environment_observation import (
+        EnvironmentObservation,
+    )
+    from app.agent.environment.environment_state import EnvironmentState
+
+    class Root:
+        def window_text(self):
+            return "Podstawowe parametry okna"
+        def descendants(self, depth=None):
+            assert depth == 5
+            return tuple(range(5))
+    class Desktop:
+        def window(self, *, handle):
+            assert handle == 55
+            return NS(wrapper_object=lambda: Root())
+
+    class Probe(WindowHubUIAutomationProvider):
+        def _collect_label_candidates(self, *args, **kwargs):
+            return ()
+        def _to_screen_element(self, *, item, **kwargs):
+            return ScreenElement(kind="edit", label=str(item))
+
+    inspector = Probe(desktop_factory=lambda: Desktop())
+    obs = EnvironmentObservation(
+        state=EnvironmentState(
+            active_application="Okna.exe",
+            active_window_title="Podstawowe parametry okna",
+        ), metadata={"window_handle": 55},
+    )
+    assert inspector.perceive_catalogue_bounded(obs, max_descendants=4) == ()
+    assert len(inspector.perceive_catalogue_bounded(
+        obs, max_descendants=5,
+    )) == 5
