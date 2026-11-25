@@ -39,6 +39,7 @@ class LiveMissionConversation:
         self.runtime_status_provider = runtime_status_provider
         self._approved_document_context: str | None = None
         self._pending_document_approval: tuple[int, int] | None = None
+        self._privacy_history_cutoff = 0
         self._pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="navimind-chat")
         self._lock = RLock()
         self._running: Future | None = None
@@ -62,6 +63,14 @@ class LiveMissionConversation:
         with self._lock:
             self._approved_document_context = None
             self._pending_document_approval = None
+            # Prior chat turns may contain summaries of sensitive customer
+            # data. Do not resend those turns to the Gateway after revocation.
+            # This cannot retract already submitted requests at the provider.
+            messages = self.chat.snapshot().messages
+            if messages:
+                self._privacy_history_cutoff = max(
+                    self._privacy_history_cutoff, messages[-1].message_id
+                )
 
     def document_context_active(self) -> bool:
         with self._lock:
@@ -111,6 +120,16 @@ class LiveMissionConversation:
                 self._last_error = "stale_or_nonhuman_chat_message"
                 return False
             self._last_error = None
+            # Exclude older chat messages after a PDF-access revocation;
+            # retaining those could re-share prior customer data in an
+            # apparently unrelated user message.
+            retained = tuple(
+                msg for msg in snapshot.messages
+                if msg.message_id > self._privacy_history_cutoff
+            )
+            if len(retained) != len(snapshot.messages):
+                from dataclasses import replace
+                snapshot = replace(snapshot, messages=retained)
             latest = (snapshot.mission_revision, transcript_for_chat(snapshot))
             if self._busy:
                 # Replace any older pending turn instead of queuing a flood
