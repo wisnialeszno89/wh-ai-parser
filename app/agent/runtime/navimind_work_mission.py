@@ -40,6 +40,15 @@ class WorkEvidence:
 
 
 @dataclass(frozen=True)
+class PositionFieldReceipt:
+    """A single fresh readback; NOT proof that a full position is finished."""
+    position_id: str
+    field_name: str
+    value: str
+    signature: str
+
+
+@dataclass(frozen=True)
 class WorkMission:
     task_id: str
     revision: int
@@ -57,6 +66,7 @@ class WorkMission:
     document_access_version: int = 0
     approved_document_evidence: str = ""
     position_ledger: PositionLedger | None = None
+    field_receipts: tuple[PositionFieldReceipt, ...] = ()
 
 
 class WorkMissionCoordinator:
@@ -171,6 +181,7 @@ class WorkMissionCoordinator:
         count_step: bool = False,
         signature: str = "", observed_stage: str = "",
         action: str = "", after_stage: str = "",
+        field_receipt: PositionFieldReceipt | None = None,
     ) -> WorkMission | None:
         with self._lock:
             item = self._mission
@@ -181,9 +192,35 @@ class WorkMissionCoordinator:
                 stage = WorkStage.REVIEW
                 reason = "mission_action_budget_exhausted"
                 count_step = False
+            receipts = item.field_receipts
+            if field_receipt is not None:
+                if (not count_step or item.position_ledger is None
+                        or item.position_ledger.active is None
+                        or field_receipt.position_id
+                            != item.position_ledger.active.position_id
+                        or field_receipt.field_name not in {
+                            "width_1", "height_1", "quantity_input"}
+                        or not field_receipt.signature
+                        or not field_receipt.value):
+                    return None
+                from app.agent.runtime.navimind_position_ledger import (
+                    validate_bound_position_entry,
+                )
+                verified, _ = validate_bound_position_entry(
+                    item.position_ledger.active,
+                    field_name=field_receipt.field_name,
+                    proposed_value=field_receipt.value,
+                )
+                if not verified:
+                    return None
+                receipts = tuple(
+                    receipt for receipt in receipts
+                    if receipt.field_name != field_receipt.field_name
+                ) + (field_receipt,)
             from dataclasses import replace
             self._mission = replace(
                 item, stage=stage,
+                field_receipts=receipts,
                 reason=reason[:160],
                 suggested_action=suggested_action[:80],
                 cycles=item.cycles + (1 if count_step else 0),
@@ -244,6 +281,7 @@ class WorkMissionCoordinator:
                 ),
                 last_verified_signature="", last_verified_stage="",
                 suggested_action="", cycles=0, evidence=(),
+                field_receipts=(),
             )
             return True
 
@@ -321,6 +359,7 @@ class WorkStepResult:
     signature: str = ""
     observed_stage: str = ""
     new_stage: str = ""
+    field_receipt: PositionFieldReceipt | None = None
 
 
 def bounded_v2_mission_goal(mission: WorkMission) -> str:
@@ -713,6 +752,7 @@ def plan_or_execute_windowhub_step(
     except Exception:
         # An unverified action may have physically occurred. No blind retry.
         return WorkStepResult("review", "v2_input_blocked_or_postcondition_unverified", name)
+    field_receipt = None
     try:
         after_scene = loop.observe_scene()
         new_stage = stage_of(after_scene) or "unknown"
@@ -740,6 +780,13 @@ def plan_or_execute_windowhub_step(
                     "review", readback.reason,
                     name, False,
                 )
+            if ledger is not None:
+                field_receipt = PositionFieldReceipt(
+                    position_id=ledger.active.position_id,
+                    field_name=verified_field_name,
+                    value=action.action.value,
+                    signature=signature,
+                )
         if not host.note_verified_workflow_step(
                 after_scene, revision=mission.revision):
             return WorkStepResult(
@@ -754,6 +801,7 @@ def plan_or_execute_windowhub_step(
     return WorkStepResult(
         "action", "one_native_step_verified_reobserve_next",
         name, True, signature, stage, new_stage,
+        field_receipt,
     )
 
 
@@ -905,6 +953,7 @@ class BackgroundWorkMission:
                 signature=result.signature,
                 observed_stage=result.observed_stage,
                 action=result.action, after_stage=result.new_stage,
+                field_receipt=result.field_receipt,
             )
             if updated is not None and self.callback is not None:
                 self.callback(updated, result)
