@@ -279,6 +279,10 @@ class LiveMissionConversation:
                                 current = (
                                     not self._closed
                                     and self.chat.snapshot().mission_revision == revision
+                                    and (
+                                        not tool.requires_document_consent
+                                        or self._approved_document_context is not None
+                                    )
                                 )
                             if not current:
                                 return
