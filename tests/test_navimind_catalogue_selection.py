@@ -112,3 +112,81 @@ def test_postselection_value_must_match_not_merely_a_changed_scene():
     assert not verify_exact_catalogue_readback(
         scene(stage="Parametry szklenia", value="Weiss"), pick,
     )[0]
+
+
+def catalogue_scene(title, field_label, field_id, option_label,
+                    selected="", *, same_parent=True):
+    combo = ScreenElement(
+        kind="combobox", label=field_label, metadata={
+            "source": "windowhub_ui_automation",
+            "uia_visible": True, "uia_enabled": True,
+            "uia_runtime_id": "target-combo", "automation_id": field_id,
+            "current_value": selected,
+            "current_value_source": "selected_text",
+        },
+    )
+    choice = ScreenElement(
+        kind="listitem", label=option_label, metadata={
+            "source": "windowhub_ui_automation",
+            "uia_visible": True, "uia_enabled": True,
+            "uia_runtime_id": "selected-option",
+            "uia_ancestor_structure": (
+                {"control_type": "combobox", "automation_id": field_id,
+                 "runtime_id": "target-combo" if same_parent else "other"}
+            ,),
+        },
+    )
+    return ScreenScene(
+        observation=EnvironmentObservation(
+            state=EnvironmentState(
+                active_application="Okna.exe", active_window_title=title,
+            ),
+        ), elements=(combo, choice),
+    )
+
+
+def test_source_explicit_glazing_exact_dropdown_can_be_prepared():
+    source = NS(
+        product_type="window", position_id="S01-P002",
+        catalogue_requirements=(("glazing", "2-fach"),),
+    )
+    native = catalogue_scene(
+        "Parametry szklenia", "Wybierz typ pakietu szybowego",
+        "1033", "2-fach", selected="3-fach",
+    )
+    pick, reason = prepare_exact_catalogue_pick(
+        native, source,
+        NS(role="listitem", label="2-fach", uia_runtime_id="selected-option"),
+    )
+    assert pick is not None, reason
+    assert pick.field_name == "glazing_package"
+    after = catalogue_scene(
+        "Parametry szklenia", "Wybierz typ pakietu szybowego",
+        "1033", "2-fach", selected="2-fach",
+    )
+    assert verify_exact_catalogue_readback(after, pick)[0]
+
+
+def test_unconfirmed_hardware_list_and_nearly_matching_option_are_blocked():
+    source = NS(
+        product_type="window", position_id="S01-P002",
+        catalogue_requirements=(("hardware", "activPilot"),),
+    )
+    scene_wrong = catalogue_scene(
+        "Parametry okuć", "Wybierz profil", "1012",
+        "activPilot Select", same_parent=True,
+    )
+    assert prepare_exact_catalogue_pick(
+        scene_wrong, source,
+        NS(role="listitem", label="activPilot Select",
+           uia_runtime_id="selected-option"),
+    )[0] is None
+    scene_unattributed = catalogue_scene(
+        "Parametry okuć", "Wybierz profil", "1012",
+        "activPilot", same_parent=False,
+    )
+    assert prepare_exact_catalogue_pick(
+        scene_unattributed, source,
+        NS(role="listitem", label="activPilot",
+           uia_runtime_id="selected-option"),
+    )[0] is None
