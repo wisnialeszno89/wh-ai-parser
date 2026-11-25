@@ -48,7 +48,7 @@ def chat_intake_decision(text: str, *, max_chars: int = MissionChat.MAX_MESSAGE_
     return "chat"
 
 from app.agent.runtime.navimind_live_conversation import LiveMissionConversation
-from tools.run_navimind_control_panel import BG, CARD, FG, MUTED, PURPLE, GOLD, STROKE
+from tools.run_navimind_control_panel import BG, CARD, FG, MUTED, PURPLE, GOLD, STROKE, SURFACE, GREEN
 
 
 GATEWAY_ERROR_LABELS = {
@@ -77,6 +77,11 @@ def friendly_chat_error(code: str | None) -> str:
 def chat_view_near_bottom(last_fraction: float, *, tolerance: float = 0.03) -> bool:
     """Follow incoming messages only when the operator is already near bottom."""
     return float(last_fraction) >= 1.0 - tolerance
+
+
+def chat_key_action(*, shift: bool, control: bool = False) -> str:
+    """One-line submission, with Shift+Enter reserved for multiline drafts."""
+    return "newline" if shift else "send"
 
 
 def scroll_history_lines(delta: int) -> int:
@@ -139,25 +144,34 @@ class NaviMindMainWorkspace(tk.Frame):
         )
 
     def _build(self):
+        header = tk.Frame(self, bg=BG)
+        header.pack(fill="x", padx=24, pady=(20, 13))
+        title_column = tk.Frame(header, bg=BG)
+        title_column.pack(side="left", fill="x", expand=True)
         tk.Label(
-            self, text="NaviMind • Workspace", bg=BG, fg=FG,
-            font=("Segoe UI Semibold", 17), anchor="w",
-        ).pack(fill="x", padx=18, pady=(15, 2))
+            title_column, text="NaviMind", bg=BG, fg=FG,
+            font=("Segoe UI Semibold", 22), anchor="w",
+        ).pack(fill="x")
         self._label(
-            self, "Rozmowa i dokumenty klienta w jednym miejscu • bez automatycznej edycji WindowHub",
-            size=9, color=MUTED,
-        ).pack(fill="x", padx=18, pady=(0, 10))
+            title_column, "Inteligentny workspace  /  Rozmowa i zapytania",
+            size=10, color=MUTED,
+        ).pack(fill="x", pady=(2, 0))
+        tk.Label(
+            header, text="  ●  LOKALNY HOST  ", bg=SURFACE,
+            fg=GREEN, font=("Segoe UI Semibold", 9), padx=10,
+            pady=9,
+        ).pack(side="right")
 
         top = tk.Frame(self, bg=CARD)
-        top.pack(fill="both", expand=True, padx=18, pady=(0, 10))
+        top.pack(fill="both", expand=True, padx=24, pady=(0, 12))
         chat_heading = tk.Frame(top, bg=CARD)
-        chat_heading.pack(fill="x", padx=12, pady=(9, 0))
-        self._label(chat_heading, "ROZMOWA Z AGENTEM", size=9, color=GOLD, bold=True).pack(side="left")
+        chat_heading.pack(fill="x", padx=16, pady=(15, 7))
+        self._label(chat_heading, "ROZMOWA", size=11, color=FG, bold=True).pack(side="left")
         active = self.conversation is not None and self.conversation.status().provider_connected
         self.provider_indicator = self._label(
             chat_heading,
             "MODEL AI: PODŁĄCZONY" if active else "MODEL AI: NIEPODŁĄCZONY",
-            size=9, color="#93D9BE" if active else GOLD,
+            size=9, color=GREEN if active else GOLD,
         )
         self.provider_indicator.pack(side="right")
         history_box = tk.Frame(top, bg=CARD)
@@ -168,8 +182,8 @@ class NaviMindMainWorkspace(tk.Frame):
         self.history_scrollbar.pack(side="right", fill="y")
         self.history = tk.Text(
             history_box, wrap="word", bg=CARD, fg=FG, insertbackground=FG,
-            relief="flat", font=("Segoe UI", 10), state="disabled",
-            padx=12, pady=8, height=8,
+            relief="flat", font=("Segoe UI", 11), state="disabled",
+            padx=16, pady=12, height=8,
             yscrollcommand=self.history_scrollbar.set,
             takefocus=True,
         )
@@ -189,26 +203,29 @@ class NaviMindMainWorkspace(tk.Frame):
         ).pack(side="left")
         tk.Button(
             history_actions, text="↓ Najnowsze", command=self._history_to_bottom,
-            fg=FG, bg="#29253A", relief="flat", padx=10, pady=3,
+            fg=FG, bg=SURFACE, relief="flat", padx=12, pady=5,
         ).pack(side="right")
 
         self._label(
-            self, "Napisz lub podyktuj polecenie (Ctrl+Enter — wyślij)",
+            self, "TWOJE POLECENIE  ·  Enter wyślij  ·  Shift+Enter nowa linia",
             size=9, color=MUTED,
-        ).pack(fill="x", padx=18)
+        ).pack(fill="x", padx=24)
         self.entry = tk.Text(
-            self, wrap="word", bg="#252535", fg=FG, height=3,
-            insertbackground=FG, font=("Segoe UI", 10), relief="flat",
-            padx=10, pady=7,
+            self, wrap="word", bg=SURFACE, fg=FG, height=3,
+            insertbackground=FG, font=("Segoe UI", 11), relief="flat",
+            padx=14, pady=11,
         )
-        self.entry.pack(fill="x", padx=18, pady=(5, 7))
+        self.entry.pack(fill="x", padx=24, pady=(7, 10))
+        self.entry.bind("<Return>", self._keyboard_enter)
+        self.entry.bind("<KP_Enter>", self._keyboard_enter)
+        self.entry.bind("<Shift-Return>", self._keyboard_newline)
         self.entry.bind("<Control-Return>", self._keyboard_send)
 
         buttons = tk.Frame(self, bg=BG)
-        buttons.pack(fill="x", padx=18, pady=(0, 8))
+        buttons.pack(fill="x", padx=24, pady=(0, 14))
         self.mic = tk.Button(
             buttons, text="🎙 Dyktuj (Win+H)", command=self._dictate,
-            fg=FG, bg="#29253A", relief="flat",
+            fg=FG, bg=SURFACE, relief="flat",
             font=("Segoe UI Semibold", 10), padx=10, pady=7,
         )
         self.mic.pack(side="left")
@@ -217,24 +234,24 @@ class NaviMindMainWorkspace(tk.Frame):
         tk.Button(
             buttons, text="Wyślij", command=self._send,
             fg="#151020", bg=PURPLE, relief="flat",
-            font=("Segoe UI Semibold", 10), padx=18, pady=7,
+            font=("Segoe UI Semibold", 11), padx=25, pady=9,
         ).pack(side="right")
 
-        tk.Frame(self, height=1, bg=STROKE).pack(fill="x", padx=18, pady=(2, 7))
+        tk.Frame(self, height=1, bg=STROKE).pack(fill="x", padx=24, pady=(4, 12))
         heading = tk.Frame(self, bg=BG)
-        heading.pack(fill="x", padx=18)
+        heading.pack(fill="x", padx=24)
         self._label(
-            heading, "ZAPYTANIE KLIENTA / PDF", size=9, color=GOLD, bold=True,
+            heading, "DOKUMENTY KLIENTA", size=11, color=FG, bold=True,
         ).pack(side="left")
         self.source_status = self._label(heading, "Brak dokumentów", size=9, color=MUTED)
         self.source_status.pack(side="right")
         self.enquiry_editor = tk.Text(
-            self, height=5, wrap="word", bg=CARD, fg=FG, insertbackground=FG,
-            relief="flat", font=("Segoe UI", 10), padx=10, pady=8,
+            self, height=4, wrap="word", bg=CARD, fg=FG, insertbackground=FG,
+            relief="flat", font=("Segoe UI", 10), padx=14, pady=10,
         )
-        self.enquiry_editor.pack(fill="x", padx=18, pady=(8, 6))
+        self.enquiry_editor.pack(fill="x", padx=24, pady=(10, 8))
         actions = tk.Frame(self, bg=BG)
-        actions.pack(fill="x", padx=18)
+        actions.pack(fill="x", padx=24)
         tk.Button(
             actions, text="Dodaj PDF", command=self._attach_pdf,
             bg="#29253A", fg=FG, relief="flat", padx=12, pady=6,
@@ -254,7 +271,7 @@ class NaviMindMainWorkspace(tk.Frame):
             else "Model rozmowny połączony. Załączone dokumenty nie są wysyłane automatycznie.",
             size=9, color=MUTED,
         )
-        self.notice.pack(fill="x", padx=18, pady=(8, 12))
+        self.notice.pack(fill="x", padx=24, pady=(11, 15))
         self.entry.focus_set()
 
     def _history_to_bottom(self):
@@ -289,6 +306,16 @@ class NaviMindMainWorkspace(tk.Frame):
         self.history.configure(state="disabled")
         if stay_at_bottom:
             self._history_to_bottom()
+
+    def _keyboard_newline(self, event):
+        # Native Tk Text inserts the newline for Shift+Return.
+        return None
+
+    def _keyboard_enter(self, event):
+        if chat_key_action(shift=bool(event.state & 0x0001)) == "newline":
+            return None
+        self._send()
+        return "break"
 
     def _keyboard_send(self, event):
         self._send()
