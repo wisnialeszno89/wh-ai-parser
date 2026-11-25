@@ -261,7 +261,7 @@ def test_host_tool_registry_contains_real_document_parser_and_consent():
     assert '"read_approved_enquiry": ReadOnlyTool(' in host
     assert "requires_document_consent=True" in host
     assert "synthesize_result=True" in host
-    assert "summarize_approved_enquiry(" in host
+    assert "summarize_full_approved_inbox(" in host
     assert "PDF_COUNT=" in host
     assert "runtime_status_provider=trusted_local_capability_state" in host
     assert "NAVIMIND_V2_EXECUTOR_CONNECTED=False" in host
@@ -294,3 +294,49 @@ def test_pdf_is_not_sent_when_only_status_tool_is_called():
     assert all("456789" not in repr(request) for request in provider.calls)
     assert "PDF_COUNT=0" in chat.snapshot().messages[-1].text
     engine.close()
+
+
+def test_approved_inbox_parser_covers_later_pdf_without_leaking_filename():
+    from app.agent.runtime.navimind_enquiry_evidence_bridge import (
+        summarize_full_approved_inbox,
+    )
+    from app.agent.runtime.navimind_enquiry_inbox import EnquirySource
+    inbox = LocalEnquiryInbox()
+    inbox.set_text("Long initial source " + "x " * 6000)
+    inbox._sources = [
+        EnquirySource("secret-one.pdf", "pdf", "Unrelated note " * 2500,
+                      3, False, False),
+        EnquirySource("secret-two.pdf", "pdf",
+                      "Fenster 990 x 920 mm\nProfil: VEKA Softline 70 AD",
+                      2, False, False),
+    ]
+    assert "Brak zgody" in summarize_full_approved_inbox(inbox, approved=False)
+    report = summarize_full_approved_inbox(inbox, approved=True)
+    assert "PDF 1" in report and "PDF 2" in report
+    assert "990x920 mm" in report
+    assert "secret-one.pdf" not in report
+    assert "secret-two.pdf" not in report
+    assert len(report) <= 2800
+
+
+def test_clipboard_import_keeps_data_local_and_revokes_existing_consent():
+    class Editor:
+        value = ""
+        def get(self, *_): return self.value
+        def delete(self, *_): self.value = ""
+        def insert(self, *_args): self.value = _args[1]
+    class Notice:
+        def configure(self, **_kwargs): pass
+    class Conversation:
+        revoked = False
+        def revoke_document_context(self): self.revoked = True
+    panel = workspace.NaviMindMainWorkspace.__new__(workspace.NaviMindMainWorkspace)
+    panel.enquiry = LocalEnquiryInbox()
+    panel.enquiry_editor = Editor()
+    panel.notice = Notice()
+    panel.conversation = Conversation()
+    panel._update_sources = lambda: None
+    panel.clipboard_get = lambda: "Fenster 1200 x 1400 mm"
+    panel._paste_windows_clipboard()
+    assert panel.enquiry.pasted_text == "Fenster 1200 x 1400 mm"
+    assert panel.conversation.revoked is True
