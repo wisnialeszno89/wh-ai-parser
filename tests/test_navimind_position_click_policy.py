@@ -13,7 +13,7 @@ def target(label, role="button", automation_id=None):
 
 def proof(field_name, value):
     return PositionFieldReceipt(
-        "S01-P001", field_name, value, "verified-native-field-state",
+        "S01-P001", field_name, value, "verified-native-field-state", "rid-"+field_name,
     )
 
 
