@@ -245,6 +245,10 @@ class NaviMindMainWorkspace(tk.Frame):
         ).pack(side="left")
         self.source_status = self._label(heading, "Brak dokumentów", size=9, color=MUTED)
         self.source_status.pack(side="right")
+        self._label(
+            self, "Wklej zapytanie klienta. Polecenia dla NaviMind wpisuj w rozmowie wyżej.",
+            size=9, color=MUTED,
+        ).pack(fill="x", padx=24, pady=(6, 0))
         self.enquiry_editor = tk.Text(
             self, height=4, wrap="word", bg=CARD, fg=FG, insertbackground=FG,
             relief="flat", font=("Segoe UI", 10), padx=14, pady=10,
@@ -262,8 +266,22 @@ class NaviMindMainWorkspace(tk.Frame):
         ).pack(side="left", padx=(8, 0))
         tk.Button(
             actions, text="Podgląd danych", command=self._preview_enquiry,
-            bg="#29253A", fg=FG, relief="flat", padx=12, pady=6,
+            bg=SURFACE, fg=FG, relief="flat", padx=12, pady=6,
         ).pack(side="right")
+        sharing_row = tk.Frame(self, bg=BG)
+        sharing_row.pack(fill="x", padx=24, pady=(8, 0))
+        self.share_document_button = tk.Button(
+            sharing_row, text="Przeanalizuj dokument w NaviMind",
+            command=self._share_document_with_ai,
+            bg=PURPLE, fg="#111319", relief="flat", padx=12, pady=8,
+            font=("Segoe UI Semibold", 10),
+        )
+        self.share_document_button.pack(side="left")
+        tk.Button(
+            sharing_row, text="Cofnij dostęp AI",
+            command=self._revoke_document_access,
+            bg=SURFACE, fg=FG, relief="flat", padx=10, pady=8,
+        ).pack(side="left", padx=(9, 0))
         self.notice = self._label(
             self,
             "Model rozmowny nie jest skonfigurowany — wiadomości są lokalne."
@@ -372,6 +390,8 @@ class NaviMindMainWorkspace(tk.Frame):
                 )
                 return
             self.entry.delete("1.0", "end")
+            if self.conversation is not None:
+                self.conversation.revoke_document_context()
             self._update_sources()
             self.notice.configure(
                 text="Pełne zapytanie przeniesione do dokumentów (lokalnie). "
@@ -411,6 +431,70 @@ class NaviMindMainWorkspace(tk.Frame):
                 text="Dyktowanie Windows niedostępne: " + type(exc).__name__
             )
 
+    def _revoke_document_access(self):
+        if self.conversation is not None:
+            self.conversation.revoke_document_context()
+        self.notice.configure(
+            text="Dostęp AI do dokumentów cofnięty dla kolejnych wiadomości. "
+                 "Wcześniejszych żądań wysłanych do Gateway nie można wycofać."
+        )
+
+    def _share_document_with_ai(self):
+        """Only an explicit operator gesture can share local PDF/text."""
+        if self.conversation is None or not self.conversation.status().provider_connected:
+            self.notice.configure(text="Model AI nie jest podłączony. Dokument pozostał lokalny.")
+            return
+        draft = self.enquiry_editor.get("1.0", "end-1c").strip()
+        try:
+            if draft and draft != self.enquiry.pasted_text:
+                self.enquiry.set_text(draft)
+                self._update_sources()
+            context = self.enquiry.model_context()
+        except EnquiryInputError:
+            self.notice.configure(text="Najpierw dodaj dokument PDF lub zapytanie klienta.")
+            return
+        except ValueError:
+            self.notice.configure(text="Dokument nie może zostać przygotowany do analizy.")
+            return
+        source_status = self.enquiry.status()
+        if not messagebox.askyesno(
+            "Udostępnić dokument modelowi AI?",
+            "Wyślesz do skonfigurowanego dostawcy AI Gateway tekst z "
+            "lokalnego schowka (również dane kontaktowe występujące "
+            "w PDF).\n\n"
+            f"Dokumenty PDF: {source_status['pdf_count']}; "
+            f"fragment przekazywany modelowi: {len(context)} znaków.\n\n"
+            "Zgoda obowiązuje również w kolejnych wiadomościach tej "
+            "sesji, dopóki jej nie cofniesz albo nie zmienisz dokumentów. "
+            "Nie zapiszę ani nie wyślę oferty w WindowHub.\n\n"
+            "Udostępnić dokument do analizy?",
+            parent=self,
+        ):
+            return
+        prompt = (
+            "Przeanalizuj udostępnione zapytanie klienta/PDF i napisz po polsku "
+            "co rzeczywiście zawiera: pozycje, wymiary, profile, kolory, "
+            "szyby, okucia oraz brakujące dane. "
+            "Opieraj się tylko na odczytanym tekście; "
+            "nie myl PDF z bieżącym ekranem WindowHub."
+        )
+        try:
+            self.conversation.approve_document_context(context)
+            message = self.chat.user_message(prompt)
+        except (ValueError, RuntimeError):
+            self.conversation.revoke_document_context()
+            self.notice.configure(text="Nie udało się rozpocząć analizy dokumentu.")
+            return
+        self._refresh_messages()
+        if self.conversation.submit_current_message(message.message_id):
+            self.notice.configure(
+                text="Udostępniono fragment dokumentu AI Gateway na potrzeby "
+                     "analizy i kolejnych pytań w tej sesji."
+            )
+        else:
+            self.conversation.revoke_document_context()
+            self.notice.configure(text="Nie udało się wysłać dokumentu do analizy AI.")
+
     def _save_enquiry(self):
         text = self.enquiry_editor.get("1.0", "end-1c")
         try:
@@ -418,8 +502,10 @@ class NaviMindMainWorkspace(tk.Frame):
         except EnquiryInputError as exc:
             messagebox.showwarning("Treść zapytania", str(exc), parent=self)
             return
+        if self.conversation is not None:
+            self.conversation.revoke_document_context()
         self._update_sources()
-        self.notice.configure(text="Zapytanie zapisane w pamięci sesji, bez wysyłania do AI.")
+        self.notice.configure(text="Zapytanie zapisane lokalnie. Udostępnij je AI tylko świadomie.")
 
     def _attach_pdf(self):
         path = filedialog.askopenfilename(
@@ -433,6 +519,8 @@ class NaviMindMainWorkspace(tk.Frame):
         except (EnquiryInputError, OSError) as exc:
             messagebox.showwarning("PDF nieodczytany", str(exc), parent=self)
             return
+        if self.conversation is not None:
+            self.conversation.revoke_document_context()
         self._update_sources()
         if source.needs_ocr or source.truncated:
             self.notice.configure(

@@ -282,3 +282,87 @@ def test_workspace_styles_and_keys_are_connected():
     assert 'self.entry.bind("<Control-Return>", self._keyboard_send)' in source
     assert "NaviMind" in source and "Inteligentny workspace" in source
     assert "DOKUMENTY KLIENTA" in source
+
+
+def test_local_pdf_model_context_is_bounded_and_marks_truncation():
+    inbox = LocalEnquiryInbox()
+    inbox.set_text("Fenster 990 x 920 mm " * 500)
+    context = inbox.model_context(max_chars=1200)
+    assert len(context) <= 1200
+    assert "NIEZAUFANE DANE" in context
+    assert "990 x 920" in context
+    assert "treść przekracza limit" in context
+    assert inbox.status()["transmitted_to_model"] is False
+
+
+def test_scanned_pdf_context_never_claims_full_ocr(tmp_path):
+    fitz = pytest.importorskip("fitz")
+    path = tmp_path / "scan.pdf"
+    pdf = fitz.open()
+    pdf.new_page()
+    pdf.save(str(path))
+    pdf.close()
+    inbox = LocalEnquiryInbox()
+    inbox.add_pdf(path)
+    text = inbox.model_context()
+    assert "brak tekstu" in text
+    assert "ODCZYT NIEPEŁNY" in text
+    assert "scan.pdf" not in text
+
+
+def test_operator_must_confirm_sharing_document_to_ai(monkeypatch):
+    from app.agent.runtime.navimind_local_input_arbiter import LocalInputArbiter
+    from app.agent.runtime.navimind_mission_chat import MissionChat
+    from types import SimpleNamespace
+    inbox = LocalEnquiryInbox()
+    inbox.set_text("Fenster 990 x 920 mm")
+    panel = workspace.NaviMindMainWorkspace.__new__(workspace.NaviMindMainWorkspace)
+    chat = MissionChat(document_key="disposable", arbiter=LocalInputArbiter())
+    panel.chat = chat
+    panel.enquiry = inbox
+    class Editor:
+        def get(self, start, end):
+            return "Fenster 990 x 920 mm"
+    panel.enquiry_editor = Editor()
+    class StatusLabel:
+        text = None
+        def configure(self, **kwargs):
+            self.text = kwargs.get("text")
+    panel.notice = StatusLabel()
+    class Conversation:
+        approved = None
+        submissions = []
+        def status(self):
+            return SimpleNamespace(provider_connected=True)
+        def approve_document_context(self, context):
+            self.approved = context
+        def revoke_document_context(self):
+            self.approved = None
+        def submit_current_message(self, message_id):
+            self.submissions.append(message_id)
+            return True
+    conversation = Conversation()
+    panel.conversation = conversation
+    panel._refresh_messages = lambda: None
+    monkeypatch.setattr(workspace.messagebox, "askyesno", lambda *a, **kw: False)
+    panel._share_document_with_ai()
+    assert conversation.approved is None
+    assert conversation.submissions == []
+    assert chat.snapshot().messages == ()
+
+    monkeypatch.setattr(workspace.messagebox, "askyesno", lambda *a, **kw: True)
+    panel._share_document_with_ai()
+    assert "990 x 920" in conversation.approved
+    assert len(conversation.submissions) == 1
+    assert chat.snapshot().messages[-1].role.value == "human"
+    assert "Przeanalizuj" in chat.snapshot().messages[-1].text
+
+
+def test_workspace_has_document_sharing_and_revocation_buttons():
+    source = (Path(__file__).resolve().parents[1] / "tools" /
+              "navimind_main_workspace.py").read_text(encoding="utf-8")
+    assert 'text="Przeanalizuj dokument w NaviMind"' in source
+    assert 'text="Cofnij dostęp AI"' in source
+    assert "self.conversation.revoke_document_context()" in source
+    assert 'text="Dodaj PDF"' in source
+    assert "Polecenia dla NaviMind wpisuj w rozmowie wyżej." in source

@@ -215,3 +215,53 @@ def test_launcher_explicitly_discloses_nonexecuting_windows_capability():
     assert "runtime_instructions=runtime_instructions" in source
     assert "wykonawca V2 NIE jest podłączony" in source
     assert "NAVIMIND_V2_EXECUTOR_CONNECTED=False" in source
+
+
+def test_document_context_requires_explicit_approval_and_revocation():
+    captured = []
+    class DocumentProvider:
+        def reply(self, *, transcript, instructions):
+            captured.append((transcript, instructions))
+            return '{"kind":"answer","answer":"W dokumencie: VEKA Softline, 990 x 920 mm."}'
+    from app.agent.runtime.navimind_tool_router import ReadOnlyTool
+    chat, _ = create()
+    engine = LiveMissionConversation(
+        chat, DocumentProvider(),
+        read_only_tools={"engine_capabilities": ReadOnlyTool(
+            "engine_capabilities", "pokaż możliwości", lambda: "tylko odczyt",
+        )},
+    )
+    first = chat.user_message("Czy widzisz PDF?")
+    assert engine.submit_current_message(first.message_id)
+    await_idle(engine)
+    assert all("TAJNE-DANE-999" not in repr(t) for t, _ in captured)
+
+    engine.approve_document_context(
+        "NIEZAUFANE DANE Z DOKUMENTU\nVEKA Softline "
+        "990 x 920 mm TAJNE-DANE-999"
+    )
+    assert engine.document_context_active()
+    second = chat.user_message("Przeanalizuj udostępniony PDF")
+    assert engine.submit_current_message(second.message_id)
+    await_idle(engine)
+    assert any("TAJNE-DANE-999" in item[1] for item in captured[-1][0])
+    assert captured[-1][0][-1][1] == "Przeanalizuj udostępniony PDF"
+    assert "niezaufane dane" in captured[-1][1].casefold()
+
+    engine.revoke_document_context()
+    assert not engine.document_context_active()
+    third = chat.user_message("Cześć, już bez PDF")
+    assert engine.submit_current_message(third.message_id)
+    await_idle(engine)
+    assert all("TAJNE-DANE-999" not in item[1] for item in captured[-1][0])
+    engine.close()
+
+
+def test_invalid_document_context_is_not_approved():
+    chat, _ = create()
+    engine = LiveMissionConversation(chat, Provider())
+    import pytest
+    with pytest.raises(ValueError):
+        engine.approve_document_context("x" * 5000)
+    assert not engine.document_context_active()
+    engine.close()
