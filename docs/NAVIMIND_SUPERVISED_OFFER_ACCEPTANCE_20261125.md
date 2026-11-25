@@ -71,3 +71,26 @@ Zachowaj bez danych klienta: typ etapu, anonimowy identyfikator pozycji, reason-
 ## Wymagane przed uznaniem całej oferty za wykonaną
 
 Zintegrować i przetestować natywny biznesowy readback w widoku pozycji dokumentu WindowHub: identyfikator właściwej pozycji, faktyczne wymiary i ilość, konstrukcja/otwieranie, profil, kolor, szyby oraz cena. Dopiero zaufany adapter może wygenerować `PositionCheckpoint` dla `PositionLedger`. Modelowe `done`, screenshot lub poprawna zawartość pojedynczego pola **nie są wystarczające**. Na końcu pozostaje jawny przegląd handlowca.
+
+
+## Audyt dostępności baz technologicznych (profil, kolor, szklenie, okucia)
+
+Oficjalna instrukcja Winkhaus i opis WH Storage dowodzą, że WH Okna korzysta z firmowo konfigurowanych baz technologicznych. Nie wynika z tego, że agent ma dostęp do wszystkich katalogów konkretnego dealera. Aktualny lokalny binder oznacza wybory katalogowe jako `CATALOG_SELECTION_UNVERIFIED`. Zewnętrzny model nie może tego statusu zmienić.
+
+Po pobraniu gałęzi w repo sprawdź mapę pól bez uruchamiania Windows UI:
+
+```powershell
+python tools/inspect_navimind_catalog_readiness.py
+```
+
+Następnie w testowej **niezapisanej** ofercie przejdź ręcznie do `Podstawowe parametry okna`, uruchom:
+
+```powershell
+python tools/inspect_navimind_catalog_readiness.py --observe
+```
+
+Powtórz osobno na `Parametry szklenia` i `Parametry okuć`. To wyłącznie jednorazowy odczyt aktywnego okna UIA: nie rozwija list, nie naciska przycisków, nie pyta SQL ani Vercel i nie wyświetla nazw klientów, surowych wybranych wartości czy runtime ID. Raport rozróżnia `control_identified`, `present_not_verified`, `missing_or_ambiguous` oraz `native_value_available`. Pola `option_inventory_verified` i `selection_roundtrip_verified` pozostają `false` do prawdziwej, nadzorowanej demonstracji wyboru i ponownego odczytu.
+
+Wynik `control_identified` **nie oznacza** możliwości wyboru dowolnego profilu, okucia, koloru lub szyby. Dostęp do listy opcji oraz poprawność doboru technologicznego wymagają osobnego lokalnego treningu na **tej** instalacji, ponieważ pozycje i zależności katalogu zależą od danych producenta i aktualnych filtrów systemu.
+
+Do testu klikalności wybierz roboczą konstrukcję i wskaż ręcznie np. system profili, kombinację kolorów, pakiet szybowy oraz rodzaj okucia. Każda demonstracja musi potwierdzić: właściwy element UIA, rozwinięte opcje, dokładne dopasowanie wariantu, zmianę pola po wyborze oraz wynik w finalnej konstrukcji. Do czasu przejścia tych kontroli agent nie powinien wykonywać samodzielnych wyborów katalogowych ani zapisywać oferty.
