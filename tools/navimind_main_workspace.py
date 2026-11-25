@@ -500,8 +500,13 @@ class NaviMindMainWorkspace(tk.Frame):
             self._refresh_messages()
             return
         try:
+            from app.agent.runtime.navimind_position_ledger import (
+                build_position_manifest,
+            )
             self.conversation.approve_document_context(
-                excerpt, mission_evidence=self._approved_mission_snapshot(excerpt),
+                excerpt,
+                mission_evidence=self._approved_mission_snapshot(excerpt),
+                position_manifest=build_position_manifest(self.enquiry),
             )
         except (RuntimeError, ValueError):
             self.notice.configure(text="Nie udało się przyznać dostępu AI.")
@@ -574,8 +579,13 @@ class NaviMindMainWorkspace(tk.Frame):
             "nie myl PDF z bieżącym ekranem WindowHub."
         )
         try:
+            from app.agent.runtime.navimind_position_ledger import (
+                build_position_manifest,
+            )
             self.conversation.approve_document_context(
-                context, mission_evidence=self._approved_mission_snapshot(context),
+                context,
+                mission_evidence=self._approved_mission_snapshot(context),
+                position_manifest=build_position_manifest(self.enquiry),
             )
             message = self.chat.user_message(prompt)
         except (ValueError, RuntimeError):
