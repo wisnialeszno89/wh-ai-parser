@@ -112,6 +112,9 @@ class LiveMissionConversation:
                 self._last_error = "chat_provider_not_configured"
                 return False
             snapshot = self.chat.snapshot()
+            if message_id <= self._privacy_history_cutoff:
+                self._last_error = "document_revoked_requires_new_request"
+                return False
             if not any(
                 m.message_id == message_id and m.role == MessageRole.HUMAN
                 and m.mission_revision == snapshot.mission_revision
