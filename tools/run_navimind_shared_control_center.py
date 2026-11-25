@@ -161,14 +161,15 @@ def run(*, expected_offer: str) -> int:
                 initialized = True
             except ImportError:
                 pass
-            from app.agent.runtime.windows_desktop_agent_control_loop import (
-                create_windows_desktop_agent_control_loop,
+            from app.agent.runtime.navimind_catalogue_background_probe import (
+                read_catalogue_window_without_focus,
             )
             from app.agent.runtime.navimind_catalogue_readiness import (
                 inspect_catalogue_scene, summarize_catalogue_readiness,
             )
-            loop = create_windows_desktop_agent_control_loop()
-            observed = loop.observe_scene()
+            observed, reason = read_catalogue_window_without_focus()
+            if observed is None:
+                return "KATALOG_WH_STATUS=" + reason
             # Never report any option names, customer texts, screenshots,
             # HWNDs or catalogue IDs through the remote chat.
             return summarize_catalogue_readiness(
@@ -394,7 +395,7 @@ def run(*, expected_offer: str) -> int:
             "audit_windowhub_catalogues",
             "Sprawdź wyłącznie dostępność i odczytywalność natywnych "
             "kontrolek katalogów profili, kolorów, szklenia, okuć i parapetów "
-            "w otwartym na pierwszym planie kreatorze WH Okna. "
+            "w widocznym oknie kreatora WH Okna także w tle. "
             "Nie rozwija list, nie klika, nie czyta wszystkich produktów, "
             "nie udostępnia klienta ani cen. Wynik nie potwierdza "
             "możliwości automatycznego wyboru.",
