@@ -174,6 +174,37 @@ class WorkMissionCoordinator:
             )
             return self._mission
 
+    def bind_verified_new_offer(self, observed_offer: str) -> bool:
+        """Advance a draft to an actual OFR only after the host's UIA proof.
+
+        Caller is the trusted local host during operator Resume, never a
+        remote model or a customer PDF. It may only bind a pending draft.
+        """
+        from app.agent.runtime.navimind_draft_bootstrap import DRAFT_DOCUMENT_KEY
+        from app.agent.runtime.windowhub_mdi_native_probe import same_offer_id
+        if (not isinstance(observed_offer, str)
+                or not observed_offer.upper().startswith("OFR/")
+                or len(observed_offer) > 80
+                or not same_offer_id(observed_offer, observed_offer)):
+            return False
+        with self._lock:
+            item = self._mission
+            if (item is None or item.document_key != DRAFT_DOCUMENT_KEY
+                    or item.stage != WorkStage.PAUSED
+                    or item.reason != "draft_customer_selection_required"
+                    or not self._is_current(item)):
+                return False
+            from dataclasses import replace
+            self._mission = replace(
+                item, document_key=observed_offer,
+                stage=WorkStage.READY,
+                reason="draft_offer_verified_and_pinned",
+                suggested_action="",
+                last_verified_signature="",
+                last_verified_stage="",
+            )
+            return True
+
     def is_current(self, mission: WorkMission) -> bool:
         with self._lock:
             return (self._mission is not None
@@ -268,6 +299,75 @@ def plan_or_execute_windowhub_step(
         return WorkStepResult("paused", "windowhub_not_foreground")
     if stage == "order_document":
         return WorkStepResult("review", "order_document_not_authorized")
+    from app.agent.runtime.navimind_draft_bootstrap import (
+        DRAFT_DOCUMENT_KEY, verify_draft_start, verify_draft_properties,
+    )
+    if mission.document_key == DRAFT_DOCUMENT_KEY:
+        if host.expected_offer != DRAFT_DOCUMENT_KEY:
+            return WorkStepResult("paused", "draft_bootstrap_host_mismatch")
+        if stage == "start" and getattr(host, "_draft_phase", None) == "start":
+            proof = verify_draft_start(scene)
+            if not proof.valid:
+                return WorkStepResult("paused", proof.reason)
+            if not execute:
+                return WorkStepResult(
+                    "ready", "draft_new_offer_start_locally_verified",
+                    "NOWA OFERTA",
+                )
+            if is_mission_current is not None and not is_mission_current():
+                return WorkStepResult("paused", "draft_mission_revoked_before_start")
+            try:
+                host.execute_draft_start_once(loop, revision=mission.revision)
+            except Exception:
+                return WorkStepResult(
+                    "review", "draft_start_effect_uncertain_no_retry",
+                    "NOWA OFERTA",
+                )
+            return WorkStepResult(
+                "action", "one_native_step_verified_reobserve_next",
+                "NOWA OFERTA", True, "draft_start_new_offer",
+                "start", "document_properties",
+            )
+        if (stage == "document_properties"
+                and getattr(host, "_draft_phase", None) == "properties"):
+            from app.agent.runtime.navimind_shared_control_host import (
+                verify_workflow_scope,
+            )
+            scope = verify_workflow_scope(
+                scene, getattr(host, "_workflow_scope", None),
+                expected_offer=DRAFT_DOCUMENT_KEY,
+                revision=mission.revision,
+            )
+            if not scope.verified:
+                return WorkStepResult(
+                    "paused", "draft_properties_not_pinned",
+                )
+            if not execute:
+                return WorkStepResult(
+                    "ready", "draft_open_exact_customer_picker_ready",
+                    "Wybierz istniejącego klienta",
+                )
+            if is_mission_current is not None and not is_mission_current():
+                return WorkStepResult(
+                    "paused", "draft_mission_revoked_before_customer_picker"
+                )
+            try:
+                host.execute_draft_customer_picker_once(
+                    loop, revision=mission.revision,
+                )
+            except Exception:
+                return WorkStepResult(
+                    "review", "draft_picker_effect_uncertain_no_retry",
+                    "Wybierz istniejącego klienta",
+                )
+            return WorkStepResult(
+                "paused", "draft_customer_selection_required",
+                "Wybierz istniejącego klienta",
+                True,
+            )
+        return WorkStepResult(
+            "paused", "draft_waiting_for_operator_or_verified_new_offer",
+        )
     if stage == "windowhub_unmapped":
         return WorkStepResult("review", "unknown_windowhub_dialog_requires_learning")
     # Planning and execution are both restricted to the exact OFR or a
@@ -514,9 +614,11 @@ class BackgroundWorkMission:
                     WorkStage.READY, WorkStage.PAUSED,
                 }):
             return False
-        if (mission.stage == WorkStage.PAUSED
-                and mission.reason != "one_native_step_verified_reobserve_next"):
-            return False
+        if mission.stage == WorkStage.PAUSED:
+            allowed = {"one_native_step_verified_reobserve_next"}
+            # A human must finish customer selection and Resume separately.
+            if mission.reason not in allowed:
+                return False
         if mission.cycles >= self.coordinator.max_cycles:
             self.coordinator.transition(
                 mission.task_id, WorkStage.REVIEW,
