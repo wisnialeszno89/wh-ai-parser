@@ -16,6 +16,12 @@ python tools/run_navimind_offer_preflight.py
 
 Wyświetli wyłącznie obecność bibliotek, flag wykonawczych i konfiguracji V2. Nie odczytuje PDF, nie wysyła zapytań, nie pokazuje kluczy, nie aktywuje WindowHub i nie przyznaje dostępu do sterowania. `reasoner_url_configured=true` oznacza **jedynie obecność konfiguracji**, nie poprawne uwierzytelnienie! Problemy 401/Deployment Protection nadal wymagają osobnego testu połączenia.
 
+### Zabezpieczenie Vercel — bez wyłączania SSO
+
+Sprawdzono konfigurację projektu NaviMind na Vercel: produkcyjne wdrożenie jest w stanie `READY`, ale `ssoProtection.enabled=true` z `deploymentType=all`. Wywołanie endpointu V2 może więc zwrócić 401 mimo poprawnego `NAVIMIND_AGENT_SECRET`. Lokalny klient `NaviMindTaskReasonerV2` **już** obsługuje nagłówek `x-vercel-protection-bypass`, jeśli operator posiada osobny `NAVIMIND_VERCEL_PROTECTION_BYPASS`. Nie wyłączaj globalnej ochrony aplikacji ani nie dodawaj sekretu do GitHub.
+
+Przy `NAVIMIND_AGENT_V2_URL` wymagany jest odpowiadający mu `NAVIMIND_AGENT_V2_SECRET`. Przy wspólnym `NAVIMIND_AGENT_URL` wymagany jest `NAVIMIND_AGENT_SECRET`. Kontrola offline pokazuje tylko wartości logiczne; nie potwierdza działania automatycznego bypassu ani dostępności zewnętrznego API.
+
 ## 1. Przygotowanie bez wykonywania
 
 Uruchom WindowHub i otwórz Start1. Uruchom panel:
