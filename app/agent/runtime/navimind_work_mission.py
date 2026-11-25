@@ -422,9 +422,9 @@ def scoped_v2_mission_goal(mission: WorkMission) -> str:
     # For PDF/TXT missions the goal is normally already a short command.
     import re
     first_position = re.search(
-        r"(?i)\\bpos(?:ition)?\\.?\\s*\\d+\\s*[:.)-]"
-        r"|(?im:^\\s*(?:[1-9][0-9]?\\s*(?:stk\\.?|stück)\\s+)?"
-        r"(?:fenster|haustür|haustuer)\\b)",
+        r"(?i)\bpos(?:ition)?\.?\s*\d+\s*[:.)-]"
+        r"|(?im:^\s*(?:[1-9][0-9]?\s*(?:stk\.?|stück)\s+)?"
+        r"(?:fenster|haustür|haustuer)\b)",
         mission.goal,
     )
     command = (
