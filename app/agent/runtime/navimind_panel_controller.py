@@ -87,7 +87,7 @@ class NaviMindPanelController:
             can_resume=self.mode in (PanelMode.HUMAN, PanelMode.LEARNING),
             can_takeover=self.mode in (PanelMode.RESUME_PENDING, PanelMode.AGENT_READY),
             can_stop=self.mode != PanelMode.STOPPED,
-            can_learn=self.mode == PanelMode.HUMAN,
+            can_learn=self.mode in (PanelMode.HUMAN, PanelMode.LEARNING),
             document_label=self.document_label,
             revision=self.revision,
         )
@@ -131,6 +131,10 @@ class NaviMindPanelController:
         return self._notify()
 
     def training(self) -> PanelSnapshot:
+        if self.mode == PanelMode.LEARNING:
+            # Toggle only changes local state; connected host may now
+            # finalize in-memory observations. Never grants native control.
+            return self.takeover()
         if self.mode != PanelMode.HUMAN:
             return self.snapshot()
         self._active_permit = None
