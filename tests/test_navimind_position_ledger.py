@@ -301,3 +301,57 @@ def test_numbered_unparseable_row_invalidates_whole_automatic_sequence():
         manifest.positions[1], field_name="width_1",
         proposed_value="1500",
     )[0]
+
+
+def test_field_receipts_are_position_scoped_reject_other_values_and_reset_after_checkpoint():
+    from app.agent.runtime.navimind_work_mission import PositionFieldReceipt
+    manifest = build_position_manifest(
+        inbox_with("2 Stk Fenster 1500x1400\n1 Stk Fenster 1300x1200")
+    )
+    chat = MissionChat(document_key="OFR/101", arbiter=LocalInputArbiter())
+    chat.user_message("Przygotuj ofertę.")
+    coordinator = WorkMissionCoordinator(
+        chat, max_cycles=20,
+        document_snapshot_provider=lambda: (1, "PDF"),
+        position_manifest_provider=lambda: (1, manifest),
+    )
+    mission = coordinator.queue_current()
+    assert coordinator.transition(
+        mission.task_id, WorkStage.PAUSED, count_step=True,
+        field_receipt=PositionFieldReceipt(
+            "S01-P002", "width_1", "1300", "wrong-position",
+        ),
+    ) is None
+    assert coordinator.transition(
+        mission.task_id, WorkStage.PAUSED, count_step=True,
+        field_receipt=PositionFieldReceipt(
+            "S01-P001", "width_1", "1300", "wrong-value",
+        ),
+    ) is None
+    for field, value in [
+        ("quantity_input", "2"),
+        ("width_1", "1500"), ("height_1", "1400"),
+    ]:
+        updated = coordinator.transition(
+            mission.task_id, WorkStage.PAUSED, count_step=True,
+            signature=field,
+            field_receipt=PositionFieldReceipt(
+                "S01-P001", field, value, f"fresh-native-{field}",
+            ),
+        )
+        assert updated is not None
+    assert {x.field_name for x in updated.field_receipts} == {
+        "quantity_input", "width_1", "height_1",
+    }
+    assert coordinator.record_independent_position_readback(
+        task_id=mission.task_id,
+        checkpoint=PositionCheckpoint(
+            "S01-P001", "OFR/101", 1500, 1400, 2,
+            True, True, "separate-construction-proof",
+        ),
+        pinned_document="OFR/101",
+    )
+    after = coordinator.current()
+    assert after.position_ledger.active.position_id == "S01-P002"
+    assert after.field_receipts == ()
+    assert after.total_verified_actions == 3
