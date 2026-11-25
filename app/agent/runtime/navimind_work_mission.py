@@ -203,6 +203,7 @@ def plan_or_execute_windowhub_step(
     *, mission: WorkMission, loop: Any, reasoner: Any, host: Any,
     execute: bool = False,
     is_mission_current: Callable[[], bool] | None = None,
+    human_demonstrations: tuple[dict, ...] = (),
 ) -> WorkStepResult:
     """Reuse native V2 world/action contracts for one bounded mission step.
 
@@ -286,7 +287,9 @@ def plan_or_execute_windowhub_step(
         world_revision=mission.cycles + 1, cycle=mission.cycles,
         max_cycles=20,
         knowledge=windowhub_skill_knowledge(),
-        experience=verified_experience,
+        # Demonstration effects are explicitly advisory, never proof
+        # that an action was clicked or a customer field was committed.
+        experience=(*verified_experience, *human_demonstrations[:8]),
     )
     prepared.request_payload["metadata"]["verified_windowhub_stage"] = stage
     # In the offer document, the remote reasoner must only see the Add
@@ -437,6 +440,7 @@ class BackgroundWorkMission:
         callback: Callable[[WorkMission, WorkStepResult], None] | None = None,
         loop_factory: Callable[[], Any] | None = None,
         reasoner_factory: Callable[[], Any] | None = None,
+        demonstration_provider: Callable[[], tuple[dict, ...]] | None = None,
     ):
         from concurrent.futures import ThreadPoolExecutor
         self.coordinator = coordinator
@@ -444,6 +448,7 @@ class BackgroundWorkMission:
         self.callback = callback
         self.loop_factory = loop_factory
         self.reasoner_factory = reasoner_factory
+        self.demonstration_provider = demonstration_provider
         self._pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="navimind-work")
         self._lock = RLock()
         self._busy = False
@@ -547,10 +552,14 @@ class BackgroundWorkMission:
                     reasoner = NaviMindTaskReasonerV2(
                         config=shared_endpoint_v2_config()
                     )
+            demonstrated = ()
+            if self.demonstration_provider is not None:
+                demonstrated = tuple(self.demonstration_provider())[:8]
             result = plan_or_execute_windowhub_step(
                 mission=current, loop=loop, reasoner=reasoner,
                 host=self.host, execute=execute,
                 is_mission_current=lambda: self.coordinator.is_current(current),
+                human_demonstrations=demonstrated,
             )
             target = {
                 "ready": WorkStage.READY,
