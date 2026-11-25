@@ -174,6 +174,26 @@ class WorkMissionCoordinator:
             )
             return self._mission
 
+    def begin_verified_unnumbered_draft(self) -> bool:
+        """Continue an unsaved native-created draft without inventing OFR."""
+        from app.agent.runtime.navimind_draft_bootstrap import DRAFT_DOCUMENT_KEY
+        with self._lock:
+            item = self._mission
+            if (item is None or item.document_key != DRAFT_DOCUMENT_KEY
+                    or item.stage != WorkStage.PAUSED
+                    or item.reason != "draft_customer_selection_required"
+                    or not self._is_current(item)):
+                return False
+            from dataclasses import replace
+            self._mission = replace(
+                item, stage=WorkStage.READY,
+                reason="new_unnumbered_position_verified",
+                suggested_action="",
+                last_verified_signature="",
+                last_verified_stage="",
+            )
+            return True
+
     def bind_verified_new_offer(self, observed_offer: str) -> bool:
         """Advance a draft to an actual OFR only after the host's UIA proof.
 
@@ -365,9 +385,17 @@ def plan_or_execute_windowhub_step(
                 "Wybierz istniejącego klienta",
                 True,
             )
-        return WorkStepResult(
-            "paused", "draft_waiting_for_operator_or_verified_new_offer",
-        )
+        if (getattr(host, "_draft_phase", None) != "unsaved_position"
+                or stage not in {
+                    "position", "dimensions", "basic_parameters",
+                    "glazing", "hardware", "modifier",
+                }):
+            return WorkStepResult(
+                "paused", "draft_waiting_for_operator_or_verified_new_offer",
+            )
+        # An unsaved document has no OFR yet. The host only provides this
+        # phase after checking native owner/MDI child lineage. Every following
+        # wizard step must still match the in-memory verified provenance.
     if stage == "windowhub_unmapped":
         return WorkStepResult("review", "unknown_windowhub_dialog_requires_learning")
     # Planning and execution are both restricted to the exact OFR or a
