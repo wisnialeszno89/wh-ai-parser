@@ -3,7 +3,7 @@ from __future__ import annotations
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
 from threading import RLock
-from typing import Mapping
+from typing import Mapping, Callable
 from app.agent.runtime.navimind_tool_router import (
     ReadOnlyTool, invoke_read_only_tool, parse_model_tool_decision,
     tool_catalog_instructions,
@@ -27,7 +27,8 @@ class LiveMissionConversation:
 
     def __init__(self, chat: MissionChat, provider: ChatProvider | None,
                  *, runtime_instructions: str = "",
-                 read_only_tools: Mapping[str, ReadOnlyTool] | None = None):
+                 read_only_tools: Mapping[str, ReadOnlyTool] | None = None,
+                 runtime_status_provider: Callable[[], str] | None = None):
         self.chat = chat
         self.provider = provider
         # Trusted host-provided capabilities, never model/user/document asserted.
@@ -35,6 +36,7 @@ class LiveMissionConversation:
         # remains the actual execution authority.
         self.runtime_instructions = runtime_instructions
         self.read_only_tools = dict(read_only_tools or {})
+        self.runtime_status_provider = runtime_status_provider
         self._approved_document_context: str | None = None
         self._pending_document_approval: tuple[int, int] | None = None
         self._pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="navimind-chat")
@@ -144,6 +146,18 @@ class LiveMissionConversation:
             )
             if self.read_only_tools:
                 instructions += tool_catalog_instructions(self.read_only_tools)
+            if self.runtime_status_provider is not None:
+                # Machine-confirmed metadata only: never raw PDF, filenames,
+                # customer information, WindowHub values or secrets.
+                try:
+                    local_state = self.runtime_status_provider()
+                except Exception:
+                    local_state = "LOCAL_CAPABILITY_STATE=unavailable"
+                if isinstance(local_state, str) and len(local_state) <= 500:
+                    instructions += (
+                        "\n\nFAKTYCZNY STAN NARZĘDZI LOKALNYCH (od hosta):\n"
+                        + local_state
+                    )
             with self._lock:
                 document_context = self._approved_document_context
             # Enquiry document data is scoped to the operator-approved
