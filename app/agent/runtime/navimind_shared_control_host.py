@@ -77,6 +77,7 @@ class NaviMindSharedHost:
         self.controller.connect_host()
         self._accepted_scene: Any = None
         self.last_reason = "human_control_default"
+        self._approved_work_revision: int | None = None
         self.chat = MissionChat(
             document_key=self.expected_offer,
             arbiter=self.controller.arbiter,
@@ -95,7 +96,9 @@ class NaviMindSharedHost:
                                    "unknown", False)
         # A user message is not merely a pause: it creates a new mission
         # revision. Re-observing the same offer cannot authorize an old plan.
-        if self.chat.snapshot().requires_replan:
+        if (self.chat.snapshot().requires_replan
+                and self._approved_work_revision
+                != self.chat.snapshot().mission_revision):
             return HostObservation(None, "chat_instruction_requires_approved_replan",
                                    "unknown", False)
         result = verify_offer_observation(scene, self.expected_offer)
@@ -109,12 +112,29 @@ class NaviMindSharedHost:
         )
         return result
 
+    def approve_current_work_for_resume(self, *, revision: int,
+                                        task_id: str, coordinator: Any) -> bool:
+        """Called only on a local operator resume click, never by the model."""
+        item = coordinator.current()
+        if (item is None or item.revision != revision
+                or item.task_id != task_id
+                or self.chat.snapshot().mission_revision != revision
+                or item.document_key != self.expected_offer):
+            return False
+        from app.agent.runtime.navimind_work_mission import WorkStage
+        if item.stage not in {WorkStage.READY, WorkStage.PAUSED}:
+            return False
+        self._approved_work_revision = revision
+        return True
+
     def takeover(self) -> None:
+        self._approved_work_revision = None
         self.controller.takeover()
         self._accepted_scene = None
         self.last_reason = "human_takeover"
 
     def stop(self) -> None:
+        self._approved_work_revision = None
         self.controller.stop()
         self._accepted_scene = None
         self.last_reason = "task_cancelled"
@@ -197,6 +217,8 @@ class NaviMindSharedHost:
         """
         permit = self.controller.current_permit()
         baseline = self._accepted_scene
+        if self._approved_work_revision != self.chat.snapshot().mission_revision:
+            raise InputDenied("work_mission_revision_not_operator_approved")
         if permit is None or baseline is None:
             raise InputDenied("no_shared_host_agent_permission")
         if permit.document_key != self.expected_offer:
