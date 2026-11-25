@@ -48,6 +48,7 @@ class WorkMission:
     document_key: str
     stage: WorkStage
     cycles: int = 0
+    total_verified_actions: int = 0
     reason: str = ""
     suggested_action: str = ""
     last_verified_signature: str = ""
@@ -186,6 +187,9 @@ class WorkMissionCoordinator:
                 reason=reason[:160],
                 suggested_action=suggested_action[:80],
                 cycles=item.cycles + (1 if count_step else 0),
+                total_verified_actions=(
+                    item.total_verified_actions + (1 if count_step else 0)
+                ),
                 last_verified_signature=(
                     signature if count_step else item.last_verified_signature
                 ),
@@ -239,7 +243,7 @@ class WorkMissionCoordinator:
                     else "next_source_position_ready"
                 ),
                 last_verified_signature="", last_verified_stage="",
-                suggested_action="",
+                suggested_action="", cycles=0, evidence=(),
             )
             return True
 
