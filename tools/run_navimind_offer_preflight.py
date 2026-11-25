@@ -37,11 +37,16 @@ def inspect_local_preflight(*, environ=None, module_probe=None,
         env.get("WH_REAL_WINDOWHUB") == "1"
         and env.get("COMPUTER_USE_LIVE") == "1"
     )
-    reasoner_url_present = bool(
-        str(env.get("NAVIMIND_AGENT_V2_URL") or
-            env.get("NAVIMIND_AGENT_URL") or "").strip()
-    )
-    secret_present = bool(str(env.get("NAVIMIND_AGENT_SECRET") or "").strip())
+    v2_endpoint = str(env.get("NAVIMIND_AGENT_V2_URL") or "").strip()
+    shared_endpoint = str(env.get("NAVIMIND_AGENT_URL") or "").strip()
+    reasoner_url_present = bool(v2_endpoint or shared_endpoint)
+    secret_present = bool(str(
+        env.get("NAVIMIND_AGENT_V2_SECRET")
+        if v2_endpoint else env.get("NAVIMIND_AGENT_SECRET")
+    or "").strip())
+    protection_bypass_present = bool(str(
+        env.get("NAVIMIND_VERCEL_PROTECTION_BYPASS") or ""
+    ).strip())
     warnings = []
     if os_name != "Windows":
         warnings.append("requires_windows_desktop")
@@ -56,12 +61,16 @@ def inspect_local_preflight(*, environ=None, module_probe=None,
         warnings.append("reasoner_secret_not_configured_in_process")
     if not live_flag:
         warnings.append("native_input_not_armed")
+    if ("vercel.app" in (v2_endpoint or shared_endpoint).lower()
+            and not protection_bypass_present):
+        warnings.append("vercel_sso_may_require_automation_bypass")
     return {
         "platform": os_name,
         "python_major_minor": ".".join(map(str, py)),
         "dependencies": modules,
         "reasoner_url_configured": reasoner_url_present,
         "reasoner_secret_configured": secret_present,
+        "vercel_automation_bypass_configured": protection_bypass_present,
         "live_flags_both_enabled": live_flag,
         "read_only_preflight": True,
         "network_checked": False,
@@ -72,6 +81,12 @@ def inspect_local_preflight(*, environ=None, module_probe=None,
 
 
 def main() -> int:
+    # Match the V2 worker's local .env lookup, without printing its values.
+    try:
+        from dotenv import load_dotenv
+        load_dotenv()
+    except ImportError:
+        pass
     # Native buttons are NEVER activated from preflight.
     report = inspect_local_preflight()
     print(json.dumps(report, ensure_ascii=False, indent=2))
