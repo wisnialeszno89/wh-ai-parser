@@ -32,7 +32,7 @@ def test_fully_configured_flags_are_report_only_not_execution_permission():
     assert report["live_flags_both_enabled"]
     assert report["read_only_preflight"]
     assert report["network_checked"] is False
-    assert "secret" not in repr(report)
+    assert env["NAVIMIND_AGENT_SECRET"] not in repr(report)
     assert "gateway.example.invalid" not in repr(report)
 
 
