@@ -244,12 +244,21 @@ def run(*, expected_offer: str) -> int:
     def on_work_result(mission, result):
         # The worker may use COM but NEVER touches Tk widgets.
         if result.kind == "ready":
-            message = (
-                "Przeanalizowałem bieżący ekran i V2 wskazał krok "
-                + result.action + ". Polityka lokalna go dopuściła jako "
-                "propozycję. Niczego jeszcze nie kliknąłem. "
-                "Sterowanie wymaga lokalnego Wznów pracę."
-            )
+            if result.reason == "draft_start_activation_required_on_operator_resume":
+                message = (
+                    "Nowa oferta: przygotowałem procedurę wejścia do Start1, "
+                    "ale WindowHub nie jest teraz aktywny. Niczego nie "
+                    "przełączyłem. Przycisk Wznów pracę (po włączeniu "
+                    "wykonawcy live) może aktywować dokładnie jedno okno "
+                    "Start1 i wykonać tylko zweryfikowany następny krok."
+                )
+            else:
+                message = (
+                    "Przeanalizowałem bieżący ekran i V2 wskazał krok "
+                    + result.action + ". Polityka lokalna go dopuściła jako "
+                    "propozycję. Niczego jeszcze nie kliknąłem. "
+                    "Sterowanie wymaga lokalnego Wznów pracę."
+                )
         elif result.kind == "action":
             message = (
                 "Wykonałem i zweryfikowałem jeden krok " + result.action
@@ -422,6 +431,11 @@ def run(*, expected_offer: str) -> int:
                     text="Nie można wznowić nieaktualnej misji. Poproś o nowy plan."
                 )
                 return
+        if host._draft_phase == "start":
+            panel.main_workspace.notice.configure(
+                text="Wznowienie może aktywować okno Start1 WindowHub. "
+                     "Po wykonaniu jednego kroku NaviMind ponownie sprawdzi ekran."
+            )
         host.controller.resume()
 
     panel.primary.register_action(host.takeover)
@@ -548,8 +562,28 @@ def run(*, expected_offer: str) -> int:
                 create_windows_desktop_agent_control_loop,
             )
             loop = create_windows_desktop_agent_control_loop()
+            last_start_focus_epoch = None
+            def observe_authorized_workspace():
+                nonlocal last_start_focus_epoch
+                if (live_allowed
+                        and host._draft_phase == "start"
+                        and host.controller.snapshot().mode == PanelMode.RESUME_PENDING
+                        and host._approved_work_revision
+                            == host.chat.snapshot().mission_revision):
+                    current_epoch = host.controller.arbiter.epoch
+                    if last_start_focus_epoch != current_epoch:
+                        # ONLY an explicit Resume can activate one unique
+                        # WindowHub Start1. Never activate during chat/plan.
+                        last_start_focus_epoch = current_epoch
+                        from app.agent.runtime.windowhub_window_activation import (
+                            activate_windowhub_start_workspace,
+                        )
+                        ok, _ = activate_windowhub_start_workspace()
+                        if not ok:
+                            raise RuntimeError("unique_start1_activation_refused")
+                return loop.observe_scene()
             inspect_offer_in_background(
-                observe=loop.observe_scene, host=host,
+                observe=observe_authorized_workspace, host=host,
                 output=queue, stop=stopped,
             )
         except Exception as exc:
