@@ -117,6 +117,8 @@ class NaviMindSharedHost:
             "start" if self.expected_offer == DRAFT_DOCUMENT_KEY else None
         )
         self.draft_document_bound_callback: Callable[[str], bool] | None = None
+        self.draft_unnumbered_ready_callback: Callable[[], bool] | None = None
+        self._draft_native_scope: Any = None
         self.controller = controller or NaviMindPanelController()
         self.controller.connect_host()
         self._accepted_scene: Any = None
@@ -158,17 +160,45 @@ class NaviMindSharedHost:
                     check.reason, check.stage, check.valid,
                 )
             elif self._draft_phase == "awaiting_customer_selection":
-                # The operator has selected a customer manually and clicked
-                # Resume. Only adopt a truly selected, unique OFR document.
-                candidate = draft_offer_candidate(scene)
+                # Exactly one native new-document transaction must link
+                # Start1, properties, customer and now the selected offer.
+                # Unsaved offers may open the position wizard BEFORE
+                # WindowHub allocates any OFR number.
+                from app.agent.runtime.navimind_draft_bootstrap import (
+                    verified_new_offer_from_native_transaction,
+                    verified_unnumbered_position_from_native_transaction,
+                )
+                candidate = verified_new_offer_from_native_transaction(
+                    scene, self._draft_native_scope,
+                )
                 if (candidate is not None
                         and self.draft_document_bound_callback is not None
                         and self.draft_document_bound_callback(candidate)):
                     self.expected_offer = candidate
                     self.chat.document_key = candidate
                     self._draft_phase = None
+                    self._draft_native_scope = None
                     self._workflow_scope = None
                     result = verify_offer_observation(scene, candidate)
+                elif (
+                    verified_unnumbered_position_from_native_transaction(
+                        scene, self._draft_native_scope, entry=True,
+                    )
+                    and self.draft_unnumbered_ready_callback is not None
+                    and self.draft_unnumbered_ready_callback()
+                ):
+                    self._draft_phase = "unsaved_position"
+                    self._workflow_scope = VerifiedWorkflowScope(
+                        DRAFT_DOCUMENT_KEY,
+                        self.chat.snapshot().mission_revision,
+                        "position",
+                        (scene.observation.state.active_window_title or "").strip(),
+                        scene.observation.metadata["window_handle"],
+                    )
+                    result = HostObservation(
+                        DRAFT_DOCUMENT_KEY, "verified_native_unsaved_position",
+                        "position", True,
+                    )
                 else:
                     result = HostObservation(
                         None, "draft_customer_or_new_offer_not_verified",
@@ -183,6 +213,35 @@ class NaviMindSharedHost:
                 if result.stage != "document_properties":
                     result = HostObservation(
                         None, "draft_properties_scope_required", "unknown", False,
+                    )
+            elif self._draft_phase == "unsaved_position":
+                from app.agent.runtime.navimind_draft_bootstrap import (
+                    verified_unnumbered_position_from_native_transaction,
+                )
+                follows = (
+                    self._workflow_scope.hwnd
+                    if self._workflow_scope is not None else None
+                )
+                if verified_unnumbered_position_from_native_transaction(
+                    scene, self._draft_native_scope,
+                    previous_hwnd=follows,
+                ):
+                    from app.agent.learning.windowhub_demonstration import stage_of
+                    current_stage = stage_of(scene)
+                    self._workflow_scope = VerifiedWorkflowScope(
+                        DRAFT_DOCUMENT_KEY,
+                        self.chat.snapshot().mission_revision,
+                        current_stage,
+                        (scene.observation.state.active_window_title or "").strip(),
+                        scene.observation.metadata["window_handle"],
+                    )
+                    result = HostObservation(
+                        DRAFT_DOCUMENT_KEY, "native_unsaved_draft_wizard",
+                        current_stage, True,
+                    )
+                else:
+                    result = HostObservation(
+                        None, "draft_native_wizard_changed", "unknown", False,
                     )
         elif not result.verified:
             result = verify_workflow_scope(
@@ -216,6 +275,19 @@ class NaviMindSharedHost:
                 return True
             if stage not in _PINNED_WIZARD_STAGES:
                 return False
+            if self._draft_phase == "unsaved_position":
+                from app.agent.runtime.navimind_draft_bootstrap import (
+                    verified_unnumbered_position_from_native_transaction,
+                )
+                follows = (
+                    self._workflow_scope.hwnd
+                    if self._workflow_scope is not None else None
+                )
+                if not verified_unnumbered_position_from_native_transaction(
+                    scene, self._draft_native_scope,
+                    previous_hwnd=follows,
+                ):
+                    return False
             state = scene.observation.state
             app = (state.active_application or "").replace(chr(92), "/").rsplit("/", 1)[-1].casefold()
             title = (state.active_window_title or "").strip()
@@ -246,6 +318,8 @@ class NaviMindSharedHost:
         allowed_pauses = {"one_native_step_verified_reobserve_next"}
         if self._draft_phase == "awaiting_customer_selection":
             allowed_pauses.add("draft_customer_selection_required")
+        if self._draft_phase == "unsaved_position":
+            allowed_pauses.add("one_native_step_verified_reobserve_next")
         if (item.stage == WorkStage.PAUSED
                 and item.reason not in allowed_pauses):
             return False
@@ -255,6 +329,9 @@ class NaviMindSharedHost:
     def takeover(self) -> None:
         self._approved_work_revision = None
         self._workflow_scope = None
+        if self._draft_phase not in ("awaiting_customer_selection",):
+            # Deliberate takeover does not invent a new ownership proof.
+            self._draft_native_scope = None
         self.controller.takeover()
         self._accepted_scene = None
         self.last_reason = "human_takeover"
