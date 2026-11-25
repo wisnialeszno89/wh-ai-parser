@@ -931,6 +931,14 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
             "semantic_evidence": tuple(evidence),
         }
 
+        if control_type in {"combobox", "listitem", "treeitem"}:
+            # Read-only COM pattern discovery, not an interaction attempt.
+            # Generic capability=CLICKABLE does not prove ExpandCollapse or
+            # SelectionItem is supported by a particular WH catalogue.
+            metadata["uia_native_pattern_support"] = self._native_pattern_support(
+                item, control_type,
+            )
+
         if tracked_id:
             metadata["tracked_object_id"] = tracked_id
 
@@ -1289,6 +1297,25 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
                 if isinstance(value, int) and value in (0, 1):
                     return value == 1
         return None
+
+    @staticmethod
+    def _native_pattern_support(item, control_type: str) -> dict[str, bool]:
+        """Discover available native interfaces without invoking or selecting."""
+        if control_type not in {"combobox", "listitem", "treeitem"}:
+            return {}
+        interfaces = (
+            ("expand_collapse", "iface_expand_collapse"),
+            ("selection_item", "iface_selection_item"),
+            ("selection", "iface_selection"),
+            ("value", "iface_value"),
+        )
+        supported = {}
+        for name, attr in interfaces:
+            try:
+                supported[name] = getattr(item, attr, None) is not None
+            except Exception:
+                supported[name] = False
+        return supported
 
     @staticmethod
     def _current_control_value(item) -> str | None:
