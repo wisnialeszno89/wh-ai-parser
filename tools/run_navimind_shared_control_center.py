@@ -220,9 +220,23 @@ def run(*, expected_offer: str) -> int:
             describe_engine_capabilities,
         ),
     }
+    def trusted_local_capability_state() -> str:
+        info = intake.status()
+        # Only machine-verified flags; never customer names or PDF text.
+        return (
+            "ENQUIRY_PRESENT=" + str(bool(info["has_enquiry"]))
+            + "; PDF_COUNT=" + str(int(info["pdf_count"]))
+            + "; DOCUMENT_CONTEXT_APPROVED="
+            + str(live_chat.document_context_active())
+            + "; WINDOWHUB_NATIVE_WRITE_ENABLED=False"
+            + "; PDF_INBOX_SHARED_AUTOMATICALLY=False"
+            + "; READ_LOCAL_ENQUIRY_REQUIRES_CONSENT=True"
+        )
+
     live_chat = LiveMissionConversation(
         host.chat, chat_provider, runtime_instructions=runtime_instructions,
         read_only_tools=tool_registry,
+        runtime_status_provider=trusted_local_capability_state,
     )
     panel.mount_main_workspace(
         chat=host.chat, conversation=live_chat, enquiry=intake,
