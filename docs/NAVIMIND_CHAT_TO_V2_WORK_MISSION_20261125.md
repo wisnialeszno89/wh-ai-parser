@@ -23,7 +23,7 @@ Handlowiec → NaviMind Chat → zaufany wybór narzędzia prepare_windowhub_wor
 
 - Celem misji jest dokładny tekst ostatniego aktywnego komunikatu użytkownika. Sam model nie konstruuje polecenia natywnego, identyfikatora HWND ani nazwy funkcji Pythona.
 - Każdy kolejny komunikat człowieka unieważnia poprzednią misję i stare wyniki modelu.
-- Jedna aktywna misja w lokalnym koordynatorze; domyślnie maksymalnie osiem potwierdzonych kroków. Wątki planowania nie dotykają elementów Tk.
+- Jedna aktywna misja w lokalnym koordynatorze; domyślnie maksymalnie 20 potwierdzonych kroków, potem obowiązkowy przegląd. Wątki planowania nie dotykają elementów Tk.
 - Wiedza o WindowHub i lokalne, zweryfikowane obserwacje kolejnych kroków są podawane do V2. Nie są pamięcią „co model twierdzi, że zrobił”, tylko zapisami po zatwierdzeniu przez wykonawcę.
 - Nigdy nie utożsamiaj odpowiedzi modelu `done` z gotową ofertą. Pełna oferta musi przejść osobny odczyt pozycji/kwot i przegląd handlowca.
 - Nie wykonuj automatycznie zapisu, wysłania, przekształcenia oferty w zamówienie ani akcji wymagających zgody na utrwalenie.
