@@ -163,7 +163,7 @@ def test_tk_thread_consent_uses_current_local_pdf_and_resumes_same_message(monke
         def __init__(self):
             self.context = None
             self.resubmissions = []
-        def approve_document_context(self, context):
+        def approve_document_context(self, context, **kwargs):
             self.context = context
         def submit_current_message(self, msg_id):
             self.resubmissions.append(msg_id)
@@ -199,7 +199,7 @@ def test_operator_denial_does_not_authorize_document(monkeypatch):
     chat = new_chat()
     user = chat.user_message("Odczytaj dokument")
     class Conversation:
-        def approve_document_context(self, context):
+        def approve_document_context(self, context, **kwargs):
             raise AssertionError("must not approve")
         def publish_document_consent_denied(self, revision):
             chat.agent_message("Odmówiono zgody", based_on_revision=revision)
@@ -261,7 +261,11 @@ def test_host_tool_registry_contains_real_document_parser_and_consent():
     assert '"read_approved_enquiry": ReadOnlyTool(' in host
     assert "requires_document_consent=True" in host
     assert "synthesize_result=True" in host
-    assert "summarize_full_approved_inbox(" in host
+    workspace_code = (Path(__file__).resolve().parents[1] /
+                      "tools" / "navimind_main_workspace.py").read_text(
+                          encoding="utf-8")
+    assert "summarize_full_approved_inbox(" in workspace_code
+    assert "mission_evidence=self._approved_mission_snapshot(" in workspace_code
     assert "PDF_COUNT=" in host
     assert "runtime_status_provider=trusted_local_capability_state" in host
     assert 'print("NAVIMIND_V2_EXECUTOR_CONNECTED=" + str(live_allowed))' in host
