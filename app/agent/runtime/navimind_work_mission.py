@@ -345,6 +345,30 @@ def plan_or_execute_windowhub_step(
         )
     if name not in {"click_screen_element", "write_text"}:
         return WorkStepResult("review", "action_type_not_authorized_for_mission")
+    if name == "write_text":
+        # Reject free-form model writing to customer, pricing or other fields.
+        # A new editable field must first be mapped/learned and verified.
+        from app.agent.offers.windowhub_offer_form_map import (
+            WindowHubOfferFormMap,
+        )
+        allowed = {
+            "position": frozenset({"quantity_input", "description_input"}),
+            "dimensions": frozenset({"width_1", "height_1"}),
+        }
+        form = WindowHubOfferFormMap().inspect(scene)
+        mapped = (
+            form is not None and any(
+                field.field_name in allowed.get(stage, ())
+                and field.is_unique and field.element is not None
+                and (field.element.metadata or {}).get("uia_runtime_id")
+                    == getattr(target, "uia_runtime_id", None)
+                for field in form.fields
+            )
+        )
+        if not mapped:
+            return WorkStepResult(
+                "review", "model_write_target_not_verified_offer_field"
+            )
     if name == "click_screen_element":
         # A locally visible control is not automatically a permissible
         # business action. Unknown/destructive buttons need salesperson
@@ -356,6 +380,7 @@ def plan_or_execute_windowhub_step(
             "zapisz", "save", "wyślij", "wyslij", "send", "zatwierdź",
             "zatwierdz", "submit", "przekształć", "przeksztalc",
             "anuluj ofertę", "anuluj oferte", "cancel order",
+            "zakończ", "zakoncz", "finish", "gotowe",
         )
         if any(label == item or label.startswith(item + " ") for item in forbidden):
             return WorkStepResult(
