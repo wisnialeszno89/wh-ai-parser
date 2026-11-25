@@ -199,3 +199,24 @@ def test_native_expand_pattern_discovery_does_not_grant_catalogue_selection():
     result = summarize_catalogue_readiness(audit)
     assert "NATIVE_EXPAND_PATTERN=1" in result
     assert "CATALOGUE_SELECTION_EXECUTABLE=False" in result
+
+
+def test_combobox_caption_or_placeholder_is_not_a_confirmed_selected_product():
+    caption = ScreenElement(
+        kind="combobox", label="Wybierz kolor profili",
+        metadata={
+            "source": "windowhub_ui_automation",
+            "uia_visible": True, "uia_enabled": True,
+            "automation_id": "1054", "uia_runtime_id": "ui:color",
+            "current_value": "Wybierz kolor profili",
+            "current_value_source": "window_text",
+        },
+    )
+    audit = inspect_catalogue_scene(
+        scene("Podstawowe parametry okna", caption)
+    )
+    color = next(x for x in audit.controls if x.field_name == "profile_color")
+    assert color.state == "mapped_native_unique"
+    assert not color.native_value_readable
+    assert not color.native_value_present
+    assert not color.safe_to_select
