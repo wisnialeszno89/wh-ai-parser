@@ -133,3 +133,88 @@ def test_tk_event_pump_keeps_windowhub_observations_independent_of_work_events()
     assert "work_events.get_nowait()" in first_text
     assert "queue.get_nowait()" in second_text
     assert "queue.get_nowait()" not in first_text
+
+
+def test_work_mission_receives_only_approved_document_evidence():
+    chat = new_chat()
+    chat.user_message("Przygotuj cztery okna.")
+    consent = [0, ""]
+    queue = WorkMissionCoordinator(
+        chat, document_snapshot_provider=lambda: tuple(consent),
+    )
+    first = queue.queue_current()
+    assert not first.approved_document_evidence
+    assert first.document_access_version == 0
+    consent[:] = [1, "PDF 1: 1500x1400 mm, 2 szyby; klient TOP TRANS"]
+    assert not queue.is_current(first)
+    second = queue.queue_current()
+    assert second.task_id != first.task_id
+    assert second.document_access_version == 1
+    assert "1500x1400" in second.approved_document_evidence
+    assert queue.is_current(second)
+
+
+def test_document_consent_revocation_invalidates_live_mission_even_without_chat_change():
+    chat = new_chat()
+    chat.user_message("Przygotuj ofertę z PDF.")
+    consent = [3, "Zatwierdzone zapytanie klienta."]
+    queue = WorkMissionCoordinator(
+        chat, document_snapshot_provider=lambda: tuple(consent),
+    )
+    mission = queue.queue_current()
+    assert queue.transition(mission.task_id, WorkStage.READY)
+    consent[:] = [4, ""]
+    assert not queue.is_current(mission)
+    assert queue.transition(mission.task_id, WorkStage.EXECUTING) is None
+    assert queue.cancel_stale()
+
+
+def test_doc_consent_epoch_in_chat_increments_on_approval_and_revocation():
+    from app.agent.runtime.navimind_live_conversation import LiveMissionConversation
+    engine = LiveMissionConversation(new_chat(), None)
+    v0, initial = engine.document_access_snapshot()
+    assert initial is None
+    engine.approve_document_context("Wymiary 1000 x 1500")
+    v1, approved = engine.document_access_snapshot()
+    assert v1 > v0 and "1000 x 1500" in approved
+    engine.revoke_document_context()
+    v2, after = engine.document_access_snapshot()
+    assert v2 > v1 and after is None
+    engine.close()
+
+
+def test_work_step_before_dispatch_requires_current_consent_and_revision():
+    import inspect
+    from app.agent.runtime.navimind_work_mission import plan_or_execute_windowhub_step
+    source = inspect.getsource(plan_or_execute_windowhub_step)
+    assert "is_mission_current()" in source
+    assert "stale_or_revoked_mission_before_dispatch" in source
+
+
+def test_work_budget_is_enforced_before_native_dispatch_even_with_ready_mission(monkeypatch):
+    from app.agent.runtime import navimind_work_mission as module
+    chat = new_chat()
+    chat.user_message("Uzupełnij ofertę.")
+    queue = WorkMissionCoordinator(chat, max_cycles=1)
+    mission = queue.queue_current()
+    queue.transition(mission.task_id, WorkStage.READY)
+    queue.transition(mission.task_id, WorkStage.PAUSED, count_step=True)
+    queue.transition(mission.task_id, WorkStage.READY)
+    host = SimpleNamespace(controller=SimpleNamespace(current_permit=lambda: object()))
+    worker = BackgroundWorkMission(queue, host=host)
+    monkeypatch.setenv("WH_REAL_WINDOWHUB", "1")
+    monkeypatch.setenv("COMPUTER_USE_LIVE", "1")
+    assert not worker.execute_one_authorized_step()
+    assert queue.current().stage == WorkStage.REVIEW
+    worker.close()
+
+
+def test_unapproved_pdf_is_never_included_in_v2_mission_goal():
+    from pathlib import Path
+    launcher = (Path(__file__).resolve().parents[1] /
+                "tools" / "run_navimind_shared_control_center.py").read_text(
+                    encoding="utf-8")
+    assert "document_snapshot_provider=approved_document_for_work" in launcher
+    assert "if not snapshot:" in launcher
+    assert "if (intake.status()[\"has_enquiry\"]" in launcher
+    assert "and not live_chat.document_context_active()" in launcher
