@@ -79,7 +79,7 @@ def prepare_exact_catalogue_pick(
     if len(options) != 1:
         return None, "catalogue_option_not_uniquely_observed"
     option = options[0]
-    ancestry = (option.metadata or {}).get("uia_ancestor_structure")
+    ancestry = (option.metadata or {}).get("uia_ancestor_runtime_structure")
     if not isinstance(ancestry, (tuple, list)):
         return None, "catalogue_dropdown_parent_unverified"
     candidates = []
