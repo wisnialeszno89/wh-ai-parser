@@ -37,7 +37,8 @@ class LocalTeachingSession:
             self._active = True
             self._previous = None
             self._records = []
-            self._completed = ()
+            # Preserve previously reviewed semantic guidance within this
+            # process, even when the operator records another short example.
             self._summary = {}
             return True
 
@@ -78,7 +79,14 @@ class LocalTeachingSession:
             if self._active:
                 self._active = False
                 self._previous = None
-                self._completed = demonstration_experience(self._records)
+                recent = demonstration_experience(self._records)
+                seen = {repr(item) for item in self._completed}
+                merged = list(self._completed)
+                for item in recent:
+                    if repr(item) not in seen:
+                        merged.append(item)
+                        seen.add(repr(item))
+                self._completed = tuple(merged[-12:])
                 self._summary = demonstration_summary(self._records)
             return dict(self._summary)
 
