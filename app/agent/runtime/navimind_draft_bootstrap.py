@@ -51,7 +51,8 @@ def verify_draft_properties(scene, *, prior_hwnd: int | None = None) -> DraftPro
         hwnd = (scene.observation.metadata or {}).get("window_handle")
         if (app != "okna.exe" or title != PROPERTIES_TITLE
                 or stage_of(scene) != "document_properties"
-                or type(hwnd) is not int or hwnd <= 0):
+                or type(hwnd) is not int or hwnd <= 0
+                or (type(prior_hwnd) is int and hwnd == prior_hwnd)):
             return DraftProof(False, "unknown", "draft_properties_not_verified")
         return DraftProof(True, "document_properties", "verified_document_properties", hwnd)
     except (TypeError, ValueError, AttributeError, KeyError):
@@ -110,11 +111,19 @@ def safe_native_start_action(loop, host, *, mission_revision: int) -> DraftProof
     finally:
         host.controller.arbiter.invalidate_observation()
         host._accepted_scene = None
-    try:
-        observed = loop.observe_scene()
-        after = verify_draft_properties(observed, prior_hwnd=before.hwnd)
-    except Exception:
-        after = DraftProof(False, "unknown", "draft_post_action_reobservation_failed")
+    from time import sleep
+    observed = None
+    after = DraftProof(False, "unknown", "draft_post_action_reobservation_failed")
+    for attempt in range(5):
+        try:
+            observed = loop.observe_scene()
+            after = verify_draft_properties(observed, prior_hwnd=before.hwnd)
+        except Exception:
+            after = DraftProof(False, "unknown", "draft_post_action_reobservation_failed")
+        if after.valid:
+            break
+        if attempt < 4:
+            sleep(0.2)
     if not after.valid:
         raise RuntimeError("draft_start_action_effect_not_verified_no_retry")
     if not host.note_verified_workflow_step(observed, revision=mission_revision):
@@ -161,21 +170,32 @@ def safe_native_open_customer_picker(loop, host, *, mission_revision: int) -> Dr
     finally:
         host.controller.arbiter.invalidate_observation()
         host._accepted_scene = None
-    try:
-        after = loop.observe_scene()
-        from app.agent.learning.windowhub_demonstration import stage_of
-        state = after.observation.state
-        new_hwnd = (after.observation.metadata or {}).get("window_handle")
-        app = (state.active_application or "").replace(chr(92), "/").rsplit("/", 1)[-1].casefold()
-        title = (state.active_window_title or "").strip()
-        if (app != "okna.exe" or stage_of(after) not in (
-                "windowhub_unmapped", "customer_lookup")
-                or type(new_hwnd) is not int or new_hwnd <= 0
-                or new_hwnd == previous_hwnd
-                or title == PROPERTIES_TITLE):
-            raise ValueError("picker_not_a_distinct_window")
-    except Exception as exc:
-        raise RuntimeError("draft_picker_effect_unverified_no_retry") from exc
+    from time import sleep
+    from app.agent.learning.windowhub_demonstration import stage_of
+    new_hwnd = None
+    verified = False
+    for attempt in range(5):
+        try:
+            after = loop.observe_scene()
+            state = after.observation.state
+            new_hwnd = (after.observation.metadata or {}).get("window_handle")
+            app = (state.active_application or "").replace(chr(92), "/").rsplit("/", 1)[-1].casefold()
+            title = (state.active_window_title or "").strip()
+            verified = (
+                app == "okna.exe"
+                and stage_of(after) in ("windowhub_unmapped", "customer_lookup")
+                and type(new_hwnd) is int and new_hwnd > 0
+                and new_hwnd != previous_hwnd
+                and title != PROPERTIES_TITLE
+            )
+        except Exception:
+            verified = False
+        if verified:
+            break
+        if attempt < 4:
+            sleep(0.2)
+    if not verified:
+        raise RuntimeError("draft_picker_effect_unverified_no_retry")
     # No automatic selection from ambiguous customer list. Exact customer
     # or a supervised demo is required; the operator may finish manually.
     host._draft_phase = "awaiting_customer_selection"
