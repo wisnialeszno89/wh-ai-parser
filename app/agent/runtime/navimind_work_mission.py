@@ -518,19 +518,29 @@ def plan_or_execute_windowhub_step(
             "dimensions": frozenset({"width_1", "height_1"}),
         }
         form = WindowHubOfferFormMap().inspect(scene)
-        mapped = (
-            form is not None and any(
-                field.field_name in allowed.get(stage, ())
-                and field.is_unique and field.element is not None
-                and (field.element.metadata or {}).get("uia_runtime_id")
-                    == getattr(target, "uia_runtime_id", None)
-                for field in form.fields
-            )
+        fields = (
+            [field.field_name for field in form.fields
+             if field.field_name in allowed.get(stage, ())
+             and field.is_unique and field.element is not None
+             and (field.element.metadata or {}).get("uia_runtime_id")
+                == getattr(target, "uia_runtime_id", None)]
+            if form is not None else []
         )
-        if not mapped:
+        if len(fields) != 1:
             return WorkStepResult(
                 "review", "model_write_target_not_verified_offer_field"
             )
+        from app.agent.runtime.navimind_draft_spec_guard import (
+            validate_draft_text_entry,
+        )
+        source_valid, source_reason = validate_draft_text_entry(
+            goal=mission.goal,
+            consented_evidence=mission.approved_document_evidence,
+            field_name=fields[0],
+            proposed_value=action.action.value,
+        )
+        if not source_valid:
+            return WorkStepResult("review", source_reason)
     if name == "click_screen_element":
         # A locally visible control is not automatically a permissible
         # business action. Unknown/destructive buttons need salesperson
