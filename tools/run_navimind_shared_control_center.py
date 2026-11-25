@@ -214,9 +214,14 @@ def run(*, expected_offer: str) -> int:
             return version, ""
         return version, snapshot
 
+    def approved_positions_for_work():
+        # Exact same consent epoch as the frozen V2 text evidence.
+        return live_chat.position_manifest_snapshot()
+
     work_coordinator = WorkMissionCoordinator(
         host.chat, max_cycles=20,
         document_snapshot_provider=approved_document_for_work,
+        position_manifest_provider=approved_positions_for_work,
     )
     if host._draft_phase is not None:
         # The shared host calls this ONLY after selected OFR title/tab/handle
@@ -274,6 +279,17 @@ def run(*, expected_offer: str) -> int:
                 "Zadanie wymaga weryfikacji handlowca: " + result.reason
                 + ". Nie ponawiam niepewnej czynności."
             )
+        ledger = mission.position_ledger
+        if ledger is not None:
+            active = ledger.active
+            if active is not None:
+                message += (
+                    f" [Pozycja {ledger.active_index + 1}/"
+                    f"{len(ledger.manifest.positions)}: {active.position_id}; "
+                    f"potwierdzone: {len(ledger.completed)}.]"
+                )
+            else:
+                message += " [Wszystkie pozycje wymagają końcowej kontroli oferty.]"
         host.chat.agent_message(
             message[:host.chat.MAX_MESSAGE_CHARS],
             based_on_revision=mission.revision,
@@ -513,8 +529,23 @@ def run(*, expected_offer: str) -> int:
                 WorkStage.PAUSED: "oczekiwanie",
                 WorkStage.REVIEW: "przegląd handlowca",
             }.get(shown_mission.stage, "niezweryfikowane")
+            ledger = shown_mission.position_ledger
+            position_status = ""
+            if ledger is not None:
+                position_status = (
+                    f" | pozycja {ledger.active_index + 1}/"
+                    f"{len(ledger.manifest.positions)}"
+                    if ledger.active is not None
+                    else " | wszystkie pozycje do przeglądu"
+                )
+                if not ledger.manifest.safe_to_sequence:
+                    position_status = " | zapytanie niepełne — wymaga przeglądu"
             panel.task.configure(
-                text=f"V2: {phase} ({shown_mission.cycles}/{work_coordinator.max_cycles})"
+                text=(
+                    f"V2: {phase} "
+                    f"({shown_mission.cycles}/{work_coordinator.max_cycles})"
+                    + position_status
+                )
             )
         # An accepted fresh observation can schedule exactly one V2 step.
         # No model reply or document body can grant the input permit.
