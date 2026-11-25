@@ -357,3 +357,23 @@ def test_verified_wizard_v2_executor_does_not_require_offer_caption(monkeypatch)
     monkeypatch.setattr(windowhub_goal_v2_coordinator, "execute_v2_step", fake_executor)
     assert host.execute_one_verified_v2_action(Loop(dialog), "ACTION") == "verified"
     assert expected == [None]
+
+
+def test_revoked_document_consent_cannot_rearm_prepared_wizard_mission():
+    from app.agent.runtime.navimind_work_mission import (
+        WorkMissionCoordinator, WorkStage,
+    )
+    host = NaviMindSharedHost("OFR/101")
+    host.chat.user_message("Uzupełnij dane z PDF.")
+    consent = [1, "Zatwierdzony PDF: 1500 x 1400"]
+    coordinator = WorkMissionCoordinator(
+        host.chat, document_snapshot_provider=lambda: tuple(consent),
+    )
+    mission = coordinator.queue_current()
+    coordinator.transition(mission.task_id, WorkStage.READY)
+    consent[:] = [2, ""]
+    assert not host.approve_current_work_for_resume(
+        revision=mission.revision, task_id=mission.task_id,
+        coordinator=coordinator,
+    )
+    assert host.controller.current_permit() is None
