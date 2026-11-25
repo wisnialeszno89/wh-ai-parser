@@ -43,3 +43,47 @@ def allowed_position_click(
             return True, "dimensions_readback_before_next"
         return False, "dimensions_readback_missing_before_next"
     return False, "catalogue_or_unknown_wizard_click_requires_learning"
+
+
+def verify_position_navigation_readback(
+    scene, *, stage: str, target, current_position,
+    field_receipts=(),
+) -> tuple[bool, str]:
+    """On Next, re-read required live fields BEFORE any native action."""
+    allowed, reason = allowed_position_click(
+        stage=stage, target=target,
+        current_position=current_position,
+        field_receipts=field_receipts,
+    )
+    if not allowed:
+        return False, reason
+    label = " ".join(str(getattr(target, "label", "") or "").casefold().split())
+    if label != "dalej >":
+        return True, reason
+    required = {
+        "position": ("quantity_input",),
+        "dimensions": ("width_1", "height_1"),
+    }.get(stage)
+    if required is None:
+        return False, "unknown_wizard_navigation_stage"
+    from app.agent.runtime.navimind_field_readback import (
+        verify_written_field,
+    )
+    for field_name in required:
+        matching = [
+            r for r in field_receipts
+            if r.position_id == current_position.position_id
+            and r.field_name == field_name
+        ]
+        if len(matching) != 1 or not matching[0].runtime_id:
+            return False, "native_field_receipt_identity_missing"
+        item = matching[0]
+        proof = verify_written_field(
+            scene, field_name=field_name,
+            expected_value=item.value,
+            expected_runtime_id=item.runtime_id,
+            expected_stage=stage,
+        )
+        if not proof.verified:
+            return False, "stale_field_before_next_" + field_name
+    return True, "all_required_native_fields_rechecked_before_next"
