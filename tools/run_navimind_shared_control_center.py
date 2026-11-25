@@ -53,7 +53,9 @@ def inspect_offer_in_background(*, observe, host, output: Queue, stop: Event,
             pass
 
 
-def run(*, expected_offer: str) -> int:
+def run(*, expected_offer: str, initial_pdf: str | None = None,
+        initial_request_file: str | None = None,
+        exactly_two_windows: bool = False) -> int:
     if os.name != "nt":
         print("NAVIMIND_SHARED_HOST_REQUIRES_WINDOWS=True")
         return 2
@@ -199,6 +201,26 @@ def run(*, expected_offer: str) -> int:
 
     from app.agent.runtime.navimind_enquiry_inbox import LocalEnquiryInbox
     intake = LocalEnquiryInbox()
+    # Files are read locally before opening the panel, never shared with AI
+    # until the operator explicitly approves the document consent dialog.
+    if initial_pdf:
+        try:
+            intake.add_pdf(initial_pdf)
+        except (ValueError, OSError) as exc:
+            print("NAVIMIND_INITIAL_PDF_REJECTED=" + type(exc).__name__)
+            return 3
+    if initial_request_file:
+        try:
+            from pathlib import Path
+            path = Path(initial_request_file)
+            if path.suffix.lower() != ".txt" or not path.is_file():
+                raise ValueError("local_txt_required")
+            if path.stat().st_size > 200_000:
+                raise ValueError("local_txt_too_large")
+            intake.set_text(path.read_text(encoding="utf-8-sig"))
+        except (ValueError, OSError, UnicodeError) as exc:
+            print("NAVIMIND_INITIAL_REQUEST_REJECTED=" + type(exc).__name__)
+            return 3
 
     def describe_local_enquiry_status() -> str:
         # Metadata only; the customer PDF text and filenames never leave RAM.
@@ -349,6 +371,28 @@ def run(*, expected_offer: str) -> int:
     )
 
     def prepare_work_from_chat():
+        if exactly_two_windows:
+            from app.agent.runtime.navimind_position_ledger import (
+                build_position_manifest,
+            )
+            manifest = build_position_manifest(intake)
+            if not manifest.safe_to_sequence:
+                return (
+                    "TEST 2 OKIEN ZABLOKOWANY: nie udało się bezpiecznie "
+                    "wyodrębnić wszystkich pozycji z tekstu/PDF. "
+                    "Popraw zapytanie w panelu, sprawdź skany i zatwierdź "
+                    "ponownie dostęp do dokumentu."
+                )
+            if (len(manifest.positions) != 2
+                    or any(not p.ready_for_geometry
+                           or p.product_type != "window"
+                           for p in manifest.positions)):
+                return (
+                    "TEST 2 OKIEN ZABLOKOWANY: zapytanie musi zawierać "
+                    "dokładnie dwie rozpoznane pozycje OKNO z jednoznaczną "
+                    "ilością i wymiarami. Wykryto "
+                    + str(len(manifest.positions)) + " pozycji."
+                )
         if (intake.status()["has_enquiry"]
                 and not live_chat.document_context_active()):
             return (
@@ -452,6 +496,16 @@ def run(*, expected_offer: str) -> int:
         chat=host.chat, conversation=live_chat, enquiry=intake,
         on_document_revoke=host.takeover,
     )
+    # Reflect preloaded text in the editable local draft, so the operator
+    # sees and can correct it before consent. PDF remains in-memory only.
+    if intake.pasted_text:
+        panel.main_workspace.enquiry_editor.insert("1.0", intake.pasted_text)
+    panel.main_workspace._update_sources()
+    if initial_pdf or initial_request_file:
+        panel.main_workspace.notice.configure(
+            text="Wczytano lokalne zapytanie testowe. "
+                 "Sprawdź treść/PDF; udostępnienie AI wymaga osobnej zgody."
+        )
     live_allowed = (
         os.environ.get("COMPUTER_USE_LIVE") == "1"
         and os.environ.get("WH_REAL_WINDOWHUB") == "1"
@@ -699,13 +753,29 @@ def main(argv=None):
                         help="Exact existing OFR document ID, e.g. OFR/4687-")
     target.add_argument("--new-offer", action="store_true",
                         help="Start from WindowHub Start1; no OFR is invented.")
+    parser.add_argument("--pdf", help="Local PDF enquiry, read only into RAM")
+    parser.add_argument("--request-file", help="UTF-8 .txt enquiry loaded locally")
+    parser.add_argument("--test-two-windows", action="store_true",
+                        help="Block missions unless exactly two distinct windows are parsed")
     args = parser.parse_args(argv)
+    if args.pdf and args.request_file:
+        parser.error("Use either --pdf or --request-file per two-window test")
+    if args.test_two_windows and not args.new_offer:
+        parser.error("--test-two-windows requires --new-offer")
     if args.new_offer:
         from app.agent.runtime.navimind_draft_bootstrap import (
             DRAFT_DOCUMENT_KEY,
         )
-        return run(expected_offer=DRAFT_DOCUMENT_KEY)
-    return run(expected_offer=args.expected_offer)
+        return run(
+            expected_offer=DRAFT_DOCUMENT_KEY,
+            initial_pdf=args.pdf,
+            initial_request_file=args.request_file,
+            exactly_two_windows=args.test_two_windows,
+        )
+    return run(
+        expected_offer=args.expected_offer,
+        initial_pdf=args.pdf, initial_request_file=args.request_file,
+    )
 
 
 if __name__ == "__main__":
