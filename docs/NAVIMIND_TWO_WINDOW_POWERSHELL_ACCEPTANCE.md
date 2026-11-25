@@ -19,7 +19,16 @@ Jeśli w repo masz niezapisane zmiany albo inny aktywny branch wykorzystywany do
 
 ## 1. Pierwszy start, tylko analiza
 
-W PowerShell z katalogu repo:
+W PowerShell z katalogu repo możesz od razu uruchomić przykładowy **test bez danych klienta**:
+
+```powershell
+.\\tools\\Start-NaviMind-TwoWindows.ps1 -RequestFile ".\\examples\\navimind_two_window_smoke.txt"
+```
+
+Przykład zawiera dwa okna i jawne wymagania katalogowe (Perfectline, kolory, pakiet 2-szybowy, activPilot). **Nie gwarantuje dostępności tych pozycji** w konkretnej bazie WH Okna; agent nie ma zgadywać zamienników.
+
+Lub uruchom bez pliku:
+
 
 ```powershell
 .\tools\Start-NaviMind-TwoWindows.ps1
