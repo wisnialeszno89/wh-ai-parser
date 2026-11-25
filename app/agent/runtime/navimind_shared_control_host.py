@@ -184,3 +184,47 @@ class NaviMindSharedHost:
             self._accepted_scene = None
             raise InputDenied(comparison.reason)
         return self.controller.arbiter.dispatch(permit, operation)
+
+    def execute_one_verified_v2_action(
+        self, loop: Any, resolved: Any, *, approved_persistent: bool = False,
+    ) -> Any:
+        """Native V2 bridge: exactly one preapproved step, with local arbiter.
+
+        This is for a trusted local task coordinator, not a remote model
+        tool. The operator must already have resumed the exact OFR document.
+        The permit is consumed whether execution succeeds or fails; the next
+        step requires a new observation and human ownership handshake.
+        """
+        permit = self.controller.current_permit()
+        baseline = self._accepted_scene
+        if permit is None or baseline is None:
+            raise InputDenied("no_shared_host_agent_permission")
+        if permit.document_key != self.expected_offer:
+            raise InputDenied("v2_offer_permit_mismatch")
+        from app.agent.runtime.navimind_v2_preaction_scene_guard import (
+            verify_preaction_scene,
+        )
+        from app.agent.runtime.windowhub_goal_v2_coordinator import (
+            execute_v2_step,
+        )
+        try:
+            comparison, scene = verify_preaction_scene(loop, baseline)
+            if not comparison.safe:
+                raise InputDenied(comparison.reason)
+            proof = verify_offer_observation(scene, self.expected_offer)
+            if not proof.verified:
+                raise InputDenied(proof.reason)
+            return execute_v2_step(
+                loop, scene, resolved,
+                approved_persistent=approved_persistent,
+                expected_offer=self.expected_offer,
+                pre_model_scene=baseline,
+                input_arbiter=self.controller.arbiter,
+                input_permit=permit,
+            )
+        finally:
+            # A newly created dialog, changed MDI state or human input makes
+            # all old semantic references and permits stale.
+            self.controller.arbiter.invalidate_observation()
+            self._accepted_scene = None
+            self.last_reason = "v2_step_requires_fresh_reobservation"
