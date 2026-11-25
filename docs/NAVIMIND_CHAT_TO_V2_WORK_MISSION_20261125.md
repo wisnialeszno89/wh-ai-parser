@@ -38,11 +38,11 @@ Konfiguracja reasonera używa istniejącego `NAVIMIND_AGENT_V2_URL` (z odrębnym
 
 ### Co pozostaje do zamknięcia
 
-1. **Start1 / Nowa oferta bez już wybranego OFR.** Aktualny host V2 chroni dokładnie przypiętą ofertę. Przejście do nowego dokumentu i okien dialogowych musi otrzymać odrębną politykę tożsamości, zanim wielokrokowy executor może przejść dalej automatycznie.
-2. **Całe zapytanie PDF jako uporządkowany kontekst misji.** Rozmowa i lokalny parser istnieją, ale przesłanie zawartości do V2 potrzebuje odrębnie jasnego zakresu zgody i śledzenia fragmentów/stron. Nie należy zakładać, że skrót 3400 znaków wystarcza do pełnej oferty.
-3. **Pełny, biznesowy readback oferty.** Dziś executor potwierdza pojedynczy krok, nie kompletną zgodność wszystkich konstrukcji z zapytaniem ani ceny.
-4. **Wznawianie po dialogach i nieznanych ekranach.** Nie należy ignorować niepewnej tożsamości MDI, klienta lub pola. Tryb nauki ma zbierać demonstrację, która później przechodzi walidację.
-5. **Spójny wskaźnik postępu w UI i szersza obsługa programów poza WindowHub.** Podłączono rozmowę i worker do WindowHub, nie dowolną automatyzację komputera.
+1. **Start1 / Nowa oferta bez już wybranego OFR.** Ta ścieżka pozostaje odrębna: obecny host nie pozwala tworzyć nowych dokumentów spoza przypiętej oferty. Należy zweryfikować wiązanie nowego OFR przed automatycznym przejściem.
+2. **Pełny readback biznesowy.** Weryfikujemy wykonanie każdego kroku i potwierdzony etap kreatora, ale nie porównujemy jeszcze wszystkich gotowych konstrukcji, cen i wyborów katalogowych z zapytaniem.
+3. **Nieznane okna i klient.** Znane kreatory WindowHub mogą kontynuować po zweryfikowanej akcji; obce lub nierozpoznane okna zawsze powodują zatrzymanie. Selekcja klienta nadal wymaga jednoznacznego potwierdzenia.
+4. **PDF i OCR.** Po zgodzie silnik V2 otrzymuje maksymalnie 7500 znaków z zatwierdzonego fragmentu oraz lokalnego podsumowania pełnych dostępnych tekstów PDF. Skany bez OCR, ucięte strony i pozycje niewykryte przez parser pozostają niezweryfikowane.
+5. **Wiedza trwała i inne programy.** Manualny tryb nauki zbiera bezpieczne wskazówki o etapach, ale obecnie przechowuje je tylko w pamięci uruchomionego procesu; nie promuje sam niezweryfikowanych demonstracji do wykonywalnych umiejętności. Sterowanie innymi aplikacjami i działanie natywne bez przejęcia aktywnego pulpitu pozostają osobnymi zadaniami.
 
 ## Sprawdzenie bez realnego panelu
 
@@ -54,3 +54,12 @@ Windows GitHub Actions uruchamia izolowane testy `tests/test_navimind_work_missi
 - `app/agent/runtime/navimind_tool_router.py`: modelowy routing do przygotowania misji bez komend natywnych.
 - `tools/run_navimind_shared_control_center.py`: połączenie czatu, stanu misji, planowania i lokalnego przycisku wznowienia.
 - `app/agent/runtime/navimind_shared_control_host.py`: kontrola bieżącej wersji polecenia i pojedyncze natywne wykonanie V2.
+
+
+### Nowe zabezpieczenia i połączenia
+
+- **Kontynuacja w kreatorach:** `VerifiedWorkflowScope` akceptuje tylko dokładnie to okno dialogowe (etap, tytuł, HWND, Okna.exe), które lokalny wykonawca zobaczył po poprzednim zweryfikowanym kroku. Ręczne przejęcie sterowania lub zmiana okna unieważniają dowód. Nie wolno używać samego tytułu kreatora jako autoryzacji.
+- **PDF → zadanie:** `WorkMissionCoordinator` przechwytuje wersję zgody oraz lokalne dane z dokumentu. Silnik nie otrzymuje podsumowania całych PDF bez wcześniejszej świadomej zgody w oknie (wyświetla ono łączny limit). Zmiana lub cofnięcie zgody natychmiast odbiera hostowi prawo do wejścia, a wersjonowany task nie może być wznowiony.
+- **Wpisywanie danych:** tylko unikatowe, zmapowane kontrolki ofertowe, wstępnie pozycja/ilość/opis i pola pierwszej szerokości/wysokości, mogą otrzymać modelowe `write_text`. Istniejący wykonawca używa `Ctrl+A`, następnie sprawdza wartość; nie ma uprawnienia do swobodnej edycji danych klienta i cen. Zakończenie kreatora, zapis, wysyłka i konwersja w zamówienie wymagają ręcznego przeglądu.
+- **Tryb nauki:** lokalny, ręczny. Wciśnij `Tryb nauki`, pokaż kroki, a następnie `Zakończ naukę`. Obserwator analizuje ograniczone do 64 przejść semantyczne zmiany UIA; model może dostać do 8 nieprzyczynowych wskazówek z bieżącej sesji, nigdy surowe nazwy klientów, wpisane wartości, współrzędne lub native ID.
+- **Postęp:** panel pokazuje stan misji i wykonane, zweryfikowane kroki. Wstrzymanie po błędzie nie wykonuje automatycznego ponowienia, a przekroczony budżet powoduje przegląd.
