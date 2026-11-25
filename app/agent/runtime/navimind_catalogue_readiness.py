@@ -126,3 +126,33 @@ def summarize_catalogue_readiness(audit: CatalogueReadiness) -> str:
         "CATALOGUE_SELECTION_EXECUTABLE=False; "
         "SCENE_PII_EXPORTED=False"
     )[:600]
+
+
+def visible_unattributed_catalogue_items(scene: Any, *,
+                                          include_labels: bool = False,
+                                          limit: int = 30) -> tuple[str, ...] | int:
+    """Read visible UIA list items only; NEVER claim dropdown ownership.
+
+    A separate native popup can lack a reliable ancestry link to the combo.
+    The salesperson must still verify which field was expanded. Option
+    labels are returned only to an explicit, LOCAL CLI opt-in, never chat.
+    """
+    audit = inspect_catalogue_scene(scene)
+    if audit.status != "mapped_controls_only_catalogue_choices_not_verified":
+        return () if include_labels else 0
+    visible = []
+    for element in getattr(scene, "elements", ()):
+        meta = element.metadata or {}
+        if (element.kind not in {"listitem", "treeitem"}
+                or meta.get("source") not in {
+                    "windowhub_ui_automation", "windows_ui_automation"
+                } or meta.get("uia_visible") is not True
+                or meta.get("uia_enabled") is not True
+                or not isinstance(meta.get("uia_runtime_id"), str)):
+            continue
+        label = element.label
+        if isinstance(label, str) and label.strip():
+            visible.append(label.strip()[:120])
+    if not include_labels:
+        return len(visible)
+    return tuple(visible[:max(0, min(int(limit), 30))])
