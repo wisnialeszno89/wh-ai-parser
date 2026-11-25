@@ -218,3 +218,79 @@ def test_operator_denial_does_not_authorize_document(monkeypatch):
     ))
     assert chat.snapshot().messages[-1].text == "Odmówiono zgody"
     assert "SECRET" not in chat.snapshot().messages[-1].text
+
+
+def test_revoke_cuts_off_prior_sensitive_history_to_gateway():
+    inbox = LocalEnquiryInbox()
+    inbox.set_text("Fenster 1350 x 1220 mm SECRET_ABC")
+    chat = new_chat()
+    class RecordingProvider:
+        def __init__(self):
+            self.calls = []
+        def reply(self, *, transcript, instructions):
+            self.calls.append((transcript, instructions))
+            return '{"kind":"answer","answer":"Odebrano."}'
+    provider = RecordingProvider()
+    engine = LiveMissionConversation(
+        chat, provider,
+        read_only_tools={"engine_capabilities": ReadOnlyTool(
+            "engine_capabilities", "Status", lambda: "ok",
+        )},
+    )
+    engine.approve_document_context(inbox.model_context())
+    old = chat.user_message("Analiza klienta")
+    assert engine.submit_current_message(old.message_id)
+    await_idle(engine)
+    assert "SECRET_ABC" in repr(provider.calls[-1])
+    engine.revoke_document_context()
+    assert not engine.document_context_active()
+    assert not engine.submit_current_message(old.message_id)
+    fresh = chat.user_message("Nowy temat bez klienta")
+    assert engine.submit_current_message(fresh.message_id)
+    await_idle(engine)
+    assert "SECRET_ABC" not in repr(provider.calls[-1])
+    engine.close()
+
+
+def test_host_tool_registry_contains_real_document_parser_and_consent():
+    from pathlib import Path
+    host = (Path(__file__).resolve().parents[1] /
+            "tools" / "run_navimind_shared_control_center.py").read_text(
+                encoding="utf-8"
+            )
+    assert '"read_approved_enquiry": ReadOnlyTool(' in host
+    assert "requires_document_consent=True" in host
+    assert "synthesize_result=True" in host
+    assert "summarize_approved_enquiry(" in host
+    assert "PDF_COUNT=" in host
+    assert "runtime_status_provider=trusted_local_capability_state" in host
+    assert "NAVIMIND_V2_EXECUTOR_CONNECTED=False" in host
+
+
+def test_pdf_is_not_sent_when_only_status_tool_is_called():
+    inbox = LocalEnquiryInbox()
+    inbox.set_text("Poufny numer klienta 456789")
+    chat = new_chat()
+    class Provider:
+        def __init__(self):
+            self.calls = []
+        def reply(self, *, transcript, instructions):
+            self.calls.append((transcript, instructions))
+            return '{"kind":"tool","tool":"enquiry_status"}'
+    provider = Provider()
+    engine = LiveMissionConversation(
+        chat, provider,
+        read_only_tools={
+            "enquiry_status": ReadOnlyTool(
+                "enquiry_status", "Tylko liczba PDF",
+                lambda: "Lokalne zapytanie: tak, PDF_COUNT=0",
+            ),
+        },
+        runtime_status_provider=lambda: "ENQUIRY_PRESENT=True; PDF_COUNT=0",
+    )
+    request = chat.user_message("Czy masz dokumenty?")
+    assert engine.submit_current_message(request.message_id)
+    await_idle(engine)
+    assert all("456789" not in repr(request) for request in provider.calls)
+    assert "PDF_COUNT=0" in chat.snapshot().messages[-1].text
+    engine.close()
