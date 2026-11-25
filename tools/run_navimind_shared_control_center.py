@@ -30,15 +30,19 @@ def inspect_offer_in_background(*, observe, host, output: Queue, stop: Event,
                                 wake_interval=0.4):
     """Only queues read-only observation; never calls Tk or grants permits."""
     while not stop.wait(wake_interval):
-        if host.controller.snapshot().mode != PanelMode.RESUME_PENDING:
+        observed_mode = host.controller.snapshot().mode
+        if observed_mode not in (PanelMode.RESUME_PENDING, PanelMode.LEARNING):
             continue
         observation_epoch = host.controller.arbiter.epoch
         try:
             observed = observe()
-            item = ("scene", observation_epoch, observed)
+            item = (
+                "teaching_scene" if observed_mode == PanelMode.LEARNING else "scene",
+                observation_epoch, observed,
+            )
         except Exception:
             item = ("error", observation_epoch, "read_only_observation_failed")
-        if (host.controller.snapshot().mode != PanelMode.RESUME_PENDING
+        if (host.controller.snapshot().mode != observed_mode
                 or host.controller.arbiter.epoch != observation_epoch):
             continue
         try:
@@ -195,6 +199,10 @@ def run(*, expected_offer: str) -> int:
     from app.agent.runtime.navimind_work_mission import (
         BackgroundWorkMission, WorkMissionCoordinator, WorkStage,
     )
+    from app.agent.runtime.navimind_local_teaching_session import (
+        LocalTeachingSession,
+    )
+    teaching_session = LocalTeachingSession()
     approved_work_cache: dict[str, object] = {"version": None, "evidence": ""}
 
     def approved_document_for_work():
@@ -257,6 +265,7 @@ def run(*, expected_offer: str) -> int:
 
     background_work = BackgroundWorkMission(
         work_coordinator, host=host, callback=on_work_result,
+        demonstration_provider=teaching_session.experience,
     )
 
     def prepare_work_from_chat():
@@ -395,6 +404,20 @@ def run(*, expected_offer: str) -> int:
     print("NAVIMIND_MICROPHONE_WINDOWS_DICTATION=True")
 
     def pump():
+        if host.controller.snapshot().mode == PanelMode.LEARNING:
+            if not teaching_session.active:
+                teaching_session.start()
+            panel.description.configure(
+                text="Pokaż kroki ręcznie w WindowHub. NaviMind zapamiętuje "
+                     "tylko zmiany etapów i stanów UIA, bez danych klientów."
+            )
+        elif teaching_session.active:
+            summary = teaching_session.finish()
+            count = int(summary.get("record_count", 0))
+            panel.main_workspace.notice.configure(
+                text=f"Zakończono naukę: {count} lokalnych zmian. "
+                     "Demonstracja to wskazówka V2, nie automatyczne uprawnienie."
+            )
         while True:
             try:
                 task_id, outcome = work_events.get_nowait()
@@ -424,6 +447,11 @@ def run(*, expected_offer: str) -> int:
                 kind, observed_epoch, payload = queue.get_nowait()
             except Empty:
                 break
+            if kind == "teaching_scene":
+                if (host.controller.snapshot().mode == PanelMode.LEARNING
+                        and host.controller.arbiter.epoch == observed_epoch):
+                    teaching_session.observe(payload)
+                continue
             if (host.controller.snapshot().mode != PanelMode.RESUME_PENDING
                     or host.controller.arbiter.epoch != observed_epoch):
                 continue
