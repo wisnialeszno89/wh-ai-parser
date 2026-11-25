@@ -437,6 +437,20 @@ class NaviMindMainWorkspace(tk.Frame):
                 text="Dyktowanie Windows niedostępne: " + type(exc).__name__
             )
 
+    def _approved_mission_snapshot(self, excerpt: str) -> str:
+        """Freeze PDF analysis on Tk thread at the moment of explicit consent.
+
+        A later background V2 worker must NOT re-read mutable input widgets
+        or newly added PDFs under an older approval epoch.
+        """
+        from app.agent.runtime.navimind_enquiry_evidence_bridge import (
+            summarize_full_approved_inbox,
+        )
+        digest = summarize_full_approved_inbox(
+            self.enquiry, approved=True, limit=2800,
+        )
+        return (digest + "\n\n" + excerpt)[:7500]
+
     def _handle_model_document_consent(self, request):
         """Tk-thread approval of a tool requested by the LLM.
 
@@ -486,7 +500,9 @@ class NaviMindMainWorkspace(tk.Frame):
             self._refresh_messages()
             return
         try:
-            self.conversation.approve_document_context(excerpt)
+            self.conversation.approve_document_context(
+                excerpt, mission_evidence=self._approved_mission_snapshot(excerpt),
+            )
         except (RuntimeError, ValueError):
             self.notice.configure(text="Nie udało się przyznać dostępu AI.")
             return
@@ -558,7 +574,9 @@ class NaviMindMainWorkspace(tk.Frame):
             "nie myl PDF z bieżącym ekranem WindowHub."
         )
         try:
-            self.conversation.approve_document_context(context)
+            self.conversation.approve_document_context(
+                context, mission_evidence=self._approved_mission_snapshot(context),
+            )
             message = self.chat.user_message(prompt)
         except (ValueError, RuntimeError):
             self._drop_document_consent()
