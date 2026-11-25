@@ -504,8 +504,9 @@ class NaviMindMainWorkspace(tk.Frame):
         """Revoke provider context AND any previously armed native work."""
         if self.conversation is not None:
             self.conversation.revoke_document_context()
-        if self.on_document_revoke is not None:
-            self.on_document_revoke()
+        callback = getattr(self, "on_document_revoke", None)
+        if callback is not None:
+            callback()
 
     def _revoke_document_access(self):
         self._drop_document_consent()
