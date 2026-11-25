@@ -14,6 +14,57 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 
+def locate_windowhub_windows(windows) -> tuple[str, ...]:
+    """Find WindowHub among visible top-level windows without activating any.
+
+    Do not disclose window titles, handles, paths or other application names.
+    This proves discovery only; it cannot verify WindowHub UIA while hidden.
+    """
+    found = []
+    for window in windows:
+        process = getattr(window, "application", "") or ""
+        process = process.replace("\\", "/").rsplit("/", 1)[-1].casefold()
+        if process != "okna.exe" or getattr(window, "is_visible", False) is not True:
+            continue
+        found.append(window)
+    if not found:
+        return ("WINDOWHUB_DISCOVERY=NOT_FOUND", "WINDOWHUB_FOUND_WINDOWS=0",
+                "WINDOWHUB_NATIVE_ACTIONS=0")
+    foreground = any(getattr(w, "is_foreground", False) is True for w in found)
+    minimized = all(getattr(w, "is_minimized", False) is True for w in found)
+    return (
+        "WINDOWHUB_DISCOVERY=FOUND",
+        "WINDOWHUB_FOUND_WINDOWS=" + str(min(len(found), 64)),
+        "WINDOWHUB_IS_FOREGROUND=" + str(foreground),
+        "WINDOWHUB_ALL_MINIMIZED=" + str(minimized),
+        "WINDOWHUB_NATIVE_ACTIONS=0",
+    )
+
+
+def run_discovery(*, inventory=None, output=print) -> int:
+    """One Win32 window inventory. Does not capture the screen or steal focus."""
+    if inventory is None and os.name != "nt":
+        output("WINDOWHUB_DISCOVERY=WINDOWS_REQUIRED")
+        return 2
+    try:
+        if inventory is None:
+            from app.agent.environment.windows_desktop_environment_adapter import (
+                WindowsDesktopEnvironmentAdapter,
+            )
+            adapter = WindowsDesktopEnvironmentAdapter()
+            foreground = adapter._capture_foreground_window()
+            inventory = adapter._capture_visible_windows(
+                foreground.handle, snapshot=foreground,
+            )
+        for line in locate_windowhub_windows(inventory):
+            output(line)
+        return 0
+    except Exception:
+        output("WINDOWHUB_DISCOVERY=FAILED")
+        output("WINDOWHUB_NATIVE_ACTIONS=0")
+        return 1
+
+
 def summarize_uia_visibility(scene) -> tuple[str, ...]:
     """Safe provider counts; zero mapped controls need not mean zero UIA objects.
 

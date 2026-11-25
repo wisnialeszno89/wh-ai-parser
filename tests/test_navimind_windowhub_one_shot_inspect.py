@@ -101,3 +101,54 @@ def test_empty_uia_scene_reports_zero_counts():
     assert "WINDOWHUB_UIA_ELEMENTS=0" in counts
     assert "WINDOWHUB_UIA_INTERACTIVE_VISIBLE=0" in counts
     assert "WINDOWHUB_NATIVE_ACTIONS=0" in counts
+
+
+def test_background_discovery_finds_okna_without_focus():
+    from tools.inspect_navimind_windowhub import locate_windowhub_windows
+    windows = [
+        SimpleNamespace(application="C:/Windows/firefox.exe", is_visible=True, is_foreground=True, is_minimized=False),
+        SimpleNamespace(application="C:/Winkhaus/OKNA.EXE", is_visible=True, is_foreground=False, is_minimized=False),
+    ]
+    output = locate_windowhub_windows(windows)
+    assert "WINDOWHUB_DISCOVERY=FOUND" in output
+    assert "WINDOWHUB_FOUND_WINDOWS=1" in output
+    assert "WINDOWHUB_IS_FOREGROUND=False" in output
+    assert "WINDOWHUB_NATIVE_ACTIONS=0" in output
+    assert "firefox" not in repr(output)
+
+
+def test_background_discovery_does_not_claim_hidden_or_unrelated_app():
+    from tools.inspect_navimind_windowhub import locate_windowhub_windows
+    out = locate_windowhub_windows([
+        SimpleNamespace(application="okna.exe", is_visible=False, is_foreground=False),
+        SimpleNamespace(application="word.exe", is_visible=True, is_foreground=True),
+    ])
+    assert "WINDOWHUB_DISCOVERY=NOT_FOUND" in out
+
+
+def test_background_discovery_reports_minimized_state_not_ui_readiness():
+    from tools.inspect_navimind_windowhub import locate_windowhub_windows
+    out = locate_windowhub_windows([
+        SimpleNamespace(application="OKNA.EXE", is_visible=True, is_foreground=False, is_minimized=True),
+    ])
+    assert "WINDOWHUB_ALL_MINIMIZED=True" in out
+    assert not any("STAGE=" in item for item in out)
+
+
+def test_discovery_reads_injected_window_inventory_once():
+    from tools.inspect_navimind_windowhub import run_discovery
+    out = []
+    inventory = [
+        SimpleNamespace(application="okna.exe", is_visible=True,
+                        is_foreground=False, is_minimized=False),
+    ]
+    assert run_discovery(inventory=inventory, output=out.append) == 0
+    assert "WINDOWHUB_DISCOVERY=FOUND" in out
+
+
+def test_owner_launcher_supports_discovery_without_previous_ofr():
+    code = (Path(__file__).resolve().parents[1] / "tools" /
+            "start_navimind_owner.ps1").read_text(encoding="utf-8")
+    assert "[switch]$FindWindowHub" in code
+    assert "run_discovery()" in code
+    assert '$env:COMPUTER_USE_LIVE = "0"' in code
