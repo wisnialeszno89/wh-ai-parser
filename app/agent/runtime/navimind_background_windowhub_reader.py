@@ -92,7 +92,10 @@ def inspect_windowhub_background(
         for w in candidates:
             # Verify the HWND still belongs to okna.exe before reading UIA,
             # rather than using a stale inventory handle for another process.
-            if os.name == "nt":
+            if os.name == "nt" and desktop_factory is None:
+                # Production uses native HWND/process identity checks. An
+                # explicitly injected test desktop has synthetic handles and
+                # must be validated against its injected UIA root instead.
                 user32 = ctypes.WinDLL("user32", use_last_error=True)
                 is_window = user32.IsWindow
                 is_window.argtypes = (wintypes.HWND,)
