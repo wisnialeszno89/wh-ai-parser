@@ -55,35 +55,58 @@ def verify_position_navigation_readback(
         current_position=current_position,
         field_receipts=field_receipts,
     )
-    if not allowed:
+    receipt_only_blockers = {
+        "quantity_readback_missing_before_next",
+        "dimensions_readback_missing_before_next",
+    }
+    if not allowed and reason not in receipt_only_blockers:
         return False, reason
     label = " ".join(str(getattr(target, "label", "") or "").casefold().split())
     if label != "dalej >":
-        return True, reason
+        return (True, reason) if allowed else (False, reason)
     required = {
-        "position": ("quantity_input",),
-        "dimensions": ("width_1", "height_1"),
+        "position": {"quantity_input": current_position.quantity},
+        "dimensions": {
+            "width_1": current_position.width_mm,
+            "height_1": current_position.height_mm,
+        },
     }.get(stage)
-    if required is None:
-        return False, "unknown_wizard_navigation_stage"
+    if (required is None or
+            any(type(value) is not int or value <= 0
+                for value in required.values())):
+        return False, "active_position_values_missing_for_navigation"
     from app.agent.runtime.navimind_field_readback import (
         verify_written_field,
     )
-    for field_name in required:
+    from app.agent.offers.windowhub_offer_form_map import WindowHubOfferFormMap
+    snapshot = WindowHubOfferFormMap().inspect(scene)
+    if snapshot is None:
+        return False, "native_wizard_form_unavailable"
+    for field_name, requested in required.items():
+        field = snapshot.field(field_name)
+        if field is None or not field.is_unique or field.element is None:
+            return False, "native_field_missing_before_next_" + field_name
+        runtime_id = (field.element.metadata or {}).get("uia_runtime_id")
         matching = [
             r for r in field_receipts
             if r.position_id == current_position.position_id
             and r.field_name == field_name
         ]
-        if len(matching) != 1 or not matching[0].runtime_id:
-            return False, "native_field_receipt_identity_missing"
-        item = matching[0]
+        if len(matching) > 1:
+            return False, "duplicate_field_receipts_before_next"
+        if matching:
+            # A previously proved field must still have the same native
+            # identity and source value. It may not be reused after a change.
+            item = matching[0]
+            if (item.value != str(requested)
+                    or item.runtime_id != runtime_id):
+                return False, "stale_field_receipt_before_next_" + field_name
         proof = verify_written_field(
             scene, field_name=field_name,
-            expected_value=item.value,
-            expected_runtime_id=item.runtime_id,
+            expected_value=str(requested),
+            expected_runtime_id=runtime_id,
             expected_stage=stage,
         )
         if not proof.verified:
-            return False, "stale_field_before_next_" + field_name
-    return True, "all_required_native_fields_rechecked_before_next"
+            return False, "live_field_mismatch_before_next_" + field_name
+    return True, "all_required_native_fields_fresh_and_match_source"
