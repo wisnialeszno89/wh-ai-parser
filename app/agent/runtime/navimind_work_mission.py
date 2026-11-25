@@ -212,6 +212,23 @@ def plan_or_execute_windowhub_step(
         return WorkStepResult("paused", "windowhub_not_foreground")
     if stage == "order_document":
         return WorkStepResult("review", "order_document_not_authorized")
+    if stage == "windowhub_unmapped":
+        return WorkStepResult("review", "unknown_windowhub_dialog_requires_learning")
+    # Planning and execution are both restricted to the exact OFR or a
+    # dialog reached via a prior verified native V2 step. This also prevents
+    # sending unrelated foreground window data to the reasoning provider.
+    from app.agent.runtime.navimind_shared_control_host import (
+        verify_offer_observation, verify_workflow_scope,
+    )
+    scope_proof = verify_offer_observation(scene, mission.document_key)
+    if not scope_proof.verified:
+        scope_proof = verify_workflow_scope(
+            scene, getattr(host, "_workflow_scope", None),
+            expected_offer=mission.document_key,
+            revision=mission.revision,
+        )
+    if not scope_proof.verified:
+        return WorkStepResult("paused", "pinned_offer_scope_unverified")
 
     from app.agent.learning.windowhub_training_context import (
         windowhub_skill_knowledge,
@@ -307,8 +324,17 @@ def plan_or_execute_windowhub_step(
     try:
         after_scene = loop.observe_scene()
         new_stage = stage_of(after_scene) or "unknown"
+        if not host.note_verified_workflow_step(
+                after_scene, revision=mission.revision):
+            return WorkStepResult(
+                "review", "native_step_verified_but_followup_scope_unknown",
+                name, True,
+            )
     except Exception:
-        new_stage = "unknown"
+        return WorkStepResult(
+            "review", "native_step_verified_but_followup_observation_failed",
+            name, True,
+        )
     return WorkStepResult(
         "action", "one_native_step_verified_reobserve_next",
         name, True, signature, stage, new_stage,
@@ -377,6 +403,12 @@ class BackgroundWorkMission:
             return False
         if (mission.stage == WorkStage.PAUSED
                 and mission.reason != "one_native_step_verified_reobserve_next"):
+            return False
+        if mission.cycles >= self.coordinator.max_cycles:
+            self.coordinator.transition(
+                mission.task_id, WorkStage.REVIEW,
+                reason="mission_action_budget_exhausted",
+            )
             return False
         if self.host.controller.current_permit() is None:
             return False
