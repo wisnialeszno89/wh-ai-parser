@@ -217,6 +217,39 @@ def test_new_chat_instruction_blocks_old_mission_after_exact_offer_reobserved():
     assert host.controller.current_permit() is None
 
 
+
+def prepared_approved_host():
+    from app.agent.runtime.navimind_work_mission import (
+        WorkMissionCoordinator, WorkStage,
+    )
+    host = NaviMindSharedHost("OFR/101")
+    message = host.chat.user_message("Uzupełnij pole szerokość w tej ofercie.")
+    coordinator = WorkMissionCoordinator(host.chat)
+    mission = coordinator.queue_current()
+    coordinator.transition(mission.task_id, WorkStage.READY)
+    assert host.approve_current_work_for_resume(
+        revision=message.mission_revision,
+        task_id=mission.task_id,
+        coordinator=coordinator,
+    )
+    host.release_for_reobservation()
+    assert host.inspect_fresh_scene(make_scene()).verified
+    return host
+
+
+def test_chatted_mission_does_not_bypass_replan_without_operator_resume():
+    from app.agent.runtime.navimind_work_mission import (
+        WorkMissionCoordinator, WorkStage,
+    )
+    host = NaviMindSharedHost("OFR/101")
+    host.chat.user_message("Zmień okno.")
+    coordinator = WorkMissionCoordinator(host.chat)
+    mission = coordinator.queue_current()
+    coordinator.transition(mission.task_id, WorkStage.READY)
+    host.release_for_reobservation()
+    assert not host.inspect_fresh_scene(make_scene()).verified
+    assert host.controller.current_permit() is None
+
 def test_v2_bridge_rejects_unapproved_native_execution_before_observation():
     host = NaviMindSharedHost("OFR/101")
     loop = Loop(make_scene())
@@ -227,7 +260,7 @@ def test_v2_bridge_rejects_unapproved_native_execution_before_observation():
 
 def test_v2_bridge_dispatches_existing_executor_only_with_verified_permit(monkeypatch):
     from app.agent.runtime import windowhub_goal_v2_coordinator
-    host = prepared_host()
+    host = prepared_approved_host()
     old_permit = host.controller.current_permit()
     called = []
 
@@ -251,7 +284,7 @@ def test_v2_bridge_dispatches_existing_executor_only_with_verified_permit(monkey
 
 def test_v2_bridge_rejects_scene_changed_during_reasoning(monkeypatch):
     from app.agent.runtime import windowhub_goal_v2_coordinator
-    host = prepared_host()
+    host = prepared_approved_host()
     monkeypatch.setattr(
         windowhub_goal_v2_coordinator, "execute_v2_step",
         lambda *_a, **_k: pytest.fail("unverified action dispatched"),
