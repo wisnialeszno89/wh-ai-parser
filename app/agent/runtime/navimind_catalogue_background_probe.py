@@ -107,7 +107,11 @@ def read_catalogue_window_without_focus(
         },
     )
     try:
-        elements = tuple(provider.perceive(obs))
+        bounded_reader = getattr(provider, "perceive_catalogue_bounded", None)
+        elements = tuple(
+            bounded_reader(obs) if callable(bounded_reader)
+            else provider.perceive(obs)
+        )
     except Exception:
         return None, "windowhub_catalogue_uia_unavailable"
     if not verifier(target.handle, target.title):
