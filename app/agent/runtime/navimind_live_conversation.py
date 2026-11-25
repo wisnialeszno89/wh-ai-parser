@@ -12,6 +12,34 @@ from app.agent.runtime.navimind_conversational_provider import (
     ChatProvider, ChatUnavailable, transcript_for_chat, SYSTEM_INSTRUCTIONS,
 )
 from app.agent.runtime.navimind_mission_chat import MissionChat, MessageRole
+from app.agent.runtime.navimind_tool_router import ModelToolDecision
+
+
+def explicit_local_enquiry_read_request(text: str) -> bool:
+    """Conservative routing fallback for an explicit human document request.
+
+    Never triggered by untrusted PDF contents. Only selects the existing
+    consent-gated read tool after two invalid model decision responses.
+    """
+    if not isinstance(text, str):
+        return False
+    request = text.casefold().strip()
+    if any(denial in request for denial in (
+        "nie czytaj", "nie analizuj", "nie odczytuj", "nie udostępniaj",
+        "nie wysyłaj dokumentu", "bez czytania dokumentu",
+    )):
+        return False
+    source = any(term in request for term in (
+        "lokalne zapytanie", "zapytanie klienta", "wczytane zapytanie",
+        "dokument klienta", "załączony dokument", "załączonego pdf",
+        "załączony pdf", "plik pdf", "lokalny pdf",
+    ))
+    action = any(term in request for term in (
+        "przeanaliz", "przeczytaj", "odczytaj", "podaj", "wypisz",
+        "wyciągnij", "wyodrębnij", "streść", "podsumuj", "wymiary",
+    ))
+    return source and action
+
 
 
 @dataclass(frozen=True)
@@ -361,6 +389,19 @@ class LiveMissionConversation:
                             )
                         except (ValueError, ChatUnavailable):
                             pass
+                    if (decision is None and current
+                            and "read_approved_enquiry" in self.read_only_tools):
+                        # Route from the latest user message, not model/PDF.
+                        humans = [
+                            item for item in self.chat.snapshot().messages
+                            if item.role == MessageRole.HUMAN
+                            and item.mission_revision == revision
+                        ]
+                        if (humans and explicit_local_enquiry_read_request(
+                                humans[-1].text)):
+                            decision = ModelToolDecision(
+                                kind="tool", tool="read_approved_enquiry",
+                            )
                     if decision is None:
                         answer = (
                             "Nie udało mi się jednoznacznie wybrać narzędzia. "
