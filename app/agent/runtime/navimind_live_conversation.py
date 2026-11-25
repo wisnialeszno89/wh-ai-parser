@@ -109,13 +109,40 @@ class LiveMissionConversation:
                         response, self.read_only_tools,
                     )
                 except ValueError:
-                    # Fail closed. Never interpret unstructured model text
-                    # as an instruction and never claim an action occurred.
-                    answer = (
-                        "Nie udało mi się jednoznacznie wybrać narzędzia. "
-                        "Nie wykonałem żadnej czynności na komputerze."
-                    )
+                    # One bounded repair attempt: the chat model may omit
+                    # required JSON on an otherwise routine read-only query.
+                    # This is still a MODEL decision, never a keyword action.
+                    # Recheck revision before spending another Gateway call.
+                    with self._lock:
+                        current = (not self._closed and
+                                   self.chat.snapshot().mission_revision == revision)
+                    decision = None
+                    if current:
+                        try:
+                            corrected = self.provider.reply(
+                                transcript=transcript,
+                                instructions=instructions + (
+                                    "\n\nPOPRZEDNIA ODPOWIEDŹ NIE MIAŁA POPRAWNEGO "
+                                    "FORMATU. Zwróć wyłącznie jeden poprawny "
+                                    "obiekt JSON bez Markdown. Wybierz narzędzie "
+                                    "wyłącznie wtedy, gdy wymaga tego prośba."
+                                ),
+                            )
+                            decision = parse_model_tool_decision(
+                                corrected, self.read_only_tools,
+                            )
+                        except (ValueError, ChatUnavailable):
+                            pass
+                    if decision is None:
+                        answer = (
+                            "Nie udało mi się jednoznacznie wybrać narzędzia. "
+                            "Nie wykonałem żadnej czynności na komputerze."
+                        )
+                    else:
+                        answer = None
                 else:
+                    answer = None
+                if decision is not None:
                     if decision.kind == "tool":
                         # A changed human instruction or closed panel must
                         # invalidate old tool decisions before invocation.
