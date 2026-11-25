@@ -40,6 +40,7 @@ class LiveMissionConversation:
         self.runtime_status_provider = runtime_status_provider
         self.allow_tool_chaining = allow_tool_chaining is True
         self._approved_document_context: str | None = None
+        self._approved_mission_evidence: str | None = None
         self._document_access_version = 0
         self._pending_document_approval: tuple[int, int] | None = None
         self._privacy_history_cutoff = 0
@@ -51,14 +52,24 @@ class LiveMissionConversation:
         self._closed = False
         self._busy = False
 
-    def approve_document_context(self, context: str) -> None:
-        """Operator-authorized in-memory context; no transmission here."""
+    def approve_document_context(
+        self, context: str, *, mission_evidence: str | None = None,
+    ) -> None:
+        """Atomic operator-authorized immutable snapshots; no transmission."""
         if not isinstance(context, str) or not context.strip() or len(context) > 3900:
             raise ValueError("invalid_document_context")
+        if (mission_evidence is not None
+                and (not isinstance(mission_evidence, str)
+                     or not mission_evidence.strip()
+                     or len(mission_evidence) > 7500)):
+            raise ValueError("invalid_mission_evidence")
         with self._lock:
             if self._closed:
                 raise RuntimeError("conversation_closed")
             self._approved_document_context = context
+            self._approved_mission_evidence = (
+                mission_evidence if mission_evidence is not None else context
+            )
             self._document_access_version += 1
             self._pending_document_approval = None
 
@@ -66,6 +77,7 @@ class LiveMissionConversation:
         """Remove access for subsequent turns; cannot retract past API calls."""
         with self._lock:
             self._approved_document_context = None
+            self._approved_mission_evidence = None
             self._document_access_version += 1
             self._pending_document_approval = None
             # Prior chat turns may contain summaries of sensitive customer
@@ -84,7 +96,7 @@ class LiveMissionConversation:
     def document_access_snapshot(self) -> tuple[int, str | None]:
         """Atomic consent epoch and approved text for an in-flight work mission."""
         with self._lock:
-            return self._document_access_version, self._approved_document_context
+            return self._document_access_version, self._approved_mission_evidence
 
     def approved_document_context(self) -> str | None:
         """Return only the approved bounded snapshot, never local unapproved files."""
