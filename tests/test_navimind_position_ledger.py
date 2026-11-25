@@ -489,3 +489,38 @@ def test_direct_chat_without_window_line_is_not_fabricated():
         "Utwórz mi dwie pozycje według PDF, który jest gdzieś na pulpicie"
     ) is None
     assert direct_chat_position_manifest("x" * 4001) is None
+
+
+def test_v2_receives_only_active_window_when_user_typed_both_in_chat():
+    from app.agent.runtime.navimind_position_ledger import (
+        direct_chat_position_manifest,
+    )
+    from app.agent.runtime.navimind_work_mission import (
+        WorkMission, scoped_v2_mission_goal,
+    )
+    chat = (
+        "Przygotuj dwie pozycje w nowej niezapisanej ofercie.\n"
+        "Pos. 1: 1 Stk Fenster 1500x1400\n"
+        "Profil: Veka Perfectline\n"
+        "Pos. 2: 1 Stk Fenster 1300x1200\n"
+        "Profil: Veka Softline 82"
+    )
+    manifest = direct_chat_position_manifest(chat)
+    assert manifest is not None and manifest.safe_to_sequence
+    mission = WorkMission(
+        task_id="test-2-win", revision=1, message_id=1,
+        goal=chat, document_key="DRAFT/NEW",
+        stage=WorkStage.READY,
+        position_ledger=PositionLedger(manifest),
+    )
+    first = scoped_v2_mission_goal(mission)
+    assert "1500" in first and "Veka Perfectline" in first
+    assert "1300" not in first and "Veka Softline 82" not in first
+    from dataclasses import replace
+    second = scoped_v2_mission_goal(
+        replace(mission, position_ledger=PositionLedger(
+            manifest, active_index=1
+        ))
+    )
+    assert "1300" in second and "Veka Softline 82" in second
+    assert "1500" not in second and "Veka Perfectline" not in second
