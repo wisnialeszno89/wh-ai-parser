@@ -81,7 +81,15 @@ Przejdź ręcznie do `Podstawowe parametry okna`, `Parametry szklenia`, `Paramet
 python tools/inspect_navimind_catalog_readiness.py --observe
 ```
 
-Polecenie nic nie klika, nic nie zapisuje, nie wysyła PDF ani wartości klienta. Pokazuje tylko, które UIA pola mają jednoznaczną identyfikację i czy bieżąca wartość jest odczytywalna. Nie enumeruje pozycji katalogowych i nie dowodzi możliwości wyboru. Do zidentyfikowania list potrzebna będzie druga faza z ręcznie rozwiniętą listą i osobnym native readback.
+Polecenie nic nie klika, nic nie zapisuje, nie wysyła PDF ani wartości klienta. Pokazuje tylko, które UIA pola mają jednoznaczną identyfikację i czy bieżąca wartość jest odczytywalna. Nie enumeruje pozycji katalogowych i nie dowodzi możliwości wyboru.
+
+Opcjonalnie **ręcznie rozwiń jedną listę katalogową** w testowym kreatorze i na tym samym komputerze wykonaj:
+
+```powershell
+python tools/inspect_navimind_catalog_readiness.py --observe --show-expanded-options
+```
+
+Wtedy, tylko na wyraźne życzenie operatora, raport może wydrukować do 25 widocznych etykiet `listitem/treeitem`. **To nie są jeszcze przypisane warianty konkretnej listy** — popup może mieć osobne drzewo UIA; dlatego wynik nie uruchamia wyboru ani nie jest wysyłany AI. Przejrzyj przed udostępnieniem, czy nie ma tam danych osobowych z innego otwartego dialogu. Jeśli nie pojawią się opcje, zapisz w diagnostyce `[]` zamiast zgadywać.
 
 ## 4. Jak przekazać diagnostykę
 
