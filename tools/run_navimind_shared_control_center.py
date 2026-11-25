@@ -363,9 +363,13 @@ def run(*, expected_offer: str) -> int:
     def resume_from_local_operator():
         # Only this Tk button is allowed to arm an actual native mission.
         mission = work_coordinator.current()
-        if mission is not None and mission.stage in (
-            WorkStage.READY, WorkStage.PAUSED
-        ):
+        if mission is not None:
+            if mission.stage not in (WorkStage.READY, WorkStage.PAUSED):
+                panel.main_workspace.notice.configure(
+                    text="Plan V2 nie jest jeszcze gotowy lub wymaga przeglądu. "
+                         "Nie uruchamiam starego zadania."
+                )
+                return
             if not live_allowed:
                 panel.main_workspace.notice.configure(
                     text="Tryb planowania. Wykonywanie na komputerze jest wyłączone."
