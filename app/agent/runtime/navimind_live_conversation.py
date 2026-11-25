@@ -171,7 +171,6 @@ class LiveMissionConversation:
         writes. None means a document consent prompt is pending (or the
         request became stale); caller must not publish a reply.
         """
-        from app.agent.runtime.navimind_tool_router import ModelToolDecision
         attempted: set[str] = set()
         evidence = transcript
         for step in range(3):
