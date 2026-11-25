@@ -215,3 +215,49 @@ def test_new_chat_instruction_blocks_old_mission_after_exact_offer_reobserved():
     assert not result.verified
     assert result.reason == "chat_instruction_requires_approved_replan"
     assert host.controller.current_permit() is None
+
+
+def test_v2_bridge_rejects_unapproved_native_execution_before_observation():
+    host = NaviMindSharedHost("OFR/101")
+    loop = Loop(make_scene())
+    with pytest.raises(InputDenied, match="no_shared_host_agent_permission"):
+        host.execute_one_verified_v2_action(loop, object())
+    assert loop.calls == 0
+
+
+def test_v2_bridge_dispatches_existing_executor_only_with_verified_permit(monkeypatch):
+    from app.agent.runtime import windowhub_goal_v2_coordinator
+    host = prepared_host()
+    old_permit = host.controller.current_permit()
+    called = []
+
+    def verified_executor(loop, scene, resolved, **kwargs):
+        called.append((resolved, kwargs))
+        assert kwargs["expected_offer"] == "OFR/101"
+        assert kwargs["input_permit"] == old_permit
+        assert kwargs["input_arbiter"] is host.controller.arbiter
+        return "verified-step"
+
+    monkeypatch.setattr(
+        windowhub_goal_v2_coordinator, "execute_v2_step", verified_executor
+    )
+    result = host.execute_one_verified_v2_action(Loop(make_scene()), "PLAN")
+    assert result == "verified-step"
+    assert len(called) == 1
+    assert host.controller.current_permit() is None
+    with pytest.raises(InputDenied):
+        host.execute_one_verified_v2_action(Loop(make_scene()), "OLD_PLAN")
+
+
+def test_v2_bridge_rejects_scene_changed_during_reasoning(monkeypatch):
+    from app.agent.runtime import windowhub_goal_v2_coordinator
+    host = prepared_host()
+    monkeypatch.setattr(
+        windowhub_goal_v2_coordinator, "execute_v2_step",
+        lambda *_a, **_k: pytest.fail("unverified action dispatched"),
+    )
+    with pytest.raises(InputDenied):
+        host.execute_one_verified_v2_action(
+            Loop(make_scene(width="2222")), "STALE_PLAN"
+        )
+    assert host.controller.current_permit() is None
