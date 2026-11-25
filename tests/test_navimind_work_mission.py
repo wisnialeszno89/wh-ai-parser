@@ -248,3 +248,30 @@ def test_v2_goal_without_consent_never_pulls_unapproved_document_material():
     chat.user_message("Wprowadź wymiary.")
     mission = WorkMissionCoordinator(chat).queue_current()
     assert bounded_v2_mission_goal(mission) == "Wprowadź wymiary."
+
+
+def test_approved_pdf_mission_snapshot_is_immutable_even_if_local_inbox_changes():
+    from app.agent.runtime.navimind_live_conversation import LiveMissionConversation
+    from app.agent.runtime.navimind_enquiry_inbox import LocalEnquiryInbox
+    from tools.navimind_main_workspace import NaviMindMainWorkspace
+    inbox = LocalEnquiryInbox()
+    inbox.set_text("Fenster 1500 x 1400 mm")
+    panel = NaviMindMainWorkspace.__new__(NaviMindMainWorkspace)
+    panel.enquiry = inbox
+    frozen = panel._approved_mission_snapshot(inbox.model_context())
+    chat = new_chat()
+    engine = LiveMissionConversation(chat, None)
+    engine.approve_document_context(
+        inbox.model_context(), mission_evidence=frozen,
+    )
+    v1, before = engine.document_access_snapshot()
+    assert "1500x1400 mm" in before or "1500 x 1400 mm" in before
+    inbox.set_text("Fenster 2200 x 1000 mm")
+    v2, after = engine.document_access_snapshot()
+    assert v2 == v1
+    assert after == before
+    assert "2200" not in after
+    engine.revoke_document_context()
+    v3, erased = engine.document_access_snapshot()
+    assert v3 > v2 and erased is None
+    engine.close()
