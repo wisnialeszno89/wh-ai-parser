@@ -397,7 +397,7 @@ class NaviMindMainWorkspace(tk.Frame):
                 return
             self.entry.delete("1.0", "end")
             if self.conversation is not None:
-                self.conversation.revoke_document_context()
+                self._drop_document_consent()
             self._update_sources()
             self.notice.configure(
                 text="Pełne zapytanie przeniesione do dokumentów (lokalnie). "
@@ -495,7 +495,7 @@ class NaviMindMainWorkspace(tk.Frame):
                 text="Udostępniono fragment PDF; NaviMind analizuje źródło…"
             )
         else:
-            self.conversation.revoke_document_context()
+            self._drop_document_consent()
             self.notice.configure(
                 text="Nie można ponowić analizy. Dokument nie został wysłany."
             )
