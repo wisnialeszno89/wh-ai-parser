@@ -79,10 +79,11 @@ def run(*, expected_offer: str) -> int:
         "To obserwacja jedynie etapu i liczby kontrolek, bez czytania "
         "wartości konstrukcji i bez robienia screenshotów w tle. Nie "
         "twierdź, że aktualnie widzisz dowolne pola ani że znasz wybranego klienta. "
-        "W tym procesie wykonawca V2 NIE jest podłączony; nie możesz "
-        "teraz klikać w WindowHub, tworzyć okien, wpisywać parametrów, "
-        "zapisywać ani wysyłać ofert. To ograniczenie aktualnego trybu "
-        "uruchomienia, nie ogólna niemożliwość działania lokalnie. "
+        "Silnik misji V2 jest podłączony do planowania lokalnej pracy. "
+        "Do uruchomienia działań WindowHub wymagane są: jawne wznowienie "
+        "operatora, dokładny dokument OFR, żywy wykonawca i osobne flagi "
+        "bezpieczeństwa. Nie obiecuj kliknięcia bez raportu weryfikacji. "
+        "Zapis, wysyłka oraz zatwierdzanie oferty są zabronione. "
         "Na podstawie polecenia użytkownika możesz wybrać zaufane "
         "narzędzie do odnalezienia WindowHub, sprawdzenia jego struktury "
         "także w tle lub katalogu możliwości. Dobierasz narzędzie na podstawie "
@@ -149,7 +150,7 @@ def run(*, expected_offer: str) -> int:
             "OCR, kontrola właściciela wejścia, weryfikacja zmian sceny, "
             "analiza PDF i korekty ofert. Nie wszystkie są obecnie "
             "podłączone jako narzędzia czatu. Native V2 i zapisywanie ofert "
-            "są w tym panelu wyłączone."
+            "są powiązane z lokalną bramą wykonania; domyślnie nieaktywne."
         )
 
     from app.agent.runtime.navimind_enquiry_inbox import LocalEnquiryInbox
@@ -190,7 +191,60 @@ def run(*, expected_offer: str) -> int:
             + "\n" + describe_local_enquiry_status()
         )[:3000]
 
+    from app.agent.runtime.navimind_work_mission import (
+        BackgroundWorkMission, WorkMissionCoordinator, WorkStage,
+    )
+    work_coordinator = WorkMissionCoordinator(host.chat, max_cycles=8)
+    work_events: Queue = Queue(maxsize=16)
+
+    def on_work_result(mission, result):
+        # The worker may use COM but NEVER touches Tk widgets.
+        if result.kind == "ready":
+            message = (
+                "Przeanalizowałem bieżący ekran i V2 wskazał krok "
+                + result.action + ". Polityka lokalna go dopuściła jako "
+                "propozycję. Niczego jeszcze nie kliknąłem. "
+                "Sterowanie wymaga lokalnego Wznów pracę."
+            )
+        elif result.kind == "action":
+            message = (
+                "Wykonałem i zweryfikowałem jeden krok " + result.action
+                + ". Ponownie sprawdzam ekran przed dalszą pracą."
+            )
+        elif result.kind == "paused":
+            message = (
+                "Wstrzymałem zadanie: " + result.reason
+                + ". Nie wykonuję kliknięć bez aktualnego ekranu i zgody."
+            )
+        else:
+            message = (
+                "Zadanie wymaga weryfikacji handlowca: " + result.reason
+                + ". Nie ponawiam niepewnej czynności."
+            )
+        host.chat.agent_message(
+            message[:host.chat.MAX_MESSAGE_CHARS],
+            based_on_revision=mission.revision,
+        )
+        try:
+            work_events.put_nowait((mission.task_id, result.kind))
+        except Full:
+            # UI must never be driven from the worker, including on overflow.
+            pass
+
+    background_work = BackgroundWorkMission(
+        work_coordinator, host=host, callback=on_work_result,
+    )
+
     tool_registry = {
+        "prepare_windowhub_work": ReadOnlyTool(
+            "prepare_windowhub_work",
+            "Gdy handlowiec prosi o przygotowanie oferty, zmianę pozycji, "
+            "pracę w WindowHub albo wykonanie zadania w programie: "
+            "przekaż bieżące dosłowne polecenie do lokalnego koordynatora V2. "
+            "Koordynator wykona tylko analizę i przygotowanie następnego kroku. "
+            "Nie kliknie ani nie zapisze nic bez osobnego lokalnego wznowienia.",
+            background_work.queue_and_plan,
+        ),
         "workspace_overview": ReadOnlyTool(
             "workspace_overview",
             "Jednym krokiem sprawdź uruchomiony WindowHub, jego aktualną "
@@ -246,9 +300,12 @@ def run(*, expected_offer: str) -> int:
             + "; PDF_COUNT=" + str(int(info["pdf_count"]))
             + "; DOCUMENT_CONTEXT_APPROVED="
             + str(live_chat.document_context_active())
-            + "; WINDOWHUB_NATIVE_WRITE_ENABLED=False"
+            + "; WINDOWHUB_NATIVE_WRITE_ENABLED="
+            + str(os.environ.get("COMPUTER_USE_LIVE") == "1"
+                  and os.environ.get("WH_REAL_WINDOWHUB") == "1")
             + "; PDF_INBOX_SHARED_AUTOMATICALLY=False"
             + "; READ_LOCAL_ENQUIRY_REQUIRES_CONSENT=True"
+            + "; LOCAL_WORK_STAGE=" + background_work.status()
         )
 
     live_chat = LiveMissionConversation(
@@ -260,12 +317,61 @@ def run(*, expected_offer: str) -> int:
     panel.mount_main_workspace(
         chat=host.chat, conversation=live_chat, enquiry=intake,
     )
+    live_allowed = (
+        os.environ.get("COMPUTER_USE_LIVE") == "1"
+        and os.environ.get("WH_REAL_WINDOWHUB") == "1"
+    )
+    panel.host_observation_only = not live_allowed
+    panel._update(host.controller.snapshot())
+
+    def resume_from_local_operator():
+        # Only this Tk button is allowed to arm an actual native mission.
+        mission = work_coordinator.current()
+        if mission is not None and mission.stage in (
+            WorkStage.READY, WorkStage.PAUSED
+        ):
+            if not live_allowed:
+                panel.main_workspace.notice.configure(
+                    text="Tryb planowania. Wykonywanie na komputerze jest wyłączone."
+                )
+                return
+            if not host.approve_current_work_for_resume(
+                revision=mission.revision, task_id=mission.task_id,
+                coordinator=work_coordinator,
+            ):
+                panel.main_workspace.notice.configure(
+                    text="Nie można wznowić nieaktualnej misji. Poproś o nowy plan."
+                )
+                return
+        host.controller.resume()
+
+    panel.primary.register_action(host.takeover)
+    panel.primary.set_enabled(host.controller.snapshot().can_takeover)
+    panel.secondary.register_action(resume_from_local_operator)
+    panel.secondary.set_enabled(host.controller.snapshot().can_resume)
+
     print("NAVIMIND_MAIN_WORKSPACE_CONNECTED=True")
     print("NAVIMIND_ENQUIRY_LOCAL_ONLY=True")
     print("NAVIMIND_MICROPHONE_WINDOWS_DICTATION=True")
 
     def pump():
         while True:
+            try:
+                task_id, outcome = work_events.get_nowait()
+            except Empty:
+                break
+            current = work_coordinator.current()
+            if current is None or current.task_id != task_id:
+                continue
+            if outcome == "action" and (
+                host.controller.snapshot().mode == PanelMode.AGENT_READY
+                and host._approved_work_revision == current.revision
+            ):
+                # Tk thread owns UI state transitions. Invalidate the old
+                # permit before requesting a fresh screen for the next step.
+                host.controller.takeover()
+                host.release_for_reobservation()
+
             try:
                 kind, observed_epoch, payload = queue.get_nowait()
             except Empty:
@@ -282,6 +388,14 @@ def run(*, expected_offer: str) -> int:
                     host.last_reason = "read_only_verification_refused"
             else:
                 host.last_reason = payload
+        # An accepted fresh observation can schedule exactly one V2 step.
+        # No model reply or document body can grant the input permit.
+        if live_allowed and host.controller.snapshot().mode == PanelMode.AGENT_READY:
+            mission = work_coordinator.current()
+            if (mission is not None
+                    and mission.stage in (WorkStage.READY, WorkStage.PAUSED)
+                    and host._approved_work_revision == mission.revision):
+                background_work.execute_one_authorized_step()
         if not stopped.is_set():
             panel.after(250, pump)
 
@@ -291,6 +405,7 @@ def run(*, expected_offer: str) -> int:
         stopped.set()
         host.takeover()
         live_chat.close()
+        background_work.close()
         old_close()
 
     panel.protocol("WM_DELETE_WINDOW", close)
@@ -326,7 +441,8 @@ def run(*, expected_offer: str) -> int:
     panel.after(250, pump)
     print("NAVIMIND_SHARED_PANEL_CONNECTED=True")
     print("NAVIMIND_CONVERSATION_PROVIDER_CONNECTED=" + str(chat_provider is not None))
-    print("NAVIMIND_V2_EXECUTOR_CONNECTED=False")
+    print("NAVIMIND_V2_EXECUTOR_CONNECTED=" + str(live_allowed))
+    print("NAVIMIND_WORK_MISSION_PLANNER_CONNECTED=True")
     print("NAVIMIND_GUI_INPUT_EXECUTED=False")
     panel.mainloop()
     stopped.set()
