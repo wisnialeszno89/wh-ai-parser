@@ -359,6 +359,9 @@ class BackgroundWorkMission:
             WorkStage.READY, WorkStage.PAUSED,
         }:
             return False
+        if (mission.stage == WorkStage.PAUSED
+                and mission.reason != "one_native_step_verified_reobserve_next"):
+            return False
         if self.host.controller.current_permit() is None:
             return False
         with self._lock:
