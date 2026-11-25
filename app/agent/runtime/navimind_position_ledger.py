@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from hashlib import sha256
-from typing import Any
+import re
 
 MAX_POSITIONS = 80
 
@@ -53,6 +53,27 @@ class PositionManifest:
         )
 
 
+_NUMBERED_POSITION = re.compile(
+    r"^\\s*(?:pos(?:ition)?\\.?\\s*#?\\s*\\d+|\\d{1,3}[.)])"
+    r"\\s*[:.)-]?\\s*(?=(?:[1-9][0-9]?\\s*"
+    r"(?:stk\\.?|stück|szt\\.?)\\s+)?"
+    r"(?:fenster|haustür|haustuer|kippfenster|hst[- ]tür|psk[- ]tür)\\b)",
+    re.IGNORECASE,
+)
+
+
+def _normalize_numbered_headings(body: str) -> tuple[str, int]:
+    """Recognize explicit 'Pos. 1: 2 Stk Fenster ...' lines, not prose."""
+    lines = []
+    matched = 0
+    for line in body.splitlines():
+        changed, count = _NUMBERED_POSITION.subn("", line, count=1)
+        if count:
+            matched += 1
+        lines.append(changed if count else line)
+    return "\\n".join(lines), matched
+
+
 def build_position_manifest(inbox) -> PositionManifest:
     """Parse every source separately; never derive position IDs from dimensions."""
     from app.agent.intake.german_offer_mail import inspect_german_offer_mail
@@ -75,11 +96,14 @@ def build_position_manifest(inbox) -> PositionManifest:
     for number, (body, partial) in enumerate(sources, 1):
         if partial:
             incomplete.append(number)
+        normalized, numbered_count = _normalize_numbered_headings(body)
         try:
-            matches = inspect_german_offer_mail(body)
+            matches = inspect_german_offer_mail(normalized)
         except (TypeError, ValueError, AttributeError):
             matches = []
-        if not matches:
+        # Do not silently ignore any explicitly numbered position. Even
+        # an otherwise valid parser result is unsafe if it skipped a row.
+        if not matches or (numbered_count and len(matches) < numbered_count):
             unparsed.append(number)
         for ordinal, match in enumerate(matches, 1):
             if len(result) >= MAX_POSITIONS:
