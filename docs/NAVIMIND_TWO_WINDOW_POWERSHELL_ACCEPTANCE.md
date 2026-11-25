@@ -1,6 +1,6 @@
 # NaviMind / WindowHub — dwa okna z PowerShell, test end-to-end
 
-**Stan:** gotowy scenariusz *nadzorowanego* testu uruchomieniowego, NIE zweryfikowana autonomia produkcyjna. Test nie zapisuje ani nie wysyła oferty. Systemy profili, szyby, kolory i okucia pozostają zależne od firmowej bazy technologicznej WH Okna; nieautoryzowany wybór katalogowy jest blokowany do demonstracji/niezależnej weryfikacji.
+**Stan:** gotowy scenariusz *nadzorowanego* testu uruchomieniowego, NIE zweryfikowana autonomia produkcyjna. Test nie zapisuje ani nie wysyła oferty. Systemy profili, szyby, kolory i okucia pozostają zależne od firmowej bazy technologicznej WH Okna. Pojedynczy automatyczny wybór listy może zostać wykonany **tylko** przy dokładnej zgodności etykiety z zatwierdzonym źródłem, natywnie potwierdzonym rodzicu ComboBox z tym samym RuntimeId i niezależnym odczycie pola po kliknięciu. Nieznane listy nadal wymagają demonstracji.
 
 ## Przygotowanie na lokalnym Windows
 
@@ -97,7 +97,7 @@ Sprawdzaj kolejno:
 2. Właściwości nowego dokumentu → **Wybierz istniejącego klienta**. Wybór konkretnego klienta wymaga obecnie ręcznego wskazania (program nie ma prawa zgadywać zbliżonych nazw).
 3. Powrót do niezapisanej oferty/dokumentu MDI i otwarcie kreatora pozycji.
 4. **Pozycja 1:** typ Okno, ilość, szerokość i wysokość. Natywne UIA musi potwierdzić wpisane wartości oraz ich zgodność z pierwszą pozycją źródłową. Nieznane parametry i katalogowe okna wymagają zatrzymania.
-5. **Katalogi:** jeśli profil/kolor/pakiet/okucia nie są jednoznacznie rozpoznane, użyj `Przejmij sterowanie`, następnie `Tryb nauki`, pokaż ręcznie wybór na testowym dokumencie; zakończ naukę. To **dane do budowy adaptera**, nie automatyczna zgoda na zapisywanie ani dowód poprawnego wyboru.
+5. **Katalogi:** jeżeli UIA udowodni, że widoczny `listitem` należy do dokładnie tego samego ComboBox i jego nazwa jest identyczna jak jawne wymaganie źródła, NaviMind może wykonać pojedyncze kliknięcie z niezależnym odczytem wybranej wartości. Dotyczy tylko wspieranych pól (`profile_color` przy takim samym kolorze obu stron, `glazing_package`, `spacer_frame`, `hardware_profile`); nie obejmuje okien modalnych wyboru systemu profili, podobnych nazw, zamienników ani kombinacji dwóch różnych kolorów. Jeśli profil/kolor/pakiet/okucia nie są jednoznacznie rozpoznane, użyj `Przejmij sterowanie`, następnie `Tryb nauki`, pokaż ręcznie wybór na testowym dokumencie; zakończ naukę. To **dane do budowy adaptera**, nie automatyczna zgoda na zapisywanie ani dowód poprawnego wyboru.
 6. **Pozycja 2:** nie może być zaliczona parametrami pierwszej. Przejście nastąpi dopiero po niezależnym odczycie biznesowym gotowej konstrukcji, który **nie jest jeszcze w pełni połączony** z rejestrem pozycji. Przewidywany STOP w pierwszym teście jest prawidłowym wynikiem diagnostycznym.
 7. Nie klikaj `Zapisz`, `Zakończ` ani `Wyślij`, dopóki ścieżka nie zostanie zweryfikowana w testowej instalacji.
 
