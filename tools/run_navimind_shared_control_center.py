@@ -64,7 +64,10 @@ def run(*, expected_offer: str) -> int:
     stopped = Event()
     panel = NaviMindPanel(controller=host.controller)
     # This host is a planning workspace unless explicitly armed for live V2.
-    panel.title("NaviMind • Workspace / WindowHub")
+    panel.title("NaviMind • " + (
+        "Nowa oferta WindowHub" if host._draft_phase is not None
+        else "Workspace / WindowHub"
+    ))
     panel.host_observation_only = True
     panel._update(host.controller.snapshot())
     # The larger main window hosts chat + local PDF intake together.
@@ -233,6 +236,9 @@ def run(*, expected_offer: str) -> int:
         host.draft_document_bound_callback = (
             work_coordinator.bind_verified_new_offer
         )
+        host.draft_unnumbered_ready_callback = (
+            work_coordinator.begin_verified_unnumbered_draft
+        )
     work_events: Queue = Queue(maxsize=16)
 
     def on_work_result(mission, result):
@@ -253,10 +259,13 @@ def run(*, expected_offer: str) -> int:
             if result.reason == "draft_customer_selection_required":
                 message = (
                     "Otworzyłem i zweryfikowałem okno wyboru klienta. "
-                    "Wskaż dokładnie właściwą firmę w WindowHub i przejdź "
-                    "ręcznie do roboczej oferty OFR. Kiedy oferta będzie "
-                    "widoczna, kliknij lokalnie Wznów pracę. Wtedy zweryfikuję "
-                    "numer OFR i będę mógł wprowadzać konstrukcje."
+                    "Wskaż dokładnie właściwą firmę w WindowHub, "
+                    "potwierdź właściwości dokumentu i pozostaw nową "
+                    "roboczą ofertę lub kreator pozycji otwarty. "
+                    "Kliknij lokalnie Wznów pracę. Rozpoznam numer OFR, "
+                    "jeśli powstał, albo zweryfikuję natywną tożsamość "
+                    "jeszcze niezapisanego dokumentu. Nie trzeba zapisywać "
+                    "oferty przed przeglądem."
                 )
             else:
                 message = (
@@ -458,8 +467,13 @@ def run(*, expected_offer: str) -> int:
             elif outcome in ("review", "paused") and (
                 host.controller.snapshot().mode == PanelMode.AGENT_READY
             ):
-                # A blocker means stop and return ownership to the user.
-                host.takeover()
+                # The picker is a special manual handoff: retain only the
+                # native transaction provenance, never an input permit.
+                if (outcome == "paused"
+                        and current.reason == "draft_customer_selection_required"):
+                    host.pause_for_draft_customer()
+                else:
+                    host.takeover()
 
         # A separate loop is mandatory: lack of mission events must not
         # prevent the observer from delivering fresh WindowHub scene proofs.
