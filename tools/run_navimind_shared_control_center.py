@@ -255,6 +255,7 @@ def run(*, expected_offer: str) -> int:
         host.chat, chat_provider, runtime_instructions=runtime_instructions,
         read_only_tools=tool_registry,
         runtime_status_provider=trusted_local_capability_state,
+        allow_tool_chaining=True,
     )
     panel.mount_main_workspace(
         chat=host.chat, conversation=live_chat, enquiry=intake,
