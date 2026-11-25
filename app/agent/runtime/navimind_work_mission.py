@@ -636,6 +636,21 @@ def plan_or_execute_windowhub_step(
     except Exception:
         decision = None
     if decision is None:
+        # Only a fixed, non-sensitive status is surfaced. Never print the
+        # response body, request payload, endpoint URL, client or token.
+        error = getattr(reasoner, "last_error", None)
+        if error == "navimind_http_401":
+            return WorkStepResult(
+                "paused", "v2_http_401_check_vercel_sso_or_agent_secret",
+            )
+        if error == "navimind_http_403":
+            return WorkStepResult(
+                "paused", "v2_http_403_access_forbidden",
+            )
+        if error == "navimind_http_429":
+            return WorkStepResult(
+                "paused", "v2_http_429_rate_limited",
+            )
         return WorkStepResult("paused", "v2_reasoner_unavailable")
     if decision.get("decision") == "done":
         return WorkStepResult(
