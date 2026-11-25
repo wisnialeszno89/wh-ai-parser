@@ -252,3 +252,33 @@ def validate_bound_position_entry(
     if proposed_value.strip() != str(expected[field_name]):
         return False, "value_does_not_match_active_source_position"
     return True, "value_matches_active_source_position"
+
+
+def manifest_blocker_summary(manifest: PositionManifest) -> str:
+    """Actionable, PII-free explanation of why an enquiry needs review."""
+    problems = []
+    if manifest.overflow:
+        problems.append(
+            f"wykryto więcej niż {MAX_POSITIONS} pozycji; "
+            "żadna pozostała pozycja nie może zostać pominięta"
+        )
+    if manifest.incomplete_sources:
+        ids = ", ".join(str(x) for x in manifest.incomplete_sources[:10])
+        problems.append(
+            f"źródła {ids}: skan, ucięty tekst lub brak OCR"
+        )
+    if manifest.unparsed_sources:
+        ids = ", ".join(str(x) for x in manifest.unparsed_sources[:10])
+        problems.append(
+            f"źródła {ids}: nie rozpoznano wszystkich pozycji"
+        )
+    for position in manifest.positions:
+        if position.issues:
+            problems.append(
+                position.position_id + ": " + ", ".join(position.issues[:3])
+            )
+        if len(problems) >= 8:
+            break
+    if not manifest.positions:
+        problems.append("brak pozycji rozpoznanych z zatwierdzonych źródeł")
+    return "; ".join(problems)[:900] if problems else "brak blokad źródłowych"
