@@ -226,7 +226,7 @@ class NaviMindMainWorkspace(tk.Frame):
         self.mic = tk.Button(
             buttons, text="🎙 Dyktuj (Win+H)", command=self._dictate,
             fg=FG, bg=SURFACE, relief="flat",
-            font=("Segoe UI Semibold", 10), padx=10, pady=7,
+            font=("Segoe UI Semibold", 10), padx=12, pady=8,
         )
         self.mic.pack(side="left")
         if not windows_dictation_available():
@@ -254,7 +254,7 @@ class NaviMindMainWorkspace(tk.Frame):
         actions.pack(fill="x", padx=24)
         tk.Button(
             actions, text="Dodaj PDF", command=self._attach_pdf,
-            bg="#29253A", fg=FG, relief="flat", padx=12, pady=6,
+            bg=SURFACE, fg=FG, relief="flat", padx=12, pady=6,
         ).pack(side="left")
         tk.Button(
             actions, text="Zapisz treść lokalnie", command=self._save_enquiry,
@@ -300,8 +300,19 @@ class NaviMindMainWorkspace(tk.Frame):
         # A fresh conversation initially follows incoming messages.
         stay_at_bottom = chat_view_near_bottom(self.history.yview()[1])
         self.history.configure(state="normal")
-        self.history.insert("end", author + "\n", ("author",))
-        self.history.insert("end", content + "\n\n")
+        human = author.casefold().strip() in ("ty", "user", "użytkownik")
+        role_tag = "human_label" if human else "agent_label"
+        body_tag = "human_body" if human else "agent_body"
+        self.history.insert("end", author.upper() + "\n", (role_tag,))
+        self.history.insert("end", content + "\n\n", (body_tag,))
+        self.history.tag_configure("human_label", foreground=GOLD,
+                                   font=("Segoe UI Semibold", 9), spacing1=6)
+        self.history.tag_configure("agent_label", foreground=PURPLE,
+                                   font=("Segoe UI Semibold", 9), spacing1=6)
+        self.history.tag_configure("human_body", foreground=FG,
+                                   spacing2=4, spacing3=10)
+        self.history.tag_configure("agent_body", foreground=FG,
+                                   spacing2=4, spacing3=12)
         self.history.tag_configure("author", foreground=PURPLE)
         self.history.configure(state="disabled")
         if stay_at_bottom:
