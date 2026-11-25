@@ -149,3 +149,36 @@ def test_stale_model_tool_decision_does_not_execute_tool():
     wait(engine)
     assert calls == []
     engine.close()
+
+
+def test_intake_metadata_tool_is_exposed_but_never_customer_content():
+    from pathlib import Path
+    from app.agent.runtime.navimind_enquiry_inbox import LocalEnquiryInbox
+    inbox = LocalEnquiryInbox()
+    inbox.set_text("Sekret kontrahenta: TOP TRANS / cena 123456")
+    status = inbox.status()
+    assert status["has_enquiry"] is True
+    assert status["transmitted_to_model"] is False
+    host_source = (Path(__file__).resolve().parents[1] / "tools" /
+                   "run_navimind_shared_control_center.py").read_text(encoding="utf-8")
+    assert '"enquiry_status": ReadOnlyTool(' in host_source
+    assert 'status = intake.status()' in host_source
+    assert "intake.preview()" not in host_source
+    assert "read_only_tools=tool_registry" in host_source
+
+
+def test_model_can_select_capability_catalog_without_exec():
+    calls = []
+    class Provider:
+        def reply(self, *, transcript, instructions):
+            return '{"kind":"tool","tool":"engine_capabilities"}'
+    chat, _ = new_chat()
+    engine = LiveMissionConversation(chat, Provider(), read_only_tools=tools(
+        lambda: calls.append("wrong") or "FOUND",
+    ))
+    message = chat.user_message("Co potrafisz wykonać na Windows?")
+    assert engine.submit_current_message(message.message_id)
+    wait(engine)
+    assert "Dostępne: obserwacja" in chat.snapshot().messages[-1].text
+    assert calls == []
+    engine.close()
