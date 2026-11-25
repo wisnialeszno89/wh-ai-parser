@@ -77,7 +77,11 @@ class NaviMindPanelController:
                                        "Po wznowieniu trzeba ponownie odczytać program i dokument."),
             PanelMode.AGENT_READY: ("Gotowy do pracy",
                                     "Dokument sprawdzony. Działania nadal podlegają zabezpieczeniom V2."),
-            PanelMode.LEARNING: ("Tryb nauki", "Pokaż czynność ręcznie. Nagrywanie nie jest jeszcze podłączone."),
+            PanelMode.LEARNING: (
+                "Tryb nauki",
+                "Pokaż czynność ręcznie w WindowHub. Zapamiętuję lokalne "
+                "zmiany etapów UIA bez danych klientów, bez nadawania uprawnień.",
+            ),
             PanelMode.STOPPED: ("Zadanie zatrzymane", "Tego zadania nie można wznowić starym planem."),
         }[self.mode]
         return PanelSnapshot(
