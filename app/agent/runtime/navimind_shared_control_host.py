@@ -60,6 +60,45 @@ def verify_offer_observation(scene: Any, expected_offer: str) -> HostObservation
         return HostObservation(None, "offer_scene_unreadable", "unknown", False)
 
 
+@dataclass(frozen=True)
+class VerifiedWorkflowScope:
+    """Identity of a wizard reached by verified native input from pinned OFR."""
+    document_key: str
+    revision: int
+    stage: str
+    title: str
+    hwnd: int
+
+
+_PINNED_WIZARD_STAGES = frozenset({
+    "position", "dimensions", "basic_parameters", "glazing",
+    "hardware", "modifier", "document_properties",
+})
+
+
+def verify_workflow_scope(scene: Any, scope: VerifiedWorkflowScope | None,
+                          *, expected_offer: str, revision: int) -> HostObservation:
+    """Never recognize an arbitrary dialog by its title alone."""
+    if (scope is None or scope.document_key != expected_offer
+            or scope.revision != revision):
+        return HostObservation(None, "verified_workflow_scope_missing", "unknown", False)
+    try:
+        from app.agent.learning.windowhub_demonstration import stage_of
+        stage = stage_of(scene)
+        state = scene.observation.state
+        app = (state.active_application or "").replace(chr(92), "/").rsplit("/", 1)[-1].casefold()
+        title = (state.active_window_title or "").strip()
+        hwnd = (scene.observation.metadata or {}).get("window_handle")
+        if (stage != scope.stage or stage not in _PINNED_WIZARD_STAGES
+                or app != "okna.exe" or title != scope.title
+                or type(hwnd) is not int or hwnd != scope.hwnd):
+            return HostObservation(None, "verified_workflow_dialog_changed",
+                                   stage or "unknown", False)
+        return HostObservation(expected_offer, "verified_pinned_workflow_dialog", stage, True)
+    except (AttributeError, TypeError, ValueError, KeyError):
+        return HostObservation(None, "verified_workflow_dialog_unreadable", "unknown", False)
+
+
 class NaviMindSharedHost:
     """Read-only stage for actual Windows: one arbiter and one panel.
 
@@ -78,6 +117,7 @@ class NaviMindSharedHost:
         self._accepted_scene: Any = None
         self.last_reason = "human_control_default"
         self._approved_work_revision: int | None = None
+        self._workflow_scope: VerifiedWorkflowScope | None = None
         self.chat = MissionChat(
             document_key=self.expected_offer,
             arbiter=self.controller.arbiter,
@@ -102,6 +142,12 @@ class NaviMindSharedHost:
             return HostObservation(None, "chat_instruction_requires_approved_replan",
                                    "unknown", False)
         result = verify_offer_observation(scene, self.expected_offer)
+        if not result.verified:
+            result = verify_workflow_scope(
+                scene, self._workflow_scope,
+                expected_offer=self.expected_offer,
+                revision=self.chat.snapshot().mission_revision,
+            )
         self.last_reason = result.reason
         if not result.verified:
             return result
@@ -111,6 +157,36 @@ class NaviMindSharedHost:
             verified_from_fresh_scene=True,
         )
         return result
+
+    def note_verified_workflow_step(self, scene: Any, *, revision: int) -> bool:
+        """Store exact dialog identity only after V2 verified an action."""
+        if (revision != self._approved_work_revision
+                or revision != self.chat.snapshot().mission_revision):
+            return False
+        try:
+            from app.agent.learning.windowhub_demonstration import stage_of
+            stage = stage_of(scene)
+            if stage == "offer_document":
+                proof = verify_offer_observation(scene, self.expected_offer)
+                if not proof.verified:
+                    return False
+                self._workflow_scope = None
+                return True
+            if stage not in _PINNED_WIZARD_STAGES:
+                return False
+            state = scene.observation.state
+            app = (state.active_application or "").replace(chr(92), "/").rsplit("/", 1)[-1].casefold()
+            title = (state.active_window_title or "").strip()
+            hwnd = (scene.observation.metadata or {}).get("window_handle")
+            if (app != "okna.exe" or not title or type(hwnd) is not int
+                    or hwnd <= 0):
+                return False
+            self._workflow_scope = VerifiedWorkflowScope(
+                self.expected_offer, revision, stage, title, hwnd
+            )
+            return True
+        except (AttributeError, TypeError, ValueError, KeyError):
+            return False
 
     def approve_current_work_for_resume(self, *, revision: int,
                                         task_id: str, coordinator: Any) -> bool:
@@ -132,12 +208,14 @@ class NaviMindSharedHost:
 
     def takeover(self) -> None:
         self._approved_work_revision = None
+        self._workflow_scope = None
         self.controller.takeover()
         self._accepted_scene = None
         self.last_reason = "human_takeover"
 
     def stop(self) -> None:
         self._approved_work_revision = None
+        self._workflow_scope = None
         self.controller.stop()
         self._accepted_scene = None
         self.last_reason = "task_cancelled"
@@ -238,11 +316,18 @@ class NaviMindSharedHost:
                 raise InputDenied(comparison.reason)
             proof = verify_offer_observation(scene, self.expected_offer)
             if not proof.verified:
+                proof = verify_workflow_scope(
+                    scene, self._workflow_scope,
+                    expected_offer=self.expected_offer,
+                    revision=self.chat.snapshot().mission_revision,
+                )
+            if not proof.verified:
                 raise InputDenied(proof.reason)
             return execute_v2_step(
                 loop, scene, resolved,
                 approved_persistent=approved_persistent,
-                expected_offer=self.expected_offer,
+                expected_offer=(self.expected_offer
+                                if proof.stage == "offer_document" else None),
                 pre_model_scene=baseline,
                 input_arbiter=self.controller.arbiter,
                 input_permit=permit,
