@@ -160,3 +160,42 @@ def test_unrelated_window_cannot_dump_list_item_labels():
     assert "Private client name" not in repr(
         run_probe(observe=lambda: wrong_app, show_local_options=True)
     )
+
+
+def test_native_expand_pattern_discovery_does_not_grant_catalogue_selection():
+    from app.agent.perception.windowhub_ui_automation_provider import (
+        WindowHubUIAutomationProvider,
+    )
+    from types import SimpleNamespace
+    exposed = SimpleNamespace(
+        iface_expand_collapse=object(),
+        iface_selection_item=None, iface_selection=None, iface_value=object(),
+    )
+    patterns = WindowHubUIAutomationProvider._native_pattern_support(
+        exposed, "combobox"
+    )
+    assert patterns["expand_collapse"] is True
+    assert patterns["selection_item"] is False
+    assert patterns["value"] is True
+    assert WindowHubUIAutomationProvider._native_pattern_support(
+        exposed, "button"
+    ) == {}
+    field = ScreenElement(
+        kind="combobox", label="Wybierz kolor profili",
+        metadata={
+            "source": "windowhub_ui_automation",
+            "uia_visible": True, "uia_enabled": True,
+            "uia_runtime_id": "native:combo",
+            "automation_id": "1054",
+            "current_value": "BIAŁY", "current_value_source": "selected_text",
+            "uia_native_pattern_support": patterns,
+        },
+    )
+    audit = inspect_catalogue_scene(scene("Podstawowe parametry okna", field))
+    color = next(x for x in audit.controls if x.field_name == "profile_color")
+    assert color.native_expand_pattern_available
+    assert not color.native_selection_pattern_available
+    assert not color.safe_to_select
+    result = summarize_catalogue_readiness(audit)
+    assert "NATIVE_EXPAND_PATTERN=1" in result
+    assert "CATALOGUE_SELECTION_EXECUTABLE=False" in result
