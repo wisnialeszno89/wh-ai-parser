@@ -15,6 +15,10 @@ from threading import RLock
 from uuid import uuid4
 from typing import Callable, Any
 
+from app.agent.runtime.navimind_position_ledger import (
+    PositionLedger, PositionManifest, PositionCheckpoint, position_prompt,
+)
+
 
 class WorkStage(str, Enum):
     IDLE = "idle"
@@ -51,6 +55,7 @@ class WorkMission:
     evidence: tuple[WorkEvidence, ...] = ()
     document_access_version: int = 0
     approved_document_evidence: str = ""
+    position_ledger: PositionLedger | None = None
 
 
 class WorkMissionCoordinator:
@@ -61,12 +66,14 @@ class WorkMissionCoordinator:
     """
 
     def __init__(self, chat, *, max_cycles: int = 8,
-                 document_snapshot_provider: Callable[[], tuple[int, str]] | None = None):
+                 document_snapshot_provider: Callable[[], tuple[int, str]] | None = None,
+                 position_manifest_provider: Callable[[], tuple[int, PositionManifest | None]] | None = None):
         if type(max_cycles) is not int or not 1 <= max_cycles <= 20:
             raise ValueError("invalid_mission_budget")
         self.chat = chat
         self.max_cycles = max_cycles
         self._document_snapshot_provider = document_snapshot_provider
+        self._position_manifest_provider = position_manifest_provider
         self._lock = RLock()
         self._mission: WorkMission | None = None
 
@@ -82,6 +89,16 @@ class WorkMissionCoordinator:
             except Exception:
                 return False
             if version != item.document_access_version:
+                return False
+        if self._position_manifest_provider is not None:
+            try:
+                version, manifest = self._position_manifest_provider()
+            except Exception:
+                return False
+            if (version != item.document_access_version
+                    or (item.position_ledger is None) != (manifest is None)
+                    or (item.position_ledger is not None
+                        and item.position_ledger.manifest != manifest)):
                 return False
         return (
             snapshot.mission_revision == item.revision
@@ -122,6 +139,18 @@ class WorkMissionCoordinator:
                         or not isinstance(document_evidence, str)
                         or len(document_evidence) > 8000):
                     return None
+            ledger = None
+            if self._position_manifest_provider is not None:
+                try:
+                    manifest_version, manifest = self._position_manifest_provider()
+                except Exception:
+                    return None
+                if (manifest_version != version
+                        or (manifest is not None
+                            and not isinstance(manifest, PositionManifest))):
+                    return None
+                if manifest is not None:
+                    ledger = PositionLedger(manifest=manifest)
             self._mission = WorkMission(
                 task_id="work-" + uuid4().hex[:16],
                 revision=human.mission_revision,
@@ -131,6 +160,7 @@ class WorkMissionCoordinator:
                 stage=WorkStage.QUEUED,
                 document_access_version=version,
                 approved_document_evidence=document_evidence,
+                position_ledger=ledger,
             )
             return self._mission
 
@@ -173,6 +203,45 @@ class WorkMissionCoordinator:
                 ),
             )
             return self._mission
+
+    def record_independent_position_readback(
+        self, *, task_id: str, checkpoint: PositionCheckpoint,
+        pinned_document: str,
+    ) -> bool:
+        """Advance only when trusted local readback matches active position.
+
+        Model 'done' and a UI click are never sufficient. The trusted caller
+        must validate its fresh, native, exact-document readback separately.
+        """
+        with self._lock:
+            item = self._mission
+            if (item is None or item.task_id != task_id
+                    or not self._is_current(item)
+                    or item.position_ledger is None
+                    or pinned_document != item.document_key
+                    or item.stage not in {WorkStage.PAUSED, WorkStage.REVIEW}):
+                return False
+            try:
+                next_ledger = item.position_ledger.complete_verified(
+                    checkpoint, pinned_document=pinned_document,
+                )
+            except ValueError:
+                return False
+            from dataclasses import replace
+            self._mission = replace(
+                item, position_ledger=next_ledger,
+                stage=(
+                    WorkStage.REVIEW if next_ledger.finished else WorkStage.READY
+                ),
+                reason=(
+                    "all_positions_verified_final_commercial_review_required"
+                    if next_ledger.finished
+                    else "next_source_position_ready"
+                ),
+                last_verified_signature="", last_verified_stage="",
+                suggested_action="",
+            )
+            return True
 
     def begin_verified_unnumbered_draft(self) -> bool:
         """Continue an unsaved native-created draft without inventing OFR."""
