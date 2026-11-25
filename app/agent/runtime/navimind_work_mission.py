@@ -162,7 +162,8 @@ def plan_or_execute_windowhub_step(
     )
 
     if mission.stage not in {
-        WorkStage.QUEUED, WorkStage.THINKING, WorkStage.READY, WorkStage.PAUSED,
+        WorkStage.QUEUED, WorkStage.THINKING, WorkStage.READY,
+        WorkStage.PAUSED, WorkStage.EXECUTING,
     }:
         return WorkStepResult("review", "mission_not_ready_for_step")
     if mission.cycles >= 20:
