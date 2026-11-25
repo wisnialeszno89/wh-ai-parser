@@ -378,3 +378,39 @@ def test_description_can_be_copied_from_one_source_position_but_not_invented():
         first, field_name="description_input",
         proposed_value="Premiumfenster mit Montage",
     )[0]
+
+
+def test_two_window_powershell_gate_accepts_only_exact_separate_window_positions():
+    from app.agent.runtime.navimind_position_ledger import (
+        two_window_test_gate,
+    )
+    okay = inbox_with(
+        "Pos. 1: 1 Stk Fenster 1500x1400\n"
+        "Pos. 2: 1 Stk Fenster 1300x1200"
+    )
+    accepted, reason = two_window_test_gate(okay)
+    assert accepted, reason
+    assert not two_window_test_gate(inbox_with(
+        "1 Stk Fenster 1500x1400"
+    ))[0]
+    assert not two_window_test_gate(inbox_with(
+        "1 Stk Fenster 1500x1400\n"
+        "1 Stk Fenster 1300x1200\n"
+        "1 Stk Fenster 1000x1100"
+    ))[0]
+
+
+def test_two_window_powershell_gate_blocks_unreadable_pdf_and_unknown_quantity():
+    from app.agent.runtime.navimind_position_ledger import (
+        two_window_test_gate,
+    )
+    partial = inbox_with(
+        "1 Stk Fenster 1500x1400\n1 Stk Fenster 1300x1200"
+    )
+    partial._sources.append(EnquirySource(
+        "confidential.pdf", "pdf", "", 3, False, True,
+    ))
+    assert not two_window_test_gate(partial)[0]
+    assert not two_window_test_gate(inbox_with(
+        "Fenster 1500x1400\nFenster 1300x1200"
+    ))[0]
