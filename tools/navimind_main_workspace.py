@@ -7,6 +7,8 @@ being attached. Native control remains observation-only in the current host.
 from __future__ import annotations
 
 import ctypes
+import re
+import unicodedata
 from queue import Empty, Queue
 from threading import Thread
 import os
@@ -15,6 +17,60 @@ from tkinter import filedialog, messagebox
 
 from app.agent.runtime.navimind_enquiry_inbox import EnquiryInputError, LocalEnquiryInbox
 from app.agent.runtime.navimind_mission_chat import MessageRole, MissionChat
+
+
+def _normalized_request(text: str) -> str:
+    """Normalize colloquial Polish without executing instructions in prose."""
+    folded = unicodedata.normalize("NFKD", text.casefold())
+    plain = "".join(char for char in folded if not unicodedata.combining(char))
+    return re.sub(r"[^a-z0-9]+", " ", plain).strip()
+
+
+def requested_local_tool(text: str) -> str | None:
+    """Conservative first local tool intent; all other prompts remain LLM chat."""
+    words = set(_normalized_request(text).split())
+    target = (
+        "windowhub" in words or "wh" in words
+        or ("program" in words and "okna" in words)
+        or ("aplikacje" in words and "okna" in words)
+    )
+    if not target:
+        return None
+    if words.intersection({"internet", "internecie", "online", "www", "google",
+                           "informacje", "dokumentacje", "instrukcje"}):
+        return None
+    if words.intersection({"otworz", "uruchom", "wlacz", "zainstaluj",
+                           "usun", "zamknij", "kliknij", "wpisz",
+                           "zrob", "utworz", "stworz", "zapisz"}):
+        return None
+    return ("discover_windowhub" if words.intersection({
+        "znajdz", "wyszukaj", "odszukaj", "zlokalizuj", "sprawdz",
+        "szukaj", "wykryj", "czy", "gdzie",
+    }) else None)
+
+
+def windowhub_discovery_answer(lines: tuple[str, ...]) -> str:
+    """Only grounded, non-sensitive findings from trusted local tool."""
+    if "WINDOWHUB_DISCOVERY=FOUND" in lines:
+        location = ("na pierwszym planie"
+                    if "WINDOWHUB_IS_FOREGROUND=True" in lines else "w tle")
+        if "WINDOWHUB_ALL_MINIMIZED=True" in lines:
+            location = "w zminimalizowanym oknie"
+        return (
+            "Znalazłem uruchomiony WindowHub (Okna.exe) " + location + ". "
+            "Potwierdziłem obecność programu lokalnie, bez przejmowania myszy. "
+            "To nie oznacza jeszcze odczytu bieżącej oferty ani możliwości "
+            "tworzenia lub zapisywania konstrukcji."
+        )
+    if "WINDOWHUB_DISCOVERY=NOT_FOUND" in lines:
+        return (
+            "Nie znalazłem widocznego okna WindowHub w bieżącej sesji Windows. "
+            "Uruchom program i napisz „sprawdź WH ponownie”. "
+            "Nie twierdzę, że nie jest zainstalowany — sprawdziłem tylko "
+            "uruchomione widoczne okna."
+        )
+    return ("Nie udało mi się odczytać listy okien Windows. "
+            "Nie uruchamiałem ani nie modyfikowałem żadnej aplikacji.")
 
 
 def chat_intake_decision(text: str, *, max_chars: int = MissionChat.MAX_MESSAGE_CHARS) -> str:
@@ -172,21 +228,6 @@ class NaviMindMainWorkspace(tk.Frame):
             fg=FG, bg="#29253A", relief="flat", padx=10, pady=3,
         ).pack(side="right")
 
-        discovery_row = tk.Frame(self, bg=BG)
-        discovery_row.pack(fill="x", padx=18, pady=(0, 8))
-        self.discovery_button = tk.Button(
-            discovery_row, text="Znajdź WindowHub", command=self._start_discovery,
-            bg="#29253A", fg=FG, relief="flat", padx=12, pady=5,
-        )
-        self.discovery_button.pack(side="left")
-        if self.discover_windowhub is None:
-            self.discovery_button.configure(state="disabled")
-        self.discovery_status = self._label(
-            discovery_row, "Wyszukiwanie bez przejmowania pulpitu",
-            size=9, color=MUTED,
-        )
-        self.discovery_status.pack(side="left", padx=(10, 0))
-
         self._label(
             self, "Napisz lub podyktuj polecenie (Ctrl+Enter — wyślij)",
             size=9, color=MUTED,
@@ -252,22 +293,30 @@ class NaviMindMainWorkspace(tk.Frame):
         self.notice.pack(fill="x", padx=18, pady=(8, 12))
         self.entry.focus_set()
 
-    def _start_discovery(self):
-        """Explicit discovery button; Win32 inventory runs off Tk thread."""
-        if self._discovery_active or self.discover_windowhub is None:
+    def _start_discovery(self, *, revision: int):
+        """Run only the read-only local tool requested in chat."""
+        if self.discover_windowhub is None:
+            self.chat.agent_message(
+                "Nie mam w tej sesji podłączonego narzędzia wykrywania programów. "
+                "Nie wykonałem wyszukiwania.", based_on_revision=revision,
+            )
+            return
+        if self._discovery_active:
+            self.chat.agent_message(
+                "Wyszukiwanie WindowHub już trwa. Nie uruchamiam drugiego.",
+                based_on_revision=revision,
+            )
             return
         self._discovery_active = True
-        self.discovery_button.configure(state="disabled")
-        self.discovery_status.configure(text="Wyszukiwanie…")
+        self.notice.configure(text="Sprawdzam uruchomione programy Windows…")
 
         def worker():
             try:
-                # Only the bounded, nonsecret report crosses thread boundary.
                 lines = tuple(self.discover_windowhub())
             except Exception:
                 lines = ("WINDOWHUB_DISCOVERY=FAILED",)
             try:
-                self._discovery_queue.put_nowait(lines)
+                self._discovery_queue.put_nowait((revision, lines))
             except Exception:
                 pass
 
@@ -275,25 +324,17 @@ class NaviMindMainWorkspace(tk.Frame):
 
     def _poll_discovery(self):
         try:
-            lines = self._discovery_queue.get_nowait()
+            revision, lines = self._discovery_queue.get_nowait()
         except Empty:
             return
         self._discovery_active = False
-        self.discovery_button.configure(
-            state="normal" if self.discover_windowhub is not None else "disabled"
+        # A newer user request supersedes any slow result.
+        self.chat.agent_message(
+            windowhub_discovery_answer(lines),
+            based_on_revision=revision,
         )
-        if "WINDOWHUB_DISCOVERY=FOUND" in lines:
-            foreground = "WINDOWHUB_IS_FOREGROUND=True" in lines
-            self.discovery_status.configure(
-                text="WindowHub znaleziony • aktywny"
-                if foreground else "WindowHub znaleziony • w tle"
-            )
-        elif "WINDOWHUB_DISCOVERY=NOT_FOUND" in lines:
-            self.discovery_status.configure(
-                text="WindowHub nie znaleziony. Uruchom program i sprawdź ponownie."
-            )
-        else:
-            self.discovery_status.configure(text="Nie udało się odczytać listy okien.")
+        self._refresh_messages()
+        self.notice.configure(text="Lokalne wyszukiwanie zakończone — bez sterowania pulpitem.")
 
     def _history_to_bottom(self):
         self.history.yview_moveto(1.0)
@@ -390,6 +431,9 @@ class NaviMindMainWorkspace(tk.Frame):
             return
         self.entry.delete("1.0", "end")
         self._refresh_messages()
+        if requested_local_tool(text) == "discover_windowhub":
+            self._start_discovery(revision=message.mission_revision)
+            return
         if (self.conversation is not None
                 and self.conversation.submit_current_message(message.message_id)):
             self.notice.configure(text="NaviMind przygotowuje odpowiedź…")
