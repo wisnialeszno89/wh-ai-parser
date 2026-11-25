@@ -148,6 +148,41 @@ def run(*, expected_offer: str) -> int:
             if com_initialized:
                 pythoncom.CoUninitialize()
 
+    def inspect_catalogue_readiness_read_only() -> str:
+        """Observe only foreground WindowHub selectors; no input or data export."""
+        import os
+        if os.name != "nt":
+            return "Audyt katalogów wymaga Windows; nie wykonano żadnej akcji."
+        initialized = False
+        try:
+            try:
+                import pythoncom
+                pythoncom.CoInitialize()
+                initialized = True
+            except ImportError:
+                pass
+            from app.agent.runtime.windows_desktop_agent_control_loop import (
+                create_windows_desktop_agent_control_loop,
+            )
+            from app.agent.runtime.navimind_catalogue_readiness import (
+                inspect_catalogue_scene, summarize_catalogue_readiness,
+            )
+            loop = create_windows_desktop_agent_control_loop()
+            observed = loop.observe_scene()
+            # Never report any option names, customer texts, screenshots,
+            # HWNDs or catalogue IDs through the remote chat.
+            return summarize_catalogue_readiness(
+                inspect_catalogue_scene(observed)
+            )
+        except Exception:
+            return (
+                "Nie udało się wykonać lokalnego odczytu katalogów UIA; "
+                "nie zmieniono programu, nie wybrano produktu."
+            )
+        finally:
+            if initialized:
+                pythoncom.CoUninitialize()
+
     def describe_engine_capabilities() -> str:
         return (
             "Z silnika NaviMind są dostępne: lokalne wyszukiwanie "
@@ -354,6 +389,16 @@ def run(*, expected_offer: str) -> int:
             "odczyt tylko struktury UIA bez przejmowania aktywnego okna, "
             "bez danych klienta, bez obrazów i bez kliknięć.",
             inspect_windowhub_without_focus_switch,
+        ),
+        "audit_windowhub_catalogues": ReadOnlyTool(
+            "audit_windowhub_catalogues",
+            "Sprawdź wyłącznie dostępność i odczytywalność natywnych "
+            "kontrolek katalogów profili, kolorów, szklenia, okuć i parapetów "
+            "w otwartym na pierwszym planie kreatorze WH Okna. "
+            "Nie rozwija list, nie klika, nie czyta wszystkich produktów, "
+            "nie udostępnia klienta ani cen. Wynik nie potwierdza "
+            "możliwości automatycznego wyboru.",
+            inspect_catalogue_readiness_read_only,
         ),
         "read_approved_enquiry": ReadOnlyTool(
             "read_approved_enquiry",
