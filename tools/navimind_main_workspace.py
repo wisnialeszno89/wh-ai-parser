@@ -62,6 +62,7 @@ GATEWAY_ERROR_LABELS = {
     "chat_provider_timeout_504": "Błąd AI 504: serwer modelu nie odpowiedział.",
     "chat_model_unavailable_or_invalid_response": "Model nie zwrócił poprawnej odpowiedzi.",
     "chat_unexpected_response_error": "Nieoczekiwany błąd odpowiedzi modelu.",
+    "document_revoked_requires_new_request": "Dostęp do dokumentu cofnięty. Wpisz polecenie ponownie.",
 }
 
 
