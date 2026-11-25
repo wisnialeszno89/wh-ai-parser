@@ -154,3 +154,50 @@ def test_dimensions_next_rechecks_both_native_values_after_human_change():
         changed, stage="dimensions", target=button,
         current_position=current, field_receipts=receipts,
     )[0]
+
+
+def test_native_default_quantity_one_allows_next_without_rewriting_same_value():
+    from app.agent.runtime.navimind_position_click_policy import (
+        verify_position_navigation_readback,
+    )
+    current = NS(
+        position_id="S01-P001", product_type="window",
+        quantity=1, width_mm=1500, height_mm=1400,
+    )
+    native = native_scene(
+        "Dodawanie nowej pozycji",
+        (("quantity_input", "Ile sztuk", "1001", "1"),),
+    )
+    result = verify_position_navigation_readback(
+        native, stage="position",
+        target=target("Dalej >", "button", "12324"),
+        current_position=current, field_receipts=(),
+    )
+    assert result[0]
+
+
+def test_native_default_dimensions_must_match_source_before_next():
+    from app.agent.runtime.navimind_position_click_policy import (
+        verify_position_navigation_readback,
+    )
+    current = NS(
+        position_id="S01-P001", product_type="window",
+        quantity=1, width_mm=1500, height_mm=1400,
+    )
+    correct = native_scene("Wielkość okna", (
+        ("width_1", "Szerokość", "1000", "1500"),
+        ("height_1", "Wysokość", "1001", "1400"),
+    ))
+    wrong = native_scene("Wielkość okna", (
+        ("width_1", "Szerokość", "1000", "1550"),
+        ("height_1", "Wysokość", "1001", "1400"),
+    ))
+    button = target("Dalej >", "button", "12324")
+    assert verify_position_navigation_readback(
+        correct, stage="dimensions", target=button,
+        current_position=current, field_receipts=(),
+    )[0]
+    assert not verify_position_navigation_readback(
+        wrong, stage="dimensions", target=button,
+        current_position=current, field_receipts=(),
+    )[0]
