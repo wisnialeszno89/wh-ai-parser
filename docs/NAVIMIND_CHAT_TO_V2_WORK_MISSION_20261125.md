@@ -96,3 +96,19 @@ Nowa ścieżka zintegrowana z czatem:
 **Granice uczciwie utrzymane:** nie jest to jeszcze w pełni autonomiczna, sprawdzona ścieżka kompletnych wielopozycyjnych ofert. Brakuje niezależnego przypisania wszystkich parametrów do indeksów pozycji, sprawdzenia katalogu profili/szyb/okuć i końcowego podsumowania pozycji oraz cen. Zgoda na wykonanie w Windows pozostaje odłączona domyślnie, a testy GitHub Actions nie zastępują nadzorowanego testu rzeczywistego WindowHub.
 
 Pliki: `app/agent/runtime/navimind_draft_bootstrap.py`, `app/agent/runtime/navimind_draft_spec_guard.py`, `app/agent/runtime/navimind_shared_control_host.py`, `app/agent/runtime/navimind_work_mission.py`, `tools/run_navimind_shared_control_center.py`. Testy: `tests/test_navimind_draft_bootstrap.py` i `tests/test_navimind_draft_spec_guard.py`.
+
+
+## 25.11 — Obszerne zapytania: pozycje przypisane do źródeł i progres V2
+
+Nowy moduł `navimind_position_ledger.py` jest włączony do **tej samej** ścieżki: `NaviMindMainWorkspace` (zgoda) → `LiveMissionConversation` (wersja dokumentu) → `WorkMissionCoordinator` (zadanie i indeks pozycji) → `BackgroundWorkMission` / V2 (jeden krok na aktualnej pozycji) → `shared_control_host` (natywne wykonanie).
+
+- Manifest z **pełnych lokalnie wyodrębnionych tekstów** powstaje **w chwili zgody handlowca**, nie w trakcie pracy wątku AI. Nie wysyłamy całego manifestu do modelu. Wszystkie źródła i pozycje mają lokalne indeksy typu `S02-P003`, także gdy wymiary/ilości są identyczne. Nie używamy nazw plików jako identyfikatorów ani nie drukujemy danych klienta do dziennika.
+- Parser działa na każdym źródle niezależnie (pytanie tekstowe i każdy PDF), obsługuje również jawne pozycje `Pos. 1: ...` czy `2) ...`. Skany, brak OCR, zbyt długie źródła, brak pozycji w dokumencie i przekroczenie limitu **80 pozycji** blokują automatyczne sekwencjonowanie. Informacje o brakach pojawiają się w komunikacie handlowca.
+- V2 otrzymuje **wyłącznie bieżącą pozycję** oraz dosłowne polecenie człowieka. Nie otrzymuje pozostałych pozycji z długiego PDF w celu zgadywania, który wymiar ma wpisać. Lokalny kontroler sprawdza **szerokość, wysokość i ilość** wobec dokładnie tego indeksu, zamiast szukać liczby występującej gdziekolwiek w tekście.
+- `PositionLedger` przechowuje lokalne punkty kontrolne. Metoda `record_independent_position_readback` **nie akceptuje** samego modelowego `done`, kliknięcia, niewłaściwego numeru dokumentu, niezgodnego rozmiaru, ilości, niepełnego readback ani powtórnego zaliczenia. Dopiero zewnętrzny, rzeczywiście zaufany verifier operujący na natywnym WindowHub może przekazać `PositionCheckpoint`; bez niego agent **nie przejdzie** do następnej pozycji.
+- Limit 20 zweryfikowanych kroków jest **na jedną pozycję**, nie na całą wielopozycyjną ofertę. Po niezależnym potwierdzeniu pozycji licznik się zeruje i indeks pozycji rośnie; łączna liczba wykonanych kroków nie jest tracona.
+- Modelowa informacja `done` powoduje review i nie awansuje indeksu. Cała oferta po wszystkich checkpointach także wymaga osobnej, końcowej kontroli biznesowej i akceptacji handlowca.
+
+**Granica obecnej implementacji:** mapowanie końcowej konstrukcji z widoku WindowHub na pełny `PositionCheckpoint` (klient, profil, otwieranie, szyby, ilość, cena) nie jest jeszcze zweryfikowane w rzeczywistym programie, więc nie jest celowo włączone automatyczne zaliczanie pozycji. Ten element trzeba następnie nauczyć/zweryfikować na faktycznym dokumencie. Manifest nie zastępuje rozpoznawania konfiguracji produkcyjnych.
+
+Testy offline: `tests/test_navimind_position_ledger.py` (50 pozycji, powtarzające się rozmiary, wiele PDF, numerowane wiersze, skan, nieznane wartości, źródłowy zakres V2, odmowa starej zgody, kolejność postępów i limit per pozycja).
