@@ -482,9 +482,10 @@ class BackgroundWorkMission:
                 or os.environ.get("COMPUTER_USE_LIVE") != "1"):
             return False
         mission = self.coordinator.current()
-        if mission is None or mission.stage not in {
-            WorkStage.READY, WorkStage.PAUSED,
-        }:
+        if (mission is None or not self.coordinator.is_current(mission)
+                or mission.stage not in {
+                    WorkStage.READY, WorkStage.PAUSED,
+                }):
             return False
         if (mission.stage == WorkStage.PAUSED
                 and mission.reason != "one_native_step_verified_reobserve_next"):
