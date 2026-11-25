@@ -262,6 +262,10 @@ class NaviMindMainWorkspace(tk.Frame):
             bg=SURFACE, fg=FG, relief="flat", padx=12, pady=6,
         ).pack(side="left")
         tk.Button(
+            actions, text="Wklej ze schowka Windows", command=self._paste_windows_clipboard,
+            bg=SURFACE, fg=FG, relief="flat", padx=12, pady=6,
+        ).pack(side="left", padx=(8, 0))
+        tk.Button(
             actions, text="Zapisz treść lokalnie", command=self._save_enquiry,
             bg="#29253A", fg=FG, relief="flat", padx=12, pady=6,
         ).pack(side="left", padx=(8, 0))
@@ -554,6 +558,39 @@ class NaviMindMainWorkspace(tk.Frame):
         else:
             self.conversation.revoke_document_context()
             self.notice.configure(text="Nie udało się wysłać dokumentu do analizy AI.")
+
+    def _paste_windows_clipboard(self):
+        """Import clipboard text only on an explicit user gesture.
+
+        Tk owns clipboard access on the main GUI thread. Never poll clipboard
+        or transmit it to the model without the existing document consent.
+        """
+        try:
+            content = self.clipboard_get()
+        except (tk.TclError, UnicodeError):
+            self.notice.configure(text="Schowek nie zawiera dostępnego tekstu.")
+            return
+        if not isinstance(content, str) or not content.strip():
+            self.notice.configure(text="Schowek nie zawiera tekstowego zapytania.")
+            return
+        content = content.strip()
+        current = self.enquiry_editor.get("1.0", "end-1c").strip()
+        combined = current + "\n\n" + content if current and current != content else content
+        try:
+            from app.agent.runtime.navimind_enquiry_inbox import validate_pasted_enquiry
+            validated = validate_pasted_enquiry(combined)
+        except EnquiryInputError:
+            self.notice.configure(text="Tekst ze schowka przekracza limit 100 000 znaków.")
+            return
+        self.enquiry_editor.delete("1.0", "end")
+        self.enquiry_editor.insert("1.0", validated)
+        self.enquiry.set_text(validated)
+        if self.conversation is not None:
+            self.conversation.revoke_document_context()
+        self._update_sources()
+        self.notice.configure(
+            text="Tekst ze schowka skopiowany lokalnie. Nie został wysłany do modelu."
+        )
 
     def _save_enquiry(self):
         text = self.enquiry_editor.get("1.0", "end-1c")
