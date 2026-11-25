@@ -31,14 +31,14 @@ Identyfikatory pochodzą ze znanych mapowań i testów UIA w repo. Nie są gwara
    python tools/inspect_navimind_catalogues_live.py
    ```
 
-   Skrypt obserwuje wyłącznie aktywny ekran, nie przełącza okna, nie klika, nie zapisuje, nie odpyta SQL, nie wyśle treści do API. Wynik podaje liczbę widocznych natywnych pól i bieżących odczytów (ale bez ich wartości).
+   Skrypt wyszukuje jednoznaczne **widoczne okno kreatora WH Okna także w tle** i sprawdza jego natywny HWND, proces Okna.exe oraz niezmieniony tytuł przed i po odczycie UIA. PowerShell może pozostać na pierwszym planie. Odczyt ma ograniczenie głębokości i liczby elementów UIA; nie przełącza okien, nie klika, nie zapisuje, nie odpyta SQL, nie wyśle treści do API. Wynik podaje liczbę widocznych natywnych pól i bieżących odczytów (ale bez ich wartości).
 4. Ręcznie rozwiń `Wybierz kolor profili` i, nie zamykając listy, uruchom:
 
    ```powershell
    python tools/inspect_navimind_catalogues_live.py --show-local-options
    ```
 
-   Opcja jawnie wypisuje lokalnie maksymalnie 25 widocznych etykiet `ListItem`/`TreeItem`. **Nie przypisuje automatycznie** opcji do konkretnego ComboBox; dropdown może być osobnym popupem. Dane nie są wysyłane do chmury. Przed udostępnieniem wyniku usuń dane klienta i cenniki.
+   Uwaga: po przejściu do PowerShell rozwinięta lista może się zamknąć, a popup może mieć osobny HWND — brak widocznych opcji nie dowodzi pustej bazy. Opcja jawnie wypisuje lokalnie maksymalnie 25 widocznych etykiet `ListItem`/`TreeItem`. **Nie przypisuje automatycznie** opcji do konkretnego ComboBox; dropdown może być osobnym popupem. Dane nie są wysyłane do chmury. Przed udostępnieniem wyniku usuń dane klienta i cenniki.
 5. Powtórz odczyt dla profilu/systemu, szyb i okuć — tam, gdzie te etapy lub okna rzeczywiście są dostępne. Jeśli WH Okna nie pokazuje danego etapu, nie „odtwarzaj” go na siłę na podstawie dokumentacji.
 
 ## Etap B — sprawdzanie klikalności, TYLKO pod nadzorem
