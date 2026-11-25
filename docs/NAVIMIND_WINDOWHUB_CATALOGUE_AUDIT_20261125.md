@@ -51,6 +51,9 @@ Ręcznie wybierz **jedną** pozycję w rozłożonej liście testowego dokumentu,
 
 - `NATIVE_MAPPED`: liczba rozpoznanych natywnych kontrolek w **aktualnym** kreatorze, nie liczba dostępnych artykułów w SQL.
 - `CURRENT_SELECTION_READABLE`: bieżąca wartość pola jest odczytywalna; nie dowodzi liczby wariantów.
+- `NATIVE_EXPAND_PATTERN`: liczba natywnych kontrolek, które udostępniają interfejs `ExpandCollapse` (odczyt bez rozwijania).
+- `NATIVE_SELECTION_PATTERN`: liczba kontrolek, które udostępniają `SelectionItem`; nie stanowi dowodu wybrania elementu.
+- `CLICKABLE` w starym podsystemie percepcji oznacza ogólną możliwość interakcji, nie potwierdza implementacji wzorca UIA. Nowy audyt celowo trzyma te informacje osobno.
 - `MISSING` i `AMBIGUOUS`: niedostępna albo niejednoznaczna kontrolka, potrzebna demonstracja lub nowy mapping.
 - `CATALOGUE_ITEMS_ENUMERATED=False`: pełna lista opcji nie została zweryfikowana.
 - `CATALOGUE_SELECTION_EXECUTABLE=False`: żaden automatyczny wybór nie został potwierdzony.
