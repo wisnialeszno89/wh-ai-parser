@@ -40,6 +40,7 @@ class LiveMissionConversation:
         self.runtime_status_provider = runtime_status_provider
         self.allow_tool_chaining = allow_tool_chaining is True
         self._approved_document_context: str | None = None
+        self._document_access_version = 0
         self._pending_document_approval: tuple[int, int] | None = None
         self._privacy_history_cutoff = 0
         self._pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="navimind-chat")
@@ -58,12 +59,14 @@ class LiveMissionConversation:
             if self._closed:
                 raise RuntimeError("conversation_closed")
             self._approved_document_context = context
+            self._document_access_version += 1
             self._pending_document_approval = None
 
     def revoke_document_context(self) -> None:
         """Remove access for subsequent turns; cannot retract past API calls."""
         with self._lock:
             self._approved_document_context = None
+            self._document_access_version += 1
             self._pending_document_approval = None
             # Prior chat turns may contain summaries of sensitive customer
             # data. Do not resend those turns to the Gateway after revocation.
@@ -77,6 +80,11 @@ class LiveMissionConversation:
     def document_context_active(self) -> bool:
         with self._lock:
             return self._approved_document_context is not None
+
+    def document_access_snapshot(self) -> tuple[int, str | None]:
+        """Atomic consent epoch and approved text for an in-flight work mission."""
+        with self._lock:
+            return self._document_access_version, self._approved_document_context
 
     def approved_document_context(self) -> str | None:
         """Return only the approved bounded snapshot, never local unapproved files."""
