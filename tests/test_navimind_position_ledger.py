@@ -272,3 +272,32 @@ def test_verified_next_position_resets_step_budget_but_preserves_total_count():
     assert following.cycles == 0
     assert following.total_verified_actions == 2
     assert following.position_ledger.active.position_id == "S01-P002"
+
+
+def test_german_numbered_positions_are_not_lost_in_long_enquiries():
+    text = (
+        "Anfrage:\n"
+        "Pos. 1: 2 Stk Fenster 1500x1400\n"
+        "Pos. 2: 1 Stk Fenster 1300x1200\n"
+        "3) 4 Stk Fenster 1100x1000\n"
+    )
+    manifest = build_position_manifest(inbox_with(text))
+    assert manifest.safe_to_sequence
+    assert [(p.width_mm, p.height_mm, p.quantity)
+            for p in manifest.positions] == [
+        (1500, 1400, 2), (1300, 1200, 1), (1100, 1000, 4),
+    ]
+
+
+def test_numbered_unparseable_row_invalidates_whole_automatic_sequence():
+    text = (
+        "Pos. 1: 2 Stk Fenster 1500x1400\n"
+        "Pos. 2: Fenster bez czytelnych wymiarów\n"
+    )
+    manifest = build_position_manifest(inbox_with(text))
+    assert len(manifest.positions) == 2
+    assert not manifest.positions[1].ready_for_geometry
+    assert not validate_bound_position_entry(
+        manifest.positions[1], field_name="width_1",
+        proposed_value="1500",
+    )[0]
