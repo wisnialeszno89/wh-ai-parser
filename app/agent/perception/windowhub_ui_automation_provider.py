@@ -924,6 +924,11 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
         )
         ancestor_context = self._ancestor_context(item)
         ancestor_structure = self._ancestor_structure(item)
+        # Separate exact parent-runtime evidence keeps the established,
+        # privacy-safe structural UIA contract backward-compatible.
+        ancestor_runtime_structure = self._ancestor_structure(
+            item, include_runtime=True,
+        )
         document_scope = self._document_scope(item)
         tab_scope = (
             self._tab_scope(item)
@@ -958,6 +963,7 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
             "uia_ancestor_context": ancestor_context,
             # Provider-local structural identity; never a public model target.
             "uia_ancestor_structure": ancestor_structure,
+            "uia_ancestor_runtime_structure": ancestor_runtime_structure,
             "document_scope": document_scope,
             "automation_id": automation_id,
             "uia_control_type": control_type,
@@ -1068,6 +1074,7 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
         item,
         *,
         max_depth: int = 8,
+        include_runtime: bool = False,
     ) -> tuple[dict[str, str | None], ...]:
         """Capture stable UIA parent properties without reading text or values."""
         structure = []
@@ -1086,8 +1093,7 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
 
             try:
                 info = current.element_info
-                structure.append(
-                    {
+                node = {
                         "control_type": (
                             WindowHubUIAutomationProvider._string(
                                 getattr(info, "control_type", None)
@@ -1103,15 +1109,14 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
                                 getattr(info, "automation_id", None)
                             ) or ""
                         ).casefold(),
-                        # Exact runtime parent identity is required to safely
-                        # attribute an opened list item to its combobox.
-                        # AutomationId alone can repeat across MDI siblings.
-                        "runtime_id": (
-                            WindowHubUIAutomationProvider._runtime_id(current)
-                            or ""
-                        ),
                     }
-                )
+                if include_runtime:
+                    # Runtime ID is local execution evidence, not a public
+                    # model reference or a generic stable catalogue ID.
+                    node["runtime_id"] = (
+                        WindowHubUIAutomationProvider._runtime_id(current) or ""
+                    )
+                structure.append(node)
             except Exception:
                 break
 
