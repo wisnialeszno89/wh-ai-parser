@@ -150,7 +150,7 @@ class CompatibleChatProvider:
             messages.append({"role": role, "content": content})
         payload = json.dumps({
             "model": self.config.model, "messages": messages,
-            "temperature": 0.35, "max_tokens": 500,
+            "temperature": 0.15, "max_tokens": 850,
             "stream": False,
         }, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
         if len(payload) > 48 * 1024:
