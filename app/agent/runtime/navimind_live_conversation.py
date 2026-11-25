@@ -3,6 +3,11 @@ from __future__ import annotations
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
 from threading import RLock
+from typing import Mapping
+from app.agent.runtime.navimind_tool_router import (
+    ReadOnlyTool, invoke_read_only_tool, parse_model_tool_decision,
+    tool_catalog_instructions,
+)
 from app.agent.runtime.navimind_conversational_provider import (
     ChatProvider, ChatUnavailable, transcript_for_chat, SYSTEM_INSTRUCTIONS,
 )
@@ -21,13 +26,15 @@ class LiveMissionConversation:
     """Text-only replies. Never grants an input permit or edits an offer."""
 
     def __init__(self, chat: MissionChat, provider: ChatProvider | None,
-                 *, runtime_instructions: str = ""):
+                 *, runtime_instructions: str = "",
+                 read_only_tools: Mapping[str, ReadOnlyTool] | None = None):
         self.chat = chat
         self.provider = provider
         # Trusted host-provided capabilities, never model/user/document asserted.
         # No runtime instructions may grant native actions; local arbiter
         # remains the actual execution authority.
         self.runtime_instructions = runtime_instructions
+        self.read_only_tools = dict(read_only_tools or {})
         self._pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="navimind-chat")
         self._lock = RLock()
         self._running: Future | None = None
@@ -86,14 +93,45 @@ class LiveMissionConversation:
     def _answer_in_worker(self, revision: int,
                           transcript: tuple[tuple[str, str], ...]) -> None:
         try:
-            answer = self.provider.reply(
-                transcript=transcript,
-                instructions=SYSTEM_INSTRUCTIONS + (
-                    "\n\nSTAN MOŻLIWOŚCI APLIKACJI (ustalony lokalnie przez host):\n"
-                    + self.runtime_instructions
-                    if self.runtime_instructions else ""
-                ),
+            instructions = SYSTEM_INSTRUCTIONS + (
+                "\n\nSTAN MOŻLIWOŚCI APLIKACJI (ustalony lokalnie przez host):\n"
+                + self.runtime_instructions
+                if self.runtime_instructions else ""
             )
+            if self.read_only_tools:
+                instructions += tool_catalog_instructions(self.read_only_tools)
+            response = self.provider.reply(
+                transcript=transcript, instructions=instructions,
+            )
+            if self.read_only_tools:
+                try:
+                    decision = parse_model_tool_decision(
+                        response, self.read_only_tools,
+                    )
+                except ValueError:
+                    # Fail closed. Never interpret unstructured model text
+                    # as an instruction and never claim an action occurred.
+                    answer = (
+                        "Nie udało mi się jednoznacznie wybrać narzędzia. "
+                        "Nie wykonałem żadnej czynności na komputerze."
+                    )
+                else:
+                    if decision.kind == "tool":
+                        # A changed human instruction or closed panel must
+                        # invalidate old tool decisions before invocation.
+                        with self._lock:
+                            current = (not self._closed
+                                       and self.chat.snapshot().mission_revision == revision)
+                        answer = (
+                            invoke_read_only_tool(decision.tool, self.read_only_tools)
+                            if current else ""
+                        )
+                    else:
+                        answer = decision.answer
+            else:
+                answer = response
+            if not answer and self.chat.snapshot().mission_revision != revision:
+                return
             if not isinstance(answer, str) or not answer.strip():
                 raise ChatUnavailable("empty_chat_reply")
             if len(answer) > MissionChat.MAX_MESSAGE_CHARS:

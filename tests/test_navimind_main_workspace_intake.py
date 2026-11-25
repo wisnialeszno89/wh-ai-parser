@@ -225,105 +225,26 @@ def test_main_workspace_has_history_scrollbar_and_jump_button():
     assert "scrollbar.configure(command=area.yview)" in source
 
 
-def test_workspace_discovery_publishes_real_result_to_chat():
-    from queue import Queue
-    from app.agent.runtime.navimind_local_input_arbiter import LocalInputArbiter
-    from app.agent.runtime.navimind_mission_chat import MissionChat
-    chat = MissionChat(document_key="local-test", arbiter=LocalInputArbiter())
-    message = chat.user_message("znajdz program WH")
-    workspace_instance = workspace.NaviMindMainWorkspace.__new__(
-        workspace.NaviMindMainWorkspace
-    )
-    class Status:
-        message = None
-        def configure(self, **kwargs):
-            self.message = kwargs.get("text", self.message)
-    workspace_instance.notice = Status()
-    workspace_instance.chat = chat
-    workspace_instance._discovery_queue = Queue()
-    workspace_instance._discovery_active = True
-    workspace_instance._refresh_messages = lambda: None
-    workspace_instance._discovery_queue.put((
-        message.mission_revision,
-        ("WINDOWHUB_DISCOVERY=FOUND", "WINDOWHUB_IS_FOREGROUND=False"),
-    ))
-    workspace_instance._poll_discovery()
-    assert workspace_instance._discovery_active is False
-    assert "w tle" in chat.snapshot().messages[-1].text
-    assert chat.snapshot().messages[-1].role.value == "agent"
-
-
-@pytest.mark.parametrize("phrase", [
-    "znajdz program WH",
-    "Znajdź WindowHub",
-    "wyszukaj WH na moim komputerze",
-    "sprawdź WH ponownie",
-    "czy działa WindowHub?",
-    "gdzie jest WH?",
-])
-def test_natural_language_windowhub_discovery_intent(phrase):
-    assert workspace.requested_local_tool(phrase) == "discover_windowhub"
-
-
-@pytest.mark.parametrize("phrase", [
-    "cześć NaviMind",
-    "jak zrobić ofertę okienną?",
-    "otwórz program WH",
-    "uruchom WH",
-    "kliknij Nowa oferta w WindowHub",
-    "usuń WindowHub",
-    "znajdź informacje o WH w internecie",
-])
-def test_tool_router_must_not_execute_unrelated_or_mutating_requests(phrase):
-    assert workspace.requested_local_tool(phrase) is None
-
-
-def test_discovery_result_reports_only_observed_state():
+def test_discovery_reply_grounded_in_real_local_tool_output():
     answer = workspace.windowhub_discovery_answer((
         "WINDOWHUB_DISCOVERY=FOUND",
         "WINDOWHUB_IS_FOREGROUND=False",
     ))
     assert "w tle" in answer
     assert "tworzenia" in answer
-    no_result = workspace.windowhub_discovery_answer((
+    missing = workspace.windowhub_discovery_answer((
         "WINDOWHUB_DISCOVERY=NOT_FOUND",
     ))
-    assert "Nie znalazłem" in no_result
+    assert "Nie znalazłem" in missing
 
 
-def test_discovery_result_from_old_revision_is_discarded():
-    from queue import Queue
-    from app.agent.runtime.navimind_local_input_arbiter import LocalInputArbiter
-    from app.agent.runtime.navimind_mission_chat import MissionChat
-    chat = MissionChat(document_key="local-test", arbiter=LocalInputArbiter())
-    old = chat.user_message("znajdz WH")
-    chat.user_message("nowe polecenie")
-    workspace_instance = workspace.NaviMindMainWorkspace.__new__(
-        workspace.NaviMindMainWorkspace
-    )
-    class Status:
-        def configure(self, **kwargs):
-            pass
-    workspace_instance.notice = Status()
-    workspace_instance.chat = chat
-    workspace_instance._discovery_queue = Queue()
-    workspace_instance._discovery_active = True
-    workspace_instance._refresh_messages = lambda: None
-    workspace_instance._discovery_queue.put((
-        old.mission_revision, ("WINDOWHUB_DISCOVERY=FOUND",),
-    ))
-    workspace_instance._poll_discovery()
-    assert all(m.role.value != "agent" for m in chat.snapshot().messages)
-
-
-def test_no_dedicated_find_windowhub_button():
-    text = (Path(__file__).resolve().parents[1] / "tools" /
-            "navimind_main_workspace.py").read_text(encoding="utf-8")
-    assert 'text="Znajdź WindowHub"' not in text
-    assert "requested_local_tool(text)" in text
-    assert 'Thread(target=worker, daemon=True).start()' in text
-    assert 'self._poll_discovery()' in text
-    assert 'discover_windowhub_read_only' in (
-        Path(__file__).resolve().parents[1] / "tools" /
-        "run_navimind_shared_control_center.py"
-    ).read_text(encoding="utf-8")
+def test_no_keyword_dispatch_and_no_find_windowhub_button():
+    source = (Path(__file__).resolve().parents[1] / "tools" /
+              "navimind_main_workspace.py").read_text(encoding="utf-8")
+    assert 'text="Znajdź WindowHub"' not in source
+    assert "requested_local_tool" not in source
+    assert "self.conversation.submit_current_message(message.message_id)" in source
+    launcher = (Path(__file__).resolve().parents[1] / "tools" /
+                "run_navimind_shared_control_center.py").read_text(encoding="utf-8")
+    assert "read_only_tools=tool_registry" in launcher
+    assert '"find_windowhub": ReadOnlyTool(' in launcher
