@@ -270,6 +270,22 @@ def plan_or_execute_windowhub_step(
         )
     if name not in {"click_screen_element", "write_text"}:
         return WorkStepResult("review", "action_type_not_authorized_for_mission")
+    if name == "click_screen_element":
+        # A locally visible control is not automatically a permissible
+        # business action. Unknown/destructive buttons need salesperson
+        # approval or a separately learned, audited skill.
+        label = " ".join(str(getattr(target, "label", "")).casefold().split())
+        forbidden = (
+            "usuń", "usun", "kasuj", "skasuj", "delete", "remove",
+            "wyczyść", "wyczysc", "clear all", "zamknij bez zapisu",
+            "zapisz", "save", "wyślij", "wyslij", "send", "zatwierdź",
+            "zatwierdz", "submit", "przekształć", "przeksztalc",
+            "anuluj ofertę", "anuluj oferte", "cancel order",
+        )
+        if any(label == item or label.startswith(item + " ") for item in forbidden):
+            return WorkStepResult(
+                "review", "native_destructive_or_persistent_button_forbidden"
+            )
     if action.action.requires_confirmation:
         return WorkStepResult("review", "persistent_action_requires_salesperson")
 
