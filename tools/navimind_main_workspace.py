@@ -467,9 +467,13 @@ class NaviMindMainWorkspace(tk.Frame):
             "wyślemy fragment odczytanego tekstu do dostawcy "
             "AI Gateway. Może zawierać dane osobowe klienta.\n\n"
             f"PDF: {stats['pdf_count']}; fragment: {len(excerpt)} znaków.\n\n"
+            "Po osobnym poleceniu przygotowania oferty silnik V2 może "
+            "otrzymać również lokalnie sporządzone zestawienie z całego "
+            "odczytanego tekstu tych PDF (łącznie maks. 7500 znaków "
+            "z zatwierdzonym fragmentem). Nie wysyłamy pełnych plików PDF. "
             "Zgoda obejmuje dalsze pytania w tej sesji, chyba że "
-            "wybierzesz „Cofnij dostęp AI”. Nie ma zapisu ani "
-            "sterowania WindowHub.\n\n"
+            "wybierzesz „Cofnij dostęp AI”. Zgoda na analizę NIE jest "
+            "zgodą na kliknięcia, zapis ani wysyłkę oferty.\n\n"
             "Udostępnić fragment do analizy?",
             parent=self,
         )
@@ -528,9 +532,12 @@ class NaviMindMainWorkspace(tk.Frame):
             "w PDF).\n\n"
             f"Dokumenty PDF: {source_status['pdf_count']}; "
             f"fragment przekazywany modelowi: {len(context)} znaków.\n\n"
+            "Po osobnym poleceniu wykonania oferty silnik V2 może także "
+            "otrzymać lokalnie opracowany skrót całego odczytanego tekstu "
+            "PDF — łącznie maks. 7500 znaków z zatwierdzonym fragmentem. "
             "Zgoda obowiązuje również w kolejnych wiadomościach tej "
             "sesji, dopóki jej nie cofniesz albo nie zmienisz dokumentów. "
-            "Nie zapiszę ani nie wyślę oferty w WindowHub.\n\n"
+            "Nie stanowi zgody na sterowanie, zapis ani wysyłkę oferty.\n\n"
             "Udostępnić dokument do analizy?",
             parent=self,
         ):
