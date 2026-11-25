@@ -192,7 +192,8 @@ class NaviMindSharedHost:
                                         task_id: str, coordinator: Any) -> bool:
         """Called only on a local operator resume click, never by the model."""
         item = coordinator.current()
-        if (item is None or item.revision != revision
+        if (item is None or not coordinator.is_current(item)
+                or item.revision != revision
                 or item.task_id != task_id
                 or self.chat.snapshot().mission_revision != revision
                 or item.document_key != self.expected_offer):
