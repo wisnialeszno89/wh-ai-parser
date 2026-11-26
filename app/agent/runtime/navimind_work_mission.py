@@ -958,6 +958,22 @@ class BackgroundWorkMission:
         self._pool.submit(self._work, mission.task_id, True)
         return True
 
+    @staticmethod
+    def _v2_configuration_blocker() -> str | None:
+        """Check V2 configuration without credentials, network or GUI actions."""
+        import os
+        v2 = os.environ.get("NAVIMIND_AGENT_V2_URL", "").strip()
+        shared = os.environ.get("NAVIMIND_AGENT_URL", "").strip()
+        if v2:
+            if not os.environ.get("NAVIMIND_AGENT_V2_SECRET", "").strip():
+                return "v2_secret_missing"
+            return None
+        if shared:
+            if not os.environ.get("NAVIMIND_AGENT_SECRET", "").strip():
+                return "v2_secret_missing"
+            return None
+        return "v2_endpoint_missing"
+
     def _work(self, task_id: str, execute: bool) -> None:
         com = False
         try:
@@ -974,6 +990,17 @@ class BackgroundWorkMission:
                 task_id, WorkStage.EXECUTING if execute else WorkStage.THINKING
             )
             if current is None:
+                return
+            # Fail before constructing a desktop loop when the required V2
+            # endpoint/secret is unavailable. Do not mask this as a generic
+            # local runtime failure and never output the actual secret.
+            blocker = self._v2_configuration_blocker()
+            if blocker is not None:
+                updated = self.coordinator.transition(
+                    task_id, WorkStage.PAUSED, reason=blocker,
+                )
+                if updated is not None and self.callback is not None:
+                    self.callback(updated, WorkStepResult("paused", blocker))
                 return
             from app.agent.runtime.windows_desktop_agent_control_loop import (
                 create_windows_desktop_agent_control_loop,
