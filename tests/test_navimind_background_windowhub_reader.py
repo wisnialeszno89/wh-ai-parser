@@ -70,7 +70,9 @@ def test_ignores_foreground_browser_and_minimized_wh():
         inventory=[foreign, minimized],
         desktop_factory=lambda: (_ for _ in ()).throw(AssertionError()),
     )
-    assert "Nie znalazłem niezminimalizowanego" in output
+    assert "WindowHub działa, ale jego okno jest zminimalizowane" in output
+    assert "Nie kliknąłem ani niczego nie zapisałem" in output
+    assert "private Facebook" not in output
 
 
 def test_minimized_windowhub_explains_automatic_recovery_without_claiming_input():
