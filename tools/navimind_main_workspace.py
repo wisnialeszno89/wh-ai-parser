@@ -251,11 +251,21 @@ class NaviMindMainWorkspace(tk.Frame):
             self, "Wklej zapytanie klienta. Polecenia dla NaviMind wpisuj w rozmowie wyżej.",
             size=9, color=MUTED,
         ).pack(fill="x", padx=24, pady=(6, 0))
-        self.enquiry_editor = tk.Text(
-            self, height=4, wrap="word", bg=CARD, fg=FG, insertbackground=FG,
-            relief="flat", font=("Segoe UI", 10), padx=14, pady=10,
+        enquiry_box = tk.Frame(self, bg=CARD)
+        enquiry_box.pack(fill="x", padx=24, pady=(10, 8))
+        self.enquiry_scrollbar = tk.Scrollbar(
+            enquiry_box, orient="vertical", width=13, takefocus=True,
         )
-        self.enquiry_editor.pack(fill="x", padx=24, pady=(10, 8))
+        self.enquiry_scrollbar.pack(side="right", fill="y")
+        self.enquiry_editor = tk.Text(
+            enquiry_box, height=4, wrap="word", bg=CARD, fg=FG, insertbackground=FG,
+            relief="flat", font=("Segoe UI", 10), padx=14, pady=10,
+            yscrollcommand=self.enquiry_scrollbar.set,
+        )
+        self.enquiry_editor.pack(side="left", fill="both", expand=True)
+        self.enquiry_scrollbar.configure(command=self.enquiry_editor.yview)
+        # Text widgets already support mouse-wheel, keyboard navigation and
+        # selecting/copying their contents; preserve those native bindings.
         actions = tk.Frame(self, bg=BG)
         actions.pack(fill="x", padx=24)
         tk.Button(
@@ -290,7 +300,7 @@ class NaviMindMainWorkspace(tk.Frame):
         ).pack(side="left", padx=(9, 0))
         self.notice = self._label(
             self,
-            "Model rozmowny nie jest skonfigurowany — wiadomości są lokalne."
+            "Brak połączenia AI: sprawdź NAVIMIND_CHAT_URL / MODEL / API_KEY w bieżącej sesji. Wiadomości pozostają lokalne."
             if not (self.conversation is not None and self.conversation.status().provider_connected)
             else "Model rozmowny połączony. Załączone dokumenty nie są wysyłane automatycznie.",
             size=9, color=MUTED,
