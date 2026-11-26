@@ -73,6 +73,18 @@ def test_ignores_foreground_browser_and_minimized_wh():
     assert "Nie znalazłem niezminimalizowanego" in output
 
 
+def test_minimized_windowhub_explains_automatic_recovery_without_claiming_input():
+    minimized = window(minimized=True)
+    response = inspect_windowhub_background(
+        inventory=[minimized],
+        desktop_factory=lambda: (_ for _ in ()).throw(AssertionError()),
+    )
+    assert "zminimalizowane" in response
+    assert "kontynuować analizę" in response
+    assert "Wznów pracę" in response
+    assert "Nie kliknąłem" in response
+
+
 def test_multiple_windowhub_windows_does_not_leak_customer_titles():
     first = window(title="Okna - Start1", handle=51)
     second = window(title="Okna - OFR/999- SECRET", handle=52)
