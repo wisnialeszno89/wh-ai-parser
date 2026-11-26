@@ -111,36 +111,44 @@ def explicit_local_mission_status_request(text: str) -> bool:
 
 
 def explicit_service_exclusion_correction(text: str) -> tuple[str, ...]:
-    """Parse only a complete, standalone human exclusion correction.
+    """Recognize bounded, standalone human exclusions; never control GUI.
 
-    Does not grant access to a document or change a WindowHub offer.
+    Supports mixed phrases like "bez dodatkowych opcji, bez montażu...".
+    A command with other instructions is left for normal conversation routing.
     """
     import re
-    if not isinstance(text, str):
+    import unicodedata
+    if not isinstance(text, str) or len(text) > 250:
         return ()
-    value = text.casefold().strip().rstrip(".! ")
-    value = re.sub(r"\s+", " ", value)
-    value = value.replace("montażu", "montazu").replace(
-        "demontażu", "demontazu"
-    ).replace("wykończenia", "wykonczenia")
-    value = value.replace("montaż", "montaz").replace(
-        "demontaż", "demontaz"
-    ).replace("wykończenie", "wykonczenie")
-    if not value.startswith("bez "):
+    normalized = "".join(
+        ch for ch in unicodedata.normalize("NFKD", text.casefold())
+        if not unicodedata.combining(ch)
+    )
+    normalized = re.sub(r"\s+", " ", normalized).strip().rstrip(".! ")
+    normalized = re.sub(r"\s*[,;]\s*", ", ", normalized)
+    if not normalized.startswith("bez "):
         return ()
-    words = re.sub(r"[,;]", " ", value[4:]).replace(" i ", " ").split()
-    allowed = {
+    # Each comma or repeated "bez" starts a new bounded exclusion clause.
+    normalized = re.sub(r"\s+bez\s+", ", bez ", normalized)
+    categories = {
         "montazu": "montaż",
         "demontazu": "demontaż",
         "wykonczenia": "wykończenie",
-        "montaz": "montaż",
-        "demontaz": "demontaż",
-        "wykonczenie": "wykończenie",
+        "dodatkowych opcji": "dodatkowe opcje",
+        "dodatkowych akcesoriow": "dodatkowe opcje",
     }
-    if not words or any(word not in allowed for word in words):
-        return ()
-    normalized = tuple(dict.fromkeys(allowed[word] for word in words))
-    return normalized
+    results = []
+    for clause in normalized.split(", "):
+        if clause.startswith("bez "):
+            clause = clause[4:]
+        for part in re.split(r"\s+i\s+", clause):
+            part = part.strip()
+            if part not in categories:
+                return ()
+            value = categories[part]
+            if value not in results:
+                results.append(value)
+    return tuple(results)
 
 
 @dataclass(frozen=True)
