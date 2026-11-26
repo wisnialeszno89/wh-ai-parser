@@ -98,7 +98,7 @@ def explicit_service_exclusion_correction(text: str) -> tuple[str, ...]:
     if not isinstance(text, str):
         return ()
     value = text.casefold().strip().rstrip(".! ")
-    value = re.sub(r"\\s+", " ", value)
+    value = re.sub(r"\s+", " ", value)
     value = value.replace("montażu", "montazu").replace(
         "demontażu", "demontazu"
     ).replace("wykończenia", "wykonczenia")
