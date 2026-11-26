@@ -596,6 +596,23 @@ class LiveMissionConversation:
             # native input; the host checks source consent before queueing.
             if "prepare_windowhub_work" in self.read_only_tools and latest_humans:
                 if explicit_offer_plan_request(latest_humans[-1].text):
+                    # A human offer request is NOT document disclosure
+                    # approval. Ask Tk to display the existing explicit
+                    # consent dialog, then retry THIS SAME human revision.
+                    # Never queue a V2 mission while source permission is
+                    # missing. The dialog is only ever shown by local UI.
+                    with self._lock:
+                        current = (
+                            not self._closed
+                            and self.chat.snapshot().mission_revision == revision
+                        )
+                        approved = self._approved_document_context is not None
+                        if current and not approved:
+                            self._pending_document_approval = (
+                                revision, latest_humans[-1].message_id,
+                            )
+                    if not current or not approved:
+                        return
                     result = invoke_read_only_tool(
                         "prepare_windowhub_work", self.read_only_tools,
                     )
