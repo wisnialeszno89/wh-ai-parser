@@ -249,10 +249,135 @@ def activate_unique_windowhub_offer_document(*, wait_seconds: float = 3.0) -> tu
         return False, f"Offer activation unavailable: {type(exc).__name__}"
 
 
+def unique_start1_navigation_candidate(controls):
+    """Choose one exact native UIA Start1 navigation control; never by location.
+
+    Input is local structural metadata. This function cannot click or inspect
+    customer data and does not accept a generic unidentified toolbar icon.
+    """
+    matches = []
+    for item in controls:
+        if (
+            item.get("name", "").strip().casefold() == "start1"
+            and item.get("kind") in {"button", "tabitem"}
+            and item.get("enabled") is True
+            and item.get("visible") is True
+            and isinstance(item.get("automation_id"), str)
+            and bool(item["automation_id"].strip())
+            and bool(item.get("runtime_id"))
+        ):
+            matches.append(item)
+    return matches[0] if len(matches) == 1 else None
+
+
+def _activate_start1_via_unique_navigation(*, wait_seconds: float) -> tuple[bool, str]:
+    """After local Resume, select one verified UIA Start1 tab/button in Okna.
+
+    No guessed icon coordinate or keyboard shortcut. Selecting a tab does not
+    close or save the current offer; a modal dialog blocks this path.
+    """
+    if os.name != "nt" or (
+        os.environ.get("WH_REAL_WINDOWHUB") != "1"
+        or os.environ.get("COMPUTER_USE_LIVE") != "1"
+    ):
+        return False, "start1_navigation_live_permission_missing"
+    try:
+        from pywinauto import Desktop
+        from app.agent.environment.windows_desktop_environment_adapter import (
+            WindowsDesktopEnvironmentAdapter,
+        )
+        from app.agent.perception.windowhub_ui_automation_provider import (
+            WindowHubUIAutomationProvider,
+        )
+        adapter = WindowsDesktopEnvironmentAdapter()
+        foreground = adapter._capture_foreground_window()
+        inventory = adapter._capture_visible_windows(
+            foreground.handle, snapshot=foreground,
+        )
+        # Only a unique WindowHub main frame, not arbitrary editor dialogs.
+        frames = [
+            w for w in inventory
+            if (w.application or "").replace(chr(92), "/").rsplit("/", 1)[-1].casefold() == "okna.exe"
+            and (w.title or "").strip().casefold().startswith("okna - ")
+            and w.is_visible and not w.is_minimized
+        ]
+        if len(frames) != 1:
+            return False, "start1_main_frame_not_unique"
+        frame = frames[0]
+        desktop = Desktop(backend="uia")
+        root = desktop.window(handle=frame.handle).wrapper_object()
+        if (root.window_text() or "").strip() != (frame.title or "").strip():
+            return False, "start1_main_frame_changed"
+        wrappers = tuple(root.descendants())[:2500]
+        controls = []
+        for wrapper in wrappers:
+            try:
+                info = wrapper.element_info
+                kind = str(info.control_type or "").strip().casefold()
+                if kind not in {"button", "tabitem"}:
+                    continue
+                data = {
+                    "name": str(info.name or ""),
+                    "kind": kind,
+                    "enabled": bool(info.enabled),
+                    "visible": bool(info.visible),
+                    "automation_id": str(info.automation_id or ""),
+                    "runtime_id": WindowHubUIAutomationProvider._runtime_id(wrapper),
+                    "wrapper": wrapper,
+                }
+                controls.append(data)
+            except Exception:
+                continue
+        target = unique_start1_navigation_candidate(controls)
+        if target is None:
+            return False, "start1_uia_icon_not_uniquely_identified"
+        import ctypes
+        user32 = ctypes.windll.user32
+        if not _focus_existing_window(user32, frame.handle):
+            return False, "start1_main_frame_focus_refused"
+        # Re-read one native control identity after focus transfer.
+        live_info = target["wrapper"].element_info
+        if (not live_info.visible or not live_info.enabled
+                or str(live_info.automation_id or "") != target["automation_id"]
+                or WindowHubUIAutomationProvider._runtime_id(
+                    target["wrapper"]
+                ) != target["runtime_id"]):
+            return False, "start1_uia_icon_changed"
+        if target["kind"] == "tabitem":
+            target["wrapper"].iface_selection_item.Select()
+        else:
+            target["wrapper"].iface_invoke.Invoke()
+        # Never retry this potentially non-idempotent action after dispatch.
+        deadline = time.monotonic() + max(0.0, min(wait_seconds, 5.0))
+        while time.monotonic() <= deadline:
+            try:
+                observed = adapter._capture_foreground_window()
+                if (
+                    (observed.active_application or "").replace(chr(92), "/")
+                    .rsplit("/", 1)[-1].casefold() == "okna.exe"
+                    and (observed.title or "").strip().casefold() == "okna - start1"
+                ):
+                    return True, "start1_native_navigation_verified"
+            except Exception:
+                pass
+            time.sleep(0.1)
+        return False, "start1_navigation_effect_uncertain_no_retry"
+    except Exception as exc:
+        return False, "start1_uia_navigation_unavailable_" + type(exc).__name__
+
+
 def activate_windowhub_start_workspace(*, wait_seconds: float = 3.0) -> tuple[bool, str]:
-    """Focus exactly one visible Start1 workspace owned by Okna.exe."""
-    return activate_windowhub_wizard(
+    """Start a new draft from any screen using proven Start1 navigation.
+
+    Prefer an existing unique Start1 window. Only if it is unavailable try
+    one explicitly named UIA navigation control. Never switch documents on
+    the basis of an arbitrary button or a remembered screen position.
+    """
+    ok, reason = activate_windowhub_wizard(
         wait_seconds=wait_seconds,
         include_workspace=True,
         prefer_start=True,
     )
+    if ok:
+        return True, reason
+    return _activate_start1_via_unique_navigation(wait_seconds=wait_seconds)
