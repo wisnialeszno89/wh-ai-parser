@@ -466,10 +466,50 @@ class NaviMindMainWorkspace(tk.Frame):
         self._send()
         return "break"
 
+    @staticmethod
+    def _is_continue_current_mission_request(text):
+        """Acknowledge a short follow-up without invalidating active mission.
+
+        Never treat free-form editing instructions as a harmless continuation.
+        Explicit local operator Resume remains required for any GUI action.
+        """
+        import re
+        if not isinstance(text, str) or len(text) > 140:
+            return False
+        t = " ".join(text.casefold().split()).strip(" .!?")
+        return bool(re.fullmatch(
+            r"(?:kontynuuj|kontynuuj prace|kontynuuj pracę|"
+            r"wznów|wznow|wznów pracę|wznow prace|"
+            r"wykonaj następny krok|wykonaj nastepny krok|"
+            r"przejdź do następnego kroku|przejdz do nastepnego kroku|"
+            r"dalej|co dalej)",
+            t,
+        ))
+
     def _send(self):
         text = self.entry.get("1.0", "end-1c").strip()
         decision = chat_intake_decision(text)
         if decision == "empty":
+            return
+        if self._is_continue_current_mission_request(text):
+            # Do not call MissionChat.user_message(): doing so resets
+            # pinned native draft provenance and invalidates the V2 mission.
+            # This is only guidance, never automatic native input.
+            self.entry.delete("1.0", "end")
+            self.notice.configure(
+                text="Kontynuacja misji: uzyj przycisku Wznow prace. "
+                     "Nowa wiadomosc nie uniewaznila zadania."
+            )
+            snapshot = self.chat.snapshot()
+            self.chat.agent_message(
+                "Przyjalem prosbe o kontynuacje. Nie uruchamiam "
+                "klikania z czatu. Aby wykonac nastepny bezpieczny "
+                "krok aktualnej misji, kliknij lokalnie Wznow prace. "
+                "Jesli misja wymaga weryfikacji lub przycisk jest "
+                "niedostepny, nie ponawiaj niepewnego klikniecia.",
+                based_on_revision=snapshot.mission_revision,
+            )
+            self._refresh_messages()
             return
         if decision == "long_enquiry":
             if len(text) > 100_000:
