@@ -6,6 +6,7 @@ elements and only exercises the resolver's read-only identity checks.
 from __future__ import annotations
 
 import ctypes
+import sys
 from types import SimpleNamespace
 import pytest
 from tools.run_windowhub_new_offer_native_invoke_once import resolve_native_wrapper
@@ -70,6 +71,12 @@ def scene(*, count=1, stage="document_properties"):
 
 @pytest.fixture
 def foreground(monkeypatch):
+    # The resolver imports pywinauto, but injected desktop makes all tests
+    # work offline on Linux CI too.
+    monkeypatch.setitem(
+        sys.modules, "pywinauto",
+        SimpleNamespace(Desktop=lambda **_kwargs: None),
+    )
     monkeypatch.setattr(
         ctypes, "windll",
         SimpleNamespace(user32=SimpleNamespace(GetForegroundWindow=lambda: 55)),
