@@ -62,8 +62,19 @@ def inspect_local_preflight(*, environ=None, module_probe=None,
         warnings.append("reasoner_secret_not_configured_in_process")
     if not live_flag:
         warnings.append("native_input_not_armed")
-    if ("vercel.app" in (v2_endpoint or shared_endpoint).lower()
-            and not protection_bypass_present):
+    endpoint_hostname = ""
+    try:
+        from urllib.parse import urlsplit
+        endpoint_hostname = (
+            urlsplit(v2_endpoint or shared_endpoint).hostname or ""
+        ).lower()
+    except ValueError:
+        pass
+    if (
+        endpoint_hostname == "navimind.app"
+        or endpoint_hostname.endswith(".navimind.app")
+        or endpoint_hostname.endswith(".vercel.app")
+    ) and not protection_bypass_present:
         warnings.append("vercel_sso_may_require_automation_bypass")
     return {
         "platform": os_name,
