@@ -54,3 +54,42 @@ def test_duplicate_queued_offer_preserves_exclusions_without_resuming():
     assert repeated.service_exclusions == first.service_exclusions
     assert repeated.stage == WorkStage.QUEUED
     assert repeated.total_verified_actions == 0
+
+
+def test_explicit_stage_and_control_count_uses_local_uia_not_process_presence():
+    import time
+    from app.agent.runtime.navimind_live_conversation import (
+        LiveMissionConversation, explicit_windowhub_stage_read_request,
+    )
+    from app.agent.runtime.navimind_tool_router import ReadOnlyTool
+
+    prompt = (
+        "NaviMind, znajdź WindowHub w tle i odczytaj jego bieżący etap "
+        "oraz liczbę kontrolek UIA. Nie zmieniaj aktywnego okna."
+    )
+    assert explicit_windowhub_stage_read_request(prompt)
+
+    class NoModel:
+        def reply(self, **kwargs):
+            raise AssertionError("observation must be based on local host")
+
+    chat = MissionChat(document_key="DRAFT/NEW", arbiter=LocalInputArbiter())
+    calls = []
+    engine = LiveMissionConversation(
+        chat, NoModel(), read_only_tools={
+            "inspect_windowhub": ReadOnlyTool(
+                "inspect_windowhub", "Read UIA only",
+                lambda: calls.append(True) or
+                "Odczyt UIA: etap multiple_windows, 2 okna, 38 kontrolek.",
+            )
+        },
+    )
+    message = chat.user_message(prompt)
+    assert engine.submit_current_message(message.message_id)
+    deadline = time.monotonic() + 5
+    while engine.status().active and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert not engine.status().active
+    assert calls == [True]
+    assert "38 kontrolek" in chat.snapshot().messages[-1].text
+    engine.close()
