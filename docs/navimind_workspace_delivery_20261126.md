@@ -78,3 +78,44 @@ Acceptance checks:
   stale because the status request changed revision.
 - GUI actions remain zero; offer remains unsaved.
 - Verify the real V2 endpoint connection separately before enabling LIVE.
+
+## 2026-11-26: remaining blockers after successful local status check
+
+Latest operator evidence:
+- Background UIA reports Start1, one WindowHub window and 47 interactive
+  controls. This proves limited structural observation, not editable document
+  content, authenticated catalog availability, or input readiness.
+- Approved two-window excerpt can be parsed. It is per-session consent; an
+  earlier message saying "zatwierdzone" is not a substitute for a current
+  session approval.
+- "bez dodatkowych opcji, Bez montażu, demontażu i wykończenia" previously
+  failed model tool selection. Bounded human correction parser now supports
+  this phrase, and coordinator can carry the exclusions across intervening
+  read-only status/document questions until another offer request boundary.
+- Blocked mission is locally PAUSED with `v2_endpoint_missing`, zero confirmed
+  GUI actions and no confirmed saved offer.
+- Agent previously suggested that merchant should "approve V2 credentials".
+  This conflates IT/server configuration with operator action authorization.
+  Host factual status now explains these separately.
+
+Required gates to truly quote in WindowHub:
+1. V2 URL and secret configured in the SAME local process, including dotenv.
+   Valid remote URLs require HTTPS, or HTTP only for loopback; shared V2
+   endpoint uses /api/agent/task. No secrets are committed to Git.
+2. Successful endpoint authentication and expected task-response schema.
+   URL/secret presence alone does not prove 200; Vercel deployment protection,
+   SSO, 401, 403 and rate limiting are distinct possible blockers.
+3. Unique user-session WindowHub (Okna.exe) identification; app can be in
+   background/minimized for observation but non-interfering UIA observations
+   cannot be misrepresented as permission to click background windows.
+   Human must log in to password-protected application personally.
+4. Verified Start1 -> new offer -> precise customer selection (Top Trans
+   Artur Janik / matching record) and exact document scope.
+5. Readable verified profile, color, glass and hardware catalog controls;
+   two independent constructions and both individual discounts.
+6. Operator-enabled LIVE flags and independent local Resume per verified step;
+   post-action readback, safe stop, no save/send.
+
+Testing and evidence: automated suite is not an end-to-end GUI acceptance.
+Use a test customer and an unsaved disposable offer. If a required field
+cannot be read, stop and explain rather than guessing configuration or prices.
