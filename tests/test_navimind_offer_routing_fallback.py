@@ -90,3 +90,56 @@ def test_read_only_observation_survives_bad_json_after_tool_result():
     assert calls == [1]
     assert "WindowHub Start1" in mission.snapshot().messages[-1].text
     engine.close()
+
+
+class GenericAnswerInsteadOfPlan:
+    def reply(self, *, transcript, instructions):
+        if any("[WYNIK ZAUFANEGO LOKALNEGO NARZĘDZIA" in value
+               for _, value in transcript):
+            return '{"kind":"answer","answer":"Stan sprawdzony: brak konfiguracji V2."}'
+        return '{"kind":"answer","answer":"Proponuję sprawdzić program i przygotować plan."}'
+
+
+def test_explicit_offer_plan_bypasses_generic_model_answer():
+    mission = chat()
+    calls = []
+    engine = LiveMissionConversation(
+        mission, GenericAnswerInsteadOfPlan(),
+        read_only_tools={
+            "prepare_windowhub_work": ReadOnlyTool(
+                "prepare_windowhub_work", "Plan only",
+                lambda: calls.append(1) or
+                "Znalazłem WindowHub, ale V2 nie jest skonfigurowane.",
+            )
+        },
+        allow_tool_chaining=True,
+    )
+    msg = mission.user_message(
+        "Przygotuj nową ofertę dla Top Trans na podstawie zapytania. "
+        "Nie wykonuj kliknięć."
+    )
+    assert engine.submit_current_message(msg.message_id)
+    idle(engine)
+    assert calls == [1]
+    assert "brak konfiguracji V2" in mission.snapshot().messages[-1].text
+    engine.close()
+
+
+def test_plain_question_does_not_force_offer_planner():
+    mission = chat()
+    calls = []
+    engine = LiveMissionConversation(
+        mission, GenericAnswerInsteadOfPlan(),
+        read_only_tools={
+            "prepare_windowhub_work": ReadOnlyTool(
+                "prepare_windowhub_work", "Plan only",
+                lambda: calls.append(1) or "Nie powinienem zostać wywołany",
+            )
+        },
+        allow_tool_chaining=True,
+    )
+    msg = mission.user_message("Co oznacza rabat 15%?")
+    assert engine.submit_current_message(msg.message_id)
+    idle(engine)
+    assert calls == []
+    engine.close()
