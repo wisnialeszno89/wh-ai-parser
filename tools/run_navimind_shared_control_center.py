@@ -411,6 +411,30 @@ def run(*, expected_offer: str, initial_pdf: str | None = None,
         demonstration_provider=teaching_session.experience,
     )
 
+    def windowhub_environment_precheck() -> str | None:
+        """Fresh inventory only; never starts apps, changes focus or authenticates."""
+        try:
+            status = tuple(discover_windowhub_read_only())
+        except Exception:
+            return (
+                "Nie udało się ustalić, czy WindowHub jest otwarty. "
+                "Sprawdź sesję Windows i ponów polecenie. "
+                "Nie uruchamiam ani nie odblokowuję obcych programów."
+            )
+        if "WINDOWHUB_DISCOVERY=NOT_FOUND" in status:
+            return (
+                "Nie znalazłem otwartego okna WindowHub. "
+                "Uruchom program i zaloguj się osobiście, jeśli wymaga hasła. "
+                "Nie potrzebuję hasła w czacie. Po otwarciu sam ponownie "
+                "wyszukam WindowHub, także gdy będzie działać w tle."
+            )
+        if "WINDOWHUB_DISCOVERY=FOUND" not in status:
+            return (
+                "Nie potwierdziłem jednoznacznie środowiska WindowHub. "
+                "Nie wykonuję operacji na przypadkowym programie."
+            )
+        return None
+
     def prepare_work_from_chat():
         if exactly_two_windows:
             from app.agent.runtime.navimind_position_ledger import (
@@ -443,8 +467,26 @@ def run(*, expected_offer: str, initial_pdf: str | None = None,
             return (
                 "Widzę dodane lokalne zapytanie/PDF, ale nie mam zgody na "
                 "przekazanie jego danych silnikowi V2. "
-                "Wybierz w panelu Udostępnij AI, przejrzyj zakres i ponów "
+                "W sekcji DOKUMENTY KLIENTA kliknij „Przeanalizuj " 
+                "dokument w NaviMind”, zaakceptuj zakres i ponów "
                 "polecenie. Nie rozpoczynam pracy na niepełnych danych."
+            )
+        environment_blocker = windowhub_environment_precheck()
+        if environment_blocker:
+            return environment_blocker
+        # Both planning and execution require a real V2 endpoint. Chat AI
+        # credentials are different; a local model reply is not V2 readiness.
+        v2_blocker = background_work._v2_configuration_blocker()
+        if v2_blocker:
+            return (
+                "Znalazłem otwarty WindowHub, również jeśli jest w tle. "
+                "Mam zatwierdzony kontekst zapytania, ale wykonawca V2 "
+                "nie jest skonfigurowany: " + v2_blocker
+                + ". Ustaw lokalnie NAVIMIND_AGENT_V2_URL oraz "
+                "NAVIMIND_AGENT_V2_SECRET (lub zgodne zmienne "
+                "NAVIMIND_AGENT_URL/NAVIMIND_AGENT_SECRET). "
+                "Nie podawaj haseł ani sekretów w czacie. "
+                "Nie kliknąłem i nie zapisałem oferty."
             )
         return background_work.queue_and_plan()
 
