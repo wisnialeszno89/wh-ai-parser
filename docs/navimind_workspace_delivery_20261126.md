@@ -119,3 +119,37 @@ Required gates to truly quote in WindowHub:
 Testing and evidence: automated suite is not an end-to-end GUI acceptance.
 Use a test customer and an unsaved disposable offer. If a required field
 cannot be read, stop and explain rather than guessing configuration or prices.
+
+## 2026-11-26 follow-up: existing Vercel route and protected production
+
+Connected project inspection (metadata only, no secret values):
+- Vercel project `navimind` has READY production deployment. Repo is
+  `wisnialeszno89/navimind`; its `POST /api/agent/task` supports V2.
+- Production environment *lists* `NAVIMIND_AGENT_SECRET` and `OPENAI_API_KEY`.
+  This does not prove runtime authentication or usable service.
+- Vercel Deployment Protection SSO is enabled for all deployments.
+  A valid NaviMind application secret alone might therefore fail at Vercel
+  before reaching the task route. Never disable SSO without explicit approval.
+- Exact canonical app endpoint for local test:
+  `https://www.navimind.app/api/agent/task`.
+
+New safe local workflow:
+1. In a trusted PowerShell session, dot-source
+   `. .\\tools\\Initialize-NaviMind-V2Session.ps1`. It sets only the V2
+   endpoint and securely prompts for a matching secret if missing. Secrets
+   remain in process environment (not checked into Git). If unknown, stop
+   instead of inventing a secret; use an explicitly provisioned test credential
+   with expiry or an authorized existing production value.
+2. `python tools/run_navimind_offer_preflight.py`: inspect dependencies and
+   environment presence, not network access.
+3. `python tools/check_navimind_v2_connection.py`: send only
+   `{"version":"2"}`, a deliberately invalid synthetic V2 contract.
+   A server 400 JSON `INVALID_AGENT_TASK_V2` is expected after application
+   authentication and provider configuration. Distinguish server-side 401
+   UNAUTHORIZED from HTML/Vercel SSO 401/403, and reject redirects.
+4. Only after an authenticated synthetic check should the team attempt
+   a separate valid V2 protocol reasoning smoke. This still does NOT grant
+   permission to click WindowHub or save an offer.
+
+The local app must not claim connectivity from env vars alone. No customer
+data, screenshots or native computer input are used in the synthetic probe.
