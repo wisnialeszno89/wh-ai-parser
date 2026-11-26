@@ -99,3 +99,15 @@ def test_invalid_shared_endpoint_not_contacted():
         opener=opener,
     ) == "v2_endpoint_invalid"
     assert not opener.requests
+
+
+def test_gui_launch_does_not_confuse_live_permission_with_network_connection():
+    from pathlib import Path
+    root = Path(__file__).resolve().parents[1]
+    source = (root / "tools/run_navimind_shared_control_center.py").read_text(
+        encoding="utf-8"
+    )
+    assert 'NAVIMIND_V2_EXECUTOR_CONNECTED=False' in source
+    assert 'NAVIMIND_V2_ENDPOINT_CONFIGURED=' in source
+    assert 'NAVIMIND_V2_NATIVE_INPUT_ARMED=' in source
+    assert 'NAVIMIND_V2_HTTP_VERIFIED=False' in source
