@@ -101,6 +101,7 @@ def explicit_document_sharing_help_request(
         isinstance(previous_agent_text, str)
         and any(x in previous_agent_text.casefold() for x in (
             "udostępn", "udostepn", "zatwierdz", "zgod",
+            "przeanalizuj dokument", "przeanalizuj zapytanie",
         ))
         and any(x in previous_agent_text.casefold() for x in (
             "dokument", "zapytan", "pdf",
