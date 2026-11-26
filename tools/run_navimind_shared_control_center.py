@@ -849,8 +849,57 @@ def run(*, expected_offer: str, initial_pdf: str | None = None,
     print("NAVIMIND_V2_EXECUTOR_CONNECTED=" + str(live_allowed))
     print("NAVIMIND_WORK_MISSION_PLANNER_CONNECTED=True")
     print("NAVIMIND_GUI_INPUT_EXECUTED=False")
-    panel.mainloop()
-    stopped.set()
+    # Report whether the GUI event loop actually stays alive. This is
+    # distinct from model/V2 connectivity and from preflight. Never log
+    # private customer text or credentials.
+    import time
+    loop_started = time.monotonic()
+    close_requested = False
+    original_close = close
+
+    def tracked_close():
+        nonlocal close_requested
+        close_requested = True
+        original_close()
+
+    panel.protocol("WM_DELETE_WINDOW", tracked_close)
+
+    def window_visibility_probe():
+        try:
+            state = panel.state()
+            viewable = bool(panel.winfo_viewable())
+            print(
+                "NAVIMIND_PANEL_WINDOW_STATE=" + str(state)
+                + "; VIEWABLE=" + str(viewable),
+                flush=True,
+            )
+            if not viewable and state == "withdrawn":
+                print("NAVIMIND_PANEL_HIDDEN_WINDOW_DETECTED=True", flush=True)
+        except Exception as exc:
+            print(
+                "NAVIMIND_PANEL_VISIBILITY_CHECK_FAILED="
+                + type(exc).__name__, flush=True,
+            )
+
+    panel.after(400, window_visibility_probe)
+    print("NAVIMIND_PANEL_MAINLOOP_ENTERED=True", flush=True)
+    try:
+        panel.mainloop()
+    except Exception as exc:
+        print(
+            "NAVIMIND_PANEL_MAINLOOP_FAILED=" + type(exc).__name__,
+            flush=True,
+        )
+        raise
+    finally:
+        stopped.set()
+        duration = round(time.monotonic() - loop_started, 2)
+        print(
+            "NAVIMIND_PANEL_MAINLOOP_EXITED=True"
+            + "; CLOSE_REQUESTED=" + str(close_requested)
+            + "; SECONDS=" + str(duration),
+            flush=True,
+        )
     return 0
 
 
