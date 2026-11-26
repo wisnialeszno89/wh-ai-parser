@@ -259,3 +259,31 @@ trusted checked-out script, set ExecutionPolicy Bypass for Process scope only,
 then dot-source in the SAME PowerShell process. Group Policy restrictions
 may override Process; do not override corporate policy. Keep server-matching
 secrets out of chat, Git, logs and script command arguments.
+
+## 2026-11-26: first V2 model cycle succeeded; GUI request routing regression
+
+Operator confirmed `3 passed`, `V2_PROBE_RESULT=v2_authenticated_contract_rejected_as_expected`,
+and one valid synthetic V2 request returned `V2_SYNTHETIC_RESULT=validated`,
+`V2_SYNTHETIC_DECISION=observe`. These confirm HTTP authentication
+and a valid model protocol decision, not actual WindowHub clicking.
+
+Subsequent planning-only panel transcript: the first offer request returned
+a document approval prompt; a later document read succeeded; the status
+reported no queued mission. The approval may have been granted after the
+first request, so do not infer an authorization bypass or a parser failure.
+The explicit offer request now deterministically enters
+`prepare_windowhub_work`, whose host still checks consent, source manifest,
+and Windows discovery before queueing. It can never grant input access.
+
+A user question distinguishing PDF profiles/colors/glazing/hardware from
+actually verified WindowHub catalogue availability returned generic invalid
+tool selection. An explicit comparison intent now performs a bounded
+read-only catalogue scope probe and states the product choices are NOT
+confirmed by the source PDF alone. A missing catalog wizard on Start1
+is not proof the products are missing.
+
+Operator acceptance: update branch, run
+`python -m pytest tests/test_navimind_offer_and_catalogue_intent_routing.py -q`;
+launch panel without -Live, approve document visibly, repeat offer request,
+and inspect the async mission result. No human credentials, full offer data
+or screenshots in remote diagnostics.
