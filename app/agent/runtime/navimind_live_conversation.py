@@ -77,16 +77,16 @@ def explicit_document_sharing_help_request(
         return False
     request = " ".join(current_text.casefold().strip().rstrip("?.! ").split())
     how = bool(re.search(
-        r"\\b(?:jak|w jaki sposób|w jaki sposob|gdzie|który przycisk|"
-        r"ktory przycisk)\\b", request,
+        r"\b(?:jak|w jaki sposób|w jaki sposob|gdzie|który przycisk|"
+        r"ktory przycisk)\b", request,
     ))
     sharing = bool(re.search(
-        r"\\b(?:udostępn\\w*|udostepn\\w*|zatwierdz\\w*|"
-        r"zezwol\\w*|zgod\\w*)\\b", request,
+        r"\b(?:udostępn\w*|udostepn\w*|zatwierdz\w*|"
+        r"zezwol\w*|zgod\w*)\b", request,
     ))
     document = bool(re.search(
-        r"\\b(?:dokument\\w*|zapytani\\w*|pdf|plik\\w*|"
-        r"treś\\w*|tresc\\w*)\\b", request,
+        r"\b(?:dokument\w*|zapytani\w*|pdf|plik\w*|"
+        r"treś\w*|tresc\w*)\b", request,
     ))
     # For approval instructions require the explicit document subject.
     direct = how and sharing and document
