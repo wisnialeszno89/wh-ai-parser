@@ -176,10 +176,17 @@ class WorkMissionCoordinator:
                 if getattr(m.role, "value", m.role) == "human"
                 and m.message_id < human.message_id
             ]
-            for previous in reversed(past_humans[-4:]):
-                parsed = explicit_service_exclusion_correction(previous.text)
-                if not parsed:
+            # Human corrections remain scoped to this request. Intervening
+            # factual questions must not silently erase exclusions; a new
+            # distinct offer request is a hard boundary. Never import the
+            # contents of a PDF into instructions or infer a native permit.
+            from app.agent.runtime.navimind_live_conversation import (
+                explicit_offer_plan_request,
+            )
+            for previous in reversed(past_humans[-10:]):
+                if explicit_offer_plan_request(previous.text):
                     break
+                parsed = explicit_service_exclusion_correction(previous.text)
                 for item in parsed:
                     if item not in exclusions:
                         exclusions.append(item)
@@ -403,7 +410,7 @@ def safe_reasoner_failure_result(reasoner: Any) -> WorkStepResult:
 
 def safe_service_exclusion_clause(mission: WorkMission) -> str:
     """Human instructions only; bounded values, not a general-purpose parser."""
-    allowed = {"montaż", "demontaż", "wykończenie"}
+    allowed = {"montaż", "demontaż", "wykończenie", "dodatkowe opcje"}
     values = [v for v in mission.service_exclusions if v in allowed]
     if not values:
         return ""
