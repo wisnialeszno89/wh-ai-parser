@@ -236,6 +236,7 @@ def safe_native_open_customer_picker(loop, host, *, mission_revision: int) -> Dr
             scene, label="Wybierz istniejącego klienta",
             automation_id="IDC_ZAMAWIAJACY",
             allowed_stages=("document_properties",),
+            exact_customer_picker_id=True,
         )
         host.controller.arbiter.dispatch(permit, button.click_input)
     finally:
