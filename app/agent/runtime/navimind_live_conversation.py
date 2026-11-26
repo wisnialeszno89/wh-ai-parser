@@ -44,6 +44,29 @@ def explicit_local_enquiry_read_request(text: str) -> bool:
 
 
 
+def explicit_unsaved_draft_only_constraint(text: str) -> bool:
+    """Recognize a human restriction to an unnumbered draft, not an action."""
+    if not isinstance(text, str) or len(text) > 250:
+        return False
+    import re
+    t = " ".join(text.casefold().split()).strip(" .!?")
+    draft = (("niezapis" in t or "robocz" in t)
+             and ("dokument" in t or "ofert" in t))
+    no_number = any(part in t for part in (
+        "bez przypisanego numeru", "bez numeru oferty",
+        "bez numeru", "nienumerowan",
+    ))
+    restrict = any(part in t for part in (
+        "tylko", "wyłącznie", "wylacznie", "interesuje",
+        "pracuj", "nie dotykaj", "nie zmieniaj",
+    ))
+    action = re.search(
+        r"\b(?:kliknij|otwórz|otworz|wybierz|zapisz|usuń|usun|"
+        r"wyślij|wyslij|zatwierdź|zatwierdz)\b", t
+    )
+    return draft and no_number and restrict and not action
+
+
 def explicit_offer_plan_request(text: str) -> bool:
     """Route only explicit offer/work requests to the safe local planner."""
     if not isinstance(text, str):
@@ -590,6 +613,30 @@ class LiveMissionConversation:
                             based_on_revision=revision,
                         )
                     return
+            # A scope-only clarification is not a tool call or permission.
+            # A new human chat revision invalidates the prior executable
+            # mission, so never imply that the old plan is still armed.
+            if latest_humans and explicit_unsaved_draft_only_constraint(
+                latest_humans[-1].text
+            ):
+                with self._lock:
+                    current = (
+                        not self._closed
+                        and self.chat.snapshot().mission_revision == revision
+                    )
+                if current:
+                    self.chat.agent_message(
+                        "Rozumiem: interesuje Cię wyłącznie nowy, niezapisany "
+                        "dokument roboczy bez numeru oferty (DRAFT/NEW). "
+                        "Nie będę traktować żadnej istniejącej OFR jako "
+                        "dokumentu docelowego ani jej zmieniać. "
+                        "To doprecyzowanie nie potwierdza stanu WindowHub "
+                        "i nie daje zgody na kliknięcia. "
+                        "Nowa wiadomość unieważnia wcześniejszy plan wykonania; "
+                        "do dalszej pracy trzeba przygotować aktualną misję.",
+                        based_on_revision=revision,
+                    )
+                return
             # Explicit offer creation/planning goes through the trusted
             # local coordinator even if a model would choose a generic answer
             # or the unrelated document-help capability. This never grants
