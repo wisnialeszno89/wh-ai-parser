@@ -74,3 +74,24 @@ def test_local_status_tool_is_read_only():
     assert "def verified_mission_status()" in source
     assert "discover_windowhub_read_only()" in source
     assert "background_work._v2_configuration_blocker()" in source
+
+
+def test_status_queries_about_creation_or_approval_are_host_routed():
+    assert explicit_local_mission_status_request(
+        "Powiedz, czy utworzono i zapisano ofertę w WindowHub. "
+        "Wskaż dokładnie, czego brakuje do rozpoczęcia sterowania."
+    )
+    assert explicit_local_mission_status_request(
+        "Jakie zatwierdzenie będzie konieczne przed pierwszym sterowaniem?"
+    )
+
+
+def test_status_does_not_conflate_endpoint_configuration_with_operator_consent():
+    code = (ROOT / "tools/run_navimind_shared_control_center.py").read_text(
+        encoding="utf-8"
+    )
+    assert "Konfiguracja adresu V2 i sekretu to czynność techniczna" in code
+    assert "NIE zgoda handlowca" in code
+    assert "Potwierdzone wykluczenia usług/opcji" in code
+    assert "udany test" in code
+    assert "Nie mam potwierdzenia utworzenia ani zapisania oferty" in code
