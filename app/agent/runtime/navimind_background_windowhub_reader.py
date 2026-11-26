@@ -62,8 +62,8 @@ def inspect_windowhub_background(
     if not candidates:
         minimized = [
             w for w in inventory
-            if (getattr(w, "application", "") or "").replace("\\", "/")
-                .rsplit("/", 1)[-1].casefold() == "okna.exe"
+            if ((getattr(w, "application", "") or "").replace("\\", "/")
+                .rsplit("/", 1)[-1].casefold() == "okna.exe")
             and getattr(w, "is_visible", False) is True
             and getattr(w, "is_minimized", False) is True
         ]
