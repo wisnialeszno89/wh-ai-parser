@@ -180,3 +180,29 @@ Next: run the safe V2 synthetic network probe, resolving protected Vercel
 access via approved authentication, then a valid non-executing protocol test,
 before any GUI Live acceptance. multiple_windows means an ambiguous UIA
 scene rather than a proven current offer and must not grant input.
+
+## 2026-11-26: approved-document phrasings and multiple_windows
+
+Fresh user evidence: a request to analyze the "zatwierdzone zapytanie" returned
+a generic model claim of missing consent, while a second request to analyze the
+"udostępnione zapytanie klienta/PDF" returned two window positions. Background
+UIA observed two Okna.exe windows and 35 interactive controls, stage
+`multiple_windows`.
+
+Changes:
+- Both explicit customer-enquiry analysis wordings now use the SAME
+  consent-gated local read-only tool, rather than allowing the model to
+  invent the consent state. The tool has one current-session permission epoch.
+  If the user has not approved sharing, it requests consent through the
+  existing UI; it never silently shares a PDF.
+- The background UIA reader now explicitly explains that two verified
+  WindowHub HWNDs with an aggregate control count do not uniquely establish
+  the correct offer/document or native input scope.
+- Regression tests lock both approved and unapproved paths and avoid customer
+  data leakage in the UIA summary.
+- Two older test assertions referring to an obsolete V2_EXECUTOR_CONNECTED
+  LIVE flag were corrected to use the current split LIVE/HTTP readiness label.
+
+Follow-up must prioritize actual V2 connectivity. Local configuration and a
+read-only synthetic authenticated V2 probe remain necessary before a valid V2
+reasoning smoke, independent of native-control consent.
