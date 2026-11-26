@@ -60,9 +60,28 @@ def inspect_windowhub_background(
         )
     candidates = [w for w in inventory if _is_windowhub(w)]
     if not candidates:
+        minimized = [
+            w for w in inventory
+            if (getattr(w, "application", "") or "").replace("\\", "/")
+                .rsplit("/", 1)[-1].casefold() == "okna.exe"
+            and getattr(w, "is_visible", False) is True
+            and getattr(w, "is_minimized", False) is True
+        ]
+        if minimized:
+            return (
+                "WindowHub działa, ale jego okno jest zminimalizowane. "
+                "Nie mogę wiarygodnie odczytać kontrolek UIA w tym stanie. "
+                "Mogę kontynuować analizę zapytania i przygotowanie planu "
+                "bez przywracania okna. Po osobnym lokalnym Wznów pracę "
+                "i włączeniu LIVE wykonawca może spróbować sam przywrócić "
+                "jednoznacznie zweryfikowane okno; Windows może odmówić "
+                "przejęcia fokusu. Nie kliknąłem ani niczego nie zapisałem."
+            )
         return (
             "Nie znalazłem niezminimalizowanego okna WindowHub. "
-            "Sprawdź, czy program jest uruchomiony; niczego nie zmieniono."
+            "Mogę nadal analizować zapytanie i przygotować plan, lecz "
+            "do interakcji z programem potrzebuję jego jednoznacznej "
+            "identyfikacji. Niczego nie zmieniono."
         )
     # Observe a small number of HWNDs, never a whole desktop. Native controls
     # can be expensive to inspect inside WindowHub's legacy MDI.
