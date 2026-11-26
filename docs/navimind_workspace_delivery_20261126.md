@@ -206,3 +206,32 @@ Changes:
 Follow-up must prioritize actual V2 connectivity. Local configuration and a
 read-only synthetic authenticated V2 probe remain necessary before a valid V2
 reasoning smoke, independent of native-control consent.
+
+## 2026-11-26 11:09: confirmed V2 absence and consented document parser regression
+
+Operator preflight output confirmed:
+`DOTENV_FILE=absent`, `V1_URL=missing`, `V1_SECRET=missing`,
+`V2_URL=missing`, `V2_SECRET=missing`, and
+`V2_PROBE_RESULT=v2_endpoint_missing`. This is local Windows configuration,
+NOT a newly discovered Vercel deployment outage. The protected production
+route and its server-side secrets were previously confirmed as configured
+by metadata, but no successful authenticated local connection was proven.
+
+In the same run the operator approved document sharing but the conversational
+local summary reported zero positions. Root cause: the full-inbox summary
+parsed the raw labelled `Pos. 1: 1 Stk Fenster...` text through
+`inspect_german_offer_mail`, while the existing V2 position manifest
+pre-normalizes numbered headings. Thus two supposedly authoritative readers
+could disagree on the same approved data. The full-inbox summary now uses
+the existing `build_position_manifest` and reports the same source-scoped
+position count, dimensions, quantities and explicit labelled catalogue
+requirements. It still cannot confirm WindowHub selections or infer missing
+fields, and remains consent-gated. Regression tests use the exact two-window
+text example and check both positions and the unapproved case.
+
+Next operator action: configure an AUTHORIZED existing production credential
+or provision an explicitly approved expiring test token, through a trusted
+local/administrative workflow. Do not invent a random local-only secret:
+the server must recognize the exact same credential. Vercel SSO still may
+require separate permitted Deployment Protection authentication. Test via
+`python tools/check_navimind_v2_connection.py` before any -Live operation.
