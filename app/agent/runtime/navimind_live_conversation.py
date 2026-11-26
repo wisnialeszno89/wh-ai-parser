@@ -33,6 +33,8 @@ def explicit_local_enquiry_read_request(text: str) -> bool:
         "lokalne zapytanie", "zapytanie klienta", "wczytane zapytanie",
         "dokument klienta", "załączony dokument", "załączonego pdf",
         "załączony pdf", "plik pdf", "lokalny pdf",
+        "zatwierdzone zapytanie", "udostępnione zapytanie",
+        "zapytanie",
     ))
     action = any(term in request for term in (
         "przeanaliz", "przeczytaj", "odczytaj", "podaj", "wypisz",
@@ -95,11 +97,14 @@ def explicit_document_sharing_help_request(
         "jak to zrobić", "jak to zrobic", "jak mam to zrobić",
         "jak mam to zrobic",
     )
-    context = isinstance(previous_agent_text, str) and any(
-        x in previous_agent_text.casefold()
-        for x in ("udostępnij dokument", "udostepnij dokument",
-                  "przeanalizuj dokument w navimind",
-                  "zatwierdź dokument", "zatwierdz dokument")
+    context = (
+        isinstance(previous_agent_text, str)
+        and any(x in previous_agent_text.casefold() for x in (
+            "udostępn", "udostepn", "zatwierdz", "zgod",
+        ))
+        and any(x in previous_agent_text.casefold() for x in (
+            "dokument", "zapytan", "pdf",
+        ))
     )
     return direct or (follow_up and context)
 
@@ -613,9 +618,21 @@ class LiveMissionConversation:
                             result, based_on_revision=revision,
                         )
                     return
-            response = self.provider.reply(
-                transcript=transcript, instructions=instructions,
+            # Explicit human requests to analyze a local PDF/enquiry must
+            # always take the consent-gated local read path. Model wording
+            # cannot decide whether a document was approved. The existing
+            # tool chain still handles approval and bounded synthesis.
+            document_read_requested = (
+                latest_humans
+                and "read_approved_enquiry" in self.read_only_tools
+                and explicit_local_enquiry_read_request(latest_humans[-1].text)
             )
+            if document_read_requested:
+                response = '{"kind":"tool","tool":"read_approved_enquiry"}'
+            else:
+                response = self.provider.reply(
+                    transcript=transcript, instructions=instructions,
+                )
             if self.read_only_tools:
                 try:
                     decision = parse_model_tool_decision(
