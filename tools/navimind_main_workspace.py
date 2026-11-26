@@ -222,6 +222,7 @@ class NaviMindMainWorkspace(tk.Frame):
         self.entry.bind("<KP_Enter>", self._keyboard_enter)
         self.entry.bind("<Shift-Return>", self._keyboard_newline)
         self.entry.bind("<Control-Return>", self._keyboard_send)
+        self._install_edit_context_menu(self.entry)
 
         buttons = tk.Frame(self, bg=BG)
         buttons.pack(fill="x", padx=24, pady=(0, 14))
@@ -247,6 +248,11 @@ class NaviMindMainWorkspace(tk.Frame):
         ).pack(side="left")
         self.source_status = self._label(heading, "Brak dokumentów", size=9, color=MUTED)
         self.source_status.pack(side="right")
+        self.document_approval_indicator = self._label(
+            self, "AI: dokument lokalny — nieudostępniony",
+            size=9, color=GOLD,
+        )
+        self.document_approval_indicator.pack(fill="x", padx=24, pady=(2, 0))
         self._label(
             self, "Wklej zapytanie klienta. Polecenia dla NaviMind wpisuj w rozmowie wyżej.",
             size=9, color=MUTED,
@@ -264,6 +270,7 @@ class NaviMindMainWorkspace(tk.Frame):
         )
         self.enquiry_editor.pack(side="left", fill="both", expand=True)
         self.enquiry_scrollbar.configure(command=self.enquiry_editor.yview)
+        self._install_edit_context_menu(self.enquiry_editor)
         # Text widgets already support mouse-wheel, keyboard navigation and
         # selecting/copying their contents; preserve those native bindings.
         actions = tk.Frame(self, bg=BG)
@@ -307,6 +314,38 @@ class NaviMindMainWorkspace(tk.Frame):
         )
         self.notice.pack(fill="x", padx=24, pady=(11, 15))
         self.entry.focus_set()
+
+    def _install_edit_context_menu(self, widget):
+        """Windows-style right-click edit menu scoped to this Tk Text widget.
+
+        Only local clipboard operations. No chat submission, document consent,
+        model request or WindowHub input is triggered by these actions.
+        """
+        menu = tk.Menu(widget, tearoff=False)
+        menu.add_command(label="Wytnij", command=lambda: widget.event_generate("<<Cut>>"))
+        menu.add_command(label="Kopiuj", command=lambda: widget.event_generate("<<Copy>>"))
+        menu.add_command(label="Wklej", command=lambda: widget.event_generate("<<Paste>>"))
+        menu.add_separator()
+        menu.add_command(label="Zaznacz wszystko", command=lambda: (
+            widget.tag_add("sel", "1.0", "end-1c"),
+            widget.mark_set("insert", "end-1c"),
+            widget.see("insert"),
+            widget.focus_set(),
+        ))
+
+        def show(event):
+            widget.focus_set()
+            try:
+                menu.tk_popup(event.x_root, event.y_root)
+            finally:
+                menu.grab_release()
+            return "break"
+
+        widget.bind("<Button-3>", show)
+        # Keep the menu alive for the full widget lifetime.
+        if not hasattr(self, "_edit_context_menus"):
+            self._edit_context_menus = []
+        self._edit_context_menus.append(menu)
 
     def _history_to_bottom(self):
         self.history.yview_moveto(1.0)
@@ -727,6 +766,13 @@ class NaviMindMainWorkspace(tk.Frame):
             pending = self.conversation.take_pending_document_approval()
             if pending is not None:
                 self._handle_model_document_consent(pending)
+            approved = self.conversation.document_context_active()
+            self.document_approval_indicator.configure(
+                text=("AI: dokument udostępniony w tej sesji"
+                      if approved else
+                      "AI: dokument lokalny — kliknij „Przeanalizuj dokument w NaviMind”"),
+                fg=GREEN if approved else GOLD,
+            )
             status = self.conversation.status()
             if status.active:
                 self.notice.configure(text="NaviMind przygotowuje odpowiedź…")
