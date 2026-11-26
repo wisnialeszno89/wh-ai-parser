@@ -102,10 +102,13 @@ def explicit_local_mission_status_request(text: str) -> bool:
         "rzeczywisty stan", "co zostało wykonane", "co zostalo wykonane",
         "czego jeszcze nie wykonano", "status misji", "stan wykonawcy",
         "blokadę techniczną", "blokade techniczna",
+        "czy utworzono", "czy zapisano", "czego brakuje do",
+        "pierwszym sterowaniem", "rozpoczęcia sterowania",
+        "rozpoczecia sterowania", "jakie zatwierdzenie",
     ))
     has_request = any(v in t for v in (
         "wyjaśnij", "wyjasnij", "podaj", "sprawdź", "sprawdz",
-        "pokaż", "pokaz", "jaki", "co ", "czy ",
+        "pokaż", "pokaz", "jaki", "jakie", "czego", "co ", "czy ",
     ))
     return has_status and has_request
 
