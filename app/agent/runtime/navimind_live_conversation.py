@@ -126,6 +126,31 @@ def explicit_windowhub_stage_read_request(text: str) -> bool:
     return has_target and has_action and has_stage
 
 
+def explicit_local_position_ledger_request(text: str) -> bool:
+    """Route source-position verification to a consent-gated local reader.
+
+    Asking whether the approved source has two sizes is never a request to
+    inspect the WindowHub product catalog or to drive its UI.
+    """
+    if not isinstance(text, str):
+        return False
+    t = " ".join(text.casefold().split())
+    local_source = any(term in t for term in (
+        "lokalna ewidencja", "lokalną ewidencję", "lokalnej ewidencji",
+        "ewidencja pozycji", "ewidencję pozycji", "ewidencji pozycji",
+        "zatwierdzone zapytanie",
+    ))
+    position_check = any(term in t for term in (
+        "pozycj", "dokładnie dwa okna", "dokladnie dwa okna",
+        "wymiar", "zawiera", "zgadza",
+    ))
+    request = any(term in t for term in (
+        "sprawdź", "sprawdz", "potwierdź", "potwierdz",
+        "zweryfikuj", "podaj", "porównaj", "porownaj",
+    ))
+    return local_source and position_check and request
+
+
 def explicit_local_mission_status_request(text: str) -> bool:
     """Route explicit factual local-status questions to the trusted host.
 
@@ -561,6 +586,45 @@ class LiveMissionConversation:
                         )
                     if current:
                         self.chat.agent_message(result, based_on_revision=revision)
+                    return
+            # Approved source positions are not WindowHub catalog selectors.
+            # Use the same host-owned, consent-gated local parser as a
+            # customer-document analysis, never audit_windowhub_catalogues.
+            if "read_approved_enquiry" in self.read_only_tools:
+                snap = self.chat.snapshot()
+                humans = [
+                    m for m in snap.messages
+                    if m.role == MessageRole.HUMAN
+                    and m.mission_revision == revision
+                ]
+                if humans and explicit_local_position_ledger_request(
+                    humans[-1].text
+                ):
+                    with self._lock:
+                        current = (
+                            not self._closed
+                            and self.chat.snapshot().mission_revision == revision
+                        )
+                        allowed = self._approved_document_context is not None
+                        if current and not allowed:
+                            self._pending_document_approval = (
+                                revision, humans[-1].message_id,
+                            )
+                    if not current or not allowed:
+                        return
+                    result = invoke_read_only_tool(
+                        "read_approved_enquiry", self.read_only_tools,
+                    )
+                    with self._lock:
+                        current = (
+                            not self._closed
+                            and self.chat.snapshot().mission_revision == revision
+                            and self._approved_document_context is not None
+                        )
+                    if current:
+                        self.chat.agent_message(
+                            result, based_on_revision=revision,
+                        )
                     return
             # Factual local diagnostics must come from the host, never
             # invented by the conversation model or guessed from chat text.
