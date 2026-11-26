@@ -947,7 +947,13 @@ def run(*, expected_offer: str, initial_pdf: str | None = None,
     panel.after(250, pump)
     print("NAVIMIND_SHARED_PANEL_CONNECTED=True")
     print("NAVIMIND_CONVERSATION_PROVIDER_CONNECTED=" + str(chat_provider is not None))
-    print("NAVIMIND_V2_EXECUTOR_CONNECTED=" + str(live_allowed))
+    # LIVE permission and V2 endpoint presence are separate from actual
+    # authenticated HTTP connectivity (verified only by a synthetic probe).
+    print("NAVIMIND_V2_EXECUTOR_CONNECTED=False")  # No network proof here.
+    print("NAVIMIND_V2_ENDPOINT_CONFIGURED="
+          + str(background_work._v2_configuration_blocker() is None))
+    print("NAVIMIND_V2_NATIVE_INPUT_ARMED=" + str(live_allowed))
+    print("NAVIMIND_V2_HTTP_VERIFIED=False")  # Not probed during GUI launch.
     print("NAVIMIND_WORK_MISSION_PLANNER_CONNECTED=True")
     print("NAVIMIND_GUI_INPUT_EXECUTED=False")
     # Report whether the GUI event loop actually stays alive. This is
