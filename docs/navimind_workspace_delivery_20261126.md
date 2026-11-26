@@ -235,3 +235,27 @@ local/administrative workflow. Do not invent a random local-only secret:
 the server must recognize the exact same credential. Vercel SSO still may
 require separate permitted Deployment Protection authentication. Test via
 `python tools/check_navimind_v2_connection.py` before any -Live operation.
+
+## 2026-11-26: local position ledger incorrectly routed to WH catalogues
+
+User's approved two-window source was read and identified correctly (1500x1400,
+1300x1200, VEKA Perfectline, 2-fach, activPilot), but an explicit question
+about checking the **local position ledger** was sent by the conversational
+model to `audit_windowhub_catalogues`, yielding
+`KATALOG_WH_STATUS=catalogue_wizard_not_found` while WH was on Start1.
+This is not a source-ledger failure or evidence of missing system products.
+
+Explicit source ledger queries now route directly to the consent-gated local
+`read_approved_enquiry` tool and return the approved parser report without
+probing a WindowHub wizard, changing focus or transferring new GUI permits.
+Unit tests check both approved and unapproved consent states and ensure the
+catalogue tool is never used by this route.
+
+PowerShell test session had `PSSecurityException` while dot-sourcing
+`Initialize-NaviMind-V2Session.ps1`; the following connection test
+therefore still returned `v2_endpoint_missing`. This is an ExecutionPolicy
+gate, not evidence of a failed remote Vercel handshake. For an explicitly
+trusted checked-out script, set ExecutionPolicy Bypass for Process scope only,
+then dot-source in the SAME PowerShell process. Group Policy restrictions
+may override Process; do not override corporate policy. Keep server-matching
+secrets out of chat, Git, logs and script command arguments.
