@@ -818,6 +818,16 @@ def run(*, expected_offer: str, initial_pdf: str | None = None,
                 kind, observed_epoch, payload = queue.get_nowait()
             except Empty:
                 break
+            if kind == "start1_status":
+                panel.main_workspace.notice.configure(
+                    text=(
+                        "Start1: " + str(payload)
+                        + ". Nie klikam nieznanej ikony ani starej oferty. "
+                        "Wymagane mapowanie kontrolki w trybie nauki."
+                    )
+                )
+                host.last_reason = str(payload)
+                continue
             if kind == "teaching_scene":
                 if (host.controller.snapshot().mode == PanelMode.LEARNING
                         and host.controller.arbiter.epoch == observed_epoch):
@@ -924,8 +934,27 @@ def run(*, expected_offer: str, initial_pdf: str | None = None,
                         from app.agent.runtime.windowhub_window_activation import (
                             activate_windowhub_start_workspace,
                         )
-                        ok, _ = activate_windowhub_start_workspace()
+                        ok, reason = activate_windowhub_start_workspace()
                         if not ok:
+                            # Local, allowlisted navigation status only; do
+                            # not expose window titles, HWNDs or client data.
+                            diagnostic = (
+                                reason if reason in {
+                                    "start1_main_frame_not_unique",
+                                    "start1_main_frame_changed",
+                                    "start1_uia_icon_not_uniquely_identified",
+                                    "start1_main_frame_focus_refused",
+                                    "start1_uia_icon_changed",
+                                    "start1_navigation_effect_uncertain_no_retry",
+                                    "start1_navigation_live_permission_missing",
+                                } else "start1_activation_unavailable"
+                            )
+                            try:
+                                queue.put_nowait(
+                                    ("start1_status", current_epoch, diagnostic)
+                                )
+                            except Full:
+                                pass
                             raise RuntimeError("unique_start1_activation_refused")
                 return loop.observe_scene()
             inspect_offer_in_background(
