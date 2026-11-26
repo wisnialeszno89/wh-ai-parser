@@ -61,6 +61,33 @@ def explicit_offer_plan_request(text: str) -> bool:
 
 
 
+
+
+def explicit_document_sharing_help_request(
+    current_text: str, previous_agent_text: str = "",
+) -> bool:
+    """Only local UI guidance; never changes document consent."""
+    if not isinstance(current_text, str):
+        return False
+    request = current_text.casefold().strip().rstrip("?.! ")
+    direct = (
+        ("jak" in request or "w jaki sposób" in request
+         or "w jaki sposob" in request)
+        and any(x in request for x in (
+            "udostępn", "udostepn", "zgod", "dokument", "zapytani", "pdf",
+        ))
+    )
+    follow_up = request in (
+        "w jaki sposób się to robi", "w jaki sposob sie to robi",
+        "jak to zrobić", "jak to zrobic", "jak mam to zrobić",
+        "jak mam to zrobic",
+    )
+    context = isinstance(previous_agent_text, str) and any(
+        x in previous_agent_text.casefold()
+        for x in ("udostępn", "udostepn", "zgod")
+    )
+    return direct or (follow_up and context)
+
 @dataclass(frozen=True)
 class ConversationStatus:
     active: bool
@@ -375,6 +402,38 @@ class LiveMissionConversation:
                      + document_context),
                     *transcript[-10:],
                 )
+            # Simple instructions about our own consent UI are answered
+            # deterministically from the trusted local host, even if the
+            # remote model returns invalid tool-selection JSON.
+            if "document_sharing_help" in self.read_only_tools:
+                snapshot = self.chat.snapshot()
+                humans = [
+                    m for m in snapshot.messages
+                    if m.role == MessageRole.HUMAN
+                    and m.mission_revision == revision
+                ]
+                agents = [
+                    m for m in snapshot.messages
+                    if m.role == MessageRole.AGENT
+                    and m.message_id < humans[-1].message_id
+                ] if humans else []
+                if humans and explicit_document_sharing_help_request(
+                    humans[-1].text,
+                    agents[-1].text if agents else "",
+                ):
+                    result = invoke_read_only_tool(
+                        "document_sharing_help", self.read_only_tools,
+                    )
+                    with self._lock:
+                        current = (
+                            not self._closed
+                            and self.chat.snapshot().mission_revision == revision
+                        )
+                    if current:
+                        self.chat.agent_message(
+                            result, based_on_revision=revision,
+                        )
+                    return
             response = self.provider.reply(
                 transcript=transcript, instructions=instructions,
             )
