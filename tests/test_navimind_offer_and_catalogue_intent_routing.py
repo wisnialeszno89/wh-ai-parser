@@ -118,3 +118,59 @@ def test_status_of_last_mission_deterministically_uses_host_not_model():
     assert calls == ["host"]
     assert "brak przyjętej misji" in chat.snapshot().messages[-1].text
     engine.close()
+
+def test_first_offer_request_requires_explicit_consent_then_resumes_same_turn():
+    chat = MissionChat(document_key="DRAFT/NEW", arbiter=LocalInputArbiter())
+    calls = []
+    engine = LiveMissionConversation(
+        chat, NeverUseModel(),
+        read_only_tools={
+            "prepare_windowhub_work": ReadOnlyTool(
+                "prepare_windowhub_work", "Safe planner",
+                lambda: calls.append("planner") or
+                "Misja przyjęta, etap READY; zero kroków GUI.",
+            ),
+        },
+    )
+    message = chat.user_message(
+        "Przygotuj nową niezapisaną ofertę na dwie pozycje z PDF. Nie klikaj."
+    )
+    assert engine.submit_current_message(message.message_id)
+    idle(engine)
+    # Offer request cannot implicitly authorize sharing a local PDF.
+    assert calls == []
+    assert engine.take_pending_document_approval() == (
+        message.mission_revision, message.message_id,
+    )
+    assert engine.document_context_active() is False
+    engine.approve_document_context("Approved synthetic document.")
+    # This is exactly how Tk retries the same message after the dialog.
+    assert engine.submit_current_message(message.message_id)
+    idle(engine)
+    assert calls == ["planner"]
+    assert "Misja przyjęta" in chat.snapshot().messages[-1].text
+    engine.close()
+
+
+def test_declined_offer_document_approval_never_starts_planner():
+    chat = MissionChat(document_key="DRAFT/NEW", arbiter=LocalInputArbiter())
+    calls = []
+    engine = LiveMissionConversation(
+        chat, NeverUseModel(),
+        read_only_tools={
+            "prepare_windowhub_work": ReadOnlyTool(
+                "prepare_windowhub_work", "Safe planner",
+                lambda: calls.append("planner") or "WRONG",
+            ),
+        },
+    )
+    message = chat.user_message("Przygotuj ofertę z PDF. Nie klikaj.")
+    assert engine.submit_current_message(message.message_id)
+    idle(engine)
+    assert engine.take_pending_document_approval() == (
+        message.mission_revision, message.message_id,
+    )
+    engine.publish_document_consent_denied(message.mission_revision)
+    assert calls == []
+    assert not engine.document_context_active()
+    engine.close()
