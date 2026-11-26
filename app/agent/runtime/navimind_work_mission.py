@@ -1000,19 +1000,39 @@ class BackgroundWorkMission:
 
     @staticmethod
     def _v2_configuration_blocker() -> str | None:
-        """Check V2 configuration without credentials, network or GUI actions."""
+        """Check endpoint/secret shape without network or leaking credentials.
+
+        Match the worker's dotenv loading even when the host preflight ran
+        in a separate PowerShell process. A configured URL is not proof of
+        successful HTTP authentication or a working task endpoint.
+        """
         import os
+        from urllib.parse import urlsplit
+        try:
+            from dotenv import load_dotenv
+            load_dotenv()
+        except ImportError:
+            pass
         v2 = os.environ.get("NAVIMIND_AGENT_V2_URL", "").strip()
         shared = os.environ.get("NAVIMIND_AGENT_URL", "").strip()
-        if v2:
-            if not os.environ.get("NAVIMIND_AGENT_V2_SECRET", "").strip():
-                return "v2_secret_missing"
-            return None
-        if shared:
-            if not os.environ.get("NAVIMIND_AGENT_SECRET", "").strip():
-                return "v2_secret_missing"
-            return None
-        return "v2_endpoint_missing"
+        if not v2 and not shared:
+            return "v2_endpoint_missing"
+        url = v2 or shared
+        secret_key = (
+            "NAVIMIND_AGENT_V2_SECRET" if v2 else "NAVIMIND_AGENT_SECRET"
+        )
+        if not os.environ.get(secret_key, "").strip():
+            return "v2_secret_missing"
+        parts = urlsplit(url)
+        valid_scheme = parts.scheme == "https" or (
+            parts.scheme == "http"
+            and parts.hostname in {"localhost", "127.0.0.1"}
+        )
+        if (not valid_scheme or not parts.hostname or parts.username
+                or parts.password or parts.query or parts.fragment
+                or (not v2 and parts.path.rstrip("/") != "/api/agent/task")):
+            return "v2_endpoint_invalid"
+        return None
 
     def _work(self, task_id: str, execute: bool) -> None:
         com = False
