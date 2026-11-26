@@ -1023,12 +1023,16 @@ class BackgroundWorkMission:
         )
         if not os.environ.get(secret_key, "").strip():
             return "v2_secret_missing"
-        parts = urlsplit(url)
+        try:
+            parts = urlsplit(url)
+            host = parts.hostname
+        except ValueError:
+            return "v2_endpoint_invalid"
         valid_scheme = parts.scheme == "https" or (
             parts.scheme == "http"
-            and parts.hostname in {"localhost", "127.0.0.1"}
+            and host in {"localhost", "127.0.0.1"}
         )
-        if (not valid_scheme or not parts.hostname or parts.username
+        if (not valid_scheme or not host or parts.username
                 or parts.password or parts.query or parts.fragment
                 or (not v2 and parts.path.rstrip("/") != "/api/agent/task")):
             return "v2_endpoint_invalid"
