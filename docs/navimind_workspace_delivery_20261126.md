@@ -153,3 +153,30 @@ New safe local workflow:
 
 The local app must not claim connectivity from env vars alone. No customer
 data, screenshots or native computer input are used in the synthetic probe.
+
+## 2026-11-26 09:32 regression: consent/tool routing and duplicate offers
+
+Observed:
+- User explicitly requested a factual explanation of V2 vs operator control
+  and whether a construction was created. Agent instead returned document
+  approval instructions. Root cause: a substring intent classifier matched
+  "jak" inside "jakąkolwiek" and the syllable "zgod" inside a question
+  about consent to GUI control.
+- The classifier now requires an actual interrogative AND explicit document
+  sharing/approval target. GUI control questions route to host-grounded
+  mission status. Unit tests cover the exact failing user sentence.
+- User requested a fresh WindowHub stage and number of UIA controls, but
+  the model sometimes answered only that Okna.exe was running. Explicit
+  stage/count requests now use local inspect_windowhub read-only capability,
+  and never claim a process inventory is the requested stage observation.
+- Repeating identical paused offer requests previously created a new
+  mission without the earlier exclusions. New task/revision is still
+  required, but its exact matching prior mission carries bounded service
+  exclusions across, provided its document consent version is unchanged.
+  This never transfers an input permit or GUI progress.
+
+Still blocked: V2 endpoint/secret are not configured on the operator machine.
+Next: run the safe V2 synthetic network probe, resolving protected Vercel
+access via approved authentication, then a valid non-executing protocol test,
+before any GUI Live acceptance. multiple_windows means an ambiguous UIA
+scene rather than a proven current offer and must not grant input.
