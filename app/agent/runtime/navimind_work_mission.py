@@ -171,6 +171,15 @@ class WorkMissionCoordinator:
                 explicit_service_exclusion_correction,
             )
             exclusions = []
+            # An identical re-submission (e.g. after a PAUSED V2 response)
+            # must not silently drop previously accepted constraints. Copy
+            # only if both the human goal and document consent epoch match;
+            # always issue a new task_id/revision, never reuse input permits.
+            if (self._mission is not None
+                    and self._mission.goal == human.text
+                    and self._mission.document_access_version == version
+                    and self._mission.document_key == self.chat.document_key):
+                exclusions.extend(self._mission.service_exclusions)
             past_humans = [
                 m for m in snapshot.messages
                 if getattr(m.role, "value", m.role) == "human"
