@@ -168,10 +168,22 @@ def inspect_windowhub_background(
     else:
         stage = verified[0][0]
     total = sum(count for _, count in verified)
+    # The aggregate UIA count is not a unique document or safe native
+    # interaction target. Never imply otherwise when multiple HWNDs exist.
+    scope = (
+        "Wykryto wiele okien WindowHub; nie potrafię na podstawie tego "
+        "ograniczonego odczytu jednoznacznie przypisać kontrolek do "
+        "właściwego dokumentu. Wymagana osobna weryfikacja zakresu "
+        "przed sterowaniem."
+        if len(verified) > 1 else
+        "Jedno okno UIA zweryfikowane; nie oznacza to potwierdzenia "
+        "aktywnej oferty ani uprawnienia do sterowania."
+    )
     return (
         "Odczytałem strukturę WindowHub przez UIA bez przełączania aktywnego "
         "okna. Etap: " + stage + "; sprawdzone okna: "
         + str(len(verified)) + "; kontrolki interaktywne (ograniczona "
         "głębokość): " + str(total)
-        + ". Nie odczytałem wartości oferty, nie kliknąłem ani niczego nie zapisałem."
+        + ". " + scope
+        + " Nie odczytałem wartości oferty, nie kliknąłem ani niczego nie zapisałem."
     )
