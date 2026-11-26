@@ -124,6 +124,14 @@ def run(*, expected_offer: str, initial_pdf: str | None = None,
         "czacie nie zastępuje potwierdzenia w lokalnym panelu. "
         "Nigdy nie utożsamiaj dostępności czatu z gotowością "
         "zdalnego wykonawcy V2. "
+        "Brak adresu V2 lub sekretu jest zadaniem konfiguracji "
+        "administratora, nie zgodą handlowca na sterowanie. "
+        "Ustawione zmienne nie dowodzą połączenia HTTP ani możliwości "
+        "wyceny. Samo wykrycie Okna.exe nie dowodzi zalogowania. "
+        "Pytania o faktyczny status i o to czy utworzono ofertę kieruj "
+        "do mission_status; nie deklaruj utworzenia ani nieutworzenia "
+        "oferty bez obserwacji. "
+
         "Gdy użytkownik pyta o możliwość pracy lokalnej, wyjaśnij "
         "rzeczywisty obserwator i podłączony wykonawca V2, który działa "
         "tylko przy obu flagach LIVE oraz po ręcznym lokalnym Wznów pracę. "
@@ -530,6 +538,18 @@ def run(*, expected_offer: str, initial_pdf: str | None = None,
                 + "; potwierdzone kroki=" + str(mission.total_verified_actions)
                 + "; blokada=" + (mission.reason or "brak zapisanej przyczyny") + "."
             )
+            if mission.service_exclusions:
+                work += (
+                    " Potwierdzone wykluczenia usług/opcji: "
+                    + ", ".join(mission.service_exclusions) + "."
+                )
+            if mission.position_ledger is not None:
+                work += (
+                    " Pozycje w lokalnej ewidencji: "
+                    + str(len(mission.position_ledger.manifest.positions))
+                    + "; pozycje zweryfikowane w GUI: "
+                    + str(len(mission.position_ledger.completed)) + "."
+                )
         model = (
             "Połączenie rozmowy AI: "
             + ("skonfigurowane." if chat_provider is not None
@@ -552,10 +572,16 @@ def run(*, expected_offer: str, initial_pdf: str | None = None,
         )
         return (
             "\n".join((wh, evidence, model, work, v2))
-            + "\nNie potwierdzono utworzenia ani zapisania oferty. "
-            "Do sterowania konieczne są działający V2, zweryfikowane "
-            "okno/zakres i osobne lokalne Wznów pracę. "
-            "Nie znam cen konstrukcji bez dostępu do WindowHub."
+            + "\nNie mam potwierdzenia utworzenia ani zapisania oferty "
+            "w WindowHub. Samo uruchomienie Okna.exe nie oznacza "
+            "zalogowania ani dostępu do katalogów/cen. "
+            "Konfiguracja adresu V2 i sekretu to czynność techniczna "
+            "administratora, NIE zgoda handlowca na użycie komputera. "
+            "Następne bramki: poprawny endpoint V2 -> udany test "
+            "połączenia i autoryzacji -> identyfikacja ekranu Start1 "
+            "i właściwego dokumentu -> weryfikacja klienta i katalogów "
+            "-> osobny lokalny przycisk Wznów pracę po świadomym "
+            "zatwierdzeniu. Nie zapisuję ani nie wysyłam oferty."
         )[:2800]
 
     tool_registry = {
