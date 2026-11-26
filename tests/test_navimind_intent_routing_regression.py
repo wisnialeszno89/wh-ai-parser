@@ -30,6 +30,13 @@ def test_explicit_document_sharing_questions_still_work():
     assert not explicit_document_sharing_help_request(
         "Jakie zatwierdzenie jest potrzebne przed klikaniem w WindowHub?"
     )
+    assert not explicit_document_sharing_help_request(
+        "Jak mam to zrobić",
+        "Aby sterować WindowHub, kliknij lokalnie Wznów pracę."
+    )
+    assert not explicit_document_sharing_help_request(
+        "Wyjaśnij moją zgodę na sterowanie i wykonanie konstrukcji."
+    )
 
 
 def test_duplicate_queued_offer_preserves_exclusions_without_resuming():
