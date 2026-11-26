@@ -490,7 +490,68 @@ def run(*, expected_offer: str, initial_pdf: str | None = None,
             )
         return background_work.queue_and_plan()
 
+    def verified_mission_status() -> str:
+        """Evidence-only work report; no GUI input, external calls or secrets."""
+        mission = work_coordinator.current()
+        source = intake.status()
+        approved = live_chat.document_context_active()
+        v2_blocker = background_work._v2_configuration_blocker()
+        try:
+            discovery = tuple(discover_windowhub_read_only())
+        except Exception:
+            discovery = ()
+        found = "WINDOWHUB_DISCOVERY=FOUND" in discovery
+        unavailable = "WINDOWHUB_DISCOVERY=NOT_FOUND" in discovery
+        if found:
+            wh = "WindowHub: znaleziony lokalnie; stan oferty niezweryfikowany."
+        elif unavailable:
+            wh = "WindowHub: nie znaleziono okna; uruchom i zaloguj się lokalnie."
+        else:
+            wh = "WindowHub: nie udało się wiarygodnie potwierdzić okna."
+        if mission is None:
+            work = "Misja V2: brak przyjętej misji w bieżącej sesji."
+        else:
+            work = (
+                "Misja V2: etap=" + mission.stage.value
+                + "; potwierdzone kroki=" + str(mission.total_verified_actions)
+                + "; blokada=" + (mission.reason or "brak zapisanej przyczyny") + "."
+            )
+        model = (
+            "Połączenie rozmowy AI: "
+            + ("skonfigurowane." if chat_provider is not None
+               else "nieskonfigurowane.")
+        )
+        evidence = (
+            "Zapytanie lokalne: "
+            + ("obecne." if source["has_enquiry"] else "brak.")
+            + " Dostęp dokumentu dla modelu: "
+            + ("zatwierdzony w tej sesji." if approved
+               else "niezatwierdzony.")
+        )
+        v2 = (
+            "Wykonawca V2: "
+            + (v2_blocker if v2_blocker is not None
+               else "zmienne skonfigurowane; połączenia nie potwierdzono.")
+            + " Sterowanie GUI: "
+            + ("flagi LIVE włączone; nadal wymaga lokalnego Wznów pracę."
+               if live_allowed else "wyłączone (tryb planowania).")
+        )
+        return (
+            "\n".join((wh, evidence, model, work, v2))
+            + "\nNie potwierdzono utworzenia ani zapisania oferty. "
+            "Do sterowania konieczne są działający V2, zweryfikowane "
+            "okno/zakres i osobne lokalne Wznów pracę. "
+            "Nie znam cen konstrukcji bez dostępu do WindowHub."
+        )[:2800]
+
     tool_registry = {
+        "mission_status": ReadOnlyTool(
+            "mission_status",
+            "Zwróć faktyczny, lokalnie sprawdzony stan misji, WindowHub, "
+            "zgody dokumentu, konfiguracji V2 i autoryzacji GUI. "
+            "Bez uruchamiania programu, klikania i ujawniania danych klienta.",
+            verified_mission_status,
+        ),
         "prepare_windowhub_work": ReadOnlyTool(
             "prepare_windowhub_work",
             "Gdy handlowiec prosi o przygotowanie oferty, zmianę pozycji, "
