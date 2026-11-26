@@ -38,9 +38,15 @@ if (-not (Test-Path -LiteralPath $Script -PathType Leaf)) {
 if ($LASTEXITCODE -ne 0) {
   throw "Python jest niedostępny; wybierz poprawną ścieżkę przez -Python."
 }
+# A planning session must remain available even when the application
+# is absent, renamed or not yet discoverable. Live mode still fails closed:
+# the native executor requires an independently verified exact WindowHub scope.
 $WindowHub = @(Get-Process -Name "Okna" -ErrorAction SilentlyContinue)
 if ($WindowHub.Count -ne 1) {
-  throw "Wymagany jeden uruchomiony proces Okna.exe (wykryto $($WindowHub.Count)). Uruchom WindowHub i otwórz Start1."
+  if ($Live) {
+    throw "LIVE wymaga jednoznacznego Okna.exe (wykryto $($WindowHub.Count)). Nie uruchamiam sterowania nieznanym programem."
+  }
+  Write-Warning "Nie potwierdzono Okna.exe (wykryto $($WindowHub.Count)). Uruchamiam rozmowe i obserwacje bez klikniec; NaviMind moze poprosic o wskazanie programu."
 }
 $ResolvedPdf = $null
 if ($Pdf) {
@@ -70,6 +76,9 @@ try {
     }
     $Report = $PreflightOutput | ConvertFrom-Json
     $PreflightOutput | Write-Host
+    if (-not $env:NAVIMIND_CHAT_URL -or -not $env:NAVIMIND_CHAT_MODEL -or -not $env:NAVIMIND_CHAT_API_KEY) {
+      Write-Warning "MODEL AI NIEPODLACZONY: wymagane NAVIMIND_CHAT_URL, NAVIMIND_CHAT_MODEL i NAVIMIND_CHAT_API_KEY w tej sesji PowerShell. Obserwacja moze dzialac bez rozmowy."
+    }
     if ($Live) {
       $MissingRuntime = (
         -not $Report.dependencies.pywinauto -or
