@@ -89,3 +89,32 @@ def test_unrelated_question_not_catalogue_comparison():
     assert not explicit_catalogue_evidence_comparison_request(
         "Sprawdź lokalną ewidencję pozycji z PDF."
     )
+
+def test_status_of_last_mission_deterministically_uses_host_not_model():
+    from app.agent.runtime.navimind_live_conversation import (
+        explicit_local_mission_status_request,
+    )
+    prompt = (
+        "Podaj faktyczny status ostatniej misji V2, jej blokadę lub "
+        "przygotowany krok i liczbę zweryfikowanych czynności w WindowHub. "
+        "Nie wykonuj akcji."
+    )
+    assert explicit_local_mission_status_request(prompt)
+    chat = MissionChat(document_key="DRAFT/NEW", arbiter=LocalInputArbiter())
+    calls = []
+    engine = LiveMissionConversation(
+        chat, NeverUseModel(),
+        read_only_tools={
+            "mission_status": ReadOnlyTool(
+                "mission_status", "Host verified mission state",
+                lambda: calls.append("host") or
+                "Misja V2: brak przyjętej misji w bieżącej sesji.",
+            ),
+        },
+    )
+    msg = chat.user_message(prompt)
+    assert engine.submit_current_message(msg.message_id)
+    idle(engine)
+    assert calls == ["host"]
+    assert "brak przyjętej misji" in chat.snapshot().messages[-1].text
+    engine.close()
