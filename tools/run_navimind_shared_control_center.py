@@ -474,19 +474,29 @@ def run(*, expected_offer: str, initial_pdf: str | None = None,
         environment_blocker = windowhub_environment_precheck()
         if environment_blocker:
             return environment_blocker
-        # Both planning and execution require a real V2 endpoint. Chat AI
-        # credentials are different; a local model reply is not V2 readiness.
+        # Both planning and execution require a real V2 endpoint. Register
+        # the human-approved request BEFORE reporting the blocker, so that
+        # the next factual status request can explain what was queued.
+        # This only updates local coordinator bookkeeping: no desktop input.
         v2_blocker = background_work._v2_configuration_blocker()
         if v2_blocker:
+            mission = work_coordinator.queue_current()
+            if mission is None:
+                return "Nie mogę zarejestrować aktualnej misji. Niczego nie zmieniłem."
+            paused = work_coordinator.transition(
+                mission.task_id, WorkStage.PAUSED, reason=v2_blocker,
+            )
+            if paused is None:
+                return "Misja zmieniła się podczas przygotowania. Niczego nie zmieniłem."
             return (
-                "Znalazłem otwarty WindowHub, również jeśli jest w tle. "
-                "Mam zatwierdzony kontekst zapytania, ale wykonawca V2 "
-                "nie jest skonfigurowany: " + v2_blocker
-                + ". Ustaw lokalnie NAVIMIND_AGENT_V2_URL oraz "
-                "NAVIMIND_AGENT_V2_SECRET (lub zgodne zmienne "
-                "NAVIMIND_AGENT_URL/NAVIMIND_AGENT_SECRET). "
-                "Nie podawaj haseł ani sekretów w czacie. "
-                "Nie kliknąłem i nie zapisałem oferty."
+                "Zarejestrowałem lokalnie misję nowej oferty i znalazłem "
+                "WindowHub. Misja została wstrzymana przed wykonaniem: "
+                + v2_blocker
+                + ". Wykonawca V2 wymaga lokalnej konfiguracji "
+                "NAVIMIND_AGENT_V2_URL i NAVIMIND_AGENT_V2_SECRET "
+                "(lub zgodnego wspólnego endpointu i sekretu). "
+                "Nie przesyłaj sekretów w czacie. "
+                "Potwierdzone kroki GUI: 0. Nie kliknąłem ani nie zapisałem oferty."
             )
         return background_work.queue_and_plan()
 
@@ -511,8 +521,12 @@ def run(*, expected_offer: str, initial_pdf: str | None = None,
         if mission is None:
             work = "Misja V2: brak przyjętej misji w bieżącej sesji."
         else:
+            stale = not work_coordinator.is_current(mission)
             work = (
-                "Misja V2: etap=" + mission.stage.value
+                "Misja V2: "
+                + ("ostatnia zarejestrowana, ale nieaktualna po nowej wiadomości; "
+                   if stale else "aktualna; ")
+                + "etap=" + mission.stage.value
                 + "; potwierdzone kroki=" + str(mission.total_verified_actions)
                 + "; blokada=" + (mission.reason or "brak zapisanej przyczyny") + "."
             )
