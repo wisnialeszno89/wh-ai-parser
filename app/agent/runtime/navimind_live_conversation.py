@@ -66,17 +66,30 @@ def explicit_offer_plan_request(text: str) -> bool:
 def explicit_document_sharing_help_request(
     current_text: str, previous_agent_text: str = "",
 ) -> bool:
-    """Only local UI guidance; never changes document consent."""
+    """Only explicit questions about sharing customer documents, not GUI consent.
+
+    Match a real interrogative and a document-sharing verb. Substrings
+    like 'jak' inside 'jakąkolwiek' or 'zgod' in 'zgodą na sterowanie'
+    must NEVER trigger the document sharing help tool.
+    """
+    import re
     if not isinstance(current_text, str):
         return False
-    request = current_text.casefold().strip().rstrip("?.! ")
-    direct = (
-        ("jak" in request or "w jaki sposób" in request
-         or "w jaki sposob" in request)
-        and any(x in request for x in (
-            "udostępn", "udostepn", "zgod", "dokument", "zapytani", "pdf",
-        ))
-    )
+    request = " ".join(current_text.casefold().strip().rstrip("?.! ").split())
+    how = bool(re.search(
+        r"\\b(?:jak|w jaki sposób|w jaki sposob|gdzie|który przycisk|"
+        r"ktory przycisk)\\b", request,
+    ))
+    sharing = bool(re.search(
+        r"\\b(?:udostępn\\w*|udostepn\\w*|zatwierdz\\w*|"
+        r"zezwol\\w*|zgod\\w*)\\b", request,
+    ))
+    document = bool(re.search(
+        r"\\b(?:dokument\\w*|zapytani\\w*|pdf|plik\\w*|"
+        r"treś\\w*|tresc\\w*)\\b", request,
+    ))
+    # For approval instructions require the explicit document subject.
+    direct = how and sharing and document
     follow_up = request in (
         "w jaki sposób się to robi", "w jaki sposob sie to robi",
         "jak to zrobić", "jak to zrobic", "jak mam to zrobić",
@@ -84,7 +97,9 @@ def explicit_document_sharing_help_request(
     )
     context = isinstance(previous_agent_text, str) and any(
         x in previous_agent_text.casefold()
-        for x in ("udostępn", "udostepn", "zgod")
+        for x in ("udostępnij dokument", "udostepnij dokument",
+                  "przeanalizuj dokument w navimind",
+                  "zatwierdź dokument", "zatwierdz dokument")
     )
     return direct or (follow_up and context)
 
@@ -104,6 +119,9 @@ def explicit_local_mission_status_request(text: str) -> bool:
         "blokadę techniczną", "blokade techniczna",
         "czy utworzono", "czy zapisano", "czego brakuje do",
         "pierwszym sterowaniem", "rozpoczęcia sterowania",
+        "zgodą na sterowanie", "zgoda na sterowanie",
+        "potwierdzeniem wykonania", "utworzono już jakąkolwiek konstrukcję",
+        "utworzono juz jakakolwiek konstrukcje",
         "rozpoczecia sterowania", "jakie zatwierdzenie",
     ))
     has_request = any(v in t for v in (
