@@ -69,3 +69,23 @@ def test_v2_endpoint_requires_the_matching_v2_secret_and_reports_sso_bypass():
     assert updated["warnings"] == []
     assert "different-private-bypass" not in repr(updated)
     assert "private-v2-secret" not in repr(updated)
+
+
+def test_canonical_navimind_domain_warns_about_vercel_sso():
+    env = {
+        "NAVIMIND_AGENT_V2_URL": "https://www.navimind.app/api/agent/task",
+        "NAVIMIND_AGENT_V2_SECRET": "fake-test-secret",
+    }
+    status = inspect_local_preflight(
+        environ=env, module_probe=lambda _: True,
+        system="Windows", python_version=(3, 14),
+    )
+    assert "vercel_sso_may_require_automation_bypass" in status["warnings"]
+    assert not status["network_checked"]
+    env["NAVIMIND_VERCEL_PROTECTION_BYPASS"] = "fake-test-bypass"
+    updated = inspect_local_preflight(
+        environ=env, module_probe=lambda _: True,
+        system="Windows", python_version=(3, 14),
+    )
+    assert "vercel_sso_may_require_automation_bypass" not in updated["warnings"]
+    assert "fake-test-bypass" not in repr(updated)
