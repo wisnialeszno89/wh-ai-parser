@@ -39,6 +39,7 @@ def test_offer_request_uses_trusted_coordinator_even_without_model():
         },
         allow_tool_chaining=True,
     )
+    engine.approve_document_context("Operator-approved synthetic enquiry.")
     msg = chat.user_message(
         "Przygotuj nową niezapisaną ofertę dla Top Trans z dwóch pozycji. "
         "Sprawdź Start1 i zaproponuj następny krok. Nie klikaj."
