@@ -88,6 +88,40 @@ def explicit_document_sharing_help_request(
     )
     return direct or (follow_up and context)
 
+
+def explicit_service_exclusion_correction(text: str) -> tuple[str, ...]:
+    """Parse only a complete, standalone human exclusion correction.
+
+    Does not grant access to a document or change a WindowHub offer.
+    """
+    import re
+    if not isinstance(text, str):
+        return ()
+    value = text.casefold().strip().rstrip(".! ")
+    value = re.sub(r"\\s+", " ", value)
+    value = value.replace("montażu", "montazu").replace(
+        "demontażu", "demontazu"
+    ).replace("wykończenia", "wykonczenia")
+    value = value.replace("montaż", "montaz").replace(
+        "demontaż", "demontaz"
+    ).replace("wykończenie", "wykonczenie")
+    if not value.startswith("bez "):
+        return ()
+    words = re.sub(r"[,;]", " ", value[4:]).replace(" i ", " ").split()
+    allowed = {
+        "montazu": "montaż",
+        "demontazu": "demontaż",
+        "wykonczenia": "wykończenie",
+        "montaz": "montaż",
+        "demontaz": "demontaż",
+        "wykonczenie": "wykończenie",
+    }
+    if not words or any(word not in allowed for word in words):
+        return ()
+    normalized = tuple(dict.fromkeys(allowed[word] for word in words))
+    return normalized
+
+
 @dataclass(frozen=True)
 class ConversationStatus:
     active: bool
@@ -402,6 +436,36 @@ class LiveMissionConversation:
                      + document_context),
                     *transcript[-10:],
                 )
+            # A short service exclusion is a mission constraint, not a
+            # request to choose a desktop tool. Acknowledge it in chat
+            # without claiming the current WindowHub offer was changed.
+            snapshot = self.chat.snapshot()
+            latest_humans = [
+                m for m in snapshot.messages
+                if m.role == MessageRole.HUMAN
+                and m.mission_revision == revision
+            ]
+            if latest_humans:
+                exclusions = explicit_service_exclusion_correction(
+                    latest_humans[-1].text
+                )
+                if exclusions:
+                    with self._lock:
+                        current = (
+                            not self._closed
+                            and self.chat.snapshot().mission_revision == revision
+                        )
+                    if current:
+                        self.chat.agent_message(
+                            "Przyjąłem korektę wymagań: bez "
+                            + ", ".join(exclusions)
+                            + ". Nie zmieniłem jeszcze oferty w WindowHub. "
+                            "Te wykluczenia muszą zostać uwzględnione "
+                            "w nowym planie wykonania i zweryfikowane "
+                            "przed akceptacją.",
+                            based_on_revision=revision,
+                        )
+                    return
             # Simple instructions about our own consent UI are answered
             # deterministically from the trusted local host, even if the
             # remote model returns invalid tool-selection JSON.
