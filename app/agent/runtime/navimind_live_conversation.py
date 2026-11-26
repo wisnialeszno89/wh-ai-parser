@@ -501,6 +501,25 @@ class LiveMissionConversation:
                         answer = None
                 else:
                     answer = None
+                # A generic model answer is not evidence that an explicit
+                # offer-planning request reached the trusted local planner.
+                # Route the human's current request to the allowlisted,
+                # non-native planner even when the model returns kind=answer.
+                # This never grants a permit, changes focus or saves data.
+                if (decision is not None and decision.kind == "answer"
+                        and "prepare_windowhub_work" in self.read_only_tools):
+                    snapshot = self.chat.snapshot()
+                    if snapshot.mission_revision == revision:
+                        humans = [
+                            msg for msg in snapshot.messages
+                            if msg.role == MessageRole.HUMAN
+                            and msg.mission_revision == revision
+                        ]
+                        if humans and explicit_offer_plan_request(
+                                humans[-1].text):
+                            decision = ModelToolDecision(
+                                kind="tool", tool="prepare_windowhub_work",
+                            )
                 if decision is not None and self.allow_tool_chaining:
                     answer = self._run_read_only_tool_chain(
                         decision, revision, transcript, instructions
