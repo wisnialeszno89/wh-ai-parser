@@ -56,13 +56,46 @@ def main() -> int:
         if wrapper.window_text() != PROPERTIES_TITLE:
             print("PICKER_DIAGNOSTIC=properties_window_changed")
             return 1
+        from app.agent.perception.windowhub_ui_automation_provider import (
+            WindowHubUIAutomationProvider,
+        )
+        provider = WindowHubUIAutomationProvider()
+        descendants = tuple(wrapper.descendants(depth=6))[:400]
+        rect = wrapper.rectangle()
+        origin_x, origin_y = int(rect.left), int(rect.top)
+        labels = provider._collect_label_candidates(
+            descendants, origin_x, origin_y,
+        )
         matches = []
-        for child in wrapper.descendants(depth=6)[:400]:
+        for child in descendants:
             try:
                 info = child.element_info
                 if str(getattr(info, "automation_id", "")) != TARGET_ID:
                     continue
-                matches.append(safe_control_properties(info))
+                record = safe_control_properties(info)
+                actual_name = (getattr(info, "name", None) or "").strip()
+                semantic, semantic_source = provider._resolve_semantic_label(
+                    item=child,
+                    name=actual_name,
+                    control_type="button",
+                    rectangle=child.rectangle(),
+                    origin_x=origin_x,
+                    origin_y=origin_y,
+                    label_candidates=labels,
+                )
+                record["name_matches_expected"] = (
+                    actual_name == "Wybierz istniejącego klienta"
+                )
+                record["semantic_label_matches_expected"] = (
+                    semantic == "Wybierz istniejącego klienta"
+                )
+                record["semantic_label_source"] = (
+                    semantic_source if semantic_source in {
+                        "uia_name", "uia_parent", "uia_text_neighbor",
+                        "ambiguous_neighbor", "none"
+                    } else "other"
+                )
+                matches.append(record)
                 if len(matches) >= 10:
                     break
             except Exception:
