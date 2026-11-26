@@ -215,7 +215,7 @@ def test_launcher_explicitly_discloses_nonexecuting_windows_capability():
     assert "runtime_instructions=runtime_instructions" in source
     assert "Silnik misji V2 jest podłączony" in source
     assert "Zapis, wysyłka oraz zatwierdzanie oferty są zabronione" in source
-    assert 'print("NAVIMIND_V2_EXECUTOR_CONNECTED=" + str(live_allowed))' in source
+    assert 'NAVIMIND_V2_NATIVE_INPUT_ARMED=' in source
 
 
 def test_document_context_requires_explicit_approval_and_revocation():
