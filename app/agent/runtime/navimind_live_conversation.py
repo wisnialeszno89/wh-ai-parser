@@ -89,6 +89,27 @@ def explicit_document_sharing_help_request(
     return direct or (follow_up and context)
 
 
+def explicit_local_mission_status_request(text: str) -> bool:
+    """Route explicit factual local-status questions to the trusted host.
+
+    A query alone cannot grant native control, access documents or edit offers.
+    """
+    if not isinstance(text, str):
+        return False
+    t = " ".join(text.casefold().split())
+    has_status = any(v in t for v in (
+        "stan lokalnych narzędzi", "stan lokalnych narzedzi",
+        "rzeczywisty stan", "co zostało wykonane", "co zostalo wykonane",
+        "czego jeszcze nie wykonano", "status misji", "stan wykonawcy",
+        "blokadę techniczną", "blokade techniczna",
+    ))
+    has_request = any(v in t for v in (
+        "wyjaśnij", "wyjasnij", "podaj", "sprawdź", "sprawdz",
+        "pokaż", "pokaz", "jaki", "co ", "czy ",
+    ))
+    return has_status and has_request
+
+
 def explicit_service_exclusion_correction(text: str) -> tuple[str, ...]:
     """Parse only a complete, standalone human exclusion correction.
 
@@ -464,6 +485,31 @@ class LiveMissionConversation:
                             "w nowym planie wykonania i zweryfikowane "
                             "przed akceptacją.",
                             based_on_revision=revision,
+                        )
+                    return
+            # Factual local diagnostics must come from the host, never
+            # invented by the conversation model or guessed from chat text.
+            if "mission_status" in self.read_only_tools:
+                current_snapshot = self.chat.snapshot()
+                requests = [
+                    m for m in current_snapshot.messages
+                    if m.role == MessageRole.HUMAN
+                    and m.mission_revision == revision
+                ]
+                if requests and explicit_local_mission_status_request(
+                    requests[-1].text
+                ):
+                    status_answer = invoke_read_only_tool(
+                        "mission_status", self.read_only_tools,
+                    )
+                    with self._lock:
+                        is_current = (
+                            not self._closed
+                            and self.chat.snapshot().mission_revision == revision
+                        )
+                    if is_current:
+                        self.chat.agent_message(
+                            status_answer, based_on_revision=revision,
                         )
                     return
             # Simple instructions about our own consent UI are answered
