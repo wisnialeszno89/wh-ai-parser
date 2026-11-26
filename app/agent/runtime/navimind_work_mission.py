@@ -545,16 +545,27 @@ def plan_or_execute_windowhub_step(
         stage = stage_of(scene)
     except Exception:
         return WorkStepResult("paused", "windowhub_observation_unavailable")
-    if stage is None:
-        if (mission.document_key == "DRAFT/NEW"
-                and getattr(host, "_draft_phase", None) == "start"
-                and not execute):
-            # The operator can authorize a one-time foreground activation
-            # using the local Resume control. Planning never switches apps.
+    # Every NEW draft starts from Start1, regardless of which WindowHub
+    # document/editor happens to be foreground. Do not edit or close the
+    # currently selected offer. Start1 is activated by the separately approved
+    # local focus-only broker in the observer, never by a model-generated click.
+    # Crucially, after the first verified NOWA OFERTA action the host enters
+    # "properties": do not navigate away from that fresh draft.
+    if (mission.document_key == "DRAFT/NEW"
+            and getattr(host, "_draft_phase", None) == "start"
+            and stage != "start"):
+        if not execute:
             return WorkStepResult(
-                "ready", "draft_start_activation_required_on_operator_resume",
+                "ready", "draft_return_to_start1_required_on_operator_resume",
                 "NOWA OFERTA",
             )
+        # The operator Resume should already have focused Start1 before
+        # dispatch. Do not click a control in a different editor, order or
+        # unrelated window, and never duplicate a draft on uncertain focus.
+        return WorkStepResult(
+            "paused", "draft_start1_not_verified_after_activation",
+        )
+    if stage is None:
         return WorkStepResult("paused", "windowhub_not_foreground")
     if stage == "order_document":
         return WorkStepResult("review", "order_document_not_authorized")
