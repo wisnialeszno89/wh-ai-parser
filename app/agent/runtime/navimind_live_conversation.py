@@ -478,7 +478,7 @@ class LiveMissionConversation:
                         )
                     if current:
                         self.chat.agent_message(
-                            "Przyjąłem korektę wymagań: bez "
+                            "Przyjąłem korektę wymagań. Wykluczone usługi: "
                             + ", ".join(exclusions)
                             + ". Nie zmieniłem jeszcze oferty w WindowHub. "
                             "Te wykluczenia muszą zostać uwzględnione "
