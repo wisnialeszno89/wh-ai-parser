@@ -59,7 +59,7 @@ def test_next_offer_mission_inherits_immediate_service_correction():
     )
 
 
-def test_unrelated_turn_breaks_automatic_constraint_inheritance():
+def test_unrelated_status_turn_does_not_erase_service_constraint():
     from app.agent.runtime.navimind_work_mission import WorkMissionCoordinator
 
     chat = MissionChat(document_key="DRAFT/NEW", arbiter=LocalInputArbiter())
@@ -68,4 +68,27 @@ def test_unrelated_turn_breaks_automatic_constraint_inheritance():
     chat.user_message("Zrób nową ofertę")
     mission = WorkMissionCoordinator(chat).queue_current()
     assert mission is not None
+    assert mission.service_exclusions == ("montaż",)
+
+
+def test_new_offer_boundary_does_not_import_old_mission_corrections():
+    from app.agent.runtime.navimind_work_mission import WorkMissionCoordinator
+
+    chat = MissionChat(document_key="DRAFT/NEW", arbiter=LocalInputArbiter())
+    chat.user_message("bez montażu")
+    chat.user_message("Przygotuj ofertę numer jeden.")
+    chat.user_message("Podaj status bieżącej misji")
+    chat.user_message("Zrób nową ofertę dla innego klienta")
+    mission = WorkMissionCoordinator(chat).queue_current()
+    assert mission is not None
     assert mission.service_exclusions == ()
+
+
+def test_mixed_optional_exclusions_are_normalized():
+    correction = "bez dodatkowych opcji, Bez montażu, demontażu i wykończenia."
+    assert explicit_service_exclusion_correction(correction) == (
+        "dodatkowe opcje", "montaż", "demontaż", "wykończenie"
+    )
+    assert explicit_service_exclusion_correction("bez dodatkowych opcji") == (
+        "dodatkowe opcje",
+    )
