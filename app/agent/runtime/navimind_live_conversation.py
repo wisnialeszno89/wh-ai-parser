@@ -104,6 +104,22 @@ def explicit_document_sharing_help_request(
     return direct or (follow_up and context)
 
 
+def explicit_windowhub_stage_read_request(text: str) -> bool:
+    """Explicit Windows UIA stage/count observation, no native actions."""
+    if not isinstance(text, str):
+        return False
+    value = " ".join(text.casefold().split())
+    has_target = "windowhub" in value or "okna.exe" in value
+    has_action = any(s in value for s in (
+        "odczytaj", "sprawdź", "sprawdz", "podaj", "pokaż", "pokaz",
+    ))
+    has_stage = any(s in value for s in (
+        "etap", "kontrol", "uia", "jaki ekran", "bieżący ekran",
+        "biezacy ekran",
+    ))
+    return has_target and has_action and has_stage
+
+
 def explicit_local_mission_status_request(text: str) -> bool:
     """Route explicit factual local-status questions to the trusted host.
 
@@ -515,6 +531,30 @@ class LiveMissionConversation:
                             "przed akceptacją.",
                             based_on_revision=revision,
                         )
+                    return
+            # A specific user request for a fresh WindowHub UIA stage and
+            # control count must use actual local observation, not a generic
+            # process-inventory answer from the chat model.
+            if "inspect_windowhub" in self.read_only_tools:
+                snapshot = self.chat.snapshot()
+                humans = [
+                    m for m in snapshot.messages
+                    if m.role == MessageRole.HUMAN
+                    and m.mission_revision == revision
+                ]
+                if humans and explicit_windowhub_stage_read_request(
+                    humans[-1].text
+                ):
+                    result = invoke_read_only_tool(
+                        "inspect_windowhub", self.read_only_tools,
+                    )
+                    with self._lock:
+                        current = (
+                            not self._closed
+                            and self.chat.snapshot().mission_revision == revision
+                        )
+                    if current:
+                        self.chat.agent_message(result, based_on_revision=revision)
                     return
             # Factual local diagnostics must come from the host, never
             # invented by the conversation model or guessed from chat text.
