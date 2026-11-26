@@ -151,6 +151,29 @@ def explicit_local_position_ledger_request(text: str) -> bool:
     return local_source and position_check and request
 
 
+def explicit_catalogue_evidence_comparison_request(text: str) -> bool:
+    """Compare PDF requirements with observed WH catalogue scope safely.
+
+    This never asserts SKU availability without a verified catalogue row.
+    """
+    if not isinstance(text, str):
+        return False
+    t = " ".join(text.casefold().split())
+    request = any(s in t for s in (
+        "wyjaśnij", "wyjasnij", "sprawdź", "sprawdz",
+        "potwierdzić", "potwierdzic", "podaj",
+    ))
+    comparison = (
+        ("katalog" in t or "dostępność" in t or "dostepnosc" in t)
+        and ("windowhub" in t or "wh okna" in t)
+        and any(s in t for s in (
+            "pdf", "zapytani", "odczytane", "źród", "zrod",
+            "faktycznie", "zweryfikowan",
+        ))
+    )
+    return request and comparison
+
+
 def explicit_local_mission_status_request(text: str) -> bool:
     """Route explicit factual local-status questions to the trusted host.
 
@@ -562,6 +585,51 @@ class LiveMissionConversation:
                             "przed akceptacją.",
                             based_on_revision=revision,
                         )
+                    return
+            # Explicit offer creation/planning goes through the trusted
+            # local coordinator even if a model would choose a generic answer
+            # or the unrelated document-help capability. This never grants
+            # native input; the host checks source consent before queueing.
+            if "prepare_windowhub_work" in self.read_only_tools and latest_humans:
+                if explicit_offer_plan_request(latest_humans[-1].text):
+                    result = invoke_read_only_tool(
+                        "prepare_windowhub_work", self.read_only_tools,
+                    )
+                    with self._lock:
+                        current = (
+                            not self._closed
+                            and self.chat.snapshot().mission_revision == revision
+                        )
+                    if current:
+                        self.chat.agent_message(result, based_on_revision=revision)
+                    return
+            # The catalogue scope is not proven by a PDF requirement. Answer
+            # the comparison using the host's bounded UIA catalog observer,
+            # rather than failing with an invalid model tool-selection.
+            if "audit_windowhub_catalogues" in self.read_only_tools and latest_humans:
+                if explicit_catalogue_evidence_comparison_request(
+                    latest_humans[-1].text
+                ):
+                    observation = invoke_read_only_tool(
+                        "audit_windowhub_catalogues", self.read_only_tools,
+                    )
+                    result = (
+                        "Parametry VEKA Perfectline, kolory, szklenie i okucia "
+                        "pochodzą z zatwierdzonego zapytania klienta, "
+                        "nie z katalogu WindowHub. "
+                        "Nie potwierdzono dostępności konkretnych wariantów "
+                        "w aktualnej bazie WindowHub. "
+                        "Lokalny audyt odczytywalności katalogu: "
+                        + observation[:500]
+                        + " Bez kliknięć, wyboru konfiguracji i zapisu."
+                    )
+                    with self._lock:
+                        current = (
+                            not self._closed
+                            and self.chat.snapshot().mission_revision == revision
+                        )
+                    if current:
+                        self.chat.agent_message(result, based_on_revision=revision)
                     return
             # A specific user request for a fresh WindowHub UIA stage and
             # control count must use actual local observation, not a generic
