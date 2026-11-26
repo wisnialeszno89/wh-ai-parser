@@ -196,6 +196,7 @@ class NaviMindMainWorkspace(tk.Frame):
         self.history.bind("<Button-5>", self._history_mousewheel_linux)
         self.history.bind("<Control-End>", self._history_bottom_shortcut)
         self.history.bind("<Control-Home>", self._history_top_shortcut)
+        self._install_history_copy_menu()
 
         history_actions = tk.Frame(top, bg=CARD)
         history_actions.pack(fill="x", padx=12, pady=(0, 8))
@@ -203,6 +204,11 @@ class NaviMindMainWorkspace(tk.Frame):
             history_actions, "Przewijaj historię kółkiem myszy lub paskiem po prawej.",
             size=8, color=MUTED,
         ).pack(side="left")
+        tk.Button(
+            history_actions, text="Kopiuj ostatnią odpowiedź",
+            command=self._copy_latest_agent_reply,
+            fg=FG, bg=SURFACE, relief="flat", padx=10, pady=5,
+        ).pack(side="right", padx=(0, 8))
         tk.Button(
             history_actions, text="↓ Najnowsze", command=self._history_to_bottom,
             fg=FG, bg=SURFACE, relief="flat", padx=12, pady=5,
@@ -314,6 +320,61 @@ class NaviMindMainWorkspace(tk.Frame):
         )
         self.notice.pack(fill="x", padx=24, pady=(11, 15))
         self.entry.focus_set()
+
+    def _copy_to_clipboard(self, content: str):
+        """Explicit local clipboard action; never sends text to AI."""
+        self.clipboard_clear()
+        self.clipboard_append(content)
+        self.update_idletasks()
+
+    def _copy_history_selection(self):
+        try:
+            selection = self.history.get("sel.first", "sel.last")
+        except tk.TclError:
+            return False
+        if not selection:
+            return False
+        self._copy_to_clipboard(selection)
+        return True
+
+    def _copy_latest_agent_reply(self):
+        messages = self.chat.snapshot().messages
+        for message in reversed(messages):
+            if message.role == MessageRole.AGENT:
+                self._copy_to_clipboard(message.text)
+                self.notice.configure(text="Ostatnia odpowiedź NaviMind skopiowana.")
+                return
+        self.notice.configure(text="Brak odpowiedzi NaviMind do skopiowania.")
+
+    def _install_history_copy_menu(self):
+        """Copy from disabled/read-only conversation history via right click."""
+        menu = tk.Menu(self.history, tearoff=False)
+        menu.add_command(label="Kopiuj zaznaczenie",
+                         command=self._copy_history_selection)
+        menu.add_command(label="Kopiuj ostatnią odpowiedź",
+                         command=self._copy_latest_agent_reply)
+        menu.add_separator()
+        menu.add_command(label="Zaznacz całą rozmowę",
+                         command=lambda: (
+                             self.history.tag_add("sel", "1.0", "end-1c"),
+                             self.history.focus_set(),
+                         ))
+
+        def show(event):
+            # Right click should not alter a mouse-selected text range.
+            try:
+                has_selection = bool(self.history.get("sel.first", "sel.last"))
+            except tk.TclError:
+                has_selection = False
+            menu.entryconfigure(0, state="normal" if has_selection else "disabled")
+            try:
+                menu.tk_popup(event.x_root, event.y_root)
+            finally:
+                menu.grab_release()
+            return "break"
+
+        self.history.bind("<Button-3>", show)
+        self._history_copy_menu = menu
 
     def _install_edit_context_menu(self, widget):
         """Windows-style right-click edit menu scoped to this Tk Text widget.
