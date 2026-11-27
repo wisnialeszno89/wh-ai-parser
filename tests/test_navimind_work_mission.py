@@ -357,3 +357,66 @@ def test_explicit_exclusions_from_same_offer_command_and_later_correction():
     assert updated.revision == mission.revision
     assert updated.task_id == mission.task_id
     assert updated.service_exclusions[-1] == "dodatkowe opcje"
+
+
+def test_resume_observation_uses_live_worker_and_proves_start_before_permit():
+    from threading import get_ident
+    from app.agent.runtime.navimind_draft_bootstrap import DRAFT_DOCUMENT_KEY
+    from app.agent.runtime.navimind_panel_controller import PanelMode
+    from app.agent.runtime.navimind_shared_control_host import NaviMindSharedHost
+    from tools.run_navimind_shared_control_center import observe_resume_workspace
+
+    host = NaviMindSharedHost(DRAFT_DOCUMENT_KEY)
+    human = host.chat.user_message("Przygotuj niezapisaną ofertę.")
+    coordinator = WorkMissionCoordinator(host.chat)
+    mission = coordinator.queue_current()
+    coordinator.transition(mission.task_id, WorkStage.READY)
+    calls = []
+    start = SimpleNamespace(
+        observation=SimpleNamespace(
+            state=SimpleNamespace(active_application="Okna.exe", active_window_title="Okna - Start1"),
+            metadata={"window_handle": 42},
+        ),
+        elements=(),
+    )
+
+    def observe():
+        calls.append(("observe", get_ident()))
+        return start
+
+    def focus():
+        calls.append(("focus", get_ident()))
+        return True, "start1_verified"
+
+    worker = BackgroundWorkMission(
+        coordinator, host=host,
+        loop_factory=lambda: SimpleNamespace(observe_scene=observe),
+    )
+    try:
+        assert host.approve_current_work_for_resume(
+            revision=human.mission_revision, task_id=mission.task_id,
+            coordinator=coordinator,
+        )
+        host.controller.resume()
+        assert host.controller.current_permit() is None
+        epoch = host.controller.arbiter.epoch
+        future = worker.submit_workspace_observation(lambda loop: observe_resume_workspace(
+            loop, host=host, mode=PanelMode.RESUME_PENDING, epoch=epoch,
+            navigate_start=focus, focus_properties=None,
+        ))
+        kind, (scene, _) = future.result(timeout=3)
+        assert kind == "scene"
+        assert [name for name, _ in calls] == ["focus", "observe"]
+        assert calls[0][1] == calls[1][1] != get_ident()
+        assert host.controller.current_permit() is None
+        assert host.inspect_fresh_scene(scene).verified
+        assert host.controller.current_permit() is not None
+        host.pause_work_input()
+        assert observe_resume_workspace(
+            SimpleNamespace(observe_scene=observe), host=host,
+            mode=PanelMode.RESUME_PENDING, epoch=epoch, navigate_start=focus,
+            focus_properties=None,
+        ) == ("stale", None)
+        assert len(calls) == 2
+    finally:
+        worker.close()

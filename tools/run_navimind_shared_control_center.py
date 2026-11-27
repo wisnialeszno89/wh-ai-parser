@@ -26,31 +26,22 @@ from app.agent.runtime.navimind_shared_control_host import NaviMindSharedHost
 from tools.run_navimind_control_panel import NaviMindPanel
 
 
-def inspect_offer_in_background(*, observe, host, output: Queue, stop: Event,
-                                wake_interval=0.4):
-    """Only queues read-only observation; never calls Tk or grants permits."""
-    while not stop.wait(wake_interval):
-        observed_mode = host.controller.snapshot().mode
-        if observed_mode not in (PanelMode.RESUME_PENDING, PanelMode.LEARNING):
-            continue
-        observation_epoch = host.controller.arbiter.epoch
-        try:
-            observed = observe()
-            item = (
-                "teaching_scene" if observed_mode == PanelMode.LEARNING else "scene",
-                observation_epoch, observed,
-            )
-        except Exception:
-            item = ("error", observation_epoch, "read_only_observation_failed")
-        if (host.controller.snapshot().mode != observed_mode
-                or host.controller.arbiter.epoch != observation_epoch):
-            continue
-        try:
-            output.put_nowait(item)
-        except Full:
-            # A slow UI must never block the observer or accumulate stale
-            # screenshots. Next observation can replace this one.
-            pass
+def observe_resume_workspace(loop, *, host, mode, epoch, navigate_start, focus_properties):
+    """Observe one epoch. Only an approved pending resume can move focus."""
+    if host.controller.mode != mode or host.controller.arbiter.epoch != epoch:
+        return "stale", None
+    navigation_result = None
+    if mode == PanelMode.RESUME_PENDING:
+        if navigate_start is not None:
+            ok, reason = host.controller.arbiter.dispatch_pending_navigation(epoch, navigate_start)
+            navigation_result = (ok, reason)
+        elif focus_properties is not None:
+            host.controller.arbiter.dispatch_pending_navigation(epoch, focus_properties)
+    try:
+        scene = loop.observe_scene()
+    except Exception as exc:
+        return "error", "scene_observation_failed:" + type(exc).__name__
+    return ("teaching_scene" if mode == PanelMode.LEARNING else "scene"), (scene, navigation_result)
 
 
 def run(*, expected_offer: str, initial_pdf: str | None = None,
@@ -849,6 +840,7 @@ def run(*, expected_offer: str, initial_pdf: str | None = None,
                 report_resume("Wznowienie zablokowane. Sprawdź ostatni stan misji.",
                               "mission_not_approved")
                 return
+        host.last_reason = "resume_observation_not_started"
         state = host.controller.resume()
         if state.mode == PanelMode.RESUME_PENDING:
             report_resume("Wznowienie przyjęte. Sprawdzam okno WindowHub i etap misji.",
@@ -866,26 +858,14 @@ def run(*, expected_offer: str, initial_pdf: str | None = None,
     last_native_input_armed = False
     pending_observation_epoch = None
     pending_observation_since = 0.0
+    observation_future = None
+    navigation_epoch = None
 
     def pump():
         nonlocal last_native_input_armed, pending_observation_epoch, pending_observation_since
+        nonlocal observation_future, navigation_epoch
         from time import monotonic
-        if host.controller.snapshot().mode == PanelMode.RESUME_PENDING:
-            epoch = host.controller.arbiter.epoch
-            if epoch != pending_observation_epoch:
-                pending_observation_epoch = epoch
-                pending_observation_since = monotonic()
-            elif monotonic() - pending_observation_since > 10:
-                reason = host.last_reason
-                host.pause_work_input()
-                report_resume(
-                    "Nie udało się potwierdzić właściwego ekranu WindowHub (" + reason
-                    + "). Kliknij Wznów pracę i przełącz się na Start1, jeśli ta misja jeszcze "
-                    "nie otworzyła nowej oferty.",
-                    "observation_timed_out",
-                )
-        else:
-            pending_observation_epoch = None
+
         if host.controller.snapshot().mode == PanelMode.LEARNING:
             if not teaching_session.active:
                 teaching_session.start()
@@ -930,42 +910,96 @@ def run(*, expected_offer: str, initial_pdf: str | None = None,
                 else:
                     host.pause_work_input()
 
-        # A separate loop is mandatory: lack of mission events must not
-        # prevent the observer from delivering fresh WindowHub scene proofs.
+        mode = host.controller.snapshot().mode
+        epoch = host.controller.arbiter.epoch
+        if observation_future is not None:
+            future, observed_epoch = observation_future
+            if future.done():
+                observation_future = None
+                if observed_epoch == epoch:
+                    try:
+                        kind, payload = future.result()
+                    except Exception as exc:
+                        kind, payload = "error", "observer_worker_failed:" + type(exc).__name__
+                    queue.put_nowait((kind, observed_epoch, payload))
+
         while True:
             try:
                 kind, observed_epoch, payload = queue.get_nowait()
             except Empty:
                 break
-            if kind == "start1_status":
-                if (host.controller.snapshot().mode != PanelMode.RESUME_PENDING
-                        or host.controller.arbiter.epoch != observed_epoch):
-                    continue
+            if epoch != observed_epoch:
+                continue
+            if kind == "teaching_scene" and mode == PanelMode.LEARNING:
+                scene, _ = payload
+                teaching_session.observe(scene)
+            if mode != PanelMode.RESUME_PENDING or kind == "stale":
+                continue
+            if kind == "error":
                 host.last_reason = payload
-                report_resume(
-                    "Windows nie przełączył mnie automatycznie do Start1 (" + payload
-                    + "). Teraz kliknij kartę Start1 w WindowHub. Sprawdzę tę samą "
-                    "misję, gdy ekran będzie na pierwszym planie.",
-                    payload,
-                )
+                print("NAVIMIND_RESUME=" + payload, flush=True)
                 continue
-            if kind == "teaching_scene":
-                if (host.controller.snapshot().mode == PanelMode.LEARNING
-                        and host.controller.arbiter.epoch == observed_epoch):
-                    teaching_session.observe(payload)
-                continue
-            if (host.controller.snapshot().mode != PanelMode.RESUME_PENDING
-                    or host.controller.arbiter.epoch != observed_epoch):
-                continue
-            if kind == "scene":
-                try:
-                    proof = host.inspect_fresh_scene(payload)
-                    if proof.verified:
-                        print("NAVIMIND_OFFER_VERIFIED_READ_ONLY=True", flush=True)
-                except (ValueError, RuntimeError):
-                    host.last_reason = "read_only_verification_refused"
+            scene, navigation = payload
+            try:
+                proof = host.inspect_fresh_scene(scene)
+            except (ValueError, RuntimeError):
+                host.last_reason = "read_only_verification_refused"
             else:
-                host.last_reason = payload
+                if proof.verified:
+                    print("NAVIMIND_OFFER_VERIFIED_READ_ONLY=True", flush=True)
+                elif navigation is not None and not navigation[0]:
+                    reason = navigation[1]
+                    code = reason if reason.startswith("start1_") else "start1_activation_unavailable"
+                    host.last_reason = code
+                    report_resume(
+                        "Nie udało się przełączyć do Start1 (" + code
+                        + "). Teraz kliknij kartę Start1 w WindowHub. Sprawdzę ten ekran.",
+                        code,
+                    )
+
+        mode = host.controller.snapshot().mode
+        if mode == PanelMode.RESUME_PENDING:
+            if epoch != pending_observation_epoch:
+                pending_observation_epoch = epoch
+                pending_observation_since = monotonic()
+            elif monotonic() - pending_observation_since > 10:
+                reason = host.last_reason
+                host.pause_work_input()
+                report_resume(
+                    "Odczyt WindowHub zatrzymał się na etapie " + reason + ". "
+                    "Sprawdź, czy WindowHub pokazuje właściwy ekran przed wznowieniem.",
+                    "observation_timed_out:" + reason,
+                )
+                mode = PanelMode.HUMAN
+        else:
+            pending_observation_epoch = None
+        if observation_future is None and mode in (PanelMode.RESUME_PENDING, PanelMode.LEARNING):
+            navigate_start = None
+            focus_properties = None
+            if (live_allowed and mode == PanelMode.RESUME_PENDING and navigation_epoch != epoch
+                    and host._approved_work_revision is not None
+                    and host._approved_work_revision == host.chat.snapshot().mission_revision):
+                if host._draft_phase == "start":
+                    from app.agent.runtime.windowhub_window_activation import (
+                        activate_windowhub_start_workspace,
+                    )
+                    navigate_start = activate_windowhub_start_workspace
+                elif host._draft_phase == "properties" and host._draft_native_scope is not None:
+                    from functools import partial
+                    from app.agent.runtime.navimind_draft_bootstrap import focus_owned_properties as focus
+                    focus_properties = partial(focus, host._draft_native_scope)
+            from functools import partial
+            future = background_work.submit_workspace_observation(partial(
+                observe_resume_workspace, host=host, mode=mode, epoch=epoch,
+                navigate_start=navigate_start, focus_properties=focus_properties,
+            ))
+            if future is not None:
+                observation_future = (future, epoch)
+                navigation_epoch = epoch
+                if mode == PanelMode.RESUME_PENDING and host.last_reason == "resume_observation_not_started":
+                    host.last_reason = "resume_observation_running"
+                    print("NAVIMIND_RESUME=observer_queued", flush=True)
+
         # Keep a useful mission heartbeat in the original control panel.
         # Tk widgets are touched only from this main-thread event pump.
         shown_mission = work_coordinator.current()
@@ -1036,91 +1070,6 @@ def run(*, expected_offer: str, initial_pdf: str | None = None,
         old_close()
 
     panel.protocol("WM_DELETE_WINDOW", close)
-    def observer_worker():
-        com_initialized = False
-        try:
-            try:
-                import pythoncom
-                pythoncom.CoInitialize()
-                com_initialized = True
-            except ImportError:
-                pythoncom = None
-            from app.agent.runtime.windows_desktop_agent_control_loop import (
-                create_windows_desktop_agent_control_loop,
-            )
-            loop = create_windows_desktop_agent_control_loop()
-            last_start_focus_epoch = None
-            last_properties_focus_epoch = None
-
-            def observe_authorized_workspace():
-                nonlocal last_start_focus_epoch, last_properties_focus_epoch
-                if (live_allowed
-                        and host._draft_phase == "start"
-                        and host.controller.snapshot().mode == PanelMode.RESUME_PENDING
-                        and host._approved_work_revision
-                            == host.chat.snapshot().mission_revision):
-                    current_epoch = host.controller.arbiter.epoch
-                    if last_start_focus_epoch != current_epoch:
-                        # ONLY an explicit Resume can activate one unique
-                        # WindowHub Start1. Never activate during chat/plan.
-                        last_start_focus_epoch = current_epoch
-                        from app.agent.runtime.windowhub_window_activation import (
-                            activate_windowhub_start_workspace,
-                        )
-                        ok, reason = host.controller.arbiter.dispatch_pending_navigation(
-                            current_epoch, activate_windowhub_start_workspace,
-                        )
-                        if not ok:
-                            # Local, allowlisted navigation status only; do
-                            # not expose window titles, HWNDs or client data.
-                            diagnostic = (
-                                reason if reason in {
-                                    "start1_main_frame_not_unique",
-                                    "start1_main_frame_changed",
-                                    "start1_uia_icon_not_uniquely_identified",
-                                    "start1_main_frame_focus_refused",
-                                    "start1_uia_icon_changed",
-                                    "start1_navigation_effect_uncertain_no_retry",
-                                    "start1_navigation_live_permission_missing",
-                                } else "start1_activation_unavailable"
-                            )
-                            try:
-                                queue.put_nowait(
-                                    ("start1_status", current_epoch, diagnostic)
-                                )
-                            except Full:
-                                pass
-                            raise RuntimeError("unique_start1_activation_refused")
-                if (live_allowed
-                        and host._draft_phase == "properties"
-                        and host.controller.snapshot().mode == PanelMode.RESUME_PENDING
-                        and host._approved_work_revision == host.chat.snapshot().mission_revision):
-                    scope = host._draft_native_scope
-                    epoch = host.controller.arbiter.epoch
-                    if scope is not None and last_properties_focus_epoch != epoch:
-                        last_properties_focus_epoch = epoch
-                        from app.agent.runtime.navimind_draft_bootstrap import focus_owned_properties
-                        host.controller.arbiter.dispatch_pending_navigation(
-                            epoch, lambda: focus_owned_properties(scope),
-                        )
-                return loop.observe_scene()
-            inspect_offer_in_background(
-                observe=observe_authorized_workspace, host=host,
-                output=queue, stop=stopped,
-            )
-        except Exception as exc:
-            try:
-                code = "observer_unavailable:" + type(exc).__name__
-                print("NAVIMIND_RESUME=" + code, flush=True)
-                queue.put_nowait(("error", host.controller.arbiter.epoch, code))
-            except Full:
-                pass
-        finally:
-            if com_initialized:
-                pythoncom.CoUninitialize()
-
-    watcher = Thread(target=observer_worker, daemon=True)
-    watcher.start()
     panel.after(250, pump)
     print("NAVIMIND_SHARED_PANEL_CONNECTED=True")
     print("NAVIMIND_CONVERSATION_PROVIDER_CONNECTED=" + str(chat_provider is not None))

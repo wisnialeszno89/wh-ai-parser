@@ -1112,6 +1112,34 @@ class BackgroundWorkMission:
             self._pool.submit(self._work, mission.task_id, True)
         return True
 
+    def submit_workspace_observation(self, observe: Callable[[Any], Any]):
+        """Use the same Windows worker for planning, resume observation and input."""
+        with self._lock:
+            if self._closed or self._busy:
+                return None
+            return self._pool.submit(self._observe_workspace, observe)
+
+    def _create_loop(self):
+        if self.loop_factory is not None:
+            return self.loop_factory()
+        from app.agent.runtime.windows_desktop_agent_control_loop import (
+            create_windows_desktop_agent_control_loop,
+        )
+        return create_windows_desktop_agent_control_loop()
+
+    def _observe_workspace(self, observe):
+        try:
+            import pythoncom
+        except ImportError:
+            pythoncom = None
+        if pythoncom is not None:
+            pythoncom.CoInitialize()
+        try:
+            return observe(self._create_loop())
+        finally:
+            if pythoncom is not None:
+                pythoncom.CoUninitialize()
+
     @staticmethod
     def _v2_configuration_blocker() -> str | None:
         """Check endpoint/secret shape without network or leaking credentials.
@@ -1154,13 +1182,7 @@ class BackgroundWorkMission:
                 if updated is not None and self.callback is not None:
                     self.callback(updated, WorkStepResult("paused", blocker))
                 return
-            if self.loop_factory is not None:
-                loop = self.loop_factory()
-            else:
-                from app.agent.runtime.windows_desktop_agent_control_loop import (
-                    create_windows_desktop_agent_control_loop,
-                )
-                loop = create_windows_desktop_agent_control_loop()
+            loop = self._create_loop()
             if self.reasoner_factory:
                 reasoner = self.reasoner_factory()
             else:
