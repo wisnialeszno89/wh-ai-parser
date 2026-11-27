@@ -20,40 +20,6 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 $Root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
-# Recover missing connection settings from this repository's private .env.
-# Never print secrets, and never override process environment values.
-$EnvPath = Join-Path $Root '.env'
-if (Test-Path -LiteralPath $EnvPath -PathType Leaf) {
-  $AllowedNames = @(
-    'NAVIMIND_CHAT_URL', 'NAVIMIND_CHAT_MODEL', 'NAVIMIND_CHAT_API_KEY',
-    'NAVIMIND_AGENT_URL', 'NAVIMIND_AGENT_SECRET',
-    'NAVIMIND_AGENT_V2_URL', 'NAVIMIND_AGENT_V2_SECRET',
-    'NAVIMIND_VERCEL_PROTECTION_BYPASS'
-  )
-  foreach ($Line in [System.IO.File]::ReadAllLines($EnvPath)) {
-    $Trimmed = $Line.Trim()
-    if (-not $Trimmed -or $Trimmed.StartsWith('#')) { continue }
-    $EqualsAt = $Trimmed.IndexOf('=')
-    if ($EqualsAt -lt 1) { continue }
-    $Key = $Trimmed.Substring(0, $EqualsAt).Trim()
-    if ($Key -notin $AllowedNames) { continue }
-    if (-not [string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($Key, 'Process'))) { continue }
-    $Value = $Trimmed.Substring($EqualsAt + 1).Trim()
-    if ($Value.Length -ge 2) {
-      if (($Value.StartsWith('"') -and $Value.EndsWith('"')) -or
-          ($Value.StartsWith("'") -and $Value.EndsWith("'"))) {
-        $Value = $Value.Substring(1, $Value.Length - 2)
-      }
-    }
-    if (-not [string]::IsNullOrWhiteSpace($Value)) {
-      [Environment]::SetEnvironmentVariable($Key, $Value, 'Process')
-    }
-  }
-}
-$ChatConfigured = (-not [string]::IsNullOrWhiteSpace($env:NAVIMIND_CHAT_URL)) -and
-                  (-not [string]::IsNullOrWhiteSpace($env:NAVIMIND_CHAT_MODEL)) -and
-                  (-not [string]::IsNullOrWhiteSpace($env:NAVIMIND_CHAT_API_KEY))
-Write-Host "NAVIMIND_CHAT_CONFIG_PRESENT=$ChatConfigured"
 if ([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT) {
   throw "NaviMind WindowHub test wymaga Windows."
 }
@@ -72,8 +38,7 @@ if (-not (Test-Path -LiteralPath $Script -PathType Leaf)) {
 if ($LASTEXITCODE -ne 0) {
   throw "Python jest niedostepny; wybierz poprawna sciezke przez -Python."
 }
-# Mandatory preflight for conversational provider. V2 is a separate channel.
-# Never silently open a chat panel that cannot respond.
+# Chat and V2 have independent credentials. Local diagnostics remain available.
 Push-Location $Root
 try {
   & $Python -m tools.configure_navimind_chat --check
@@ -82,7 +47,7 @@ try {
   Pop-Location
 }
 if ($ChatCheckExitCode -ne 0) {
-  throw "NAVIMIND_CHAT_NOT_CONFIGURED: Run python -m tools.configure_navimind_chat --setup once in the project directory. Never paste API keys into chat."
+  Write-Warning "NAVIMIND_CHAT_NOT_CONFIGURED: Run python -m tools.configure_navimind_chat --setup-gateway from the project directory."
 }
 # A planning session must remain available even when the application
 # is absent, renamed or not yet discoverable. Live mode still fails closed:
@@ -122,9 +87,6 @@ try {
     }
     $Report = $PreflightOutput | ConvertFrom-Json
     $PreflightOutput | Write-Host
-    if (-not $env:NAVIMIND_CHAT_URL -or -not $env:NAVIMIND_CHAT_MODEL -or -not $env:NAVIMIND_CHAT_API_KEY) {
-      Write-Warning "MODEL AI NIEPODLACZONY: wymagane NAVIMIND_CHAT_URL, NAVIMIND_CHAT_MODEL i NAVIMIND_CHAT_API_KEY w tej sesji PowerShell. Obserwacja moze dzialac bez rozmowy."
-    }
     if ($Live) {
       $MissingRuntime = (
         -not $Report.dependencies.pywinauto -or

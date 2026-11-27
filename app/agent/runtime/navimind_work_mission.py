@@ -38,6 +38,11 @@ REOBSERVABLE_WORK_PAUSES = frozenset({
     "draft_properties_reobserve_required",
     "windowhub_not_foreground",
     "windowhub_observation_unavailable",
+    "v2_application_secret_rejected",
+    "v2_vercel_or_proxy_access_denied",
+    "v2_http_401_check_vercel_sso_or_agent_secret",
+    "v2_http_429_rate_limited",
+    "v2_reasoner_unavailable",
 })
 
 
@@ -450,6 +455,8 @@ def safe_reasoner_failure_result(reasoner: Any) -> WorkStepResult:
         "navimind_http_401": "v2_http_401_check_vercel_sso_or_agent_secret",
         "navimind_http_403": "v2_http_403_access_forbidden",
         "navimind_http_429": "v2_http_429_rate_limited",
+        "v2_application_secret_rejected": "v2_application_secret_rejected",
+        "v2_vercel_or_proxy_access_denied": "v2_vercel_or_proxy_access_denied",
     }
     return WorkStepResult(
         "paused",
@@ -800,6 +807,13 @@ def plan_or_execute_windowhub_step(
         prepared.request_payload["metadata"]["verified_active_offer_add_refs"] = eligible[:1]
     try:
         decision = reasoner.reason(prepared.request_payload)
+        error = getattr(reasoner, "last_error", None) or ""
+        if (decision is None
+                and (error.startswith("navimind_connection_error:")
+                     or error in {"navimind_http_502", "navimind_http_503", "navimind_http_504"})
+                and (is_mission_current is None or is_mission_current())):
+            # A fresh native pre-action guard still runs before any input.
+            decision = reasoner.reason(prepared.request_payload)
     except Exception:
         decision = None
     if decision is None:
@@ -1106,37 +1120,10 @@ class BackgroundWorkMission:
         in a separate PowerShell process. A configured URL is not proof of
         successful HTTP authentication or a working task endpoint.
         """
-        import os
-        from urllib.parse import urlsplit
-        try:
-            from dotenv import load_dotenv
-            load_dotenv()
-        except ImportError:
-            pass
-        v2 = os.environ.get("NAVIMIND_AGENT_V2_URL", "").strip()
-        shared = os.environ.get("NAVIMIND_AGENT_URL", "").strip()
-        if not v2 and not shared:
-            return "v2_endpoint_missing"
-        url = v2 or shared
-        secret_key = (
-            "NAVIMIND_AGENT_V2_SECRET" if v2 else "NAVIMIND_AGENT_SECRET"
-        )
-        if not os.environ.get(secret_key, "").strip():
-            return "v2_secret_missing"
-        try:
-            parts = urlsplit(url)
-            host = parts.hostname
-        except ValueError:
-            return "v2_endpoint_invalid"
-        valid_scheme = parts.scheme == "https" or (
-            parts.scheme == "http"
-            and host in {"localhost", "127.0.0.1"}
-        )
-        if (not valid_scheme or not host or parts.username
-                or parts.password or parts.query or parts.fragment
-                or (not v2 and parts.path.rstrip("/") != "/api/agent/task")):
-            return "v2_endpoint_invalid"
-        return None
+        from tools.check_navimind_v2_connection import configured_v2_connection
+
+        blocker, _ = configured_v2_connection()
+        return blocker
 
     def _work(self, task_id: str, execute: bool) -> None:
         com = False
@@ -1177,19 +1164,22 @@ class BackgroundWorkMission:
             if self.reasoner_factory:
                 reasoner = self.reasoner_factory()
             else:
-                import os
                 from app.agent.reasoning.navimind_task_reasoner_v2 import (
-                    NaviMindTaskReasonerV2,
+                    NaviMindTaskReasonerV2, NaviMindTaskReasonerV2Config,
                 )
-                if os.environ.get("NAVIMIND_AGENT_V2_URL", "").strip():
-                    reasoner = NaviMindTaskReasonerV2()
-                else:
-                    # Use the already configured, contract-compatible /api/agent/task.
-                    # Do not require a second secret solely for the V2 protocol.
-                    from tools.run_windowhub_goal_v2 import shared_endpoint_v2_config
-                    reasoner = NaviMindTaskReasonerV2(
-                        config=shared_endpoint_v2_config()
-                    )
+                from tools.check_navimind_v2_connection import (
+                    configured_v2_connection, effective_v2_environment,
+                )
+
+                values = effective_v2_environment()
+                _, connection = configured_v2_connection(values)
+                if connection is None:
+                    raise RuntimeError("v2_configuration_changed")
+                url, secret, protection = connection
+                reasoner = NaviMindTaskReasonerV2(config=NaviMindTaskReasonerV2Config(
+                    url, secret, float(values.get("NAVIMIND_AGENT_V2_TIMEOUT_SECONDS") or 20),
+                    protection_bypass=protection,
+                ))
             demonstrated = ()
             if self.demonstration_provider is not None:
                 demonstrated = tuple(self.demonstration_provider())[:8]

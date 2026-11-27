@@ -52,7 +52,7 @@ from tools.run_navimind_control_panel import BG, CARD, FG, MUTED, PURPLE, GOLD, 
 
 
 GATEWAY_ERROR_LABELS = {
-    "chat_authentication_failed_401": "Błąd AI 401: klucz Vercel Gateway nie został zaakceptowany.",
+    "chat_authentication_failed_401": "CHAT 401: dostawca odrzucił klucz. Uruchom lokalnie: python -m tools.configure_navimind_chat --setup-gateway",
     "chat_gateway_credits_or_budget_402": "Błąd AI 402: brak środków albo przekroczony budżet Gateway.",
     "chat_gateway_access_denied_403": "Błąd AI 403: Vercel odmawia dostępu; sprawdź weryfikację konta.",
     "chat_model_or_endpoint_not_found_404": "Błąd AI 404: model lub adres API jest niedostępny.",

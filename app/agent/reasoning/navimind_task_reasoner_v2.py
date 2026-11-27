@@ -10,12 +10,12 @@ import json
 import math
 import os
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Callable
 
 from dotenv import load_dotenv
 from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
+from urllib.request import Request, build_opener, HTTPRedirectHandler
 
 from app.agent.bridge.agent_task_contract_v2 import (
     AgentTaskV2Contract,
@@ -31,8 +31,9 @@ class NaviMindTaskReasonerV2Config:
     """Dedicated HTTP configuration for the V2 endpoint."""
 
     url: str
-    secret: str | None = None
+    secret: str | None = field(default=None, repr=False)
     timeout_seconds: float = 20.0
+    protection_bypass: str | None = field(default=None, repr=False)
 
     def __post_init__(self) -> None:
         if not isinstance(self.url, str) or not self.url.strip():
@@ -81,6 +82,11 @@ class NaviMindTaskReasonerV2Config:
             ) from exc
 
 
+class _NoV2Redirect(HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
 class NaviMindTaskReasonerV2:
     """Send one V2 reasoning cycle and validate its single returned decision."""
 
@@ -88,14 +94,14 @@ class NaviMindTaskReasonerV2:
         self,
         *,
         config: NaviMindTaskReasonerV2Config | None = None,
-        opener: Callable = urlopen,
+        opener: Callable | None = None,
     ) -> None:
         self.config = (
             config
             if config is not None
             else NaviMindTaskReasonerV2Config.from_environment()
         )
-        self.opener = opener
+        self.opener = opener if opener is not None else build_opener(_NoV2Redirect()).open
         self.last_error: str | None = None
 
     def reason(
@@ -135,7 +141,9 @@ class NaviMindTaskReasonerV2:
 
         # Optional Vercel Deployment Protection authorization. This does not
         # replace NaviMind's own independent application secret.
-        vercel_bypass = os.getenv("NAVIMIND_VERCEL_PROTECTION_BYPASS", "").strip()
+        vercel_bypass = self.config.protection_bypass
+        if vercel_bypass is None:
+            vercel_bypass = os.getenv("NAVIMIND_VERCEL_PROTECTION_BYPASS", "").strip()
         if vercel_bypass:
             headers["x-vercel-protection-bypass"] = vercel_bypass
 
@@ -153,7 +161,15 @@ class NaviMindTaskReasonerV2:
             ) as response:
                 raw = response.read(MAX_RESPONSE_BYTES + 1)
         except HTTPError as exc:
+            from tools.check_navimind_v2_connection import _safe_error_code
+
             self.last_error = f"navimind_http_{exc.code}"
+            if exc.code in (401, 403) and exc.headers is not None:
+                code = _safe_error_code(exc)
+                self.last_error = (
+                    "v2_application_secret_rejected" if code == "UNAUTHORIZED"
+                    else "v2_vercel_or_proxy_access_denied"
+                )
             return None
         except URLError as exc:
             self.last_error = f"navimind_connection_error:{type(exc.reason).__name__}"

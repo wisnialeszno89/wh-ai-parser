@@ -93,14 +93,15 @@ def inspect_local_preflight(*, environ=None, module_probe=None,
 
 
 def main() -> int:
-    # Match the V2 worker's local .env lookup, without printing its values.
-    try:
-        from dotenv import load_dotenv
-        load_dotenv()
-    except ImportError:
-        pass
-    # Native buttons are NEVER activated from preflight.
-    report = inspect_local_preflight()
+    from pathlib import Path
+
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from tools.check_navimind_v2_connection import effective_v2_environment
+
+    values = dict(effective_v2_environment())
+    for flag in ("WH_REAL_WINDOWHUB", "COMPUTER_USE_LIVE"):
+        values[flag] = os.environ.get(flag, "")
+    report = inspect_local_preflight(environ=values)
     print(json.dumps(report, ensure_ascii=False, indent=2))
     return 0
 

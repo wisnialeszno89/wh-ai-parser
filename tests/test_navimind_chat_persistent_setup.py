@@ -66,4 +66,29 @@ def test_provider_loads_repo_root_env_not_cwd():
         )) if isinstance(node, ast.FunctionDef) and node.name == "from_environment")
     )
     assert "parents[3]" in source
-    assert "override=False" in source
+    assert "dotenv_values(root_env, interpolate=False)" in source
+
+def test_chat_reads_complete_local_tuple_before_stale_process_environment(monkeypatch):
+    from app.agent.runtime.navimind_conversational_provider import ChatConfig
+
+    for key, value in zip(KEYS, ("https://example.org/v1/chat/completions", "old", "old-key")):
+        monkeypatch.setenv(key, value)
+    local = dict(zip(KEYS, ("https://ai-gateway.vercel.sh/v1/chat/completions", "openai/model", "verified-key")))
+    monkeypatch.setattr("dotenv.dotenv_values", lambda *_args, **_kwargs: local)
+    config = ChatConfig.from_environment()
+    assert config.model == "openai/model"
+    assert config.api_key == "verified-key"
+    assert "verified-key" not in repr(config)
+
+
+def test_gateway_setup_retains_existing_config_on_http_401(monkeypatch, tmp_path, capsys):
+    import tools.configure_navimind_chat as settings
+
+    dest = tmp_path / ".env"
+    original = "NAVIMIND_AGENT_V2_SECRET=private-v2-value\n"
+    dest.write_text(original, encoding="utf-8")
+    monkeypatch.setattr(settings, "DOTENV", dest)
+    monkeypatch.setattr(settings, "probe_chat", lambda _: "chat_authentication_failed_401")
+    assert settings.setup_gateway(read=lambda _: "", secret_read=lambda _: "rejected-key") == 4
+    assert dest.read_text(encoding="utf-8") == original
+    assert "rejected-key" not in capsys.readouterr().out

@@ -72,3 +72,28 @@ Dwie pozycje z przykładowego zapytania są rozdzielone w ewidencji. Parametry
 otwierania nie są podane. Dobór okuć zależny od kierunku i zaliczenie
 gotowej konstrukcji nadal wymagają odczytu potwierdzającego to, co wpisano
 w edytorze. Zapis oferty pozostaje poza zakresem próby.
+
+
+## Połączenie z modelem i wykonawcą
+
+Uruchom poniższe polecenia w katalogu repozytorium na Windows.
+
+| Kanał | Polecenie lokalne | Co potwierdza |
+| --- | --- | --- |
+| CHAT | `python -m tools.configure_navimind_chat --setup-gateway` | Test krótkiej rozmowy przez Vercel AI Gateway, przed zapisem konfiguracji. Użyj klucza utworzonego w sekcji AI Gateway → API Keys. |
+| CHAT, kolejna kontrola | `python -m tools.configure_navimind_chat --probe` | `NAVIMIND_CHAT_NETWORK_VERIFIED=True` po odpowiedzi skonfigurowanego modelu. |
+| NaviMind V2 | `python -m tools.check_navimind_v2_connection` | `NAVIMIND_V2_HTTP_VERIFIED=True` po przejściu autoryzacji i walidacji syntetycznego żądania. |
+| NaviMind V2, naprawa | `python -m tools.check_navimind_v2_connection --setup` | Weryfikuje sekret aplikacji NaviMind i opcjonalny klucz ochrony wdrożenia, po czym zapisuje ustawienia. |
+
+Pełny zestaw z lokalnego `.env` ma pierwszeństwo przed ustawieniami
+odziedziczonymi z terminala. Testy używają sztucznych danych. Przy 401 CHAT
+odśwież klucz AI Gateway. `v2_application_secret_rejected` dotyczy sekretu
+aplikacji, a `v2_vercel_or_proxy_access_denied` – ochrony wdrożenia lub proxy.
+Użyj lokalnych pól wejściowych instalatora. Po zmianie CHAT uruchom panel
+ponownie. Po zmianie danych V2 w trakcie misji użyj **Wznów pracę**, aby
+wykonawca ponownie wczytał ustawienia i zweryfikował ekran.
+
+Przy niedostępnym CHAT lokalny odczyt zatwierdzonego dokumentu i jawne
+przekazanie zlecenia do wykonawcy nadal działają. Przy przejściowym błędzie
+sieciowym V2 może ponowić raz samo rozumowanie. Przy nieznanym wariancie
+katalogowym potrzebuje decyzji operatora i świeżego odczytu po wznowieniu.

@@ -266,3 +266,47 @@ def test_invalid_document_context_is_not_approved():
         engine.approve_document_context("x" * 5000)
     assert not engine.document_context_active()
     engine.close()
+
+
+def test_approved_local_document_still_returns_when_gateway_rejects_key():
+    from app.agent.runtime.navimind_conversational_provider import ChatUnavailable
+    from app.agent.runtime.navimind_tool_router import ReadOnlyTool
+
+    class GatewayRejected:
+        def reply(self, **kwargs):
+            raise ChatUnavailable("chat_authentication_failed_401")
+
+    chat, gate = create()
+    read = ReadOnlyTool(
+        "read_approved_enquiry", "local PDF", lambda: "Odczyt lokalny: dwa okna",
+        requires_document_consent=True, synthesize_result=True,
+    )
+    engine = LiveMissionConversation(
+        chat, GatewayRejected(), read_only_tools={read.name: read}, allow_tool_chaining=True,
+    )
+    try:
+        engine.approve_document_context("Dwa okna z zapytania")
+        message = chat.user_message("Przeanalizuj udostępnione zapytanie klienta i podaj pozycje")
+        assert engine.submit_current_message(message.message_id)
+        await_idle(engine)
+        assert chat.snapshot().messages[-1].text == "Odczyt lokalny: dwa okna"
+        assert gate.owner == InputOwner.HUMAN
+    finally:
+        engine.close()
+
+
+def test_explicit_local_offer_request_is_routed_without_chat_provider():
+    from app.agent.runtime.navimind_tool_router import ReadOnlyTool
+
+    chat, gate = create()
+    prepare = ReadOnlyTool("prepare_windowhub_work", "lokalny plan", lambda: "Plan lokalny")
+    engine = LiveMissionConversation(chat, None, read_only_tools={prepare.name: prepare})
+    try:
+        engine.approve_document_context("Dwa okna z zapytania")
+        message = chat.user_message("Przygotuj nową ofertę z zapytania.")
+        assert engine.submit_current_message(message.message_id)
+        await_idle(engine)
+        assert chat.snapshot().messages[-1].text == "Plan lokalny"
+        assert gate.owner == InputOwner.HUMAN
+    finally:
+        engine.close()

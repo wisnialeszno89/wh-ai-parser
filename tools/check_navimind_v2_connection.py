@@ -7,8 +7,11 @@ Never prints secrets, full URLs, returned HTML, response headers or tokens.
 """
 from __future__ import annotations
 
+import argparse
+import getpass
 import json
 import os
+from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
 from urllib.request import (
@@ -17,6 +20,8 @@ from urllib.request import (
 import ssl
 
 
+DOTENV = Path(__file__).resolve().parents[1] / ".env"
+DEFAULT_V2_URL = "https://www.navimind.app/api/agent/task"
 VERIFIED_RESULT = "v2_authenticated_contract_rejected_as_expected"
 
 
@@ -25,9 +30,25 @@ class NoRedirect(HTTPRedirectHandler):
         return None
 
 
+def effective_v2_environment():
+    from dotenv import dotenv_values
+
+    persisted = dotenv_values(DOTENV, interpolate=False)
+    for url, secret in (
+        ("NAVIMIND_AGENT_V2_URL", "NAVIMIND_AGENT_V2_SECRET"),
+        ("NAVIMIND_AGENT_URL", "NAVIMIND_AGENT_SECRET"),
+    ):
+        if (persisted.get(url) or "").strip() and (persisted.get(secret) or "").strip():
+            if url == "NAVIMIND_AGENT_URL":
+                persisted.pop("NAVIMIND_AGENT_V2_URL", None)
+            return persisted
+    return os.environ
+
+
+
 def configured_v2_connection(environ=None):
     """Return URL and credential only to local caller; no network or logging."""
-    values = os.environ if environ is None else environ
+    values = effective_v2_environment() if environ is None else environ
     dedicated_url = (values.get("NAVIMIND_AGENT_V2_URL") or "").strip()
     dedicated = bool(dedicated_url)
     url = dedicated_url or (values.get("NAVIMIND_AGENT_URL") or "").strip()
@@ -120,12 +141,40 @@ def probe_v2(*, environ=None, opener=None):
         return "v2_network_or_tls_unavailable"
 
 
-def main():
+def setup_v2(*, read=input, secret_read=getpass.getpass):
+    from tools.configure_navimind_chat import _secure_save
+
     try:
-        from dotenv import load_dotenv
-        load_dotenv()
-    except ImportError:
-        pass
+        url = read(f"Endpoint aplikacji V2 [{DEFAULT_V2_URL}]: ").strip() or DEFAULT_V2_URL
+        secret = secret_read("Sekret aplikacji NaviMind (NAVIMIND_AGENT_SECRET): ").strip()
+        bypass = secret_read("Klucz ochrony wdrożenia Vercel (Enter, jeśli niewymagany): ").strip()
+    except (EOFError, KeyboardInterrupt):
+        return 2
+    entries = {
+        "NAVIMIND_AGENT_V2_URL": url,
+        "NAVIMIND_AGENT_V2_SECRET": secret,
+        "NAVIMIND_VERCEL_PROTECTION_BYPASS": bypass,
+    }
+    result = probe_v2(environ=entries)
+    print("V2_PROBE_RESULT=" + result)
+    if result != VERIFIED_RESULT:
+        return 4
+    try:
+        _secure_save(entries, path=DOTENV)
+    except (OSError, ValueError):
+        print("NAVIMIND_V2_SETUP=save_failed")
+        return 3
+    print("NAVIMIND_V2_SETUP=saved_to_private_env")
+    print("NAVIMIND_V2_HTTP_VERIFIED=True")
+    return 0
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--setup", action="store_true")
+    args = parser.parse_args(argv)
+    if args.setup:
+        return setup_v2()
     result = probe_v2()
     print("V2_READ_ONLY_NETWORK_CHECK=True")
     print("V2_PROBE_RESULT=" + result)
@@ -133,7 +182,7 @@ def main():
     print("V2_NATIVE_INPUT=False")
     print("V2_CUSTOMER_DATA_TRANSMITTED=False")
     print("V2_REAL_REASONING_REQUEST=False")
-    return 0
+    return 0 if result == VERIFIED_RESULT else 4
 
 
 if __name__ == "__main__":

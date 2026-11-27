@@ -434,6 +434,15 @@ def run(*, expected_offer: str, initial_pdf: str | None = None,
                     "Jeśli program ukrywa odczyt, wpisz „potwierdzam klienta” tylko po "
                     "sprawdzeniu pełnej nazwy na formularzu, a potem wznów."
                 )
+            elif result.reason in {
+                "v2_application_secret_rejected", "v2_vercel_or_proxy_access_denied",
+                "v2_http_401_check_vercel_sso_or_agent_secret",
+            }:
+                message = (
+                    "V2 zatrzymany na autoryzacji (" + result.reason + "). "
+                    "Uruchom lokalnie python -m tools.check_navimind_v2_connection --setup. "
+                    "Po udanym teście kliknij Wznów pracę."
+                )
             elif result.reason == "draft_preferences_require_operator":
                 message = (
                     "Sprawdź właściwości dokumentu. Zaznacz Bez ceny montażu, demontażu "
@@ -445,6 +454,21 @@ def run(*, expected_offer: str, initial_pdf: str | None = None,
                     "Wstrzymałem zadanie: " + result.reason
                     + ". Sprawdź stan w panelu."
                 )
+        elif result.reason in {
+            "catalogue_or_unknown_wizard_click_requires_learning",
+            "catalogue_exact_match_or_dropdown_owner_unverified",
+        }:
+            message = (
+                "Potrzebuję wskazania właściwego wariantu w aktualnym katalogu WindowHub. "
+                "Sprawdź albo wybierz wariant dla bieżącej pozycji, a następnie kliknij "
+                "Wznów pracę, żebym odczytał stan tego samego dokumentu."
+            )
+        elif result.reason == "active_position_requires_independent_readback":
+            message = (
+                "Potrzebuję odczytu gotowej pozycji w dokumencie. Sprawdź w edytorze "
+                "wymiary, ilość i konfigurację. Samo przejście między ekranami "
+                "nie potwierdza dodania pozycji."
+            )
         elif result.reason == "opening_direction_required":
             message = (
                 "Podaj stronę i rodzaj otwierania dla tej pozycji, "

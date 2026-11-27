@@ -16,7 +16,7 @@ def test_planning_launcher_does_not_require_a_named_okna_process():
     assert 'if ($Live) {' in source
     assert 'LIVE wymaga jednoznacznego Okna.exe' in source
     assert 'Uruchamiam rozmowe i obserwacje bez klikniec' in source
-    assert 'NAVIMIND_CHAT_API_KEY' in source
+    assert 'configure_navimind_chat --setup-gateway' in source
 
 
 def test_customer_document_editor_has_scrollbar_and_native_scroll():

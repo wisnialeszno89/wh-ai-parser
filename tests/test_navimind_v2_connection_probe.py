@@ -111,3 +111,20 @@ def test_gui_launch_does_not_confuse_live_permission_with_network_connection():
     assert 'NAVIMIND_V2_ENDPOINT_CONFIGURED=' in source
     assert 'NAVIMIND_V2_NATIVE_INPUT_ARMED=' in source
     assert 'NAVIMIND_V2_HTTP_VERIFIED=False' in source
+
+
+def test_verified_v2_setup_preserves_gateway_settings(monkeypatch, tmp_path):
+    from dotenv import dotenv_values
+    from tools import check_navimind_v2_connection as module
+
+    destination = tmp_path / ".env"
+    destination.write_text("NAVIMIND_CHAT_API_KEY=gateway-local-test\n")
+    monkeypatch.setattr(module, "DOTENV", destination)
+    monkeypatch.setattr(module, "probe_v2", lambda **kwargs: module.VERIFIED_RESULT)
+    secrets = iter(["v2-app-secret", "protection-secret"])
+    assert module.setup_v2(read=lambda _: "", secret_read=lambda _: next(secrets)) == 0
+    monkeypatch.setenv("NAVIMIND_AGENT_V2_SECRET", "old-process-secret")
+    assert module.configured_v2_connection()[1] == (
+        module.DEFAULT_V2_URL, "v2-app-secret", "protection-secret",
+    )
+    assert dotenv_values(destination)["NAVIMIND_CHAT_API_KEY"] == "gateway-local-test"
