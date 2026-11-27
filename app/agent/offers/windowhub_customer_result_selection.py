@@ -47,14 +47,16 @@ def nearby_lookup(rect: tuple[int, int, int, int], picker: tuple[int, int, int, 
 
 
 def exact_customer_candidates(candidates: list[Candidate], customer_name: str,
-                              picker_rect: tuple[int, int, int, int]) -> list[int]:
+                              picker_rect: tuple[int, int, int, int], *, allow_name_reordering=False) -> list[int]:
     """Return candidate indices only for an exact unique non-editor match."""
     expected = canonical_customer_name(customer_name)
     return [
         i for i, candidate in enumerate(candidates)
         if candidate.visible and candidate.enabled
         and candidate.role.casefold() in SELECTABLE_ROLES
-        and canonical_customer_name(candidate.name) == expected
+        and customer_identity_matches(
+            candidate.name, expected, allow_name_reordering=allow_name_reordering,
+        )
         and nearby_lookup(candidate.rect, picker_rect)
         # Text displayed INSIDE the editor is the typed query, not a row.
         and candidate.rect[1] >= picker_rect[3]
@@ -85,12 +87,23 @@ def customer_name_has_reordered_words(label: str, query: str) -> bool:
     )
 
 
+def customer_identity_matches(label, expected, *, allow_name_reordering=False) -> bool:
+    actual = canonical_customer_name(label)
+    expected = canonical_customer_name(expected)
+    return bool(expected) and (
+        actual == expected
+        or (allow_name_reordering and customer_name_has_reordered_words(actual, expected))
+    )
+
+
+
 def _customer_name_is_suggestion(label: str, query: str) -> bool:
     return customer_name_completes_query(label, query) or customer_name_has_reordered_words(label, query)
 
 
 def select_exact_customer_result(scene, customer_name: str, *, visible_completions=None,
-                                 strictly_owned=False) -> tuple[bool, str]:
+                                 strictly_owned=False, allow_name_reordering=False,
+                                 authorization=None) -> tuple[bool, str]:
     """Observe visible same-process UIA trees, then click one exact result.
 
     A popup may be a direct/indirect owner of Document Properties, not a direct
@@ -179,7 +192,9 @@ def select_exact_customer_result(scene, customer_name: str, *, visible_completio
                     if ancestor is None:
                         continue
                 name = str(info.name or "").strip()
-                if canonical_customer_name(name) != canonical_customer_name(customer_name) and not (
+                if not customer_identity_matches(
+                    name, customer_name, allow_name_reordering=allow_name_reordering,
+                ) and not (
                     visible_completions is not None
                     and _customer_name_is_suggestion(name, customer_name)
                 ):
@@ -207,7 +222,8 @@ def select_exact_customer_result(scene, customer_name: str, *, visible_completio
                 visible_completions.add(name)
 
     accepted = exact_customer_candidates(
-        [item[1] for item in candidates], customer_name, picker_rect
+        [item[1] for item in candidates], customer_name, picker_rect,
+        allow_name_reordering=allow_name_reordering,
     )
     print("CUSTOMER_EXACT_VISIBLE_MATCHES =", sum(
         canonical_customer_name(item[1].name) == canonical_customer_name(customer_name) for item in candidates
@@ -222,6 +238,8 @@ def select_exact_customer_result(scene, customer_name: str, *, visible_completio
     user32.GetForegroundWindow.restype = wintypes.HWND
     if int(user32.GetForegroundWindow() or 0) != hwnd:
         return False, "CUSTOMER_DOCUMENT_NOT_FOREGROUND"
+    if authorization is not None and not authorization():
+        return False, "CUSTOMER_AUTHORIZATION_REVOKED"
     try:
         node.click_input()
     except Exception as exc:

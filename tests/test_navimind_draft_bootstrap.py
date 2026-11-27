@@ -368,13 +368,14 @@ def test_named_customer_search_and_flags_are_verified_before_properties_confirma
             }),
         ])
 
-    def type_search(_scene, prefix, *, strictly_scoped):
-        assert prefix == "Top" and strictly_scoped
+    def type_search(_scene, prefix, *, strictly_scoped, authorization):
+        assert prefix == "Top" and strictly_scoped and authorization()
         calls.append("search")
         return SimpleNamespace(status="search_submitted_unverified", reason="typed")
 
-    def pick(_scene, name, *, strictly_owned):
+    def pick(_scene, name, *, strictly_owned, allow_name_reordering, authorization):
         assert not flags and name == customer and strictly_owned
+        assert allow_name_reordering and authorization()
         calls.append("select")
         selected[0] = True
         return True, "selected"

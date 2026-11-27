@@ -331,7 +331,7 @@ def advance_owned_draft_properties(loop, host, *, revision, customer, customer_r
     from time import sleep
 
     from app.agent.offers.windowhub_customer_result_selection import (
-        canonical_customer_name, customer_name_has_reordered_words, select_exact_customer_result,
+        canonical_customer_name, customer_identity_matches, select_exact_customer_result,
     )
     from app.agent.offers.windowhub_customer_search_action import (
         type_customer_search, type_directly_into_customer_lookup,
@@ -374,7 +374,7 @@ def advance_owned_draft_properties(loop, host, *, revision, customer, customer_r
         observed = controls[0]
         actual = canonical_customer_name(observed.get("current_value"))
         expected = canonical_customer_name(customer)
-        matches = actual == expected or customer_name_has_reordered_words(actual, expected)
+        matches = customer_identity_matches(actual, expected, allow_name_reordering=True)
         source = observed.get("current_value_source")
         if source in {"value", "legacy_value", "get_value"}:
             return matches
@@ -383,8 +383,10 @@ def advance_owned_draft_properties(loop, host, *, revision, customer, customer_r
             and (not actual or actual == "lookupedit" or matches)
         )
 
+    print("NAVIMIND_CUSTOMER=verify_form", flush=True)
     comparison, scene = verify_preaction_scene(loop, host._accepted_scene)
     if not comparison.safe or not same_properties(scene):
+        print("NAVIMIND_CUSTOMER=form_reobservation_required", flush=True)
         return "draft_properties_reobserve_required"
     if not customer:
         return "draft_customer_name_required"
@@ -409,12 +411,19 @@ def advance_owned_draft_properties(loop, host, *, revision, customer, customer_r
             host._draft_customer_search_attempted = True
             prefix = customer.split()[0][:3]
             require_current()
-            result = type_customer_search(scene, prefix, strictly_scoped=True)
-            if result.reason == "no_edit_and_picker_not_focused":
+            print("NAVIMIND_CUSTOMER=read_lookup", flush=True)
+            result = type_customer_search(
+                scene, prefix, strictly_scoped=True,
+                authorization=lambda: host.controller.arbiter.permit_current(permit),
+            )
+            print("NAVIMIND_CUSTOMER_SEARCH=" + result.reason, flush=True)
+            if result.reason in {"no_edit_and_picker_not_focused", "lookup_value_pattern_unavailable"}:
                 require_current()
                 result = type_directly_into_customer_lookup(
                     scene, prefix, replace_existing=True, strictly_scoped=True,
+                    authorization=lambda: host.controller.arbiter.permit_current(permit),
                 )
+                print("NAVIMIND_CUSTOMER_LEGACY=" + result.reason, flush=True)
             if result.status != "search_submitted_unverified":
                 return "draft_customer_selection_required"
             for attempt in range(4):
@@ -422,9 +431,12 @@ def advance_owned_draft_properties(loop, host, *, revision, customer, customer_r
                 if current is None:
                     return "draft_customer_selection_required"
                 require_current()
+                print("NAVIMIND_CUSTOMER=read_result", flush=True)
                 selected, reason = select_exact_customer_result(
-                    current, customer, strictly_owned=True,
+                    current, customer, strictly_owned=True, allow_name_reordering=True,
+                    authorization=lambda: host.controller.arbiter.permit_current(permit),
                 )
+                print("NAVIMIND_CUSTOMER_RESULT=" + reason, flush=True)
                 if selected:
                     break
                 if reason != "EXACT_CUSTOMER_RESULT_NOT_UNIQUE_OR_NOT_VISIBLE":

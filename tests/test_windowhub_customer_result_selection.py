@@ -66,3 +66,18 @@ def test_reordered_registered_name_is_a_suggestion_without_exact_click_authority
     assert exact_customer_candidates(
         [Candidate("dataitem", registered, (310, 335, 440, 359))], requested, PICKER,
     ) == []
+
+
+def test_combined_search_rejects_two_results_even_if_name_order_differs():
+    picker = (100, 100, 300, 128)
+    results = [
+        Candidate("dataitem", "Top Trans Janik Artur", (102, 132, 298, 152)),
+        Candidate("dataitem", "Top Trans Artur Janik", (102, 156, 298, 176)),
+    ]
+    assert exact_customer_candidates(
+        results[:1], "Top Trans Artur Janik", picker, allow_name_reordering=True,
+    ) == [0]
+    assert exact_customer_candidates(
+        results, "Top Trans Artur Janik", picker, allow_name_reordering=True,
+    ) == [0, 1]
+    assert exact_customer_candidates(results, "Top Trans Artur Janik", picker) == [1]
