@@ -1,0 +1,12 @@
+Pos. 1: 1 Stk Fenster 1500x1400
+Profil: Veka Perfectline
+Farbe innen: Weiss
+Farbe außen: Anthrazit
+Verglasung: 2-fach
+Beschlag: activPilot
+Pos. 2: 1 Stk Fenster 1300x1200
+Profil: Veka Perfectline
+Farbe innen: Weiss
+Farbe außen: Weiss
+Verglasung: 2-fach
+Beschlag: activPilot

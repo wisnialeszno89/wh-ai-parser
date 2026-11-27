@@ -389,7 +389,7 @@ _INACTIVE_MDI_SCOPE = "__inactive_mdi_sibling__"
 
 
 class _Win32Mdi:
-    """Read-only HWND queries. WM_MDIGETACTIVE is bounded for a hung UI."""
+    """HWND queries and bounded MDI navigation for WindowHub."""
 
     def __init__(self):
         import ctypes
@@ -478,6 +478,16 @@ class _Win32Mdi:
         if self._send(host, 0x0229, 0, 0, 0x0002, 250, ctypes.byref(value)):
             return value.value
         return 0
+
+    def enabled(self, hwnd):
+        return bool(self._is_enabled(hwnd))
+
+    def activate_child(self, host, child):
+        import ctypes
+
+        result = ctypes.c_size_t()
+        # WM_MDIACTIVATE: wParam is the verified direct child, lParam is unused.
+        return bool(self._send(host, 0x0222, child, 0, 0x0002, 500, ctypes.byref(result)))
 
     def class_name(self, hwnd):
         import ctypes

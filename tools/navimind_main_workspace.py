@@ -52,7 +52,7 @@ from tools.run_navimind_control_panel import BG, CARD, FG, MUTED, PURPLE, GOLD, 
 
 
 GATEWAY_ERROR_LABELS = {
-    "chat_authentication_failed_401": "Błąd AI 401: klucz Vercel Gateway nie został zaakceptowany.",
+    "chat_authentication_failed_401": "CHAT 401: dostawca odrzucił klucz. Uruchom lokalnie: python -m tools.configure_navimind_chat --setup-gateway",
     "chat_gateway_credits_or_budget_402": "Błąd AI 402: brak środków albo przekroczony budżet Gateway.",
     "chat_gateway_access_denied_403": "Błąd AI 403: Vercel odmawia dostępu; sprawdź weryfikację konta.",
     "chat_model_or_endpoint_not_found_404": "Błąd AI 404: model lub adres API jest niedostępny.",
@@ -62,6 +62,7 @@ GATEWAY_ERROR_LABELS = {
     "chat_provider_timeout_504": "Błąd AI 504: serwer modelu nie odpowiedział.",
     "chat_model_unavailable_or_invalid_response": "Model nie zwrócił poprawnej odpowiedzi.",
     "chat_unexpected_response_error": "Nieoczekiwany błąd odpowiedzi modelu.",
+    "document_revoked_requires_new_request": "Dostęp do dokumentu cofnięty. Wpisz polecenie ponownie.",
 }
 
 
@@ -126,13 +127,16 @@ class NaviMindMainWorkspace(tk.Frame):
     def __init__(self, parent, *, chat: MissionChat,
                  conversation: LiveMissionConversation | None,
                  enquiry: LocalEnquiryInbox | None = None,
-                 discover_windowhub=None):
+                 discover_windowhub=None, on_document_revoke=None,
+                 current_work_continuation=None):
         super().__init__(parent, bg=BG)
         self.chat = chat
         self.conversation = conversation
         self.enquiry = enquiry or LocalEnquiryInbox()
         self.last_id = 0
         self.discover_windowhub = discover_windowhub
+        self.on_document_revoke = on_document_revoke
+        self.current_work_continuation = current_work_continuation
         self._build()
         self._poll()
 
@@ -194,6 +198,7 @@ class NaviMindMainWorkspace(tk.Frame):
         self.history.bind("<Button-5>", self._history_mousewheel_linux)
         self.history.bind("<Control-End>", self._history_bottom_shortcut)
         self.history.bind("<Control-Home>", self._history_top_shortcut)
+        self._install_history_copy_menu()
 
         history_actions = tk.Frame(top, bg=CARD)
         history_actions.pack(fill="x", padx=12, pady=(0, 8))
@@ -201,6 +206,11 @@ class NaviMindMainWorkspace(tk.Frame):
             history_actions, "Przewijaj historię kółkiem myszy lub paskiem po prawej.",
             size=8, color=MUTED,
         ).pack(side="left")
+        tk.Button(
+            history_actions, text="Kopiuj ostatnią odpowiedź",
+            command=self._copy_latest_agent_reply,
+            fg=FG, bg=SURFACE, relief="flat", padx=10, pady=5,
+        ).pack(side="right", padx=(0, 8))
         tk.Button(
             history_actions, text="↓ Najnowsze", command=self._history_to_bottom,
             fg=FG, bg=SURFACE, relief="flat", padx=12, pady=5,
@@ -220,6 +230,7 @@ class NaviMindMainWorkspace(tk.Frame):
         self.entry.bind("<KP_Enter>", self._keyboard_enter)
         self.entry.bind("<Shift-Return>", self._keyboard_newline)
         self.entry.bind("<Control-Return>", self._keyboard_send)
+        self._install_edit_context_menu(self.entry)
 
         buttons = tk.Frame(self, bg=BG)
         buttons.pack(fill="x", padx=24, pady=(0, 14))
@@ -245,21 +256,41 @@ class NaviMindMainWorkspace(tk.Frame):
         ).pack(side="left")
         self.source_status = self._label(heading, "Brak dokumentów", size=9, color=MUTED)
         self.source_status.pack(side="right")
+        self.document_approval_indicator = self._label(
+            self, "AI: dokument lokalny — nieudostępniony",
+            size=9, color=GOLD,
+        )
+        self.document_approval_indicator.pack(fill="x", padx=24, pady=(2, 0))
         self._label(
             self, "Wklej zapytanie klienta. Polecenia dla NaviMind wpisuj w rozmowie wyżej.",
             size=9, color=MUTED,
         ).pack(fill="x", padx=24, pady=(6, 0))
-        self.enquiry_editor = tk.Text(
-            self, height=4, wrap="word", bg=CARD, fg=FG, insertbackground=FG,
-            relief="flat", font=("Segoe UI", 10), padx=14, pady=10,
+        enquiry_box = tk.Frame(self, bg=CARD)
+        enquiry_box.pack(fill="x", padx=24, pady=(10, 8))
+        self.enquiry_scrollbar = tk.Scrollbar(
+            enquiry_box, orient="vertical", width=13, takefocus=True,
         )
-        self.enquiry_editor.pack(fill="x", padx=24, pady=(10, 8))
+        self.enquiry_scrollbar.pack(side="right", fill="y")
+        self.enquiry_editor = tk.Text(
+            enquiry_box, height=4, wrap="word", bg=CARD, fg=FG, insertbackground=FG,
+            relief="flat", font=("Segoe UI", 10), padx=14, pady=10,
+            yscrollcommand=self.enquiry_scrollbar.set,
+        )
+        self.enquiry_editor.pack(side="left", fill="both", expand=True)
+        self.enquiry_scrollbar.configure(command=self.enquiry_editor.yview)
+        self._install_edit_context_menu(self.enquiry_editor)
+        # Text widgets already support mouse-wheel, keyboard navigation and
+        # selecting/copying their contents; preserve those native bindings.
         actions = tk.Frame(self, bg=BG)
         actions.pack(fill="x", padx=24)
         tk.Button(
             actions, text="Dodaj PDF", command=self._attach_pdf,
             bg=SURFACE, fg=FG, relief="flat", padx=12, pady=6,
         ).pack(side="left")
+        tk.Button(
+            actions, text="Wklej ze schowka Windows", command=self._paste_windows_clipboard,
+            bg=SURFACE, fg=FG, relief="flat", padx=12, pady=6,
+        ).pack(side="left", padx=(8, 0))
         tk.Button(
             actions, text="Zapisz treść lokalnie", command=self._save_enquiry,
             bg="#29253A", fg=FG, relief="flat", padx=12, pady=6,
@@ -284,13 +315,100 @@ class NaviMindMainWorkspace(tk.Frame):
         ).pack(side="left", padx=(9, 0))
         self.notice = self._label(
             self,
-            "Model rozmowny nie jest skonfigurowany — wiadomości są lokalne."
+            "Brak połączenia AI: sprawdź NAVIMIND_CHAT_URL / MODEL / API_KEY w bieżącej sesji. Wiadomości pozostają lokalne."
             if not (self.conversation is not None and self.conversation.status().provider_connected)
             else "Model rozmowny połączony. Załączone dokumenty nie są wysyłane automatycznie.",
             size=9, color=MUTED,
         )
         self.notice.pack(fill="x", padx=24, pady=(11, 15))
         self.entry.focus_set()
+
+    def _copy_to_clipboard(self, content: str):
+        """Explicit local clipboard action; never sends text to AI."""
+        self.clipboard_clear()
+        self.clipboard_append(content)
+        self.update_idletasks()
+
+    def _copy_history_selection(self):
+        try:
+            selection = self.history.get("sel.first", "sel.last")
+        except tk.TclError:
+            return False
+        if not selection:
+            return False
+        self._copy_to_clipboard(selection)
+        return True
+
+    def _copy_latest_agent_reply(self):
+        messages = self.chat.snapshot().messages
+        for message in reversed(messages):
+            if message.role == MessageRole.AGENT:
+                self._copy_to_clipboard(message.text)
+                self.notice.configure(text="Ostatnia odpowiedź NaviMind skopiowana.")
+                return
+        self.notice.configure(text="Brak odpowiedzi NaviMind do skopiowania.")
+
+    def _install_history_copy_menu(self):
+        """Copy from disabled/read-only conversation history via right click."""
+        menu = tk.Menu(self.history, tearoff=False)
+        menu.add_command(label="Kopiuj zaznaczenie",
+                         command=self._copy_history_selection)
+        menu.add_command(label="Kopiuj ostatnią odpowiedź",
+                         command=self._copy_latest_agent_reply)
+        menu.add_separator()
+        menu.add_command(label="Zaznacz całą rozmowę",
+                         command=lambda: (
+                             self.history.tag_add("sel", "1.0", "end-1c"),
+                             self.history.focus_set(),
+                         ))
+
+        def show(event):
+            # Right click should not alter a mouse-selected text range.
+            try:
+                has_selection = bool(self.history.get("sel.first", "sel.last"))
+            except tk.TclError:
+                has_selection = False
+            menu.entryconfigure(0, state="normal" if has_selection else "disabled")
+            try:
+                menu.tk_popup(event.x_root, event.y_root)
+            finally:
+                menu.grab_release()
+            return "break"
+
+        self.history.bind("<Button-3>", show)
+        self._history_copy_menu = menu
+
+    def _install_edit_context_menu(self, widget):
+        """Windows-style right-click edit menu scoped to this Tk Text widget.
+
+        Only local clipboard operations. No chat submission, document consent,
+        model request or WindowHub input is triggered by these actions.
+        """
+        menu = tk.Menu(widget, tearoff=False)
+        menu.add_command(label="Wytnij", command=lambda: widget.event_generate("<<Cut>>"))
+        menu.add_command(label="Kopiuj", command=lambda: widget.event_generate("<<Copy>>"))
+        menu.add_command(label="Wklej", command=lambda: widget.event_generate("<<Paste>>"))
+        menu.add_separator()
+        menu.add_command(label="Zaznacz wszystko", command=lambda: (
+            widget.tag_add("sel", "1.0", "end-1c"),
+            widget.mark_set("insert", "end-1c"),
+            widget.see("insert"),
+            widget.focus_set(),
+        ))
+
+        def show(event):
+            widget.focus_set()
+            try:
+                menu.tk_popup(event.x_root, event.y_root)
+            finally:
+                menu.grab_release()
+            return "break"
+
+        widget.bind("<Button-3>", show)
+        # Keep the menu alive for the full widget lifetime.
+        if not hasattr(self, "_edit_context_menus"):
+            self._edit_context_menus = []
+        self._edit_context_menus.append(menu)
 
     def _history_to_bottom(self):
         self.history.yview_moveto(1.0)
@@ -350,11 +468,51 @@ class NaviMindMainWorkspace(tk.Frame):
         self._send()
         return "break"
 
+    @staticmethod
+    def _is_continue_current_mission_request(text):
+        """Acknowledge a short follow-up without invalidating active mission.
+
+        Never treat free-form editing instructions as a harmless continuation.
+        Explicit local operator Resume remains required for any GUI action.
+        """
+        import re
+        if not isinstance(text, str) or len(text) > 140:
+            return False
+        if text.casefold().startswith("klient:"):
+            return True
+        t = re.sub(r"[, ]+", " ", " ".join(text.casefold().split()))
+        t = t.strip(" .!?")
+        from app.agent.runtime.navimind_live_conversation import (
+            explicit_background_work_request, explicit_service_exclusion_correction,
+        )
+        if explicit_background_work_request(text) or explicit_service_exclusion_correction(text):
+            return True
+        return bool(re.fullmatch(
+            r"(?:(?:ok|okej|dobrze|tak) )?(?:kontynuuj(?: prac[eę])?|"
+            r"wzn[oó]w(?: prac[eę])?|wykonaj nast[eę]pny krok|"
+            r"przejd[zź] do nast[eę]pnego kroku|dalej|co dalej|"
+            r"zr[oó]b (?:t[eę] )?ofert[eę]|gotowe|zrobione|"
+            r"wybra[łl]em klienta|wybra[łl]am klienta|klient wybrany|"
+            r"ustawi[łl](?:em|am) preferencje|preferencje ustawione|"
+            r"jestem w edytorze|potwierdzam klienta|tak|ok|okej)",
+            t,
+        ))
+
     def _send(self):
         text = self.entry.get("1.0", "end-1c").strip()
         decision = chat_intake_decision(text)
         if decision == "empty":
             return
+        if self._is_continue_current_mission_request(text):
+            reply = (self.current_work_continuation(text)
+                     if self.current_work_continuation is not None else None)
+            if reply is not None:
+                revision, message = reply
+                self.entry.delete("1.0", "end")
+                self.notice.configure(text=message)
+                self.chat.agent_message(message, based_on_revision=revision)
+                self._refresh_messages()
+                return
         if decision == "long_enquiry":
             if len(text) > 100_000:
                 messagebox.showwarning(
@@ -391,7 +549,7 @@ class NaviMindMainWorkspace(tk.Frame):
                 return
             self.entry.delete("1.0", "end")
             if self.conversation is not None:
-                self.conversation.revoke_document_context()
+                self._drop_document_consent()
             self._update_sources()
             self.notice.configure(
                 text="Pełne zapytanie przeniesione do dokumentów (lokalnie). "
@@ -431,9 +589,100 @@ class NaviMindMainWorkspace(tk.Frame):
                 text="Dyktowanie Windows niedostępne: " + type(exc).__name__
             )
 
-    def _revoke_document_access(self):
+    def _approved_mission_snapshot(self, excerpt: str) -> str:
+        """Freeze PDF analysis on Tk thread at the moment of explicit consent.
+
+        A later background V2 worker must NOT re-read mutable input widgets
+        or newly added PDFs under an older approval epoch.
+        """
+        from app.agent.runtime.navimind_enquiry_evidence_bridge import (
+            summarize_full_approved_inbox,
+        )
+        digest = summarize_full_approved_inbox(
+            self.enquiry, approved=True, limit=2800,
+        )
+        return (digest + "\n\n" + excerpt)[:7500]
+
+    def _handle_model_document_consent(self, request):
+        """Tk-thread approval of a tool requested by the LLM.
+
+        The model does NOT get the document until the operator confirms
+        sending the bounded excerpt to the configured external AI Gateway.
+        """
+        revision, message_id = request
+        if self.chat.snapshot().mission_revision != revision:
+            return
+        draft = self.enquiry_editor.get("1.0", "end-1c").strip()
+        try:
+            if draft and draft != self.enquiry.pasted_text:
+                self.enquiry.set_text(draft)
+                self._update_sources()
+            excerpt = self.enquiry.model_context()
+        except (EnquiryInputError, ValueError):
+            self.chat.agent_message(
+                "Nie ma jeszcze odczytanego dokumentu do analizy. "
+                "Dodaj PDF lub wklej zapytanie do lokalnego schowka.",
+                based_on_revision=revision,
+            )
+            self._refresh_messages()
+            return
+        stats = self.enquiry.status()
+        agreed = messagebox.askyesno(
+            "NaviMind potrzebuje dostępu do dokumentu",
+            "Poprosiłeś o analizę dokumentu. NaviMind znalazł go "
+            "w lokalnym schowku. Aby model mógł odczytać parametry, "
+            "wyślemy fragment odczytanego tekstu do dostawcy "
+            "AI Gateway. Może zawierać dane osobowe klienta.\n\n"
+            f"PDF: {stats['pdf_count']}; fragment: {len(excerpt)} znaków.\n\n"
+            "Po osobnym poleceniu przygotowania oferty silnik V2 może "
+            "otrzymać również lokalnie sporządzone zestawienie z całego "
+            "odczytanego tekstu tych PDF (łącznie maks. 7500 znaków "
+            "z zatwierdzonym fragmentem). Nie wysyłamy pełnych plików PDF. "
+            "Zgoda obejmuje dalsze pytania w tej sesji, chyba że "
+            "wybierzesz „Cofnij dostęp AI”. Zgoda na analizę NIE jest "
+            "zgodą na kliknięcia, zapis ani wysyłkę oferty.\n\n"
+            "Udostępnić fragment do analizy?",
+            parent=self,
+        )
+        # Dialog can outlive the request: never approve a stale mission.
+        if self.chat.snapshot().mission_revision != revision:
+            return
+        if not agreed:
+            self.conversation.publish_document_consent_denied(revision)
+            self._refresh_messages()
+            return
+        try:
+            from app.agent.runtime.navimind_position_ledger import (
+                build_position_manifest,
+            )
+            self.conversation.approve_document_context(
+                excerpt,
+                mission_evidence=self._approved_mission_snapshot(excerpt),
+                position_manifest=build_position_manifest(self.enquiry),
+            )
+        except (RuntimeError, ValueError):
+            self.notice.configure(text="Nie udało się przyznać dostępu AI.")
+            return
+        if self.conversation.submit_current_message(message_id):
+            self.notice.configure(
+                text="Udostępniono fragment PDF; NaviMind analizuje źródło…"
+            )
+        else:
+            self._drop_document_consent()
+            self.notice.configure(
+                text="Nie można ponowić analizy. Dokument nie został wysłany."
+            )
+
+    def _drop_document_consent(self):
+        """Revoke provider context AND any previously armed native work."""
         if self.conversation is not None:
             self.conversation.revoke_document_context()
+        callback = getattr(self, "on_document_revoke", None)
+        if callback is not None:
+            callback()
+
+    def _revoke_document_access(self):
+        self._drop_document_consent()
         self.notice.configure(
             text="Dostęp AI do dokumentów cofnięty dla kolejnych wiadomości. "
                  "Wcześniejszych żądań wysłanych do Gateway nie można wycofać."
@@ -464,9 +713,12 @@ class NaviMindMainWorkspace(tk.Frame):
             "w PDF).\n\n"
             f"Dokumenty PDF: {source_status['pdf_count']}; "
             f"fragment przekazywany modelowi: {len(context)} znaków.\n\n"
+            "Po osobnym poleceniu wykonania oferty silnik V2 może także "
+            "otrzymać lokalnie opracowany skrót całego odczytanego tekstu "
+            "PDF — łącznie maks. 7500 znaków z zatwierdzonym fragmentem. "
             "Zgoda obowiązuje również w kolejnych wiadomościach tej "
             "sesji, dopóki jej nie cofniesz albo nie zmienisz dokumentów. "
-            "Nie zapiszę ani nie wyślę oferty w WindowHub.\n\n"
+            "Nie stanowi zgody na sterowanie, zapis ani wysyłkę oferty.\n\n"
             "Udostępnić dokument do analizy?",
             parent=self,
         ):
@@ -479,10 +731,17 @@ class NaviMindMainWorkspace(tk.Frame):
             "nie myl PDF z bieżącym ekranem WindowHub."
         )
         try:
-            self.conversation.approve_document_context(context)
+            from app.agent.runtime.navimind_position_ledger import (
+                build_position_manifest,
+            )
+            self.conversation.approve_document_context(
+                context,
+                mission_evidence=self._approved_mission_snapshot(context),
+                position_manifest=build_position_manifest(self.enquiry),
+            )
             message = self.chat.user_message(prompt)
         except (ValueError, RuntimeError):
-            self.conversation.revoke_document_context()
+            self._drop_document_consent()
             self.notice.configure(text="Nie udało się rozpocząć analizy dokumentu.")
             return
         self._refresh_messages()
@@ -492,8 +751,41 @@ class NaviMindMainWorkspace(tk.Frame):
                      "analizy i kolejnych pytań w tej sesji."
             )
         else:
-            self.conversation.revoke_document_context()
+            self._drop_document_consent()
             self.notice.configure(text="Nie udało się wysłać dokumentu do analizy AI.")
+
+    def _paste_windows_clipboard(self):
+        """Import clipboard text only on an explicit user gesture.
+
+        Tk owns clipboard access on the main GUI thread. Never poll clipboard
+        or transmit it to the model without the existing document consent.
+        """
+        try:
+            content = self.clipboard_get()
+        except (tk.TclError, UnicodeError):
+            self.notice.configure(text="Schowek nie zawiera dostępnego tekstu.")
+            return
+        if not isinstance(content, str) or not content.strip():
+            self.notice.configure(text="Schowek nie zawiera tekstowego zapytania.")
+            return
+        content = content.strip()
+        current = self.enquiry_editor.get("1.0", "end-1c").strip()
+        combined = current + "\n\n" + content if current and current != content else content
+        try:
+            from app.agent.runtime.navimind_enquiry_inbox import validate_pasted_enquiry
+            validated = validate_pasted_enquiry(combined)
+        except EnquiryInputError:
+            self.notice.configure(text="Tekst ze schowka przekracza limit 100 000 znaków.")
+            return
+        self.enquiry_editor.delete("1.0", "end")
+        self.enquiry_editor.insert("1.0", validated)
+        self.enquiry.set_text(validated)
+        if self.conversation is not None:
+            self._drop_document_consent()
+        self._update_sources()
+        self.notice.configure(
+            text="Tekst ze schowka skopiowany lokalnie. Nie został wysłany do modelu."
+        )
 
     def _save_enquiry(self):
         text = self.enquiry_editor.get("1.0", "end-1c")
@@ -503,7 +795,7 @@ class NaviMindMainWorkspace(tk.Frame):
             messagebox.showwarning("Treść zapytania", str(exc), parent=self)
             return
         if self.conversation is not None:
-            self.conversation.revoke_document_context()
+            self._drop_document_consent()
         self._update_sources()
         self.notice.configure(text="Zapytanie zapisane lokalnie. Udostępnij je AI tylko świadomie.")
 
@@ -520,7 +812,7 @@ class NaviMindMainWorkspace(tk.Frame):
             messagebox.showwarning("PDF nieodczytany", str(exc), parent=self)
             return
         if self.conversation is not None:
-            self.conversation.revoke_document_context()
+            self._drop_document_consent()
         self._update_sources()
         if source.needs_ocr or source.truncated:
             self.notice.configure(
@@ -574,6 +866,16 @@ class NaviMindMainWorkspace(tk.Frame):
             return
         self._refresh_messages()
         if self.conversation is not None:
+            pending = self.conversation.take_pending_document_approval()
+            if pending is not None:
+                self._handle_model_document_consent(pending)
+            approved = self.conversation.document_context_active()
+            self.document_approval_indicator.configure(
+                text=("AI: dokument udostępniony w tej sesji"
+                      if approved else
+                      "AI: dokument lokalny — kliknij „Przeanalizuj dokument w NaviMind”"),
+                fg=GREEN if approved else GOLD,
+            )
             status = self.conversation.status()
             if status.active:
                 self.notice.configure(text="NaviMind przygotowuje odpowiedź…")

@@ -18,15 +18,27 @@ if str(ROOT) not in sys.path:
 from app.agent.learning.windowhub_demonstration import stage_of
 from app.agent.perception.windowhub_semantic_world import enrich_windowhub_scene
 from app.agent.runtime.windowhub_window_activation import activate_windowhub_workflow_window
-from app.agent.runtime.windows_desktop_agent_control_loop import create_windows_desktop_agent_control_loop
 from app.agent.perception.windowhub_ui_automation_provider import WindowHubUIAutomationProvider
 
 
 def resolve_native_wrapper(
-    scene, *, label, automation_id=None, allowed_stages=(), desktop=None, kind="button"
+    scene, *, label, automation_id=None, allowed_stages=(), desktop=None, kind="button",
+    exact_customer_picker_id=False,
 ):
-    """Re-identify a unique foreground native control by role and UIA identity."""
+    """Re-identify a unique foreground native control by role and UIA identity.
+
+    The sole exact-ID exception is the WindowHub customer lookup button.
+    Its UIA Name is not the semantic text used in the local plan; identity,
+    HWND/foreground, type, geometry and native readback remain mandatory.
+    """
     from pywinauto import Desktop
+    if exact_customer_picker_id and not (
+        label == "Wybierz istniejącego klienta"
+        and automation_id == "IDC_ZAMAWIAJACY"
+        and tuple(allowed_stages) == ("document_properties",)
+        and kind == "button"
+    ):
+        raise ValueError("exact_customer_picker_scope_forbidden")
     if stage_of(scene) not in allowed_stages:
         raise ValueError("unexpected_windowhub_stage")
     meta = scene.observation.metadata
@@ -41,7 +53,10 @@ def resolve_native_wrapper(
         raise ValueError("windowhub_not_foreground")
     elements = [
         e for e in scene.elements
-        if (e.metadata or {}).get("semantic_label", e.label) == label
+        if (
+            exact_customer_picker_id
+            or (e.metadata or {}).get("semantic_label", e.label) == label
+        )
         and e.kind == kind
         and (e.metadata or {}).get("source") in
             {"windows_ui_automation", "windowhub_ui_automation"}
@@ -56,6 +71,12 @@ def resolve_native_wrapper(
         raise ValueError("native_target_not_unique_or_wrong_role")
     target = elements[0]
     expected = target.metadata or {}
+    if exact_customer_picker_id and (
+        expected.get("automation_id") != "IDC_ZAMAWIAJACY"
+        or expected.get("uia_control_type") != "button"
+        or not expected.get("uia_runtime_id")
+    ):
+        raise ValueError("customer_picker_native_identity_unverified")
     origin = meta.get("window_rect")
     if origin is None:
         raise ValueError("window_rect_missing")
@@ -128,6 +149,9 @@ def main(argv=None):
     print("AUTO_ACTIVATION =", ok)
     if not ok:
         return 3
+    from app.agent.runtime.windows_desktop_agent_control_loop import (
+        create_windows_desktop_agent_control_loop,
+    )
     loop = create_windows_desktop_agent_control_loop()
     scene = enrich_windowhub_scene(loop.observe_scene())
     print("BEFORE_STAGE =", stage_of(scene))

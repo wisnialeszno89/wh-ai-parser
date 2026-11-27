@@ -3,14 +3,14 @@
 This is a policy gate for a native desktop input dispatcher, not an OS-wide
 mouse/keyboard hook. A host must route ALL agent input through dispatch()
 and expose takeover/release controls to the operator. Human takeover signals
-intent immediately and waits for any already-running atomic action to finish.
+intent immediately. An already-running atomic action may finish.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
 from secrets import token_urlsafe
-from threading import Event, RLock
+from threading import Event, Lock, RLock
 from typing import Callable, TypeVar
 
 T = TypeVar("T")
@@ -39,12 +39,13 @@ class LocalInputArbiter:
     Only the host can call agent dispatch. The human can request takeover
     even during model reasoning: that immediately sets the takeover signal.
     All queued permits are invalidated by the next epoch; none can be reused.
-    During a native operation, takeover waits for the atomic dispatch to end
-    rather than interrupting a half-complete keyboard or mouse operation.
+    Native dispatch is serialized separately. A blocked Windows call cannot
+    hold the ownership lock or freeze the control panel.
     """
 
     def __init__(self) -> None:
         self._lock = RLock()
+        self._native_dispatch = Lock()
         self._takeover_requested = Event()
         self._owner = InputOwner.AGENT
         self._epoch = 0
@@ -53,7 +54,7 @@ class LocalInputArbiter:
         self._reobservation_required = True
 
     def takeover(self) -> int:
-        """Signal immediately; then acquire control after any atomic action."""
+        """Revoke permits immediately without waiting for native code."""
         self._takeover_requested.set()
         with self._lock:
             self._epoch += 1
@@ -111,22 +112,38 @@ class LocalInputArbiter:
                 and permit.nonce == self._permit_nonce
             )
 
-    def dispatch(self, permit: ActionPermit, operation: Callable[[], T]) -> T:
-        """Run one atomic native-operation callback only with current permit.
-
-        Holding the lock prevents an ownership transition from occurring
-        mid-callback. An urgent human takeover request is visible before
-        lock acquisition; it prevents queued calls from beginning. Input
-        stays under the original executor's semantic and safety policies.
-        """
+    def _run_native(self, operation: Callable[[], T], validate: Callable[[], bool],
+                    denied: str) -> T:
         if self._takeover_requested.is_set():
             raise InputDenied("human_takeover_requested")
-        with self._lock:
-            if not self.permit_current(permit):
-                raise InputDenied("stale_or_unverified_input_permit")
-            if self._takeover_requested.is_set():
-                raise InputDenied("human_takeover_requested")
+        if not self._native_dispatch.acquire(blocking=False):
+            raise InputDenied("native_dispatch_in_progress")
+        try:
+            if not validate():
+                raise InputDenied(denied)
             return operation()
+        finally:
+            self._native_dispatch.release()
+
+    def dispatch(self, permit: ActionPermit, operation: Callable[[], T]) -> T:
+        """Run one authorized callback without holding the ownership lock."""
+        return self._run_native(
+            operation, lambda: self.permit_current(permit), "stale_or_unverified_input_permit",
+        )
+
+    def pending_navigation_current(self, epoch: int) -> bool:
+        with self._lock:
+            return (
+                not self._takeover_requested.is_set() and self._owner == InputOwner.AGENT
+                and self._epoch == epoch and self._reobservation_required
+                and self._document_key is None
+            )
+
+    def dispatch_pending_navigation(self, epoch: int, operation: Callable[[], T]) -> T:
+        """Authorize the local Start1 activation broker before document proof."""
+        return self._run_native(
+            operation, lambda: self.pending_navigation_current(epoch), "pending_navigation_epoch_changed",
+        )
 
     @property
     def owner(self) -> InputOwner:

@@ -18,3 +18,5 @@ tree.txt
 .mypy_cache/
 .venv-offer-lab/
 .artifacts/
+
+.env.navimind-*.tmp

@@ -1,5 +1,6 @@
 """Factory for the application-neutral Windows desktop control loop."""
 
+from collections.abc import Callable
 import os
 
 from app.agent.execution.default_executors import (
@@ -19,6 +20,7 @@ from app.agent.perception.windows_screen_text_provider import (
 from app.agent.perception.windows_desktop_window_provider import (
     WindowsDesktopWindowProvider,
 )
+from app.agent.perception.screen_scene import ScreenScene
 from app.agent.reasoning.plan_reasoner import PlanReasoner
 from app.agent.runtime.agent_control_loop import AgentControlLoop
 from app.agent.runtime.default_agent_control_loop import (
@@ -33,6 +35,8 @@ from app.runtime.execution.robot_action_executor import (
 def create_windows_desktop_agent_control_loop(
     *,
     plan_reasoner: PlanReasoner | None = None,
+    semantic_only: bool = False,
+    scene_reader: Callable[[], ScreenScene] | None = None,
 ) -> AgentControlLoop:
     """Create one generic Windows desktop observe/act/verify loop.
 
@@ -45,7 +49,7 @@ def create_windows_desktop_agent_control_loop(
         else RobotExecutionMode.DRY_RUN
     )
 
-    environment = WindowsDesktopEnvironmentAdapter()
+    environment = WindowsDesktopEnvironmentAdapter(capture_pixels=not semantic_only)
     robot_gui_executor = RobotGUIExecutor(
         robot_action_executor=RobotActionExecutor(
             mode=execution_mode,
@@ -64,7 +68,8 @@ def create_windows_desktop_agent_control_loop(
             # even when a foreground application exposes a very large UIA tree.
             WindowsDesktopWindowProvider(),
             WindowsUIAutomationProvider(),
-            WindowsScreenTextProvider(),
+            *((WindowsScreenTextProvider(),) if not semantic_only else ()),
         ),
         plan_reasoner=plan_reasoner,
+        scene_reader=scene_reader,
     )

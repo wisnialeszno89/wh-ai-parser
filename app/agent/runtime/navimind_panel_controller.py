@@ -77,7 +77,11 @@ class NaviMindPanelController:
                                        "Po wznowieniu trzeba ponownie odczytać program i dokument."),
             PanelMode.AGENT_READY: ("Gotowy do pracy",
                                     "Dokument sprawdzony. Działania nadal podlegają zabezpieczeniom V2."),
-            PanelMode.LEARNING: ("Tryb nauki", "Pokaż czynność ręcznie. Nagrywanie nie jest jeszcze podłączone."),
+            PanelMode.LEARNING: (
+                "Tryb nauki",
+                "Pokaż czynność ręcznie w WindowHub. Zapamiętuję lokalne "
+                "zmiany etapów UIA bez danych klientów, bez nadawania uprawnień.",
+            ),
             PanelMode.STOPPED: ("Zadanie zatrzymane", "Tego zadania nie można wznowić starym planem."),
         }[self.mode]
         return PanelSnapshot(
@@ -87,7 +91,7 @@ class NaviMindPanelController:
             can_resume=self.mode in (PanelMode.HUMAN, PanelMode.LEARNING),
             can_takeover=self.mode in (PanelMode.RESUME_PENDING, PanelMode.AGENT_READY),
             can_stop=self.mode != PanelMode.STOPPED,
-            can_learn=self.mode == PanelMode.HUMAN,
+            can_learn=self.mode in (PanelMode.HUMAN, PanelMode.LEARNING),
             document_label=self.document_label,
             revision=self.revision,
         )
@@ -131,6 +135,10 @@ class NaviMindPanelController:
         return self._notify()
 
     def training(self) -> PanelSnapshot:
+        if self.mode == PanelMode.LEARNING:
+            # Toggle only changes local state; connected host may now
+            # finalize in-memory observations. Never grants native control.
+            return self.takeover()
         if self.mode != PanelMode.HUMAN:
             return self.snapshot()
         self._active_permit = None

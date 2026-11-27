@@ -103,7 +103,7 @@ def test_training_mode_is_human_owned_and_does_not_start_recording():
     assert view.mode == PanelMode.LEARNING
     assert view.human_controls
     assert panel.current_permit() is None
-    assert "Nagrywanie nie jest jeszcze podłączone" in view.detail
+    assert "Zapamiętuję lokalne" in view.detail
 
 
 def test_training_cannot_start_while_agent_ready():

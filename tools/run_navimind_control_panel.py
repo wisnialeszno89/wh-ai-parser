@@ -208,19 +208,22 @@ class NaviMindPanel(tk.Tk):
         ).pack(anchor="w", pady=(6, 0))
 
     def mount_main_workspace(self, *, chat, conversation, enquiry=None,
-                             discover_windowhub=None):
+                             discover_windowhub=None, on_document_revoke=None,
+                             current_work_continuation=None):
         """Make chat and local enquiry intake part of the main control panel.
 
         Standalone demo mode keeps the historic compact view. The shared
         WindowHub host uses this larger layout but remains observation-only.
         """
         from tools.navimind_main_workspace import NaviMindMainWorkspace
-        self.geometry("1280x830")
-        self.minsize(1080, 740)
+        self.geometry("1280x910")
+        self.minsize(1080, 800)
         self.resizable(True, True)
         self.main_workspace = NaviMindMainWorkspace(
             self.main_area, chat=chat, conversation=conversation,
             enquiry=enquiry, discover_windowhub=discover_windowhub,
+            on_document_revoke=on_document_revoke,
+            current_work_continuation=current_work_continuation,
         )
         self.main_workspace.pack(side="left", fill="both", expand=True)
         return self.main_workspace
@@ -261,6 +264,8 @@ class NaviMindPanel(tk.Tk):
         self.primary.set_enabled(state.can_takeover)
         self.secondary.set_enabled(state.can_resume)
         self.training_btn.configure(
+            text=("■  Zakończ naukę" if state.mode == PanelMode.LEARNING
+                  else "✦  Tryb nauki"),
             state="normal" if state.can_learn else "disabled"
         )
         self.stop_btn.configure(

@@ -20,7 +20,6 @@ if str(ROOT) not in sys.path:
 from app.agent.learning.windowhub_demonstration import stage_of
 from app.agent.perception.windowhub_semantic_world import enrich_windowhub_scene
 from app.agent.runtime.windowhub_window_activation import activate_windowhub_workflow_window
-from app.agent.runtime.windows_desktop_agent_control_loop import create_windows_desktop_agent_control_loop
 from app.agent.offers.windowhub_customer_search_action import type_directly_into_customer_lookup
 from app.agent.offers.windowhub_customer_result_selection import canonical_customer_name
 from app.agent.offers.windowhub_document_properties_action import (
@@ -34,6 +33,13 @@ from app.agent.offers.windowhub_offer_form_map import WindowHubOfferFormMap
 from app.agent.offers.windowhub_offer_form_plan import WindowHubPlannedField, WindowHubPlanHandling
 from app.agent.offers.windowhub_wizard_navigation import WindowHubPositionToDimensionsPlanner
 from tools.run_windowhub_new_offer_native_invoke_once import resolve_native_control, resolve_native_wrapper
+
+def create_windows_desktop_agent_control_loop():
+    from app.agent.runtime.windows_desktop_agent_control_loop import (
+        create_windows_desktop_agent_control_loop as create_loop,
+    )
+    return create_loop()
+
 
 CUSTOMER = "Top Trans"
 EXCLUSIONS = (

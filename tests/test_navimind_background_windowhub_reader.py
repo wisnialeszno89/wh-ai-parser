@@ -70,7 +70,21 @@ def test_ignores_foreground_browser_and_minimized_wh():
         inventory=[foreign, minimized],
         desktop_factory=lambda: (_ for _ in ()).throw(AssertionError()),
     )
-    assert "Nie znalazłem niezminimalizowanego" in output
+    assert "WindowHub działa, ale jego okno jest zminimalizowane" in output
+    assert "Nie kliknąłem ani niczego nie zapisałem" in output
+    assert "private Facebook" not in output
+
+
+def test_minimized_windowhub_explains_automatic_recovery_without_claiming_input():
+    minimized = window(minimized=True)
+    response = inspect_windowhub_background(
+        inventory=[minimized],
+        desktop_factory=lambda: (_ for _ in ()).throw(AssertionError()),
+    )
+    assert "zminimalizowane" in response
+    assert "kontynuować analizę" in response
+    assert "Wznów pracę" in response
+    assert "Nie kliknąłem" in response
 
 
 def test_multiple_windowhub_windows_does_not_leak_customer_titles():
@@ -120,4 +134,4 @@ def test_host_registers_background_inspector_as_ai_tool():
     assert '"inspect_windowhub": ReadOnlyTool(' in text
     assert "inspect_windowhub_background()" in text
     assert "pythoncom.CoInitialize()" in text
-    assert "NAVIMIND_V2_EXECUTOR_CONNECTED=False" in text
+    assert 'NAVIMIND_V2_NATIVE_INPUT_ARMED=' in text

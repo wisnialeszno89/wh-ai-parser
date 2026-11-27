@@ -47,14 +47,16 @@ def nearby_lookup(rect: tuple[int, int, int, int], picker: tuple[int, int, int, 
 
 
 def exact_customer_candidates(candidates: list[Candidate], customer_name: str,
-                              picker_rect: tuple[int, int, int, int]) -> list[int]:
+                              picker_rect: tuple[int, int, int, int], *, allow_name_reordering=False) -> list[int]:
     """Return candidate indices only for an exact unique non-editor match."""
     expected = canonical_customer_name(customer_name)
     return [
         i for i, candidate in enumerate(candidates)
         if candidate.visible and candidate.enabled
         and candidate.role.casefold() in SELECTABLE_ROLES
-        and canonical_customer_name(candidate.name) == expected
+        and customer_identity_matches(
+            candidate.name, expected, allow_name_reordering=allow_name_reordering,
+        )
         and nearby_lookup(candidate.rect, picker_rect)
         # Text displayed INSIDE the editor is the typed query, not a row.
         and candidate.rect[1] >= picker_rect[3]
@@ -85,11 +87,61 @@ def customer_name_has_reordered_words(label: str, query: str) -> bool:
     )
 
 
+def customer_identity_matches(label, expected, *, allow_name_reordering=False) -> bool:
+    actual = canonical_customer_name(label)
+    expected = canonical_customer_name(expected)
+    return bool(expected) and (
+        actual == expected
+        or (allow_name_reordering and customer_name_has_reordered_words(actual, expected))
+    )
+
+
+
+def rank_draft_customer_candidates(candidates, requested, picker_rect):
+    """Return one strong draft candidate or a short list for the operator."""
+    from difflib import SequenceMatcher
+
+    wanted = canonical_customer_name(requested)
+    words = wanted.split()
+    exact = exact_customer_candidates(
+        candidates, requested, picker_rect, allow_name_reordering=True,
+    )
+    if len(exact) == 1:
+        return exact[0], ()
+    strong, similar = [], []
+    for index, row in enumerate(candidates):
+        if (not row.visible or not row.enabled or row.role.casefold() not in SELECTABLE_ROLES
+                or row.rect[1] < picker_rect[3] or not nearby_lookup(row.rect, picker_rect)):
+            continue
+        name = canonical_customer_name(row.name)
+        if not name or not words:
+            continue
+        actual_words = name.split()
+        extension = len(words) >= 2 and actual_words[:len(words)] == words
+        if extension:
+            strong.append(index)
+        if index in exact or extension or (
+            set(words) & set(actual_words)
+            and SequenceMatcher(None, wanted, name, autojunk=False).ratio() >= .68
+        ):
+            similar.append(index)
+    if not exact and len(strong) == 1 and len(similar) == 1:
+        return strong[0], ()
+    ranked = sorted(similar, key=lambda i: (
+        i not in exact, i not in strong,
+        -SequenceMatcher(None, wanted, canonical_customer_name(candidates[i].name), autojunk=False).ratio(),
+    ))
+    return None, tuple(dict.fromkeys(candidates[i].name for i in ranked))[:3]
+
+
+
 def _customer_name_is_suggestion(label: str, query: str) -> bool:
     return customer_name_completes_query(label, query) or customer_name_has_reordered_words(label, query)
 
 
-def select_exact_customer_result(scene, customer_name: str, *, visible_completions=None) -> tuple[bool, str]:
+def select_exact_customer_result(scene, customer_name: str, *, visible_completions=None,
+                                 strictly_owned=False, allow_name_reordering=False,
+                                 authorization=None, draft_choice=None) -> tuple[bool, str]:
     """Observe visible same-process UIA trees, then click one exact result.
 
     A popup may be a direct/indirect owner of Document Properties, not a direct
@@ -105,6 +157,7 @@ def select_exact_customer_result(scene, customer_name: str, *, visible_completio
             scene, label="Wybierz istniejącego klienta",
             automation_id="IDC_ZAMAWIAJACY",
             allowed_stages=("document_properties",),
+            exact_customer_picker_id=True,
         )
         picker_rect = _rect(picker)
     except Exception as exc:
@@ -125,6 +178,11 @@ def select_exact_customer_result(scene, customer_name: str, *, visible_completio
 
     desktop = Desktop(backend="uia")
     windows = []
+    if strictly_owned:
+        from app.agent.runtime.windowhub_mdi_native_probe import _Win32Mdi
+        from app.agent.runtime.windowhub_new_offer_handoff import owner_chain
+
+        api = _Win32Mdi()
     try:
         document = desktop.window(handle=hwnd).wrapper_object()
         windows.append(document)
@@ -137,7 +195,9 @@ def select_exact_customer_result(scene, customer_name: str, *, visible_completio
                     continue
                 process = wintypes.DWORD()
                 user32.GetWindowThreadProcessId(win_hwnd, ctypes.byref(process))
-                if process.value == expected_pid.value:
+                if process.value == expected_pid.value and (
+                    not strictly_owned or hwnd in owner_chain(win_hwnd, api)
+                ):
                     windows.append(window)
             except Exception:
                 continue
@@ -157,10 +217,28 @@ def select_exact_customer_result(scene, customer_name: str, *, visible_completio
                 role = str(info.control_type or "").casefold()
                 if role not in SELECTABLE_ROLES:
                     continue
+                if strictly_owned and window is document:
+                    ancestor = info.parent
+                    for _ in range(12):
+                        if ancestor is None:
+                            break
+                        if ancestor.automation_id == "IDC_ZAMAWIAJACY":
+                            break
+                        ancestor = ancestor.parent
+                    else:
+                        ancestor = None
+                    if ancestor is None:
+                        continue
                 name = str(info.name or "").strip()
-                if canonical_customer_name(name) != canonical_customer_name(customer_name) and not (
+                if draft_choice is None and not customer_identity_matches(
+                    name, customer_name, allow_name_reordering=allow_name_reordering,
+                ) and not (
                     visible_completions is not None
                     and _customer_name_is_suggestion(name, customer_name)
+                ):
+                    continue
+                if draft_choice is not None and (
+                    not 1 <= len(name) <= 100 or any(ord(ch) < 32 for ch in name)
                 ):
                     continue
                 rect = _rect(node)
@@ -186,8 +264,18 @@ def select_exact_customer_result(scene, customer_name: str, *, visible_completio
                 visible_completions.add(name)
 
     accepted = exact_customer_candidates(
-        [item[1] for item in candidates], customer_name, picker_rect
+        [item[1] for item in candidates], customer_name, picker_rect,
+        allow_name_reordering=allow_name_reordering,
     )
+    if draft_choice is not None:
+        chosen, suggestions = rank_draft_customer_candidates(
+            [item[1] for item in candidates], customer_name, picker_rect,
+        )
+        draft_choice["suggestions"] = suggestions
+        if chosen is not None:
+            accepted = [chosen]
+        elif suggestions:
+            return False, "CUSTOMER_ALTERNATIVES_REQUIRE_CHOICE"
     print("CUSTOMER_EXACT_VISIBLE_MATCHES =", sum(
         canonical_customer_name(item[1].name) == canonical_customer_name(customer_name) for item in candidates
     ))
@@ -201,10 +289,14 @@ def select_exact_customer_result(scene, customer_name: str, *, visible_completio
     user32.GetForegroundWindow.restype = wintypes.HWND
     if int(user32.GetForegroundWindow() or 0) != hwnd:
         return False, "CUSTOMER_DOCUMENT_NOT_FOREGROUND"
+    if authorization is not None and not authorization():
+        return False, "CUSTOMER_AUTHORIZATION_REVOKED"
     try:
         node.click_input()
     except Exception as exc:
         return False, "CUSTOMER_RESULT_CLICK_FAILED_" + type(exc).__name__
+    if draft_choice is not None:
+        draft_choice["selected"] = candidates[accepted[0]][1].name
     return True, "EXACT_CUSTOMER_RESULT_CLICKED_PENDING_DOCUMENT_VERIFICATION"
 
 
@@ -216,6 +308,7 @@ def reveal_customer_results(scene) -> tuple[bool, str]:
             scene, label="Wybierz istniejącego klienta",
             automation_id="IDC_ZAMAWIAJACY",
             allowed_stages=("document_properties",),
+            exact_customer_picker_id=True,
         )
         rect = picker.rectangle()
         if (str(picker.element_info.class_name).casefold() != "lookupedit"

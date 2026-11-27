@@ -1,3 +1,4 @@
+from collections.abc import Callable
 import time
 
 from app.agent.agent_action import AgentAction
@@ -26,6 +27,8 @@ from app.agent.perception.perception_engine import (
     PerceptionEngine,
 )
 
+from app.agent.perception.screen_scene import ScreenScene
+
 from app.agent.verification.expectation_resolver import (
     ExpectationResolver,
 )
@@ -48,6 +51,7 @@ class VerificationLoop:
         expectation_resolver: ExpectationResolver,
         outcome_verifier: OutcomeVerifier,
         max_attempts: int = 2,
+        scene_reader: Callable[[], ScreenScene] | None = None,
     ) -> None:
 
         if max_attempts < 1:
@@ -61,6 +65,7 @@ class VerificationLoop:
         self.expectation_resolver = expectation_resolver
         self.outcome_verifier = outcome_verifier
         self.max_attempts = max_attempts
+        self._scene_reader = scene_reader
 
     def run(
         self,
@@ -119,9 +124,14 @@ class VerificationLoop:
                     for observation_index in range(3 if wait_for_add else 1):
                         if observation_index:
                             time.sleep(0.25)
-                        observation = self.environment.observe()
-                        context.update_observation(observation)
-                        scene = self.perception_engine.perceive(observation)
+                        if self._scene_reader is None:
+                            observation = self.environment.observe()
+                            context.update_observation(observation)
+                            scene = self.perception_engine.perceive(observation)
+                        else:
+                            scene = self._scene_reader()
+                            observation = scene.observation
+                            context.update_observation(observation)
                         context.update_scene(scene)
                         if expected_outcome is None:
                             break

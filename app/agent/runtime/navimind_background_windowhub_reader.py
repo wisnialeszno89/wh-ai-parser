@@ -60,9 +60,28 @@ def inspect_windowhub_background(
         )
     candidates = [w for w in inventory if _is_windowhub(w)]
     if not candidates:
+        minimized = [
+            w for w in inventory
+            if ((getattr(w, "application", "") or "").replace("\\", "/")
+                .rsplit("/", 1)[-1].casefold() == "okna.exe")
+            and getattr(w, "is_visible", False) is True
+            and getattr(w, "is_minimized", False) is True
+        ]
+        if minimized:
+            return (
+                "WindowHub działa, ale jego okno jest zminimalizowane. "
+                "Nie mogę wiarygodnie odczytać kontrolek UIA w tym stanie. "
+                "Mogę kontynuować analizę zapytania i przygotowanie planu "
+                "bez przywracania okna. Po osobnym lokalnym Wznów pracę "
+                "i włączeniu LIVE wykonawca może spróbować sam przywrócić "
+                "jednoznacznie zweryfikowane okno; Windows może odmówić "
+                "przejęcia fokusu. Nie kliknąłem ani niczego nie zapisałem."
+            )
         return (
             "Nie znalazłem niezminimalizowanego okna WindowHub. "
-            "Sprawdź, czy program jest uruchomiony; niczego nie zmieniono."
+            "Mogę nadal analizować zapytanie i przygotować plan, lecz "
+            "do interakcji z programem potrzebuję jego jednoznacznej "
+            "identyfikacji. Niczego nie zmieniono."
         )
     # Observe a small number of HWNDs, never a whole desktop. Native controls
     # can be expensive to inspect inside WindowHub's legacy MDI.
@@ -92,7 +111,10 @@ def inspect_windowhub_background(
         for w in candidates:
             # Verify the HWND still belongs to okna.exe before reading UIA,
             # rather than using a stale inventory handle for another process.
-            if os.name == "nt":
+            if os.name == "nt" and desktop_factory is None:
+                # Production uses native HWND/process identity checks. An
+                # explicitly injected test desktop has synthetic handles and
+                # must be validated against its injected UIA root instead.
                 user32 = ctypes.WinDLL("user32", use_last_error=True)
                 is_window = user32.IsWindow
                 is_window.argtypes = (wintypes.HWND,)
@@ -146,10 +168,22 @@ def inspect_windowhub_background(
     else:
         stage = verified[0][0]
     total = sum(count for _, count in verified)
+    # The aggregate UIA count is not a unique document or safe native
+    # interaction target. Never imply otherwise when multiple HWNDs exist.
+    scope = (
+        "Wykryto wiele okien WindowHub; nie potrafię na podstawie tego "
+        "ograniczonego odczytu jednoznacznie przypisać kontrolek do "
+        "właściwego dokumentu. Wymagana osobna weryfikacja zakresu "
+        "przed sterowaniem."
+        if len(verified) > 1 else
+        "Jedno okno UIA zweryfikowane; nie oznacza to potwierdzenia "
+        "aktywnej oferty ani uprawnienia do sterowania."
+    )
     return (
         "Odczytałem strukturę WindowHub przez UIA bez przełączania aktywnego "
         "okna. Etap: " + stage + "; sprawdzone okna: "
         + str(len(verified)) + "; kontrolki interaktywne (ograniczona "
         "głębokość): " + str(total)
-        + ". Nie odczytałem wartości oferty, nie kliknąłem ani niczego nie zapisałem."
+        + ". " + scope
+        + " Nie odczytałem wartości oferty, nie kliknąłem ani niczego nie zapisałem."
     )

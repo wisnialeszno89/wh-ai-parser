@@ -215,3 +215,165 @@ def test_new_chat_instruction_blocks_old_mission_after_exact_offer_reobserved():
     assert not result.verified
     assert result.reason == "chat_instruction_requires_approved_replan"
     assert host.controller.current_permit() is None
+
+
+
+def prepared_approved_host():
+    from app.agent.runtime.navimind_work_mission import (
+        WorkMissionCoordinator, WorkStage,
+    )
+    host = NaviMindSharedHost("OFR/101")
+    message = host.chat.user_message("Uzupełnij pole szerokość w tej ofercie.")
+    coordinator = WorkMissionCoordinator(host.chat)
+    mission = coordinator.queue_current()
+    coordinator.transition(mission.task_id, WorkStage.READY)
+    assert host.approve_current_work_for_resume(
+        revision=message.mission_revision,
+        task_id=mission.task_id,
+        coordinator=coordinator,
+    )
+    host.release_for_reobservation()
+    assert host.inspect_fresh_scene(make_scene()).verified
+    return host
+
+
+def test_chatted_mission_does_not_bypass_replan_without_operator_resume():
+    from app.agent.runtime.navimind_work_mission import (
+        WorkMissionCoordinator, WorkStage,
+    )
+    host = NaviMindSharedHost("OFR/101")
+    host.chat.user_message("Zmień okno.")
+    coordinator = WorkMissionCoordinator(host.chat)
+    mission = coordinator.queue_current()
+    coordinator.transition(mission.task_id, WorkStage.READY)
+    host.release_for_reobservation()
+    assert not host.inspect_fresh_scene(make_scene()).verified
+    assert host.controller.current_permit() is None
+
+def test_v2_bridge_rejects_unapproved_native_execution_before_observation():
+    host = NaviMindSharedHost("OFR/101")
+    loop = Loop(make_scene())
+    with pytest.raises(InputDenied, match="work_mission_revision_not_operator_approved"):
+        host.execute_one_verified_v2_action(loop, object())
+    assert loop.calls == 0
+
+
+def test_v2_bridge_dispatches_existing_executor_only_with_verified_permit(monkeypatch):
+    from app.agent.runtime import windowhub_goal_v2_coordinator
+    host = prepared_approved_host()
+    old_permit = host.controller.current_permit()
+    called = []
+
+    def verified_executor(loop, scene, resolved, **kwargs):
+        called.append((resolved, kwargs))
+        assert kwargs["expected_offer"] == "OFR/101"
+        assert kwargs["input_permit"] == old_permit
+        assert kwargs["input_arbiter"] is host.controller.arbiter
+        return "verified-step"
+
+    monkeypatch.setattr(
+        windowhub_goal_v2_coordinator, "execute_v2_step", verified_executor
+    )
+    result = host.execute_one_verified_v2_action(Loop(make_scene()), "PLAN")
+    assert result == "verified-step"
+    assert len(called) == 1
+    assert host.controller.current_permit() is None
+    with pytest.raises(InputDenied):
+        host.execute_one_verified_v2_action(Loop(make_scene()), "OLD_PLAN")
+
+
+def test_v2_bridge_rejects_scene_changed_during_reasoning(monkeypatch):
+    from app.agent.runtime import windowhub_goal_v2_coordinator
+    host = prepared_approved_host()
+    monkeypatch.setattr(
+        windowhub_goal_v2_coordinator, "execute_v2_step",
+        lambda *_a, **_k: pytest.fail("unverified action dispatched"),
+    )
+    with pytest.raises(InputDenied):
+        host.execute_one_verified_v2_action(
+            Loop(make_scene(width="2222")), "STALE_PLAN"
+        )
+    assert host.controller.current_permit() is None
+
+
+def test_verified_native_wizard_requires_exact_witnessed_dialog_identity():
+    host = prepared_approved_host()
+    revision = host.chat.snapshot().mission_revision
+    wizard = make_scene(title="Dodawanie nowej pozycji", hwnd=700, include_tab=False)
+    assert host.note_verified_workflow_step(wizard, revision=revision)
+    host.controller.takeover()
+    host.release_for_reobservation()
+    proof = host.inspect_fresh_scene(wizard)
+    assert proof.verified
+    assert proof.reason == "verified_pinned_workflow_dialog"
+    assert proof.document_key == "OFR/101"
+    assert host.controller.current_permit() is not None
+
+
+def test_unwitnessed_dialog_and_changed_window_never_grant_permission():
+    host = prepared_approved_host()
+    host.controller.takeover()
+    host.release_for_reobservation()
+    dialog = make_scene(title="Dodawanie nowej pozycji", hwnd=700, include_tab=False)
+    assert not host.inspect_fresh_scene(dialog).verified
+    host = prepared_approved_host()
+    revision = host.chat.snapshot().mission_revision
+    assert host.note_verified_workflow_step(dialog, revision=revision)
+    host.controller.takeover()
+    host.release_for_reobservation()
+    for scene in (
+        make_scene(title="Dodawanie nowej pozycji", hwnd=701, include_tab=False),
+        make_scene(title="Wielkość okna", hwnd=700, include_tab=False),
+        make_scene(title="Dodawanie nowej pozycji", hwnd=700,
+                   include_tab=False, app="notepad.exe"),
+    ):
+        assert not host.inspect_fresh_scene(scene).verified
+        assert host.controller.current_permit() is None
+
+
+def test_operator_takeover_revokes_wizard_provenance():
+    host = prepared_approved_host()
+    revision = host.chat.snapshot().mission_revision
+    dialog = make_scene(title="Wielkość okna", hwnd=700, include_tab=False)
+    assert host.note_verified_workflow_step(dialog, revision=revision)
+    host.takeover()
+    host.release_for_reobservation()
+    assert not host.inspect_fresh_scene(dialog).verified
+
+
+def test_verified_wizard_v2_executor_does_not_require_offer_caption(monkeypatch):
+    from app.agent.runtime import windowhub_goal_v2_coordinator
+    host = prepared_approved_host()
+    revision = host.chat.snapshot().mission_revision
+    dialog = make_scene(title="Wielkość okna", hwnd=700, include_tab=False)
+    assert host.note_verified_workflow_step(dialog, revision=revision)
+    host.controller.takeover()
+    host.release_for_reobservation()
+    assert host.inspect_fresh_scene(dialog).verified
+    expected = []
+    def fake_executor(_loop, _scene, _resolved, **kwargs):
+        expected.append(kwargs["expected_offer"])
+        return "verified"
+    monkeypatch.setattr(windowhub_goal_v2_coordinator, "execute_v2_step", fake_executor)
+    assert host.execute_one_verified_v2_action(Loop(dialog), "ACTION") == "verified"
+    assert expected == [None]
+
+
+def test_revoked_document_consent_cannot_rearm_prepared_wizard_mission():
+    from app.agent.runtime.navimind_work_mission import (
+        WorkMissionCoordinator, WorkStage,
+    )
+    host = NaviMindSharedHost("OFR/101")
+    host.chat.user_message("Uzupełnij dane z PDF.")
+    consent = [1, "Zatwierdzony PDF: 1500 x 1400"]
+    coordinator = WorkMissionCoordinator(
+        host.chat, document_snapshot_provider=lambda: tuple(consent),
+    )
+    mission = coordinator.queue_current()
+    coordinator.transition(mission.task_id, WorkStage.READY)
+    consent[:] = [2, ""]
+    assert not host.approve_current_work_for_resume(
+        revision=mission.revision, task_id=mission.task_id,
+        coordinator=coordinator,
+    )
+    assert host.controller.current_permit() is None

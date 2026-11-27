@@ -17,6 +17,8 @@ class ReadOnlyTool:
     name: str
     description: str
     run: Callable[[], str]
+    requires_document_consent: bool = False
+    synthesize_result: bool = False
 
 
 @dataclass(frozen=True)
@@ -31,6 +33,16 @@ def tool_catalog_instructions(tools: Mapping[str, ReadOnlyTool]) -> str:
         "- " + tool.name + ": " + tool.description
         for tool in tools.values()
     )
+    work_instruction = (
+        "Jeśli handlowiec prosi o przygotowanie oferty lub pracę w "
+        "WindowHub, wybierz prepare_windowhub_work zamiast deklarować "
+        "że nie masz dostępu. To wyłącznie przekazanie polecenia "
+        "do lokalnego planowania V2; klikanie i zapis wymagają "
+        "odrębnej autoryzacji operatora. "
+        if "prepare_windowhub_work" in tools else
+        "Jeżeli użytkownik prosi o zmianę danych lub uruchomienie programu, "
+        "wyjaśnij ograniczenie, nie udawaj działania. "
+    )
     return (
         "\n\nDECYZJA AI: DOSTĘPNE LOKALNE NARZĘDZIA TYLKO DO ODCZYTU.\n"
         + entries + "\n"
@@ -43,8 +55,7 @@ def tool_catalog_instructions(tools: Mapping[str, ReadOnlyTool]) -> str:
         "nie zwróci wyniku. Nie ma narzędzia do klikania, wpisywania, "
         "uruchamiania aplikacji, zapisu ofert, PowerShell ani napraw Windows. "
         "Nigdy nie umieszczaj własnych komend lub parametrów wykonania. "
-        "Jeżeli użytkownik prosi o zmianę danych lub uruchomienie programu, "
-        "wyjaśnij ograniczenie, nie udawaj działania."
+        + work_instruction
     )
 
 

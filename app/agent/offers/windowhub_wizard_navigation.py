@@ -67,29 +67,9 @@ class WindowHubPositionToDimensionsPlanner:
         if (window_type.element.metadata or {}).get("uia_selected") is not True:
             return self._blocked("The Window product type is not confirmed selected.")
 
-        matches = [
-            element
-            for element in scene.elements
-            if (
-                element.kind == "button"
-                and element.label == "Dalej >"
-                and (element.metadata or {}).get("source") in _UIA_SOURCES
-                and (element.metadata or {}).get("automation_id") == "12324"
-                and (element.metadata or {}).get("uia_control_type") == "button"
-                and (element.metadata or {}).get("uia_enabled") is True
-                and (element.metadata or {}).get("uia_visible") is True
-            )
-        ]
-        if len(matches) != 1 or not self._has_unique_runtime_id(scene, matches[0]):
+        target = verified_windowhub_next_target(scene)
+        if target is None:
             return self._blocked("The exact Next button is missing or ambiguous.")
-
-        target = SemanticTargetQuery(
-            role="button",
-            label="Dalej >",
-            automation_id="12324",
-            uia_runtime_id=matches[0].metadata["uia_runtime_id"],
-            description="WindowHub move from item to dimensions",
-        )
         action = AgentAction(
             name="click_screen_element",
             description="Open the WindowHub dimensions step; do not save or advance further.",
@@ -152,3 +132,32 @@ class WindowHubPositionToDimensionsPlanner:
             status=WindowHubFormActionStatus.BLOCKED,
             reason=reason,
         )
+
+
+def verified_windowhub_next_target(scene: ScreenScene) -> SemanticTargetQuery | None:
+    """Bind the observed standard Next button on the current WindowHub wizard."""
+    matches = [
+        element
+        for element in scene.elements
+        if (
+            element.kind == "button"
+            and element.label == "Dalej >"
+            and (element.metadata or {}).get("source") in _UIA_SOURCES
+            and (element.metadata or {}).get("automation_id") == "12324"
+            and (element.metadata or {}).get("uia_control_type") == "button"
+            and (element.metadata or {}).get("uia_enabled") is True
+            and (element.metadata or {}).get("uia_visible") is True
+        )
+    ]
+    if len(matches) != 1:
+        return None
+    element = matches[0]
+    if not WindowHubPositionToDimensionsPlanner._has_unique_runtime_id(scene, element):
+        return None
+    return SemanticTargetQuery(
+        role="button",
+        label="Dalej >",
+        automation_id="12324",
+        uia_runtime_id=element.metadata["uia_runtime_id"],
+        description="WindowHub wizard Next",
+    )

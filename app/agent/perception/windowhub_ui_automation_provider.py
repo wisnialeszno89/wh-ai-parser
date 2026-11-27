@@ -156,6 +156,58 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
 
         return tuple(elements)
 
+    def perceive_catalogue_bounded(
+        self, observation: EnvironmentObservation, *,
+        max_descendants: int = 350,
+    ) -> tuple[ScreenElement, ...]:
+        """Read current explicitly targeted WH wizard with a strict size cap.
+
+        A complete mapping is never claimed from a truncated UIA tree;
+        missing/slow/oversized dialogs fail closed. No screen capture or input.
+        """
+        if (type(max_descendants) is not int
+                or not 1 <= max_descendants <= 800):
+            raise ValueError("catalogue_uia_limit_invalid")
+        if self._desktop_factory is None and __import__("os").name != "nt":
+            return ()
+        hwnd = observation.metadata.get("window_handle")
+        if type(hwnd) is not int or hwnd <= 0:
+            return ()
+        try:
+            desktop = (
+                self._desktop_factory()
+                if self._desktop_factory is not None
+                else self._default_desktop()
+            )
+            window = self._active_window(
+                desktop, observation, allow_test_factory_fallback=False,
+            )
+            title = observation.state.active_window_title
+            if not title or window.window_text() != title:
+                return ()
+            # A wizard is usually shallow. Do not recursively scan a whole
+            # WindowHub MDI frame if a stale HWND happens to be supplied.
+            descendants = tuple(window.descendants(depth=5))
+            if len(descendants) > max_descendants:
+                return ()
+            rect = observation.metadata.get("window_rect")
+            origin_x = int(getattr(rect, "left", 0))
+            origin_y = int(getattr(rect, "top", 0))
+            labels = self._collect_label_candidates(
+                descendants, origin_x=origin_x, origin_y=origin_y,
+            )
+            results = []
+            for item in descendants:
+                found = self._to_screen_element(
+                    item=item, origin_x=origin_x, origin_y=origin_y,
+                    tracked_objects=(), label_candidates=labels,
+                )
+                if found is not None:
+                    results.append(found)
+            return tuple(results)
+        except Exception:
+            return ()
+
     @staticmethod
     def _default_desktop():
         from pywinauto import Desktop
@@ -872,6 +924,11 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
         )
         ancestor_context = self._ancestor_context(item)
         ancestor_structure = self._ancestor_structure(item)
+        # Separate exact parent-runtime evidence keeps the established,
+        # privacy-safe structural UIA contract backward-compatible.
+        ancestor_runtime_structure = self._ancestor_structure(
+            item, include_runtime=True,
+        )
         document_scope = self._document_scope(item)
         tab_scope = (
             self._tab_scope(item)
@@ -906,6 +963,7 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
             "uia_ancestor_context": ancestor_context,
             # Provider-local structural identity; never a public model target.
             "uia_ancestor_structure": ancestor_structure,
+            "uia_ancestor_runtime_structure": ancestor_runtime_structure,
             "document_scope": document_scope,
             "automation_id": automation_id,
             "uia_control_type": control_type,
@@ -930,6 +988,14 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
             "interaction_capability_confidence": 0.99,
             "semantic_evidence": tuple(evidence),
         }
+
+        if control_type in {"combobox", "listitem", "treeitem"}:
+            # Read-only COM pattern discovery, not an interaction attempt.
+            # Generic capability=CLICKABLE does not prove ExpandCollapse or
+            # SelectionItem is supported by a particular WH catalogue.
+            metadata["uia_native_pattern_support"] = self._native_pattern_support(
+                item, control_type,
+            )
 
         if tracked_id:
             metadata["tracked_object_id"] = tracked_id
@@ -1008,6 +1074,7 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
         item,
         *,
         max_depth: int = 8,
+        include_runtime: bool = False,
     ) -> tuple[dict[str, str | None], ...]:
         """Capture stable UIA parent properties without reading text or values."""
         structure = []
@@ -1026,8 +1093,7 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
 
             try:
                 info = current.element_info
-                structure.append(
-                    {
+                node = {
                         "control_type": (
                             WindowHubUIAutomationProvider._string(
                                 getattr(info, "control_type", None)
@@ -1044,7 +1110,13 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
                             ) or ""
                         ).casefold(),
                     }
-                )
+                if include_runtime:
+                    # Runtime ID is local execution evidence, not a public
+                    # model reference or a generic stable catalogue ID.
+                    node["runtime_id"] = (
+                        WindowHubUIAutomationProvider._runtime_id(current) or ""
+                    )
+                structure.append(node)
             except Exception:
                 break
 
@@ -1289,6 +1361,25 @@ class WindowHubUIAutomationProvider(PerceptionProvider):
                 if isinstance(value, int) and value in (0, 1):
                     return value == 1
         return None
+
+    @staticmethod
+    def _native_pattern_support(item, control_type: str) -> dict[str, bool]:
+        """Discover available native interfaces without invoking or selecting."""
+        if control_type not in {"combobox", "listitem", "treeitem"}:
+            return {}
+        interfaces = (
+            ("expand_collapse", "iface_expand_collapse"),
+            ("selection_item", "iface_selection_item"),
+            ("selection", "iface_selection"),
+            ("value", "iface_value"),
+        )
+        supported = {}
+        for name, attr in interfaces:
+            try:
+                supported[name] = getattr(item, attr, None) is not None
+            except Exception:
+                supported[name] = False
+        return supported
 
     @staticmethod
     def _current_control_value(item) -> str | None:

@@ -60,6 +60,45 @@ def verify_offer_observation(scene: Any, expected_offer: str) -> HostObservation
         return HostObservation(None, "offer_scene_unreadable", "unknown", False)
 
 
+@dataclass(frozen=True)
+class VerifiedWorkflowScope:
+    """Identity of a wizard reached by verified native input from pinned OFR."""
+    document_key: str
+    revision: int
+    stage: str
+    title: str
+    hwnd: int
+
+
+_PINNED_WIZARD_STAGES = frozenset({
+    "position", "dimensions", "basic_parameters", "glazing",
+    "hardware", "modifier", "document_properties",
+})
+
+
+def verify_workflow_scope(scene: Any, scope: VerifiedWorkflowScope | None,
+                          *, expected_offer: str, revision: int) -> HostObservation:
+    """Never recognize an arbitrary dialog by its title alone."""
+    if (scope is None or scope.document_key != expected_offer
+            or scope.revision != revision):
+        return HostObservation(None, "verified_workflow_scope_missing", "unknown", False)
+    try:
+        from app.agent.learning.windowhub_demonstration import stage_of
+        stage = stage_of(scene)
+        state = scene.observation.state
+        app = (state.active_application or "").replace(chr(92), "/").rsplit("/", 1)[-1].casefold()
+        title = (state.active_window_title or "").strip()
+        hwnd = (scene.observation.metadata or {}).get("window_handle")
+        if (stage != scope.stage or stage not in _PINNED_WIZARD_STAGES
+                or app != "okna.exe" or title != scope.title
+                or type(hwnd) is not int or hwnd != scope.hwnd):
+            return HostObservation(None, "verified_workflow_dialog_changed",
+                                   stage or "unknown", False)
+        return HostObservation(expected_offer, "verified_pinned_workflow_dialog", stage, True)
+    except (AttributeError, TypeError, ValueError, KeyError):
+        return HostObservation(None, "verified_workflow_dialog_unreadable", "unknown", False)
+
+
 class NaviMindSharedHost:
     """Read-only stage for actual Windows: one arbiter and one panel.
 
@@ -73,10 +112,24 @@ class NaviMindSharedHost:
         if not isinstance(expected_offer, str) or not expected_offer.strip():
             raise ValueError("expected_offer_required")
         self.expected_offer = expected_offer.strip()
+        from app.agent.runtime.navimind_draft_bootstrap import DRAFT_DOCUMENT_KEY
+        self._draft_phase = (
+            "start" if self.expected_offer == DRAFT_DOCUMENT_KEY else None
+        )
+        self.draft_document_bound_callback: Callable[[str], bool] | None = None
+        self.draft_unnumbered_ready_callback: Callable[[], bool] | None = None
+        self._draft_native_scope: Any = None
+        self._draft_customer_search_attempted = False
+        self._draft_customer_suggestions: tuple[str, ...] = ()
+        self._draft_customer_alternative: str | None = None
+        self._draft_customer_decision: str | None = None
+        self._draft_customer_attested_revision: int | None = None
         self.controller = controller or NaviMindPanelController()
         self.controller.connect_host()
         self._accepted_scene: Any = None
         self.last_reason = "human_control_default"
+        self._approved_work_revision: int | None = None
+        self._workflow_scope: VerifiedWorkflowScope | None = None
         self.chat = MissionChat(
             document_key=self.expected_offer,
             arbiter=self.controller.arbiter,
@@ -95,10 +148,124 @@ class NaviMindSharedHost:
                                    "unknown", False)
         # A user message is not merely a pause: it creates a new mission
         # revision. Re-observing the same offer cannot authorize an old plan.
-        if self.chat.snapshot().requires_replan:
+        if (self.chat.snapshot().requires_replan
+                and self._approved_work_revision
+                != self.chat.snapshot().mission_revision):
             return HostObservation(None, "chat_instruction_requires_approved_replan",
                                    "unknown", False)
         result = verify_offer_observation(scene, self.expected_offer)
+        if self._draft_phase is not None:
+            from app.agent.runtime.navimind_draft_bootstrap import (
+                DRAFT_DOCUMENT_KEY, verify_draft_start, draft_offer_candidate,
+            )
+            if self._draft_phase == "start":
+                check = verify_draft_start(scene)
+                result = HostObservation(
+                    DRAFT_DOCUMENT_KEY if check.valid else None,
+                    check.reason, check.stage, check.valid,
+                )
+            elif self._draft_phase == "awaiting_start_properties":
+                from app.agent.runtime.navimind_draft_bootstrap import bind_started_draft_properties
+                from app.agent.runtime.windowhub_mdi_native_probe import _Win32Mdi
+
+                revision = self.chat.snapshot().mission_revision
+                if bind_started_draft_properties(scene, self, revision=revision, native_api=_Win32Mdi()):
+                    result = verify_workflow_scope(
+                        scene, self._workflow_scope, expected_offer=DRAFT_DOCUMENT_KEY,
+                        revision=revision,
+                    )
+                else:
+                    result = HostObservation(None, "awaiting_owned_draft_properties", "unknown", False)
+            elif self._draft_phase in {"awaiting_customer_selection", "awaiting_confirmed_draft"}:
+                # Exactly one native new-document transaction must link
+                # Start1, properties, customer and now the selected offer.
+                # Unsaved offers may open the position wizard BEFORE
+                # WindowHub allocates any OFR number.
+                from app.agent.runtime.navimind_draft_bootstrap import (
+                    verified_new_offer_from_native_transaction,
+                    verified_unnumbered_position_from_native_transaction,
+                )
+                candidate = verified_new_offer_from_native_transaction(
+                    scene, self._draft_native_scope,
+                )
+                if (candidate is not None
+                        and self.draft_document_bound_callback is not None
+                        and self.draft_document_bound_callback(candidate)):
+                    self.expected_offer = candidate
+                    self.chat.document_key = candidate
+                    self._draft_phase = None
+                    self._draft_native_scope = None
+                    self._workflow_scope = None
+                    result = verify_offer_observation(scene, candidate)
+                elif (
+                    verified_unnumbered_position_from_native_transaction(
+                        scene, self._draft_native_scope, entry=True,
+                    )
+                    and self.draft_unnumbered_ready_callback is not None
+                    and self.draft_unnumbered_ready_callback()
+                ):
+                    self._draft_phase = "unsaved_position"
+                    self._workflow_scope = VerifiedWorkflowScope(
+                        DRAFT_DOCUMENT_KEY,
+                        self.chat.snapshot().mission_revision,
+                        "position",
+                        (scene.observation.state.active_window_title or "").strip(),
+                        scene.observation.metadata["window_handle"],
+                    )
+                    result = HostObservation(
+                        DRAFT_DOCUMENT_KEY, "verified_native_unsaved_position",
+                        "position", True,
+                    )
+                else:
+                    result = HostObservation(
+                        None, "draft_customer_or_new_offer_not_verified",
+                        "unknown", False,
+                    )
+            elif self._draft_phase == "properties":
+                result = verify_workflow_scope(
+                    scene, self._workflow_scope,
+                    expected_offer=DRAFT_DOCUMENT_KEY,
+                    revision=self.chat.snapshot().mission_revision,
+                )
+                if result.stage != "document_properties":
+                    result = HostObservation(
+                        None, "draft_properties_scope_required", "unknown", False,
+                    )
+            elif self._draft_phase == "unsaved_position":
+                from app.agent.runtime.navimind_draft_bootstrap import (
+                    verified_unnumbered_position_from_native_transaction,
+                )
+                follows = (
+                    self._workflow_scope.hwnd
+                    if self._workflow_scope is not None else None
+                )
+                if verified_unnumbered_position_from_native_transaction(
+                    scene, self._draft_native_scope,
+                    previous_hwnd=follows,
+                ):
+                    from app.agent.learning.windowhub_demonstration import stage_of
+                    current_stage = stage_of(scene)
+                    self._workflow_scope = VerifiedWorkflowScope(
+                        DRAFT_DOCUMENT_KEY,
+                        self.chat.snapshot().mission_revision,
+                        current_stage,
+                        (scene.observation.state.active_window_title or "").strip(),
+                        scene.observation.metadata["window_handle"],
+                    )
+                    result = HostObservation(
+                        DRAFT_DOCUMENT_KEY, "native_unsaved_draft_wizard",
+                        current_stage, True,
+                    )
+                else:
+                    result = HostObservation(
+                        None, "draft_native_wizard_changed", "unknown", False,
+                    )
+        elif not result.verified:
+            result = verify_workflow_scope(
+                scene, self._workflow_scope,
+                expected_offer=self.expected_offer,
+                revision=self.chat.snapshot().mission_revision,
+            )
         self.last_reason = result.reason
         if not result.verified:
             return result
@@ -109,12 +276,108 @@ class NaviMindSharedHost:
         )
         return result
 
+    def note_verified_workflow_step(self, scene: Any, *, revision: int) -> bool:
+        """Store exact dialog identity only after V2 verified an action."""
+        if (revision != self._approved_work_revision
+                or revision != self.chat.snapshot().mission_revision):
+            return False
+        try:
+            from app.agent.learning.windowhub_demonstration import stage_of
+            stage = stage_of(scene)
+            if stage == "offer_document":
+                proof = verify_offer_observation(scene, self.expected_offer)
+                if not proof.verified:
+                    return False
+                self._workflow_scope = None
+                return True
+            if stage not in _PINNED_WIZARD_STAGES:
+                return False
+            if self._draft_phase == "unsaved_position":
+                from app.agent.runtime.navimind_draft_bootstrap import (
+                    verified_unnumbered_position_from_native_transaction,
+                )
+                follows = (
+                    self._workflow_scope.hwnd
+                    if self._workflow_scope is not None else None
+                )
+                if not verified_unnumbered_position_from_native_transaction(
+                    scene, self._draft_native_scope,
+                    previous_hwnd=follows,
+                ):
+                    return False
+            state = scene.observation.state
+            app = (state.active_application or "").replace(chr(92), "/").rsplit("/", 1)[-1].casefold()
+            title = (state.active_window_title or "").strip()
+            hwnd = (scene.observation.metadata or {}).get("window_handle")
+            if (app != "okna.exe" or not title or type(hwnd) is not int
+                    or hwnd <= 0):
+                return False
+            self._workflow_scope = VerifiedWorkflowScope(
+                self.expected_offer, revision, stage, title, hwnd
+            )
+            return True
+        except (AttributeError, TypeError, ValueError, KeyError):
+            return False
+
+    def approve_current_work_for_resume(self, *, revision: int,
+                                        task_id: str, coordinator: Any) -> bool:
+        """Called only on a local operator resume click, never by the model."""
+        item = coordinator.current()
+        if (item is None or not coordinator.is_current(item)
+                or item.revision != revision
+                or item.task_id != task_id
+                or self.chat.snapshot().mission_revision != revision
+                or item.document_key != self.expected_offer):
+            return False
+        from app.agent.runtime.navimind_work_mission import (
+            REOBSERVABLE_WORK_PAUSES, WorkStage,
+        )
+        if item.stage not in {WorkStage.READY, WorkStage.PAUSED}:
+            return False
+        if item.stage == WorkStage.PAUSED and item.reason not in REOBSERVABLE_WORK_PAUSES:
+            return False
+        self._approved_work_revision = revision
+        return True
+
+    def pause_work_input(self) -> None:
+        """Revoke input without forgetting the last verified native scope."""
+        self._approved_work_revision = None
+        self.controller.takeover()
+        self._accepted_scene = None
+
+    def pause_for_draft_customer(self) -> None:
+        """Give the operator control of the verified draft's customer picker."""
+        if (self._draft_phase != "awaiting_customer_selection"
+                or self._draft_native_scope is None):
+            self.takeover()
+            return
+        self.pause_work_input()
+        self._workflow_scope = None
+        self.last_reason = "manual_customer_selection_pending"
+
     def takeover(self) -> None:
+        self._approved_work_revision = None
+        self._workflow_scope = None
+        # Explicit manual takeover or PDF revocation invalidates all draft
+        # ancestry. Only the controlled picker handoff may retain it.
+        self._draft_native_scope = None
+        self._draft_customer_search_attempted = False
+        self._draft_customer_suggestions = ()
+        self._draft_customer_alternative = None
+        self._draft_customer_decision = None
+        self._draft_customer_attested_revision = None
+        if self._draft_phase is not None:
+            # Starting a new chat mission after human takeover must
+            # begin from a fresh Start1, never an orphaned picker dialog.
+            self._draft_phase = "start"
         self.controller.takeover()
         self._accepted_scene = None
         self.last_reason = "human_takeover"
 
     def stop(self) -> None:
+        self._approved_work_revision = None
+        self._workflow_scope = None
+        self._draft_native_scope = None
         self.controller.stop()
         self._accepted_scene = None
         self.last_reason = "task_cancelled"
@@ -184,3 +447,72 @@ class NaviMindSharedHost:
             self._accepted_scene = None
             raise InputDenied(comparison.reason)
         return self.controller.arbiter.dispatch(permit, operation)
+
+    def execute_draft_start_once(self, loop: Any, *, revision: int):
+        """Native Start1 action under the identical single-use input arbiter."""
+        from app.agent.runtime.navimind_draft_bootstrap import (
+            safe_native_start_action,
+        )
+        return safe_native_start_action(loop, self, mission_revision=revision)
+
+    def execute_draft_customer_picker_once(self, loop: Any, *, revision: int):
+        """Open exact known picker, never guess or mutate a customer record."""
+        from app.agent.runtime.navimind_draft_bootstrap import (
+            safe_native_open_customer_picker,
+        )
+        return safe_native_open_customer_picker(
+            loop, self, mission_revision=revision,
+        )
+
+    def execute_one_verified_v2_action(
+        self, loop: Any, resolved: Any, *, approved_persistent: bool = False,
+    ) -> Any:
+        """Native V2 bridge: exactly one preapproved step, with local arbiter.
+
+        This is for a trusted local task coordinator, not a remote model
+        tool. The operator must already have resumed the exact OFR document.
+        The permit is consumed whether execution succeeds or fails; the next
+        step requires a new observation and human ownership handshake.
+        """
+        permit = self.controller.current_permit()
+        baseline = self._accepted_scene
+        if self._approved_work_revision != self.chat.snapshot().mission_revision:
+            raise InputDenied("work_mission_revision_not_operator_approved")
+        if permit is None or baseline is None:
+            raise InputDenied("no_shared_host_agent_permission")
+        if permit.document_key != self.expected_offer:
+            raise InputDenied("v2_offer_permit_mismatch")
+        from app.agent.runtime.navimind_v2_preaction_scene_guard import (
+            verify_preaction_scene,
+        )
+        from app.agent.runtime.windowhub_goal_v2_coordinator import (
+            execute_v2_step,
+        )
+        try:
+            comparison, scene = verify_preaction_scene(loop, baseline)
+            if not comparison.safe:
+                raise InputDenied(comparison.reason)
+            proof = verify_offer_observation(scene, self.expected_offer)
+            if not proof.verified:
+                proof = verify_workflow_scope(
+                    scene, self._workflow_scope,
+                    expected_offer=self.expected_offer,
+                    revision=self.chat.snapshot().mission_revision,
+                )
+            if not proof.verified:
+                raise InputDenied(proof.reason)
+            return execute_v2_step(
+                loop, scene, resolved,
+                approved_persistent=approved_persistent,
+                expected_offer=(self.expected_offer
+                                if proof.stage == "offer_document" else None),
+                pre_model_scene=baseline,
+                input_arbiter=self.controller.arbiter,
+                input_permit=permit,
+            )
+        finally:
+            # A newly created dialog, changed MDI state or human input makes
+            # all old semantic references and permits stale.
+            self.controller.arbiter.invalidate_observation()
+            self._accepted_scene = None
+            self.last_reason = "v2_step_requires_fresh_reobservation"

@@ -10,16 +10,21 @@ history is bounded and stale model replies are rejected by MissionChat.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import json
 import os
-from typing import Any, Callable, Protocol
+from typing import Any, Callable, Protocol, Mapping
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
 from urllib.request import Request, build_opener, HTTPSHandler, HTTPRedirectHandler
 import ssl
 
 from app.agent.runtime.navimind_mission_chat import ChatState, MessageRole
+
+
+CHAT_CONFIG_KEYS = ("NAVIMIND_CHAT_URL", "NAVIMIND_CHAT_MODEL", "NAVIMIND_CHAT_API_KEY")
+VERCEL_GATEWAY_CHAT_URL = "https://ai-gateway.vercel.sh/v1/chat/completions"
+DEFAULT_GATEWAY_MODEL = "openai/gpt-4.1-mini"
 
 
 class ChatProvider(Protocol):
@@ -53,7 +58,7 @@ def safe_gateway_http_error(status: int) -> str:
 class ChatConfig:
     url: str
     model: str
-    api_key: str
+    api_key: str = field(repr=False)
     timeout_seconds: float = 18.0
 
     def __post_init__(self):
@@ -66,17 +71,27 @@ class ChatConfig:
             raise ValueError("chat_model_required")
         if not self.api_key.strip():
             raise ValueError("chat_api_key_required")
+        if any(ch.isspace() for ch in self.api_key):
+            raise ValueError("chat_api_key_requires_raw_token")
+        if parts.hostname == "ai-gateway.vercel.sh" and "/" not in self.model:
+            raise ValueError("chat_gateway_model_requires_provider_prefix")
         if not 1 <= self.timeout_seconds <= 30:
             raise ValueError("invalid_chat_timeout")
 
     @classmethod
+    def from_values(cls, values: Mapping[str, str | None]) -> "ChatConfig | None":
+        fields = tuple((values.get(key) or "").strip() for key in CHAT_CONFIG_KEYS)
+        return cls(*fields) if all(fields) else None
+
+    @classmethod
     def from_environment(cls) -> "ChatConfig | None":
-        url = os.environ.get("NAVIMIND_CHAT_URL", "").strip()
-        model = os.environ.get("NAVIMIND_CHAT_MODEL", "").strip()
-        key = os.environ.get("NAVIMIND_CHAT_API_KEY", "").strip()
-        if not all((url, model, key)):
-            return None
-        return cls(url, model, key)
+        from pathlib import Path
+        from dotenv import dotenv_values
+
+        root_env = Path(__file__).resolve().parents[3] / ".env"
+        # Choose a complete tuple from one source. The verified local setup
+        # takes precedence over credentials inherited from an old window.
+        return cls.from_values(dotenv_values(root_env, interpolate=False)) or cls.from_values(os.environ)
 
 
 class _NeverRedirect(HTTPRedirectHandler):
@@ -150,7 +165,7 @@ class CompatibleChatProvider:
             messages.append({"role": role, "content": content})
         payload = json.dumps({
             "model": self.config.model, "messages": messages,
-            "temperature": 0.35, "max_tokens": 500,
+            "temperature": 0.15, "max_tokens": 850,
             "stream": False,
         }, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
         if len(payload) > 48 * 1024:
@@ -168,6 +183,24 @@ class CompatibleChatProvider:
         if len(answer) > 3500:
             answer = answer[:3500].rstrip() + "…"
         return answer.strip()
+
+
+def probe_chat(config: ChatConfig, *, transport=_http_chat) -> str:
+    """Exercise the exact chat route, bearer token and model with synthetic input."""
+    payload = json.dumps({
+        "model": config.model, "messages": [{"role": "user", "content": "Reply OK."}],
+        "max_tokens": 16, "stream": False,
+    }).encode("utf-8")
+    try:
+        response = transport(config, payload)
+        message = response["choices"][0]["message"]
+        if not isinstance(message.get("content"), str) or not message["content"].strip():
+            return "chat_probe_empty_response"
+    except ChatUnavailable as exc:
+        return str(exc)
+    except (AttributeError, TypeError, KeyError, IndexError):
+        return "invalid_chat_response"
+    return "chat_probe_verified"
 
 
 def transcript_for_chat(state: ChatState) -> tuple[tuple[str, str], ...]:
