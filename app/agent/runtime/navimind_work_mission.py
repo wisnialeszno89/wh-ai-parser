@@ -539,6 +539,8 @@ def plan_or_execute_windowhub_step(
                 "review", "active_position_missing_dimensions_or_configuration"
             )
 
+    if execute and is_mission_current is not None and not is_mission_current():
+        return WorkStepResult("paused", "stale_or_revoked_mission_before_dispatch")
     try:
         raw = loop.observe_scene()
         scene = enrich_windowhub_scene(enrich_native_mdi_document_scope(raw))
@@ -556,7 +558,7 @@ def plan_or_execute_windowhub_step(
             and stage != "start"):
         if not execute:
             return WorkStepResult(
-                "ready", "draft_return_to_start1_required_on_operator_resume",
+                "ready", "draft_start_activation_required_on_operator_resume",
                 "NOWA OFERTA",
             )
         # The operator Resume should already have focused Start1 before
@@ -569,6 +571,8 @@ def plan_or_execute_windowhub_step(
         return WorkStepResult("paused", "windowhub_not_foreground")
     if stage == "order_document":
         return WorkStepResult("review", "order_document_not_authorized")
+    if stage == "hardware" and ledger is not None and not ledger.active.opening:
+        return WorkStepResult("review", "opening_direction_required")
     from app.agent.runtime.navimind_draft_bootstrap import (
         DRAFT_DOCUMENT_KEY, verify_draft_start, verify_draft_properties,
     )
@@ -959,6 +963,7 @@ class BackgroundWorkMission:
         self._lock = RLock()
         self._busy = False
         self._closed = False
+        self._pending_plan: str | None = None
 
     def status(self) -> str:
         with self._lock:
@@ -976,10 +981,13 @@ class BackgroundWorkMission:
         with self._lock:
             if self._closed:
                 return "Silnik zadań jest zamknięty."
+            if mission.stage != WorkStage.QUEUED:
+                return "Bieżąca misja jest już przygotowana. Sprawdź jej stan w panelu."
             if self._busy:
-                return "Silnik analizuje już bieżące zadanie."
+                self._pending_plan = mission.task_id
+                return "Aktualne zadanie czeka na zwolnienie silnika."
             self._busy = True
-        self._pool.submit(self._work, mission.task_id, False)
+            self._pool.submit(self._work, mission.task_id, False)
         return (
             "Zadanie przyjęte do lokalnego silnika V2. "
             "Sprawdzam aktualny ekran i możliwy następny krok. "
@@ -1015,7 +1023,7 @@ class BackgroundWorkMission:
             if self._closed or self._busy:
                 return False
             self._busy = True
-        self._pool.submit(self._work, mission.task_id, True)
+            self._pool.submit(self._work, mission.task_id, True)
         return True
 
     @staticmethod
@@ -1068,7 +1076,8 @@ class BackgroundWorkMission:
             except ImportError:
                 pass
             mission = self.coordinator.current()
-            if mission is None or mission.task_id != task_id:
+            if (mission is None or mission.task_id != task_id
+                    or (not execute and mission.stage != WorkStage.QUEUED)):
                 return
             current = self.coordinator.transition(
                 task_id, WorkStage.EXECUTING if execute else WorkStage.THINKING
@@ -1086,22 +1095,20 @@ class BackgroundWorkMission:
                 if updated is not None and self.callback is not None:
                     self.callback(updated, WorkStepResult("paused", blocker))
                 return
-            from app.agent.runtime.windows_desktop_agent_control_loop import (
-                create_windows_desktop_agent_control_loop,
-            )
-            from app.agent.reasoning.navimind_task_reasoner_v2 import (
-                NaviMindTaskReasonerV2,
-            )
-            loop = (
-                self.loop_factory() if self.loop_factory
-                else create_windows_desktop_agent_control_loop()
-            )
+            if self.loop_factory is not None:
+                loop = self.loop_factory()
+            else:
+                from app.agent.runtime.windows_desktop_agent_control_loop import (
+                    create_windows_desktop_agent_control_loop,
+                )
+                loop = create_windows_desktop_agent_control_loop()
             if self.reasoner_factory:
                 reasoner = self.reasoner_factory()
             else:
                 import os
-                from dotenv import load_dotenv
-                load_dotenv()
+                from app.agent.reasoning.navimind_task_reasoner_v2 import (
+                    NaviMindTaskReasonerV2,
+                )
                 if os.environ.get("NAVIMIND_AGENT_V2_URL", "").strip():
                     reasoner = NaviMindTaskReasonerV2()
                 else:
@@ -1136,6 +1143,11 @@ class BackgroundWorkMission:
                 action=result.action, after_stage=result.new_stage,
                 field_receipt=result.field_receipt,
             )
+            if updated is None and self.coordinator.is_current(current):
+                result = WorkStepResult("review", "verified_work_receipt_not_recorded")
+                updated = self.coordinator.transition(
+                    task_id, WorkStage.REVIEW, reason=result.reason,
+                )
             if updated is not None and self.callback is not None:
                 self.callback(updated, result)
         except Exception:
@@ -1152,7 +1164,12 @@ class BackgroundWorkMission:
                 import pythoncom
                 pythoncom.CoUninitialize()
             with self._lock:
-                self._busy = False
+                pending = self._pending_plan
+                self._pending_plan = None
+                if pending is not None and not self._closed:
+                    self._pool.submit(self._work, pending, False)
+                else:
+                    self._busy = False
 
     def close(self) -> None:
         with self._lock:

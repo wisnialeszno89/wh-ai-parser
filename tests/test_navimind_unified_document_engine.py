@@ -268,7 +268,8 @@ def test_host_tool_registry_contains_real_document_parser_and_consent():
     assert "mission_evidence=self._approved_mission_snapshot(" in workspace_code
     assert "PDF_COUNT=" in host
     assert "runtime_status_provider=trusted_local_capability_state" in host
-    assert 'print("NAVIMIND_V2_EXECUTOR_CONNECTED=" + str(live_allowed))' in host
+    assert 'print("NAVIMIND_V2_EXECUTOR_CONNECTED=False")' in host
+    assert 'print("NAVIMIND_GUI_LIVE_ENABLED=" + str(live_allowed))' in host
     assert '"prepare_windowhub_work": ReadOnlyTool(' in host
 
 

@@ -340,6 +340,34 @@ def run(*, expected_offer: str, initial_pdf: str | None = None,
             work_coordinator.begin_verified_unnumbered_draft
         )
     work_events: Queue = Queue(maxsize=16)
+    v2_probe_result = "v2_http_check_pending"
+
+    def check_v2_http():
+        nonlocal v2_probe_result
+        from tools.check_navimind_v2_connection import probe_v2, VERIFIED_RESULT
+        v2_probe_result = probe_v2()
+        print("NAVIMIND_V2_PROBE_RESULT=" + v2_probe_result)
+        print("NAVIMIND_V2_HTTP_VERIFIED=" + str(v2_probe_result == VERIFIED_RESULT))
+
+    def current_work_continuation():
+        mission = work_coordinator.current()
+        if mission is None or not work_coordinator.is_current(mission):
+            return None
+        mode = host.controller.snapshot().mode
+        if mission.stage == WorkStage.REVIEW or mode == PanelMode.STOPPED:
+            message = "Misja wymaga przeglądu. Ostatni stan: " + mission.reason + "."
+        elif (host._approved_work_revision == mission.revision
+              and mode in (PanelMode.RESUME_PENDING, PanelMode.AGENT_READY)):
+            message = "Bieżąca misja trwa. Potwierdzone kroki: " + str(
+                mission.total_verified_actions
+            ) + "."
+        elif mission.stage in (WorkStage.QUEUED, WorkStage.THINKING):
+            message = "Bieżąca misja jest w trakcie planowania."
+        else:
+            message = "Bieżąca misja zachowana. " + (
+                "Aktualny stan: " + mission.reason + ". " if mission.reason else ""
+            ) + "Zgodę na sterowanie podajesz przyciskiem Wznów pracę."
+        return mission.revision, message
 
     def on_work_result(mission, result):
         # The worker may use COM but NEVER touches Tk widgets.
@@ -360,6 +388,7 @@ def run(*, expected_offer: str, initial_pdf: str | None = None,
                     "Sterowanie wymaga lokalnego Wznów pracę."
                 )
         elif result.kind == "action":
+            print("NAVIMIND_V2_EXECUTOR_CONNECTED=True")
             message = (
                 "Wykonałem i zweryfikowałem jeden krok " + result.action
                 + ". Ponownie sprawdzam ekran przed dalszą pracą."
@@ -379,8 +408,13 @@ def run(*, expected_offer: str, initial_pdf: str | None = None,
             else:
                 message = (
                     "Wstrzymałem zadanie: " + result.reason
-                    + ". Nie wykonuję kliknięć bez aktualnego ekranu i zgody."
+                    + ". Sprawdź stan w panelu."
                 )
+        elif result.reason == "opening_direction_required":
+            message = (
+                "Podaj stronę i rodzaj otwierania dla tej pozycji, "
+                "z perspektywy od wewnątrz. Otwieranie wymaga potwierdzenia przed doborem okuć."
+            )
         else:
             message = (
                 "Zadanie wymaga weryfikacji handlowca: " + result.reason
@@ -564,8 +598,7 @@ def run(*, expected_offer: str, initial_pdf: str | None = None,
         )
         v2 = (
             "Wykonawca V2: "
-            + (v2_blocker if v2_blocker is not None
-               else "zmienne skonfigurowane; połączenia nie potwierdzono.")
+            + (v2_blocker if v2_blocker is not None else v2_probe_result)
             + " Sterowanie GUI: "
             + ("flagi LIVE włączone; nadal wymaga lokalnego Wznów pracę."
                if live_allowed else "wyłączone (tryb planowania).")
@@ -706,6 +739,7 @@ def run(*, expected_offer: str, initial_pdf: str | None = None,
     panel.mount_main_workspace(
         chat=host.chat, conversation=live_chat, enquiry=intake,
         on_document_revoke=host.takeover,
+        current_work_continuation=current_work_continuation,
     )
     # Reflect preloaded text in the editable local draft, so the operator
     # sees and can correct it before consent. PDF remains in-memory only.
@@ -742,8 +776,8 @@ def run(*, expected_offer: str, initial_pdf: str | None = None,
             if (mission.stage == WorkStage.PAUSED
                     and mission.reason == "draft_customer_selection_required"):
                 panel.main_workspace.notice.configure(
-                    text="Weryfikuję aktywną ofertę po ręcznym wyborze klienta. "
-                         "Numer OFR musi zgadzać się z wybraną zakładką."
+                    text="Po ręcznym wyborze klienta wróć do WindowHub. "
+                         "Sprawdzę, czy aktywny dokument pochodzi z tej misji."
                 )
             if not host.approve_current_work_for_resume(
                 revision=mission.revision, task_id=mission.task_id,
@@ -769,7 +803,10 @@ def run(*, expected_offer: str, initial_pdf: str | None = None,
     print("NAVIMIND_ENQUIRY_LOCAL_ONLY=True")
     print("NAVIMIND_MICROPHONE_WINDOWS_DICTATION=True")
 
+    last_native_input_armed = False
+
     def pump():
+        nonlocal last_native_input_armed
         if host.controller.snapshot().mode == PanelMode.LEARNING:
             if not teaching_session.active:
                 teaching_session.start()
@@ -792,9 +829,11 @@ def run(*, expected_offer: str, initial_pdf: str | None = None,
             current = work_coordinator.current()
             if current is None or current.task_id != task_id:
                 continue
+            if (not work_coordinator.is_current(current)
+                    or host._approved_work_revision != current.revision):
+                continue
             if outcome == "action" and (
                 host.controller.snapshot().mode == PanelMode.AGENT_READY
-                and host._approved_work_revision == current.revision
             ):
                 # Tk thread owns UI state transitions. Invalidate the old
                 # permit before requesting a fresh screen for the next step.
@@ -809,7 +848,7 @@ def run(*, expected_offer: str, initial_pdf: str | None = None,
                         and current.reason == "draft_customer_selection_required"):
                     host.pause_for_draft_customer()
                 else:
-                    host.takeover()
+                    host.pause_work_input()
 
         # A separate loop is mandatory: lack of mission events must not
         # prevent the observer from delivering fresh WindowHub scene proofs.
@@ -819,14 +858,20 @@ def run(*, expected_offer: str, initial_pdf: str | None = None,
             except Empty:
                 break
             if kind == "start1_status":
-                panel.main_workspace.notice.configure(
-                    text=(
-                        "Start1: " + str(payload)
-                        + ". Nie klikam nieznanej ikony ani starej oferty. "
-                        "Wymagane mapowanie kontrolki w trybie nauki."
+                if (host.controller.snapshot().mode != PanelMode.RESUME_PENDING
+                        or host.controller.arbiter.epoch != observed_epoch):
+                    continue
+                host.pause_work_input()
+                current = work_coordinator.current()
+                if current is not None:
+                    work_coordinator.transition(
+                        current.task_id, WorkStage.REVIEW, reason=payload,
                     )
+                panel.main_workspace.notice.configure(
+                    text="Start1: " + payload
+                    + ". Sprawdź bieżący ekran albo pokaż kontrolkę w trybie nauki."
                 )
-                host.last_reason = str(payload)
+                host.last_reason = payload
                 continue
             if kind == "teaching_scene":
                 if (host.controller.snapshot().mode == PanelMode.LEARNING
@@ -886,6 +931,15 @@ def run(*, expected_offer: str, initial_pdf: str | None = None,
             )
         # An accepted fresh observation can schedule exactly one V2 step.
         # No model reply or document body can grant the input permit.
+        native_input_armed = (
+            live_allowed
+            and shown_mission is not None
+            and host._approved_work_revision == shown_mission.revision
+            and host.controller.current_permit() is not None
+        )
+        if native_input_armed != last_native_input_armed:
+            print("NAVIMIND_V2_NATIVE_INPUT_ARMED=" + str(native_input_armed))
+            last_native_input_armed = native_input_armed
         if live_allowed and host.controller.snapshot().mode == PanelMode.AGENT_READY:
             mission = work_coordinator.current()
             if (mission is not None
@@ -934,7 +988,9 @@ def run(*, expected_offer: str, initial_pdf: str | None = None,
                         from app.agent.runtime.windowhub_window_activation import (
                             activate_windowhub_start_workspace,
                         )
-                        ok, reason = activate_windowhub_start_workspace()
+                        ok, reason = host.controller.arbiter.dispatch_pending_navigation(
+                            current_epoch, activate_windowhub_start_workspace,
+                        )
                         if not ok:
                             # Local, allowlisted navigation status only; do
                             # not expose window titles, HWNDs or client data.
@@ -976,13 +1032,14 @@ def run(*, expected_offer: str, initial_pdf: str | None = None,
     panel.after(250, pump)
     print("NAVIMIND_SHARED_PANEL_CONNECTED=True")
     print("NAVIMIND_CONVERSATION_PROVIDER_CONNECTED=" + str(chat_provider is not None))
-    # LIVE permission and V2 endpoint presence are separate from actual
-    # authenticated HTTP connectivity (verified only by a synthetic probe).
-    print("NAVIMIND_V2_EXECUTOR_CONNECTED=False")  # No network proof here.
+    # Report local execution only after an independently verified native step.
+    print("NAVIMIND_V2_EXECUTOR_CONNECTED=False")
     print("NAVIMIND_V2_ENDPOINT_CONFIGURED="
           + str(background_work._v2_configuration_blocker() is None))
-    print("NAVIMIND_V2_NATIVE_INPUT_ARMED=" + str(live_allowed))
-    print("NAVIMIND_V2_HTTP_VERIFIED=False")  # Not probed during GUI launch.
+    print("NAVIMIND_GUI_LIVE_ENABLED=" + str(live_allowed))
+    print("NAVIMIND_V2_NATIVE_INPUT_ARMED=False")
+    print("NAVIMIND_V2_HTTP_VERIFIED=False")  # Initial state, before the HTTP check.
+    Thread(target=check_v2_http, name="navimind-v2-probe", daemon=True).start()
     print("NAVIMIND_WORK_MISSION_PLANNER_CONNECTED=True")
     print("NAVIMIND_GUI_INPUT_EXECUTED=False")
     # Report whether the GUI event loop actually stays alive. This is

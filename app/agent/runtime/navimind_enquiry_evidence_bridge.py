@@ -87,6 +87,14 @@ def summarize_full_approved_inbox(inbox, *, approved: bool, limit: int = 2800) -
         "Parser jest pomocniczy; parametry wymagają weryfikacji.\n"
     )
     lines = [f"WYKRYTE_POZYCJE={len(manifest.positions)}"]
+    pasted_text = getattr(inbox, "pasted_text", "") or ""
+    source_offset = int(bool(pasted_text.strip()))
+    pdf_labels = [
+        f"PDF {number}=S{number + source_offset:02d}"
+        for number, _ in enumerate(getattr(inbox, "sources", ()), 1)
+    ]
+    if pdf_labels:
+        lines.append("Źródła PDF: " + ", ".join(pdf_labels))
     for p in manifest.positions[:12]:
         dims = (
             f"{p.width_mm}x{p.height_mm} mm"

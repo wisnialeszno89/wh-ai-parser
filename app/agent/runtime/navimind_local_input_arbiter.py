@@ -128,6 +128,17 @@ class LocalInputArbiter:
                 raise InputDenied("human_takeover_requested")
             return operation()
 
+    def dispatch_pending_navigation(self, epoch: int, operation: Callable[[], T]) -> T:
+        """Authorize the local Start1 activation broker before document proof."""
+        if self._takeover_requested.is_set():
+            raise InputDenied("human_takeover_requested")
+        with self._lock:
+            if (self._takeover_requested.is_set() or self._owner != InputOwner.AGENT
+                    or self._epoch != epoch or not self._reobservation_required
+                    or self._document_key is not None):
+                raise InputDenied("pending_navigation_epoch_changed")
+            return operation()
+
     @property
     def owner(self) -> InputOwner:
         with self._lock:

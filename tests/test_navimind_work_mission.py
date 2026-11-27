@@ -81,6 +81,9 @@ def test_background_planning_delivers_verified_advisory_without_executor(monkeyp
         return WorkStepResult("ready", "safe_plan", "write_text")
 
     monkeypatch.setattr(module, "plan_or_execute_windowhub_step", fake_step)
+    monkeypatch.setattr(
+        BackgroundWorkMission, "_v2_configuration_blocker", staticmethod(lambda: None),
+    )
     host = SimpleNamespace(
         controller=SimpleNamespace(current_permit=lambda: None)
     )
@@ -98,6 +101,50 @@ def test_background_planning_delivers_verified_advisory_without_executor(monkeyp
     assert executions == [False]
     assert not worker.execute_one_authorized_step()
     worker.close()
+
+
+def test_new_plan_waits_for_worker_and_stale_result_cannot_replace_it(monkeypatch):
+    from threading import Event
+    from app.agent.runtime import navimind_work_mission as module
+
+    chat = new_chat()
+    queue = WorkMissionCoordinator(chat)
+    started, release, completed = Event(), Event(), Event()
+    results = []
+
+    def fake_step(*, mission, **kwargs):
+        if mission.goal == "Oferta A":
+            started.set()
+            assert release.wait(5)
+        return WorkStepResult("ready", "safe_plan")
+
+    def record_result(mission, result):
+        results.append((mission, result))
+        completed.set()
+
+    monkeypatch.setattr(module, "plan_or_execute_windowhub_step", fake_step)
+    monkeypatch.setattr(
+        BackgroundWorkMission, "_v2_configuration_blocker", staticmethod(lambda: None),
+    )
+    worker = BackgroundWorkMission(
+        queue, host=object(), callback=record_result,
+        loop_factory=object, reasoner_factory=object,
+    )
+    try:
+        chat.user_message("Oferta A")
+        worker.queue_and_plan()
+        assert started.wait(5)
+        chat.user_message("Oferta B")
+        assert "czeka" in worker.queue_and_plan()
+        release.set()
+        assert completed.wait(5)
+        assert len(results) == 1
+        assert results[0][0].goal == "Oferta B"
+        assert queue.current().stage == WorkStage.READY
+        assert "już przygotowana" in worker.queue_and_plan()
+    finally:
+        release.set()
+        worker.close()
 
 
 def test_no_model_result_can_resurrect_stale_work_from_previous_turn():

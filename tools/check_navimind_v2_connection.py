@@ -7,7 +7,6 @@ Never prints secrets, full URLs, returned HTML, response headers or tokens.
 """
 from __future__ import annotations
 
-import io
 import json
 import os
 from urllib.error import HTTPError, URLError
@@ -18,6 +17,9 @@ from urllib.request import (
 import ssl
 
 
+VERIFIED_RESULT = "v2_authenticated_contract_rejected_as_expected"
+
+
 class NoRedirect(HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         return None
@@ -26,9 +28,9 @@ class NoRedirect(HTTPRedirectHandler):
 def configured_v2_connection(environ=None):
     """Return URL and credential only to local caller; no network or logging."""
     values = os.environ if environ is None else environ
-    url = (values.get("NAVIMIND_AGENT_V2_URL") or
-           values.get("NAVIMIND_AGENT_URL") or "").strip()
-    dedicated = bool((values.get("NAVIMIND_AGENT_V2_URL") or "").strip())
+    dedicated_url = (values.get("NAVIMIND_AGENT_V2_URL") or "").strip()
+    dedicated = bool(dedicated_url)
+    url = dedicated_url or (values.get("NAVIMIND_AGENT_URL") or "").strip()
     secret_key = (
         "NAVIMIND_AGENT_V2_SECRET" if dedicated else "NAVIMIND_AGENT_SECRET"
     )
@@ -46,7 +48,7 @@ def configured_v2_connection(environ=None):
         if (
             not valid_scheme or not host or parts.username or parts.password
             or parts.query or parts.fragment
-            or parts.path.rstrip("/") != "/api/agent/task"
+            or (not dedicated and parts.path.rstrip("/") != "/api/agent/task")
         ):
             return "v2_endpoint_invalid", None
     except ValueError:
@@ -77,6 +79,8 @@ def probe_v2(*, environ=None, opener=None):
     if blocker:
         return blocker
     url, secret, bypass = configuration
+    if urlsplit(url).path.rstrip("/") != "/api/agent/task":
+        return "v2_probe_requires_agent_task_route"
     # A synthetic invalid payload cannot pass V2 validation to the LLM.
     body = b'{"version":"2"}'
     headers = {
@@ -102,7 +106,7 @@ def probe_v2(*, environ=None, opener=None):
     except HTTPError as error:
         code = _safe_error_code(error)
         if error.code == 400 and code == "INVALID_AGENT_TASK_V2":
-            return "v2_authenticated_contract_rejected_as_expected"
+            return VERIFIED_RESULT
         if error.code == 401 and code == "UNAUTHORIZED":
             return "v2_application_secret_rejected"
         if error.code in (401, 403) and code is None:
@@ -125,6 +129,7 @@ def main():
     result = probe_v2()
     print("V2_READ_ONLY_NETWORK_CHECK=True")
     print("V2_PROBE_RESULT=" + result)
+    print("NAVIMIND_V2_HTTP_VERIFIED=" + str(result == VERIFIED_RESULT))
     print("V2_NATIVE_INPUT=False")
     print("V2_CUSTOMER_DATA_TRANSMITTED=False")
     print("V2_REAL_REASONING_REQUEST=False")

@@ -18,7 +18,6 @@ if str(ROOT) not in sys.path:
 from app.agent.learning.windowhub_demonstration import stage_of
 from app.agent.perception.windowhub_semantic_world import enrich_windowhub_scene
 from app.agent.runtime.windowhub_window_activation import activate_windowhub_workflow_window
-from app.agent.runtime.windows_desktop_agent_control_loop import create_windows_desktop_agent_control_loop
 from app.agent.perception.windowhub_ui_automation_provider import WindowHubUIAutomationProvider
 
 
@@ -150,6 +149,9 @@ def main(argv=None):
     print("AUTO_ACTIVATION =", ok)
     if not ok:
         return 3
+    from app.agent.runtime.windows_desktop_agent_control_loop import (
+        create_windows_desktop_agent_control_loop,
+    )
     loop = create_windows_desktop_agent_control_loop()
     scene = enrich_windowhub_scene(loop.observe_scene())
     print("BEFORE_STAGE =", stage_of(scene))

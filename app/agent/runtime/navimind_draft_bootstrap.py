@@ -196,6 +196,29 @@ def safe_native_start_action(loop, host, *, mission_revision: int) -> DraftProof
     return after
 
 
+def verified_lookup_grid(scene) -> bool:
+    """Recognize a unique UIA grid that belongs to the existing customer field."""
+    grids = []
+    for element in scene.elements:
+        metadata = element.metadata or {}
+        if (
+            element.kind == "table"
+            and metadata.get("source") in {
+                "windows_ui_automation", "windowhub_ui_automation",
+            }
+            and metadata.get("automation_id") == "PART_GridControl"
+            and metadata.get("uia_visible") is True
+            and metadata.get("uia_runtime_id")
+            and any(
+                isinstance(ancestor, dict)
+                and ancestor.get("automation_id") == "IDC_ZAMAWIAJACY"
+                for ancestor in (metadata.get("uia_ancestor_structure") or ())
+            )
+        ):
+            grids.append(element)
+    return len(grids) == 1
+
+
 def safe_native_open_customer_picker(loop, host, *, mission_revision: int) -> DraftProof:
     """One native click on known IDC_ZAMAWIAJACY after scoped properties."""
     from app.agent.runtime.navimind_local_input_arbiter import InputDenied
@@ -232,6 +255,9 @@ def safe_native_open_customer_picker(loop, host, *, mission_revision: int) -> Dr
         previous_hwnd = (scene.observation.metadata or {}).get("window_handle")
         if host._draft_native_scope.properties != previous_hwnd:
             raise InputDenied("draft_native_properties_identity_changed")
+        if verified_lookup_grid(scene):
+            host._draft_phase = "awaiting_customer_selection"
+            return DraftProof(True, "customer_lookup", "customer_picker_already_open", previous_hwnd)
         button = resolve_native_wrapper(
             scene, label="Wybierz istniejącego klienta",
             automation_id="IDC_ZAMAWIAJACY",
@@ -243,7 +269,10 @@ def safe_native_open_customer_picker(loop, host, *, mission_revision: int) -> Dr
         host.controller.arbiter.invalidate_observation()
         host._accepted_scene = None
     from time import sleep
-    from app.agent.learning.windowhub_demonstration import stage_of
+    from app.agent.runtime.windowhub_mdi_native_probe import _Win32Mdi
+    from app.agent.runtime.windowhub_new_offer_handoff import owner_chain
+
+    native_api = _Win32Mdi()
     new_hwnd = None
     verified = False
     for attempt in range(5):
@@ -253,13 +282,16 @@ def safe_native_open_customer_picker(loop, host, *, mission_revision: int) -> Dr
             new_hwnd = (after.observation.metadata or {}).get("window_handle")
             app = (state.active_application or "").replace(chr(92), "/").rsplit("/", 1)[-1].casefold()
             title = (state.active_window_title or "").strip()
-            verified = (
-                app == "okna.exe"
-                and stage_of(after) in ("windowhub_unmapped", "customer_lookup")
-                and type(new_hwnd) is int and new_hwnd > 0
-                and new_hwnd != previous_hwnd
-                and title != PROPERTIES_TITLE
-            )
+            if app != "okna.exe" or type(new_hwnd) is not int or new_hwnd <= 0:
+                break
+            if new_hwnd == previous_hwnd:
+                verified = title == PROPERTIES_TITLE and verified_lookup_grid(after)
+            else:
+                verified = (
+                    title.casefold() == "wybór klienta"
+                    and native_api.pid(new_hwnd) == host._draft_native_scope.pid
+                    and previous_hwnd in owner_chain(new_hwnd, native_api)
+                )
         except Exception:
             verified = False
         if verified:

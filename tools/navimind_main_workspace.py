@@ -127,7 +127,8 @@ class NaviMindMainWorkspace(tk.Frame):
     def __init__(self, parent, *, chat: MissionChat,
                  conversation: LiveMissionConversation | None,
                  enquiry: LocalEnquiryInbox | None = None,
-                 discover_windowhub=None, on_document_revoke=None):
+                 discover_windowhub=None, on_document_revoke=None,
+                 current_work_continuation=None):
         super().__init__(parent, bg=BG)
         self.chat = chat
         self.conversation = conversation
@@ -135,6 +136,7 @@ class NaviMindMainWorkspace(tk.Frame):
         self.last_id = 0
         self.discover_windowhub = discover_windowhub
         self.on_document_revoke = on_document_revoke
+        self.current_work_continuation = current_work_continuation
         self._build()
         self._poll()
 
@@ -476,13 +478,13 @@ class NaviMindMainWorkspace(tk.Frame):
         import re
         if not isinstance(text, str) or len(text) > 140:
             return False
-        t = " ".join(text.casefold().split()).strip(" .!?")
+        t = re.sub(r"[, ]+", " ", " ".join(text.casefold().split()))
+        t = t.strip(" .!?")
         return bool(re.fullmatch(
-            r"(?:kontynuuj|kontynuuj prace|kontynuuj pracę|"
-            r"wznów|wznow|wznów pracę|wznow prace|"
-            r"wykonaj następny krok|wykonaj nastepny krok|"
-            r"przejdź do następnego kroku|przejdz do nastepnego kroku|"
-            r"dalej|co dalej)",
+            r"(?:(?:ok|okej|dobrze|tak) )?(?:kontynuuj(?: prac[eę])?|"
+            r"wzn[oó]w(?: prac[eę])?|wykonaj nast[eę]pny krok|"
+            r"przejd[zź] do nast[eę]pnego kroku|dalej|co dalej|"
+            r"zr[oó]b (?:t[eę] )?ofert[eę])",
             t,
         ))
 
@@ -492,25 +494,15 @@ class NaviMindMainWorkspace(tk.Frame):
         if decision == "empty":
             return
         if self._is_continue_current_mission_request(text):
-            # Do not call MissionChat.user_message(): doing so resets
-            # pinned native draft provenance and invalidates the V2 mission.
-            # This is only guidance, never automatic native input.
-            self.entry.delete("1.0", "end")
-            self.notice.configure(
-                text="Kontynuacja misji: uzyj przycisku Wznow prace. "
-                     "Nowa wiadomosc nie uniewaznila zadania."
-            )
-            snapshot = self.chat.snapshot()
-            self.chat.agent_message(
-                "Przyjalem prosbe o kontynuacje. Nie uruchamiam "
-                "klikania z czatu. Aby wykonac nastepny bezpieczny "
-                "krok aktualnej misji, kliknij lokalnie Wznow prace. "
-                "Jesli misja wymaga weryfikacji lub przycisk jest "
-                "niedostepny, nie ponawiaj niepewnego klikniecia.",
-                based_on_revision=snapshot.mission_revision,
-            )
-            self._refresh_messages()
-            return
+            reply = (self.current_work_continuation()
+                     if self.current_work_continuation is not None else None)
+            if reply is not None:
+                revision, message = reply
+                self.entry.delete("1.0", "end")
+                self.notice.configure(text=message)
+                self.chat.agent_message(message, based_on_revision=revision)
+                self._refresh_messages()
+                return
         if decision == "long_enquiry":
             if len(text) > 100_000:
                 messagebox.showwarning(

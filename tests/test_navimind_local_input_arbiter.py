@@ -173,3 +173,21 @@ def test_renewed_observation_replaces_same_epoch_permit_nonce():
     assert first.nonce != second.nonce
     assert not gate.permit_current(first)
     assert gate.permit_current(second)
+
+
+def test_start_navigation_requires_the_current_pending_operator_epoch():
+    gate, _ = setup()
+    gate.takeover()
+    with pytest.raises(InputDenied):
+        gate.dispatch_pending_navigation(gate.epoch, lambda: pytest.fail("human owns input"))
+
+    epoch = gate.release()
+    assert gate.dispatch_pending_navigation(epoch, lambda: "start1") == "start1"
+    gate.observe_document("DRAFT/NEW")
+    with pytest.raises(InputDenied):
+        gate.dispatch_pending_navigation(epoch, lambda: pytest.fail("document already observed"))
+
+    gate.takeover()
+    gate.release()
+    with pytest.raises(InputDenied):
+        gate.dispatch_pending_navigation(epoch, lambda: pytest.fail("stale resume"))

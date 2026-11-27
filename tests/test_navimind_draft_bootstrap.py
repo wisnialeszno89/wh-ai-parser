@@ -198,7 +198,7 @@ def test_draft_start_action_calls_only_shared_arbiter_and_native_invoke(monkeypa
     assert host.controller.current_permit() is None
 
 
-def test_draft_pick_customer_requires_new_window_and_never_selects_row(monkeypatch):
+def test_draft_pick_customer_requires_owned_native_lookup_and_never_selects_row(monkeypatch):
     from app.agent.runtime import navimind_draft_bootstrap as bootstrap
     import tools.run_windowhub_new_offer_native_invoke_once as native
     host = NaviMindSharedHost(DRAFT_DOCUMENT_KEY)
@@ -207,7 +207,7 @@ def test_draft_pick_customer_requires_new_window_and_never_selects_row(monkeypat
     mission = coordinator.queue_current()
     coordinator.transition(mission.task_id, WorkStage.READY)
     host._draft_phase = "properties"
-    host._draft_native_scope = SimpleNamespace(properties=25)
+    host._draft_native_scope = SimpleNamespace(properties=25, pid=42)
     monkeypatch.setenv("WH_REAL_WINDOWHUB", "1")
     monkeypatch.setenv("COMPUTER_USE_LIVE", "1")
     assert host.approve_current_work_for_resume(
@@ -218,6 +218,13 @@ def test_draft_pick_customer_requires_new_window_and_never_selects_row(monkeypat
     assert host.note_verified_workflow_step(props, revision=mission.revision)
     host.controller.resume()
     assert host.inspect_fresh_scene(props).verified
+    from app.agent.runtime import windowhub_mdi_native_probe as mdi
+    api = SimpleNamespace(
+        pid=lambda _: 42,
+        owner=lambda hwnd: 25 if hwnd == 27 else 0,
+        parent=lambda *_: 0,
+    )
+    monkeypatch.setattr(mdi, "_Win32Mdi", lambda: api)
     calls = []
     class Button:
         def click_input(self):
@@ -295,3 +302,20 @@ def test_unrelated_existing_offer_cannot_be_adopted_without_native_provenance():
         scene("Okna - OFR/888-", selected="OFR/888-"),
     ).verified
     assert host.expected_offer == DRAFT_DOCUMENT_KEY
+
+
+def test_inline_lookup_requires_unique_grid_under_customer_field():
+    from app.agent.runtime.navimind_draft_bootstrap import verified_lookup_grid
+
+    metadata = {
+        "source": "windowhub_ui_automation",
+        "automation_id": "PART_GridControl",
+        "uia_visible": True,
+        "uia_runtime_id": "lookup-grid",
+        "uia_ancestor_structure": [{"automation_id": "IDC_ZAMAWIAJACY"}],
+    }
+    grid = SimpleNamespace(kind="table", metadata=metadata)
+    assert verified_lookup_grid(SimpleNamespace(elements=(grid,)))
+    assert not verified_lookup_grid(SimpleNamespace(elements=(grid, grid)))
+    metadata["uia_ancestor_structure"] = [{"automation_id": "IDC_UNRELATED"}]
+    assert not verified_lookup_grid(SimpleNamespace(elements=(grid,)))
