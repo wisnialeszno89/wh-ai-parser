@@ -119,6 +119,8 @@ class NaviMindSharedHost:
         self.draft_document_bound_callback: Callable[[str], bool] | None = None
         self.draft_unnumbered_ready_callback: Callable[[], bool] | None = None
         self._draft_native_scope: Any = None
+        self._draft_customer_search_attempted = False
+        self._draft_customer_attested_revision: int | None = None
         self.controller = controller or NaviMindPanelController()
         self.controller.connect_host()
         self._accepted_scene: Any = None
@@ -159,7 +161,7 @@ class NaviMindSharedHost:
                     DRAFT_DOCUMENT_KEY if check.valid else None,
                     check.reason, check.stage, check.valid,
                 )
-            elif self._draft_phase == "awaiting_customer_selection":
+            elif self._draft_phase in {"awaiting_customer_selection", "awaiting_confirmed_draft"}:
                 # Exactly one native new-document transaction must link
                 # Start1, properties, customer and now the selected offer.
                 # Unsaved offers may open the position wizard BEFORE
@@ -312,16 +314,12 @@ class NaviMindSharedHost:
                 or self.chat.snapshot().mission_revision != revision
                 or item.document_key != self.expected_offer):
             return False
-        from app.agent.runtime.navimind_work_mission import WorkStage
+        from app.agent.runtime.navimind_work_mission import (
+            REOBSERVABLE_WORK_PAUSES, WorkStage,
+        )
         if item.stage not in {WorkStage.READY, WorkStage.PAUSED}:
             return False
-        allowed_pauses = {"one_native_step_verified_reobserve_next"}
-        if self._draft_phase == "awaiting_customer_selection":
-            allowed_pauses.add("draft_customer_selection_required")
-        if self._draft_phase == "unsaved_position":
-            allowed_pauses.add("one_native_step_verified_reobserve_next")
-        if (item.stage == WorkStage.PAUSED
-                and item.reason not in allowed_pauses):
+        if item.stage == WorkStage.PAUSED and item.reason not in REOBSERVABLE_WORK_PAUSES:
             return False
         self._approved_work_revision = revision
         return True
@@ -348,6 +346,8 @@ class NaviMindSharedHost:
         # Explicit manual takeover or PDF revocation invalidates all draft
         # ancestry. Only the controlled picker handoff may retain it.
         self._draft_native_scope = None
+        self._draft_customer_search_attempted = False
+        self._draft_customer_attested_revision = None
         if self._draft_phase is not None:
             # Starting a new chat mission after human takeover must
             # begin from a fresh Start1, never an orphaned picker dialog.

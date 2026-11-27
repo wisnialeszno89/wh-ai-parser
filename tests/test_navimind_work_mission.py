@@ -344,3 +344,16 @@ def test_protected_vercel_v2_reports_only_allowlisted_outage_code():
     assert injected.reason == "v2_reasoner_unavailable"
     assert "PRIVATE" not in injected.reason
     assert injected.kind == "paused"
+
+def test_explicit_exclusions_from_same_offer_command_and_later_correction():
+    chat = new_chat()
+    chat.user_message("Przygotuj ofertę dla Top Trans. Bez montażu, demontażu i wykończenia.")
+    work = WorkMissionCoordinator(chat)
+    mission = work.queue_current()
+    assert mission.service_exclusions == ("montaż", "demontaż", "wykończenie")
+    ready = work.transition(mission.task_id, WorkStage.READY)
+    assert work.add_service_exclusions(ready, ("dodatkowe opcje",))
+    updated = work.current()
+    assert updated.revision == mission.revision
+    assert updated.task_id == mission.task_id
+    assert updated.service_exclusions[-1] == "dodatkowe opcje"

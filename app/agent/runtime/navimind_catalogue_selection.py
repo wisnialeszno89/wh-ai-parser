@@ -48,6 +48,33 @@ def requested_exact_value(position, request_key: str) -> str | None:
     return value if isinstance(value, str) and value.strip() else None
 
 
+def verify_catalogue_dropdown_target(scene, position, target) -> bool:
+    """Only open a mapped, uniquely identified dropdown requested by this row."""
+    from app.agent.offers.windowhub_offer_form_map import WindowHubOfferFormMap
+
+    snapshot = WindowHubOfferFormMap().inspect(scene)
+    runtime_id = getattr(target, "uia_runtime_id", None)
+    if snapshot is None or not runtime_id or getattr(target, "role", None) != "combobox":
+        return False
+    matches = []
+    for field_name, request_key in _FIELD_REQUIREMENTS.get(snapshot.step.value, ()):
+        if not requested_exact_value(position, request_key):
+            continue
+        match = snapshot.field(field_name)
+        if match is None or not match.is_unique or match.element is None:
+            continue
+        element = match.element
+        metadata = element.metadata or {}
+        if (element.kind == "combobox" and metadata.get("uia_runtime_id") == runtime_id
+                and metadata.get("uia_enabled") is True
+                and metadata.get("uia_visible") is True
+                and metadata.get("source") in {
+                    "windows_ui_automation", "windowhub_ui_automation",
+                }):
+            matches.append(match)
+    return len(matches) == 1
+
+
 def prepare_exact_catalogue_pick(
     scene, position, target,
 ) -> tuple[CataloguePick | None, str]:

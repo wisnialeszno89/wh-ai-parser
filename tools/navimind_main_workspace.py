@@ -480,11 +480,15 @@ class NaviMindMainWorkspace(tk.Frame):
             return False
         t = re.sub(r"[, ]+", " ", " ".join(text.casefold().split()))
         t = t.strip(" .!?")
-        return bool(re.fullmatch(
+        from app.agent.runtime.navimind_live_conversation import explicit_service_exclusion_correction
+        return bool(explicit_service_exclusion_correction(text)) or bool(re.fullmatch(
             r"(?:(?:ok|okej|dobrze|tak) )?(?:kontynuuj(?: prac[eę])?|"
             r"wzn[oó]w(?: prac[eę])?|wykonaj nast[eę]pny krok|"
             r"przejd[zź] do nast[eę]pnego kroku|dalej|co dalej|"
-            r"zr[oó]b (?:t[eę] )?ofert[eę])",
+            r"zr[oó]b (?:t[eę] )?ofert[eę]|gotowe|zrobione|"
+            r"wybra[łl]em klienta|wybra[łl]am klienta|klient wybrany|"
+            r"ustawi[łl](?:em|am) preferencje|preferencje ustawione|"
+            r"jestem w edytorze|potwierdzam klienta|tak|ok|okej)",
             t,
         ))
 
@@ -494,7 +498,7 @@ class NaviMindMainWorkspace(tk.Frame):
         if decision == "empty":
             return
         if self._is_continue_current_mission_request(text):
-            reply = (self.current_work_continuation()
+            reply = (self.current_work_continuation(text)
                      if self.current_work_continuation is not None else None)
             if reply is not None:
                 revision, message = reply

@@ -304,3 +304,160 @@ def safe_native_open_customer_picker(loop, host, *, mission_revision: int) -> Dr
     # or a supervised demo is required; the operator may finish manually.
     host._draft_phase = "awaiting_customer_selection"
     return DraftProof(True, "customer_lookup", "manual_exact_customer_selection_required", new_hwnd)
+
+
+def requested_draft_customer(goal):
+    """Accept an explicit full recipient, scoped to the human's offer command."""
+    import re
+    match = re.search(
+        r"\bofert[ęe] dla ([^\n,.!?;]+?)(?= (?:na|z|bez)\b|[\n,.!?;]|$)",
+        goal, flags=re.IGNORECASE,
+    )
+    if match is None:
+        return None
+    name = match[1].strip()
+    if not 2 <= len(name.split()) <= 12 or len(name) > 100:
+        return None
+    if not all(char.isalpha() or char.isdecimal() or char in " -’'" for char in name):
+        return None
+    return name
+
+
+def advance_owned_draft_properties(loop, host, *, revision, customer, customer_retry, exclude_services):
+    """Advance a single owned properties form, under one fresh input permit."""
+    from time import sleep
+
+    from app.agent.offers.windowhub_customer_result_selection import (
+        canonical_customer_name, customer_name_has_reordered_words, select_exact_customer_result,
+    )
+    from app.agent.offers.windowhub_customer_search_action import (
+        type_customer_search, type_directly_into_customer_lookup,
+    )
+    from app.agent.perception.windowhub_semantic_world import enrich_windowhub_scene
+    from app.agent.runtime.navimind_shared_control_host import verify_workflow_scope
+    from app.agent.runtime.navimind_v2_preaction_scene_guard import verify_preaction_scene
+    from app.agent.runtime.windowhub_document_core import PRICE_TARGETS
+    from app.agent.runtime.windowhub_mdi_native_probe import _Win32Mdi
+    from tools.run_windowhub_new_offer_native_invoke_once import resolve_native_control
+    from tools.run_windowhub_top_trans_single_window_mission import (
+        toggle_price_once, verify_exclusion,
+    )
+
+    handoff = host._draft_native_scope
+    permit = host.controller.current_permit()
+    if (handoff is None or permit is None or permit.document_key != DRAFT_DOCUMENT_KEY
+            or host._approved_work_revision != revision):
+        return "draft_properties_not_authorized"
+    api = _Win32Mdi()
+
+    def same_properties(scene):
+        proof = verify_workflow_scope(
+            scene, host._workflow_scope, expected_offer=DRAFT_DOCUMENT_KEY, revision=revision,
+        )
+        return proof.verified and proof.stage == "document_properties" and (
+            api.foreground() == handoff.properties and handoff._owned(handoff.properties, api)
+        )
+
+    def native_customer(scene):
+        if verified_lookup_grid(scene):
+            return False
+        controls = [
+            e.metadata for e in scene.elements
+            if (e.metadata or {}).get("automation_id") == "IDC_ZAMAWIAJACY"
+            and (e.metadata or {}).get("uia_visible") is True
+        ]
+        if len(controls) != 1:
+            return False
+        observed = controls[0]
+        actual = canonical_customer_name(observed.get("current_value"))
+        expected = canonical_customer_name(customer)
+        matches = actual == expected or customer_name_has_reordered_words(actual, expected)
+        source = observed.get("current_value_source")
+        if source in {"value", "legacy_value", "get_value"}:
+            return matches
+        return (
+            host._draft_customer_attested_revision == revision
+            and (not actual or actual == "lookupedit" or matches)
+        )
+
+    comparison, scene = verify_preaction_scene(loop, host._accepted_scene)
+    if not comparison.safe or not same_properties(scene):
+        return "draft_properties_reobserve_required"
+    if not customer:
+        return "draft_customer_name_required"
+    targets = PRICE_TARGETS if exclude_services else ()
+
+    def fresh_properties():
+        observed = enrich_windowhub_scene(loop.observe_scene())
+        return observed if same_properties(observed) else None
+
+    def operate():
+        if not native_customer(scene):
+            if customer_retry:
+                return "draft_customer_selection_required"
+            # Type once into the verified lookup and choose only a unique, exact
+            # UIA result. A typed filter or dismissed popup alone proves nothing.
+            host._draft_customer_search_attempted = True
+            prefix = customer.split()[0][:3]
+            result = type_customer_search(scene, prefix, strictly_scoped=True)
+            if result.reason == "no_edit_and_picker_not_focused":
+                result = type_directly_into_customer_lookup(
+                    scene, prefix, replace_existing=True, strictly_scoped=True,
+                )
+            if result.status != "search_submitted_unverified":
+                return "draft_customer_selection_required"
+            for attempt in range(4):
+                current = fresh_properties()
+                if current is None:
+                    return "draft_customer_selection_required"
+                selected, reason = select_exact_customer_result(
+                    current, customer, strictly_owned=True,
+                )
+                if selected:
+                    break
+                if reason != "EXACT_CUSTOMER_RESULT_NOT_UNIQUE_OR_NOT_VISIBLE":
+                    return "draft_customer_selection_required"
+                if attempt < 3:
+                    sleep(0.2)
+            else:
+                return "draft_customer_selection_required"
+            sleep(0.2)
+
+        for key, checked in targets:
+            current = fresh_properties()
+            if current is None or not native_customer(current):
+                return "draft_customer_selection_required"
+            if not verify_exclusion(current, key, desired_checked=checked):
+                if not toggle_price_once(current, key, desired_checked=checked):
+                    return "draft_preferences_require_operator"
+
+        final = fresh_properties()
+        if final is None or not native_customer(final):
+            return "draft_customer_selection_required"
+        if not all(verify_exclusion(final, key, desired_checked=checked) for key, checked in targets):
+            return "draft_preferences_require_operator"
+        invoke = resolve_native_control(final, label="OK", allowed_stages=("document_properties",))
+        # Record the attempted transition before Invoke. An exception is not a
+        # reason to click OK twice; the next step observes the new document.
+        host._draft_phase = "awaiting_confirmed_draft"
+        invoke.Invoke()
+        return "draft_properties_confirmed_reobserve"
+
+    try:
+        return host.controller.arbiter.dispatch(permit, operate)
+    finally:
+        host.controller.arbiter.invalidate_observation()
+        host._accepted_scene = None
+
+
+def focus_owned_properties(handoff):
+    """Restore only the properties HWND previously bound to this draft."""
+    import ctypes
+    from app.agent.runtime.windowhub_mdi_native_probe import _Win32Mdi
+    from app.agent.runtime.windowhub_window_activation import _focus_existing_window
+
+    api = _Win32Mdi()
+    hwnd = handoff.properties
+    if not hwnd or api.title(hwnd) != PROPERTIES_TITLE or not handoff._owned(hwnd, api):
+        return False
+    return _focus_existing_window(ctypes.windll.user32, hwnd)

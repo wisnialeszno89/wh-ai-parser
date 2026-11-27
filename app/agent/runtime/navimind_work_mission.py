@@ -31,6 +31,23 @@ class WorkStage(str, Enum):
     COMPLETED_UNVERIFIED = "completed_unverified"
 
 
+REOBSERVABLE_WORK_PAUSES = frozenset({
+    "one_native_step_verified_reobserve_next",
+    "draft_customer_selection_required",
+    "draft_preferences_require_operator",
+    "draft_properties_reobserve_required",
+    "windowhub_not_foreground",
+    "windowhub_observation_unavailable",
+})
+
+
+REOBSERVABLE_WORK_REVIEWS = frozenset({
+    "catalogue_exact_match_or_dropdown_owner_unverified",
+    "catalogue_or_unknown_wizard_click_requires_learning",
+    "model_needs_salesperson_or_observation",
+})
+
+
 @dataclass(frozen=True)
 class WorkEvidence:
     action: str
@@ -199,6 +216,11 @@ class WorkMissionCoordinator:
                 for item in parsed:
                     if item not in exclusions:
                         exclusions.append(item)
+            import re
+            for sentence in re.split(r"[.!?\n]+", human.text):
+                for item in explicit_service_exclusion_correction(sentence):
+                    if item not in exclusions:
+                        exclusions.append(item)
             self._mission = WorkMission(
                 task_id="work-" + uuid4().hex[:16],
                 revision=human.mission_revision,
@@ -212,6 +234,23 @@ class WorkMissionCoordinator:
                 service_exclusions=tuple(exclusions),
             )
             return self._mission
+
+    def add_service_exclusions(self, mission: WorkMission, exclusions: tuple[str, ...]) -> bool:
+        """Merge a bounded operator correction before document confirmation."""
+        from dataclasses import replace
+
+        with self._lock:
+            current = self._mission
+            if current != mission or not self._is_current(mission):
+                return False
+            if current.stage not in {WorkStage.READY, WorkStage.PAUSED}:
+                return False
+            self._mission = replace(
+                current, service_exclusions=tuple(dict.fromkeys(
+                    (*current.service_exclusions, *exclusions),
+                )),
+            )
+            return True
 
     def transition(
         self, task_id: str, stage: WorkStage, *,
@@ -331,7 +370,9 @@ class WorkMissionCoordinator:
             item = self._mission
             if (item is None or item.document_key != DRAFT_DOCUMENT_KEY
                     or item.stage != WorkStage.PAUSED
-                    or item.reason != "draft_customer_selection_required"
+                    or item.reason not in {
+                        "draft_customer_selection_required", "one_native_step_verified_reobserve_next",
+                    }
                     or not self._is_current(item)):
                 return False
             from dataclasses import replace
@@ -361,7 +402,9 @@ class WorkMissionCoordinator:
             item = self._mission
             if (item is None or item.document_key != DRAFT_DOCUMENT_KEY
                     or item.stage != WorkStage.PAUSED
-                    or item.reason != "draft_customer_selection_required"
+                    or item.reason not in {
+                        "draft_customer_selection_required", "one_native_step_verified_reobserve_next",
+                    }
                     or not self._is_current(item)):
                 return False
             from dataclasses import replace
@@ -625,6 +668,32 @@ def plan_or_execute_windowhub_step(
                 return WorkStepResult(
                     "paused", "draft_mission_revoked_before_customer_picker"
                 )
+            from app.agent.runtime.navimind_draft_bootstrap import (
+                advance_owned_draft_properties, requested_draft_customer,
+            )
+            customer = requested_draft_customer(mission.goal)
+            if customer is not None:
+                try:
+                    reason = advance_owned_draft_properties(
+                        loop, host, revision=mission.revision, customer=customer,
+                        customer_retry=host._draft_customer_search_attempted,
+                        exclude_services={"montaż", "demontaż", "wykończenie"}.issubset(
+                            mission.service_exclusions
+                        ),
+                    )
+                except Exception:
+                    if host._draft_phase == "awaiting_confirmed_draft":
+                        return WorkStepResult(
+                            "action", "one_native_step_verified_reobserve_next",
+                            "Ponowny odczyt po próbie potwierdzenia właściwości",
+                        )
+                    reason = "draft_preferences_require_operator"
+                if reason == "draft_properties_confirmed_reobserve":
+                    return WorkStepResult(
+                        "action", "one_native_step_verified_reobserve_next",
+                        "Potwierdzenie właściwości — oczekuję na odczyt dokumentu",
+                    )
+                return WorkStepResult("paused", reason)
             try:
                 host.execute_draft_customer_picker_once(
                     loop, revision=mission.revision,
@@ -827,6 +896,11 @@ def plan_or_execute_windowhub_step(
             )
             if catalogue_pick is None:
                 return WorkStepResult("review", click_reason)
+        elif ledger is not None and getattr(target, "role", None) == "combobox":
+            from app.agent.runtime.navimind_catalogue_selection import verify_catalogue_dropdown_target
+
+            if not verify_catalogue_dropdown_target(scene, ledger.active, target):
+                return WorkStepResult("review", "catalogue_or_unknown_wizard_click_requires_learning")
         elif ledger is not None:
             from app.agent.runtime.navimind_position_click_policy import (
                 verify_position_navigation_readback,
@@ -1006,11 +1080,9 @@ class BackgroundWorkMission:
                     WorkStage.READY, WorkStage.PAUSED,
                 }):
             return False
-        if mission.stage == WorkStage.PAUSED:
-            allowed = {"one_native_step_verified_reobserve_next"}
-            # A human must finish customer selection and Resume separately.
-            if mission.reason not in allowed:
-                return False
+        if (mission.stage == WorkStage.PAUSED
+                and mission.reason not in REOBSERVABLE_WORK_PAUSES):
+            return False
         if mission.cycles >= self.coordinator.max_cycles:
             self.coordinator.transition(
                 mission.task_id, WorkStage.REVIEW,
@@ -1137,7 +1209,7 @@ class BackgroundWorkMission:
                 task_id, target,
                 reason=result.reason,
                 suggested_action=result.action,
-                count_step=execute and result.kind == "action",
+                count_step=execute and result.kind == "action" and result.verified,
                 signature=result.signature,
                 observed_stage=result.observed_stage,
                 action=result.action, after_stage=result.new_stage,

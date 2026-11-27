@@ -67,7 +67,7 @@ def classify_customer_search_controls(controls, *, picker_focused: bool) -> Cust
     return CustomerSearchDecision("blocked", "no_edit_and_picker_not_focused", 0)
 
 
-def type_customer_search(scene: Any, customer_name: str) -> CustomerSearchDecision:
+def type_customer_search(scene: Any, customer_name: str, *, strictly_scoped: bool = False) -> CustomerSearchDecision:
     if not isinstance(customer_name, str) or not customer_name.strip() or len(customer_name) > 100:
         return CustomerSearchDecision("blocked", "invalid_customer_name")
     meta = scene.observation.metadata
@@ -149,6 +149,8 @@ def type_customer_search(scene: Any, customer_name: str) -> CustomerSearchDecisi
             item["inside_picker"] = item["inside_picker"] or inside
     except Exception:
         pass
+    if strictly_scoped:
+        all_edits = [item for item in all_edits if item["structural_child"]]
     decision = classify_customer_search_controls(
         all_edits, picker_focused=bool((matching[0].metadata or {}).get("uia_focused"))
     )
@@ -206,6 +208,7 @@ def direct_lookup_typing_point(rect) -> tuple[int, int]:
 
 def type_directly_into_customer_lookup(
     scene: Any, customer_name: str, *, replace_existing: bool = False,
+    strictly_scoped: bool = False,
 ) -> CustomerSearchDecision:
     """One verified text-area click and one typeahead attempt on IDC_ZAMAWIAJACY.
 
@@ -228,6 +231,7 @@ def type_directly_into_customer_lookup(
             scene, label="Wybierz istniejącego klienta",
             automation_id="IDC_ZAMAWIAJACY",
             allowed_stages=("document_properties",),
+            exact_customer_picker_id=True,
         )
     except Exception as exc:
         return CustomerSearchDecision("blocked", "lookup_identity_" + type(exc).__name__)
@@ -238,11 +242,6 @@ def type_directly_into_customer_lookup(
             return CustomerSearchDecision("blocked", "not_native_lookupedit")
         click_offset = direct_lookup_typing_point(rect)
         from pywinauto import mouse
-        # UIA identity and rectangle have just been reverified. Click the
-        # left TEXT area instead of the right-side dropdown arrow.
-        phase = "click_lookup_text_area"
-        mouse.click(coords=(int(rect.left) + click_offset[0],
-                            int(rect.top) + click_offset[1]))
         import ctypes
         from ctypes import wintypes
         user32 = ctypes.WinDLL("user32", use_last_error=True)
@@ -251,11 +250,7 @@ def type_directly_into_customer_lookup(
         if int(user32.GetForegroundWindow() or 0) != hwnd:
             return CustomerSearchDecision("blocked", "document_lost_foreground_after_click")
 
-        # The legacy DevExpress LookUpEdit may expose keyboard focus at the
-        # document's UIA ancestor instead of the editor itself. Focus-based
-        # rejection prevented ALL typing even though the text area click
-        # was executed. Use native Win32 hit-test + process ownership instead:
-        # only send once to the exact freshly verified client text region.
+        # Check the actual hit window before clicking the verified text area.
         phase = "verify_native_click_target"
         target_x = int(rect.left) + click_offset[0]
         target_y = int(rect.top) + click_offset[1]
@@ -278,6 +273,15 @@ def type_directly_into_customer_lookup(
             return CustomerSearchDecision("blocked", "document_no_longer_foreground")
         if str(wrapper.element_info.class_name).casefold() != "lookupedit":
             return CustomerSearchDecision("blocked", "lookup_identity_changed")
+        if strictly_scoped:
+            user32.IsChild.argtypes = [wintypes.HWND, wintypes.HWND]
+            user32.IsChild.restype = wintypes.BOOL
+            if hit != hwnd and not user32.IsChild(hwnd, hit):
+                return CustomerSearchDecision("blocked", "lookup_text_hit_outside_document")
+        phase = "click_lookup_text_area"
+        mouse.click(coords=(target_x, target_y))
+        if int(user32.GetForegroundWindow() or 0) != hwnd:
+            return CustomerSearchDecision("blocked", "document_lost_foreground_after_click")
         print("DIRECT_LOOKUP_NATIVE_HIT_VERIFIED = True")
         print("DIRECT_LOOKUP_UIA_FOCUS = NOT_REQUIRED_FOR_LEGACY_LOOKUP")
         phase = "send_customer_name"
@@ -291,7 +295,6 @@ def type_directly_into_customer_lookup(
         # Phase is safe to print; never log the customer text or raw UIA values.
         print("DIRECT_LOOKUP_FAILURE_PHASE =", phase)
         print("DIRECT_LOOKUP_EXCEPTION_TYPE =", type(exc).__name__)
-        print("DIRECT_LOOKUP_EXCEPTION_DETAIL =", str(exc)[:180])
         return CustomerSearchDecision(
             "blocked", "direct_lookup_" + phase + "_" + type(exc).__name__
         )

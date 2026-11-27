@@ -50,6 +50,7 @@ def verify_clicked_customer_commit(scene, customer_name: str):
             scene, label="Wybierz istniejącego klienta",
             automation_id="IDC_ZAMAWIAJACY",
             allowed_stages=("document_properties",),
+            exact_customer_picker_id=True,
         )
     except Exception as exc:
         return CustomerCommitEvidence("unverified", "lookup_missing_" + type(exc).__name__, False, None)

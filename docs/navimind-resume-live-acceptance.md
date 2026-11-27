@@ -11,7 +11,7 @@ z lokalnego pliku `.env` i z istniejącej sesji `Okna.exe`.
 | `LiveMissionConversation` i lokalne zapytanie | Po odrębnej zgodzie przekazuje odczytany tekst i ewidencję pozycji. CHAT ma własny endpoint i dane uwierzytelniające. |
 | `WorkMissionCoordinator` i `BackgroundWorkMission` | Wiążą cel ze źródłem i dokumentem, prowadzą licznik zweryfikowanych kroków, ponownie planują na świeżej obserwacji i odbierają decyzję V2. |
 | `NaviMindSharedHost`, obserwator UIA/Win32 i arbiter | Lokalne **Wznów pracę** pozwala na próbę przejścia do Start1 i ponowną obserwację. Każdy krok potrzebuje aktualnej tożsamości dokumentu, pozwolenia i sprawdzenia skutku. |
-| `navimind_draft_bootstrap` i `NewOfferHandoff` | Identyfikują Start1, nowy formularz i jego powiązanie z natywnym oknem. Wyszukiwarka należy do tej samej transakcji. Wybór klienta pozostaje ręczny. |
+| `navimind_draft_bootstrap` i `NewOfferHandoff` | Identyfikują Start1, nowy formularz i jego powiązanie z natywnym oknem. Wyszukiwarka i odczyt klienta należą do tej samej transakcji. |
 | Vercel `navimind`, `POST /api/agent/task` | Osobne repozytorium `wisnialeszno89/navimind`. `NAVIMIND_V2_HTTP_VERIFIED=True` oznacza oczekiwaną odpowiedź na syntetyczny wniosek po autoryzacji. `NAVIMIND_V2_EXECUTOR_CONNECTED=True` oznacza zweryfikowany krok lokalny. |
 | Zasady katalogowe i ewidencja pozycji | Wymiary i ilość są porównywane z zapytaniem. Opcja katalogowa wymaga jednoznacznej tożsamości i odczytu. Niezależne potwierdzenie gotowej pozycji i przejście do następnej pozostają do połączenia w panelu. |
 
@@ -34,18 +34,41 @@ istniejącej oferty podczas testu.
 | --- | --- |
 | Kontynuacja zza panelu | Po „okej zrób ofertę” nadal jest ten sam plan. Dopiero lokalne **Wznów pracę** inicjuje przejście do Start1 i próbę otwarcia nowej oferty. |
 | Nowy dokument | Jeden formularz **Właściwości dokumentu**, powiązany z wywołaniem Start1. Przy niejednoznacznym Start1 sprawdź kod blokady. |
-| Wyszukiwarka klienta | Pojawia się jedna tabela pod `IDC_ZAMAWIAJACY` lub powiązany natywny dialog **Wybór klienta**. Przy braku dowodu uruchom tylko odczyt `python -m tools.probe_windowhub_live_popup` i pokaż rozwiniętą listę w nowym formularzu. Przy potwierdzonym otwarciu przetestuj ręcznie filtr `Top`. |
-| Przekazanie do kreatora | Po wskazaniu klienta i zatwierdzeniu właściwości dokumentu użyj **Wznów pracę** oraz wróć do WindowHub, aby obserwator zweryfikował aktywny dokument lub kreator. |
+| Wyszukiwarka klienta | Pojawia się jedna tabela pod `IDC_ZAMAWIAJACY` lub powiązany natywny dialog **Wybór klienta**. Przy braku dowodu uruchom tylko odczyt `python -m tools.probe_windowhub_live_popup` i pokaż rozwiniętą listę w nowym formularzu. Jeśli automat nie potwierdzi wyniku, użyj filtra `Top` ręcznie. |
+| Przekazanie do kreatora | Po wskazaniu klienta zostaw właściwości otwarte i użyj **Wznów pracę**. Agent sprawdzi pola cenowe i spróbuje potwierdzić formularz. |
 | Konstrukcje | 1 szt. 1500×1400 mm, biała od wewnątrz, antracyt od zewnątrz. 1 szt. 1300×1200 mm, biała z obu stron. Dla obu VEKA Perfectline, 2-fach, activPilot. Wybór otwierania pozostaje decyzją operatora. Rabaty 10% i 15% wymagają odrębnego potwierdzenia. |
 | Zatrzymanie | Nawet przy braku odczytu albo zmianie okna nie ponawiaj w ciemno otwierania, wyboru lub potwierdzenia. Zostaw dokument otwarty i niezapisany. |
-
-Pierwszy etap wymagający implementacji po potwierdzeniu otwarcia listy to
-automatyczne użycie filtra, wybór jednej istniejącej firmy i odczyt wartości
-kontrahenta w oryginalnym formularzu. Repozytorium zawiera te próby w ścieżce
-terminalowej. Panel potrzebuje osobnych, aktualnych uprawnień dla wpisania
-filtra, wyboru wiersza i zatwierdzenia właściwości dokumentu.
 
 Do dalszej demonstracji potrzebne są widoczny wariant profilu Perfectline,
 lista kolorów obu stron, pakiet dwuszybowy, activPilot ze znanym otwieraniem,
 bezpieczne przejście do edytora i odczyt obu skonfigurowanych pozycji. Rabaty
 i akcesoria nie są częścią automatycznej konfiguracji w tej wersji.
+
+## Dalsza próba po otwarciu właściwości dokumentu
+
+Użyj polecenia „Przygotuj nową, niezapisaną ofertę dla Top Trans Artur Janik
+na dwie pozycje z zatwierdzonego zapytania. Bez montażu, demontażu i wykończenia.”
+Podanie usług w odrębnym zdaniu jest obsługiwane również w bieżącej misji
+przed zatwierdzeniem właściwości.
+
+Agent próbuje wpisać `Top` do rozpoznanego pola i wybrać pełną nazwę tylko
+przy jednym wyniku w powiązanej tabeli. Jeśli katalog ma inną pisownię,
+wskaż klienta ręcznie, pozostawiając właściwości otwarte. Po wyborze kliknij
+**Wznów pracę**. Jeśli WindowHub ukrywa natywny odczyt klienta, zweryfikuj nazwę
+w formularzu i dopiero wtedy użyj komunikatu „potwierdzam klienta” oraz przycisku
+wznowienia. Natywnie odczytana inna nazwa wstrzymuje przejście.
+
+Przy zleceniu „bez montażu, demontażu i wykończenia” panel ustawia odpowiadające
+im trzy wyłączenia cenowe i odznacza „Bez ceny konstrukcji”. Sprawdza te pola
+przed zatwierdzeniem właściwości. Po `OK` dopuszcza pracę tylko w nowym
+dokumencie lub kreatorze należącym do tej samej transakcji natywnej.
+
+„Gotowe”, „klient wybrany” oraz „preferencje ustawione” zachowują misję.
+Wznowienie wymaga oddzielnego kliknięcia. Gdy obserwacja nie potwierdza
+właściwego ekranu, panel oddaje sterowanie i ponownie udostępnia przycisk.
+Jeśli pojawił się niepewny wynik kliknięcia, sprawdź stan przed kolejną próbą.
+
+Dwie pozycje z przykładowego zapytania są rozdzielone w ewidencji. Parametry
+otwierania nie są podane. Dobór okuć zależny od kierunku i zaliczenie
+gotowej konstrukcji nadal wymagają odczytu potwierdzającego to, co wpisano
+w edytorze. Zapis oferty pozostaje poza zakresem próby.

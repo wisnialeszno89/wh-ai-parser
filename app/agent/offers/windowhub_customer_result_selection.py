@@ -89,7 +89,8 @@ def _customer_name_is_suggestion(label: str, query: str) -> bool:
     return customer_name_completes_query(label, query) or customer_name_has_reordered_words(label, query)
 
 
-def select_exact_customer_result(scene, customer_name: str, *, visible_completions=None) -> tuple[bool, str]:
+def select_exact_customer_result(scene, customer_name: str, *, visible_completions=None,
+                                 strictly_owned=False) -> tuple[bool, str]:
     """Observe visible same-process UIA trees, then click one exact result.
 
     A popup may be a direct/indirect owner of Document Properties, not a direct
@@ -105,6 +106,7 @@ def select_exact_customer_result(scene, customer_name: str, *, visible_completio
             scene, label="Wybierz istniejącego klienta",
             automation_id="IDC_ZAMAWIAJACY",
             allowed_stages=("document_properties",),
+            exact_customer_picker_id=True,
         )
         picker_rect = _rect(picker)
     except Exception as exc:
@@ -125,6 +127,11 @@ def select_exact_customer_result(scene, customer_name: str, *, visible_completio
 
     desktop = Desktop(backend="uia")
     windows = []
+    if strictly_owned:
+        from app.agent.runtime.windowhub_mdi_native_probe import _Win32Mdi
+        from app.agent.runtime.windowhub_new_offer_handoff import owner_chain
+
+        api = _Win32Mdi()
     try:
         document = desktop.window(handle=hwnd).wrapper_object()
         windows.append(document)
@@ -137,7 +144,9 @@ def select_exact_customer_result(scene, customer_name: str, *, visible_completio
                     continue
                 process = wintypes.DWORD()
                 user32.GetWindowThreadProcessId(win_hwnd, ctypes.byref(process))
-                if process.value == expected_pid.value:
+                if process.value == expected_pid.value and (
+                    not strictly_owned or hwnd in owner_chain(win_hwnd, api)
+                ):
                     windows.append(window)
             except Exception:
                 continue
@@ -157,6 +166,18 @@ def select_exact_customer_result(scene, customer_name: str, *, visible_completio
                 role = str(info.control_type or "").casefold()
                 if role not in SELECTABLE_ROLES:
                     continue
+                if strictly_owned and window is document:
+                    ancestor = info.parent
+                    for _ in range(12):
+                        if ancestor is None:
+                            break
+                        if ancestor.automation_id == "IDC_ZAMAWIAJACY":
+                            break
+                        ancestor = ancestor.parent
+                    else:
+                        ancestor = None
+                    if ancestor is None:
+                        continue
                 name = str(info.name or "").strip()
                 if canonical_customer_name(name) != canonical_customer_name(customer_name) and not (
                     visible_completions is not None
@@ -216,6 +237,7 @@ def reveal_customer_results(scene) -> tuple[bool, str]:
             scene, label="Wybierz istniejącego klienta",
             automation_id="IDC_ZAMAWIAJACY",
             allowed_stages=("document_properties",),
+            exact_customer_picker_id=True,
         )
         rect = picker.rectangle()
         if (str(picker.element_info.class_name).casefold() != "lookupedit"

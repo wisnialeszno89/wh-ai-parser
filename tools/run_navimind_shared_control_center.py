@@ -349,18 +349,39 @@ def run(*, expected_offer: str, initial_pdf: str | None = None,
         print("NAVIMIND_V2_PROBE_RESULT=" + v2_probe_result)
         print("NAVIMIND_V2_HTTP_VERIFIED=" + str(v2_probe_result == VERIFIED_RESULT))
 
-    def current_work_continuation():
+    def current_work_continuation(text):
+        from app.agent.runtime.navimind_live_conversation import explicit_service_exclusion_correction
+        from app.agent.runtime.navimind_work_mission import REOBSERVABLE_WORK_REVIEWS
+
         mission = work_coordinator.current()
         if mission is None or not work_coordinator.is_current(mission):
             return None
         mode = host.controller.snapshot().mode
+        if mode in (PanelMode.RESUME_PENDING, PanelMode.AGENT_READY):
+            host.pause_work_input()
+            mode = host.controller.snapshot().mode
+        if " ".join(text.casefold().strip(" .!").split()) == "potwierdzam klienta":
+            if (host._draft_phase == "properties"
+                    and mission.stage == WorkStage.PAUSED
+                    and mission.reason == "draft_customer_selection_required"):
+                host._draft_customer_attested_revision = mission.revision
+                return mission.revision, (
+                    "Przyjąłem Twoje potwierdzenie klienta. Kliknij Wznów pracę."
+                )
+            return mission.revision, "Panel nie oczekuje obecnie na potwierdzenie klienta."
+        exclusions = explicit_service_exclusion_correction(text)
+        if exclusions:
+            if (host._draft_phase in {"start", "properties"}
+                    and work_coordinator.add_service_exclusions(mission, exclusions)):
+                return mission.revision, (
+                    "Dodałem wykluczenia do bieżącej misji. Kliknij Wznów pracę."
+                )
+            return mission.revision, "Preferencje wymagają otwartych właściwości roboczej oferty."
+        if mission.stage == WorkStage.REVIEW and mission.reason in REOBSERVABLE_WORK_REVIEWS:
+            work_coordinator.transition(mission.task_id, WorkStage.READY, reason=mission.reason)
+            return mission.revision, "Kliknij Wznów pracę, abym sprawdził ekran po Twojej zmianie."
         if mission.stage == WorkStage.REVIEW or mode == PanelMode.STOPPED:
             message = "Misja wymaga przeglądu. Ostatni stan: " + mission.reason + "."
-        elif (host._approved_work_revision == mission.revision
-              and mode in (PanelMode.RESUME_PENDING, PanelMode.AGENT_READY)):
-            message = "Bieżąca misja trwa. Potwierdzone kroki: " + str(
-                mission.total_verified_actions
-            ) + "."
         elif mission.stage in (WorkStage.QUEUED, WorkStage.THINKING):
             message = "Bieżąca misja jest w trakcie planowania."
         else:
@@ -384,26 +405,28 @@ def run(*, expected_offer: str, initial_pdf: str | None = None,
                 message = (
                     "Przeanalizowałem bieżący ekran i V2 wskazał krok "
                     + result.action + ". Polityka lokalna go dopuściła jako "
-                    "propozycję. Niczego jeszcze nie kliknąłem. "
+                    "propozycję. Plan jest gotowy. "
                     "Sterowanie wymaga lokalnego Wznów pracę."
                 )
         elif result.kind == "action":
-            print("NAVIMIND_V2_EXECUTOR_CONNECTED=True")
-            message = (
-                "Wykonałem i zweryfikowałem jeden krok " + result.action
-                + ". Ponownie sprawdzam ekran przed dalszą pracą."
-            )
+            if result.verified:
+                print("NAVIMIND_V2_EXECUTOR_CONNECTED=True")
+                message = "Zweryfikowałem krok " + result.action + ". Sprawdzam następny ekran."
+            else:
+                message = "Sprawdzam dokument po próbie potwierdzenia właściwości."
         elif result.kind == "paused":
             if result.reason == "draft_customer_selection_required":
                 message = (
-                    "Otworzyłem i zweryfikowałem okno wyboru klienta. "
-                    "Wskaż dokładnie właściwą firmę w WindowHub, "
-                    "potwierdź właściwości dokumentu i pozostaw nową "
-                    "roboczą ofertę lub kreator pozycji otwarty. "
-                    "Kliknij lokalnie Wznów pracę. Rozpoznam numer OFR, "
-                    "jeśli powstał, albo zweryfikuję natywną tożsamość "
-                    "jeszcze niezapisanego dokumentu. Nie trzeba zapisywać "
-                    "oferty przed przeglądem."
+                    "W WindowHub wyszukaj firmę po „Top” i wybierz dokładnego klienta. "
+                    "Zostaw Właściwości dokumentu otwarte i kliknij Wznów pracę. "
+                    "Jeśli program ukrywa odczyt, wpisz „potwierdzam klienta” tylko po "
+                    "sprawdzeniu pełnej nazwy na formularzu, a potem wznów."
+                )
+            elif result.reason == "draft_preferences_require_operator":
+                message = (
+                    "Sprawdź właściwości dokumentu. Zaznacz Bez ceny montażu, demontażu "
+                    "i wykończenia. Cena konstrukcji ma pozostać widoczna. "
+                    "Zostaw formularz otwarty i kliknij Wznów pracę."
                 )
             else:
                 message = (
@@ -762,6 +785,11 @@ def run(*, expected_offer: str, initial_pdf: str | None = None,
         # Only this Tk button is allowed to arm an actual native mission.
         mission = work_coordinator.current()
         if mission is not None:
+            from app.agent.runtime.navimind_work_mission import REOBSERVABLE_WORK_REVIEWS
+            if mission.stage == WorkStage.REVIEW and mission.reason in REOBSERVABLE_WORK_REVIEWS:
+                mission = work_coordinator.transition(
+                    mission.task_id, WorkStage.READY, reason=mission.reason,
+                ) or mission
             if mission.stage not in (WorkStage.READY, WorkStage.PAUSED):
                 panel.main_workspace.notice.configure(
                     text="Plan V2 nie jest jeszcze gotowy lub wymaga przeglądu. "
@@ -777,7 +805,7 @@ def run(*, expected_offer: str, initial_pdf: str | None = None,
                     and mission.reason == "draft_customer_selection_required"):
                 panel.main_workspace.notice.configure(
                     text="Po ręcznym wyborze klienta wróć do WindowHub. "
-                         "Sprawdzę, czy aktywny dokument pochodzi z tej misji."
+                         "Sprawdzę klienta i preferencje w tym samym formularzu."
                 )
             if not host.approve_current_work_for_resume(
                 revision=mission.revision, task_id=mission.task_id,
@@ -794,7 +822,7 @@ def run(*, expected_offer: str, initial_pdf: str | None = None,
             )
         host.controller.resume()
 
-    panel.primary.register_action(host.takeover)
+    panel.primary.register_action(host.pause_work_input)
     panel.primary.set_enabled(host.controller.snapshot().can_takeover)
     panel.secondary.register_action(resume_from_local_operator)
     panel.secondary.set_enabled(host.controller.snapshot().can_resume)
@@ -804,9 +832,26 @@ def run(*, expected_offer: str, initial_pdf: str | None = None,
     print("NAVIMIND_MICROPHONE_WINDOWS_DICTATION=True")
 
     last_native_input_armed = False
+    pending_observation_epoch = None
+    pending_observation_since = 0.0
 
     def pump():
-        nonlocal last_native_input_armed
+        nonlocal last_native_input_armed, pending_observation_epoch, pending_observation_since
+        from time import monotonic
+        if host.controller.snapshot().mode == PanelMode.RESUME_PENDING:
+            epoch = host.controller.arbiter.epoch
+            if epoch != pending_observation_epoch:
+                pending_observation_epoch = epoch
+                pending_observation_since = monotonic()
+            elif monotonic() - pending_observation_since > 10:
+                reason = host.last_reason
+                host.pause_work_input()
+                panel.main_workspace.notice.configure(
+                    text="WindowHub wymaga sprawdzenia (" + reason
+                    + "). Ustaw właściwy ekran i kliknij Wznów pracę."
+                )
+        else:
+            pending_observation_epoch = None
         if host.controller.snapshot().mode == PanelMode.LEARNING:
             if not teaching_session.active:
                 teaching_session.start()
@@ -845,7 +890,8 @@ def run(*, expected_offer: str, initial_pdf: str | None = None,
                 # The picker is a special manual handoff: retain only the
                 # native transaction provenance, never an input permit.
                 if (outcome == "paused"
-                        and current.reason == "draft_customer_selection_required"):
+                        and current.reason == "draft_customer_selection_required"
+                        and host._draft_phase == "awaiting_customer_selection"):
                     host.pause_for_draft_customer()
                 else:
                     host.pause_work_input()
@@ -973,8 +1019,10 @@ def run(*, expected_offer: str, initial_pdf: str | None = None,
             )
             loop = create_windows_desktop_agent_control_loop()
             last_start_focus_epoch = None
+            last_properties_focus_epoch = None
+
             def observe_authorized_workspace():
-                nonlocal last_start_focus_epoch
+                nonlocal last_start_focus_epoch, last_properties_focus_epoch
                 if (live_allowed
                         and host._draft_phase == "start"
                         and host.controller.snapshot().mode == PanelMode.RESUME_PENDING
@@ -1012,6 +1060,18 @@ def run(*, expected_offer: str, initial_pdf: str | None = None,
                             except Full:
                                 pass
                             raise RuntimeError("unique_start1_activation_refused")
+                if (live_allowed
+                        and host._draft_phase == "properties"
+                        and host.controller.snapshot().mode == PanelMode.RESUME_PENDING
+                        and host._approved_work_revision == host.chat.snapshot().mission_revision):
+                    scope = host._draft_native_scope
+                    epoch = host.controller.arbiter.epoch
+                    if scope is not None and last_properties_focus_epoch != epoch:
+                        last_properties_focus_epoch = epoch
+                        from app.agent.runtime.navimind_draft_bootstrap import focus_owned_properties
+                        host.controller.arbiter.dispatch_pending_navigation(
+                            epoch, lambda: focus_owned_properties(scope),
+                        )
                 return loop.observe_scene()
             inspect_offer_in_background(
                 observe=observe_authorized_workspace, host=host,

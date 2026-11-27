@@ -18,7 +18,9 @@ def _continuation_predicate():
 def test_short_continuation_commands_are_recognized():
     predicate = _continuation_predicate()
     for text in ("kontynuuj", "Wznów pracę", "wykonaj następny krok", "dalej",
-                 "okej zrób ofertę", "Dobrze, zrob te oferte.", "ok, dalej"):
+                 "okej zrób ofertę", "Dobrze, zrob te oferte.", "ok, dalej",
+                 "gotowe", "klient wybrany", "potwierdzam klienta",
+                 "bez montażu, demontażu i wykończenia"):
         assert predicate(text)
 
 

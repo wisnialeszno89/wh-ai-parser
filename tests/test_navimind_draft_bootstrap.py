@@ -319,3 +319,93 @@ def test_inline_lookup_requires_unique_grid_under_customer_field():
     assert not verified_lookup_grid(SimpleNamespace(elements=(grid, grid)))
     metadata["uia_ancestor_structure"] = [{"automation_id": "IDC_UNRELATED"}]
     assert not verified_lookup_grid(SimpleNamespace(elements=(grid,)))
+
+
+def test_named_customer_search_and_flags_are_verified_before_properties_confirmation(monkeypatch):
+    from app.agent.offers import windowhub_customer_result_selection as results
+    from app.agent.offers import windowhub_customer_search_action as search
+    from app.agent.perception import windowhub_semantic_world as perception
+    from app.agent.runtime import navimind_draft_bootstrap as draft
+    from app.agent.runtime import navimind_v2_preaction_scene_guard as guard
+    from app.agent.runtime import windowhub_mdi_native_probe as mdi
+    from app.agent.runtime.windowhub_document_core import PRICE_TARGETS
+    from tools import run_windowhub_new_offer_native_invoke_once as native
+    from tools import run_windowhub_top_trans_single_window_mission as sales
+
+    customer = "Top Trans Artur Janik"
+    assert draft.requested_draft_customer(
+        "Przygotuj nową, niezapisaną ofertę dla Top Trans Artur Janik na dwie pozycje"
+    ) == customer
+    assert draft.requested_draft_customer("Zrób ofertę dla Top") is None
+
+    host = NaviMindSharedHost(DRAFT_DOCUMENT_KEY)
+    human = host.chat.user_message("Zrób ofertę dla " + customer)
+    work = WorkMissionCoordinator(host.chat)
+    mission = work.queue_current()
+    work.transition(mission.task_id, WorkStage.READY)
+    host._draft_phase = "properties"
+    host._draft_native_scope = SimpleNamespace(
+        properties=25, pid=42, _owned=lambda hwnd, api: api.pid(hwnd) == 42,
+    )
+    verified = scene("Właściwości dokumentu", hwnd=25)
+    assert host.approve_current_work_for_resume(
+        revision=human.mission_revision, task_id=mission.task_id, coordinator=work
+    )
+    assert host.note_verified_workflow_step(verified, revision=mission.revision)
+    host.controller.resume()
+    assert host.inspect_fresh_scene(verified).verified
+
+    calls = []
+    selected = [False]
+    flags = {}
+
+    def observe():
+        value = customer if selected[0] else "Top"
+        return SimpleNamespace(observation=verified.observation, elements=[
+            SimpleNamespace(kind="button", metadata={
+                "automation_id": "IDC_ZAMAWIAJACY", "uia_visible": True,
+                "current_value": value, "current_value_source": "value",
+            }),
+        ])
+
+    def type_search(_scene, prefix, *, strictly_scoped):
+        assert prefix == "Top" and strictly_scoped
+        calls.append("search")
+        return SimpleNamespace(status="search_submitted_unverified", reason="typed")
+
+    def pick(_scene, name, *, strictly_owned):
+        assert not flags and name == customer and strictly_owned
+        calls.append("select")
+        selected[0] = True
+        return True, "selected"
+
+    def toggle(_scene, key, *, desired_checked):
+        assert selected[0]
+        calls.append(key)
+        flags[key] = desired_checked
+        return True
+
+    def confirm():
+        assert flags == dict(PRICE_TARGETS)
+        calls.append("confirm")
+
+    monkeypatch.setattr(search, "type_customer_search", type_search)
+    monkeypatch.setattr(results, "select_exact_customer_result", pick)
+    monkeypatch.setattr(perception, "enrich_windowhub_scene", lambda scene: scene)
+    monkeypatch.setattr(guard, "verify_preaction_scene",
+                        lambda *_: (SimpleNamespace(safe=True), observe()))
+    monkeypatch.setattr(mdi, "_Win32Mdi",
+                        lambda: SimpleNamespace(foreground=lambda: 25, pid=lambda _: 42))
+    monkeypatch.setattr(sales, "toggle_price_once", toggle)
+    monkeypatch.setattr(sales, "verify_exclusion",
+                        lambda _scene, key, *, desired_checked: flags.get(key) is desired_checked)
+    monkeypatch.setattr(native, "resolve_native_control", lambda *_args, **_kw: SimpleNamespace(Invoke=confirm))
+
+    outcome = draft.advance_owned_draft_properties(
+        SimpleNamespace(observe_scene=observe), host, revision=mission.revision,
+        customer=customer, customer_retry=False, exclude_services=True,
+    )
+    assert outcome == "draft_properties_confirmed_reobserve"
+    assert calls == ["search", "select", *(key for key, _ in PRICE_TARGETS), "confirm"]
+    assert host._draft_phase == "awaiting_confirmed_draft"
+    assert host.controller.current_permit() is None
