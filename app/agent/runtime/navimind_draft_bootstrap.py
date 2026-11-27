@@ -317,7 +317,7 @@ def requested_draft_customer(goal):
     """Accept an explicit full recipient, scoped to the human's offer command."""
     import re
     match = re.search(
-        r"\bofert[ęe] dla ([^\n,.!?;]+?)(?= (?:na|z|bez)\b|[\n,.!?;]|$)",
+        r"\b(?:ofert[ęe]|wycen[ęe]|kalkulacj[ęe]) dla ([^\n,.!?;]+?)(?= (?:na|z|bez)\b|[\n,.!?;]|$)",
         goal, flags=re.IGNORECASE,
     )
     if match is None:
@@ -375,6 +375,9 @@ def advance_owned_draft_properties(loop, host, *, revision, customer, customer_r
         actual = canonical_customer_name(observed.get("current_value"))
         expected = canonical_customer_name(customer)
         matches = customer_identity_matches(actual, expected, allow_name_reordering=True)
+        alternative = host._draft_customer_alternative
+        if alternative:
+            matches = customer_identity_matches(actual, alternative, allow_name_reordering=True)
         source = observed.get("current_value_source")
         if source in {"value", "legacy_value", "get_value"}:
             return matches
@@ -432,12 +435,18 @@ def advance_owned_draft_properties(loop, host, *, revision, customer, customer_r
                     return "draft_customer_selection_required"
                 require_current()
                 print("NAVIMIND_CUSTOMER=read_result", flush=True)
+                choice = {}
                 selected, reason = select_exact_customer_result(
                     current, customer, strictly_owned=True, allow_name_reordering=True,
                     authorization=lambda: host.controller.arbiter.permit_current(permit),
+                    draft_choice=choice,
                 )
                 print("NAVIMIND_CUSTOMER_RESULT=" + reason, flush=True)
+                host._draft_customer_suggestions = choice.get("suggestions", ())
                 if selected:
+                    actual = choice.get("selected")
+                    if actual and not customer_identity_matches(actual, customer, allow_name_reordering=True):
+                        host._draft_customer_alternative = actual
                     break
                 if reason != "EXACT_CUSTOMER_RESULT_NOT_UNIQUE_OR_NOT_VISIBLE":
                     return "draft_customer_selection_required"
@@ -461,6 +470,7 @@ def advance_owned_draft_properties(loop, host, *, revision, customer, customer_r
             return "draft_customer_selection_required"
         if not all(verify_exclusion(final, key, desired_checked=checked) for key, checked in targets):
             return "draft_preferences_require_operator"
+        host._draft_customer_decision = host._draft_customer_alternative
         invoke = resolve_native_control(final, label="OK", allowed_stages=("document_properties",))
         # Record the attempted transition before Invoke. An exception is not a
         # reason to click OK twice; the next step observes the new document.

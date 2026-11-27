@@ -253,7 +253,9 @@ class WorkMissionCoordinator:
             if self._mission != mission or not self._is_current(mission):
                 return False
             if (mission.document_key != "DRAFT/NEW" or mission.stage != WorkStage.PAUSED
-                    or mission.reason != "draft_customer_name_required"):
+                    or mission.reason not in {
+                        "draft_customer_name_required", "draft_customer_selection_required",
+                    }):
                 return False
             self._mission = replace(mission, customer_name=name)
             return True

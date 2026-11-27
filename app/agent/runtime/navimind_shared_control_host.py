@@ -120,6 +120,9 @@ class NaviMindSharedHost:
         self.draft_unnumbered_ready_callback: Callable[[], bool] | None = None
         self._draft_native_scope: Any = None
         self._draft_customer_search_attempted = False
+        self._draft_customer_suggestions: tuple[str, ...] = ()
+        self._draft_customer_alternative: str | None = None
+        self._draft_customer_decision: str | None = None
         self._draft_customer_attested_revision: int | None = None
         self.controller = controller or NaviMindPanelController()
         self.controller.connect_host()
@@ -347,6 +350,9 @@ class NaviMindSharedHost:
         # ancestry. Only the controlled picker handoff may retain it.
         self._draft_native_scope = None
         self._draft_customer_search_attempted = False
+        self._draft_customer_suggestions = ()
+        self._draft_customer_alternative = None
+        self._draft_customer_decision = None
         self._draft_customer_attested_revision = None
         if self._draft_phase is not None:
             # Starting a new chat mission after human takeover must

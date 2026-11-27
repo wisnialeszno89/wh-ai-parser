@@ -362,6 +362,10 @@ def run(*, expected_offer: str, initial_pdf: str | None = None,
             name = text.partition(":")[2].strip()
             if not work_coordinator.provide_draft_customer(mission, name):
                 return mission.revision, "Gdy zapytam o klienta, wpisz Klient: i pełną nazwę firmy."
+            host._draft_customer_search_attempted = False
+            host._draft_customer_attested_revision = None
+            host._draft_customer_alternative = None
+            host._draft_customer_suggestions = ()
             if auto_start_draft and live_allowed:
                 panel.after_idle(lambda: resume_from_local_operator(automatic=True))
                 return mission.revision, "Mam klienta. Kontynuuję tę samą ofertę."
@@ -382,9 +386,10 @@ def run(*, expected_offer: str, initial_pdf: str | None = None,
                     and mission.stage == WorkStage.PAUSED
                     and mission.reason == "draft_customer_selection_required"):
                 host._draft_customer_attested_revision = mission.revision
-                return mission.revision, (
-                    "Przyjąłem Twoje potwierdzenie klienta. Kliknij Wznów pracę."
-                )
+                if auto_start_draft and live_allowed:
+                    panel.after_idle(lambda: resume_from_local_operator(automatic=True))
+                    return mission.revision, "Przyjąłem potwierdzenie klienta. Kontynuuję ofertę."
+                return mission.revision, "Przyjąłem potwierdzenie klienta. Kliknij Wznów pracę."
             return mission.revision, "Panel nie oczekuje obecnie na potwierdzenie klienta."
         exclusions = explicit_service_exclusion_correction(text)
         if exclusions:
@@ -431,16 +436,32 @@ def run(*, expected_offer: str, initial_pdf: str | None = None,
                 message = "Zweryfikowałem krok " + result.action + ". Sprawdzam następny ekran."
             else:
                 message = "Sprawdzam dokument po próbie potwierdzenia właściwości."
+                if host._draft_customer_decision:
+                    message = (
+                        "Do roboczej oferty wybrałem wpis „" + host._draft_customer_decision
+                        + "” jako rozwinięcie podanej nazwy. " + message
+                    )
+                    host._draft_customer_decision = None
         elif result.kind == "paused":
             if result.reason == "draft_customer_name_required":
                 message = "Komu przygotować ofertę? Wpisz Klient: i pełną nazwę kontrahenta."
             elif result.reason == "draft_customer_selection_required":
-                message = (
-                    "W WindowHub wyszukaj firmę po „Top” i wybierz dokładnego klienta. "
-                    "Zostaw Właściwości dokumentu otwarte i kliknij Wznów pracę. "
-                    "Jeśli program ukrywa odczyt, wpisz „potwierdzam klienta” tylko po "
-                    "sprawdzeniu pełnej nazwy na formularzu, a potem wznów."
-                )
+                alternatives = host._draft_customer_suggestions
+                if alternatives:
+                    message = (
+                        "W katalogu znalazłem podobne wpisy: " + " | ".join(alternatives)
+                        + ". Wpisz Klient: i nazwę wybranego kontrahenta. Zachowam tę ofertę."
+                    )
+                else:
+                    expected = host._draft_customer_alternative or mission.customer_name
+                    from app.agent.runtime.navimind_draft_bootstrap import requested_draft_customer
+                    expected = expected or requested_draft_customer(mission.goal)
+                    message = (
+                        "Sprawdź wybranego klienta we Właściwościach dokumentu"
+                        + (": " + expected if expected else "")
+                        + ". Jeśli nazwa się zgadza, wpisz „potwierdzam klienta”. "
+                        "Innego kontrahenta wskaż przez Klient: i pełną nazwę."
+                    )
             elif result.reason in {
                 "v2_application_secret_rejected", "v2_vercel_or_proxy_access_denied",
                 "v2_http_401_check_vercel_sso_or_agent_secret",

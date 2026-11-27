@@ -337,6 +337,7 @@ def test_named_customer_search_and_flags_are_verified_before_properties_confirma
         "Przygotuj nową, niezapisaną ofertę dla Top Trans Artur Janik na dwie pozycje"
     ) == customer
     assert draft.requested_draft_customer("Zrób ofertę dla Top") is None
+    assert draft.requested_draft_customer("Zrób wycenę dla Top Trans z zapytania") == "Top Trans"
 
     host = NaviMindSharedHost(DRAFT_DOCUMENT_KEY)
     human = host.chat.user_message("Zrób ofertę dla " + customer)
@@ -373,7 +374,7 @@ def test_named_customer_search_and_flags_are_verified_before_properties_confirma
         calls.append("search")
         return SimpleNamespace(status="search_submitted_unverified", reason="typed")
 
-    def pick(_scene, name, *, strictly_owned, allow_name_reordering, authorization):
+    def pick(_scene, name, *, strictly_owned, allow_name_reordering, authorization, draft_choice):
         assert not flags and name == customer and strictly_owned
         assert allow_name_reordering and authorization()
         calls.append("select")

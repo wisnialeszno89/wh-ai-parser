@@ -97,13 +97,51 @@ def customer_identity_matches(label, expected, *, allow_name_reordering=False) -
 
 
 
+def rank_draft_customer_candidates(candidates, requested, picker_rect):
+    """Return one strong draft candidate or a short list for the operator."""
+    from difflib import SequenceMatcher
+
+    wanted = canonical_customer_name(requested)
+    words = wanted.split()
+    exact = exact_customer_candidates(
+        candidates, requested, picker_rect, allow_name_reordering=True,
+    )
+    if len(exact) == 1:
+        return exact[0], ()
+    strong, similar = [], []
+    for index, row in enumerate(candidates):
+        if (not row.visible or not row.enabled or row.role.casefold() not in SELECTABLE_ROLES
+                or row.rect[1] < picker_rect[3] or not nearby_lookup(row.rect, picker_rect)):
+            continue
+        name = canonical_customer_name(row.name)
+        if not name or not words:
+            continue
+        actual_words = name.split()
+        extension = len(words) >= 2 and actual_words[:len(words)] == words
+        if extension:
+            strong.append(index)
+        if index in exact or extension or (
+            set(words) & set(actual_words)
+            and SequenceMatcher(None, wanted, name, autojunk=False).ratio() >= .68
+        ):
+            similar.append(index)
+    if not exact and len(strong) == 1 and len(similar) == 1:
+        return strong[0], ()
+    ranked = sorted(similar, key=lambda i: (
+        i not in exact, i not in strong,
+        -SequenceMatcher(None, wanted, canonical_customer_name(candidates[i].name), autojunk=False).ratio(),
+    ))
+    return None, tuple(dict.fromkeys(candidates[i].name for i in ranked))[:3]
+
+
+
 def _customer_name_is_suggestion(label: str, query: str) -> bool:
     return customer_name_completes_query(label, query) or customer_name_has_reordered_words(label, query)
 
 
 def select_exact_customer_result(scene, customer_name: str, *, visible_completions=None,
                                  strictly_owned=False, allow_name_reordering=False,
-                                 authorization=None) -> tuple[bool, str]:
+                                 authorization=None, draft_choice=None) -> tuple[bool, str]:
     """Observe visible same-process UIA trees, then click one exact result.
 
     A popup may be a direct/indirect owner of Document Properties, not a direct
@@ -192,11 +230,15 @@ def select_exact_customer_result(scene, customer_name: str, *, visible_completio
                     if ancestor is None:
                         continue
                 name = str(info.name or "").strip()
-                if not customer_identity_matches(
+                if draft_choice is None and not customer_identity_matches(
                     name, customer_name, allow_name_reordering=allow_name_reordering,
                 ) and not (
                     visible_completions is not None
                     and _customer_name_is_suggestion(name, customer_name)
+                ):
+                    continue
+                if draft_choice is not None and (
+                    not 1 <= len(name) <= 100 or any(ord(ch) < 32 for ch in name)
                 ):
                     continue
                 rect = _rect(node)
@@ -225,6 +267,15 @@ def select_exact_customer_result(scene, customer_name: str, *, visible_completio
         [item[1] for item in candidates], customer_name, picker_rect,
         allow_name_reordering=allow_name_reordering,
     )
+    if draft_choice is not None:
+        chosen, suggestions = rank_draft_customer_candidates(
+            [item[1] for item in candidates], customer_name, picker_rect,
+        )
+        draft_choice["suggestions"] = suggestions
+        if chosen is not None:
+            accepted = [chosen]
+        elif suggestions:
+            return False, "CUSTOMER_ALTERNATIVES_REQUIRE_CHOICE"
     print("CUSTOMER_EXACT_VISIBLE_MATCHES =", sum(
         canonical_customer_name(item[1].name) == canonical_customer_name(customer_name) for item in candidates
     ))
@@ -244,6 +295,8 @@ def select_exact_customer_result(scene, customer_name: str, *, visible_completio
         node.click_input()
     except Exception as exc:
         return False, "CUSTOMER_RESULT_CLICK_FAILED_" + type(exc).__name__
+    if draft_choice is not None:
+        draft_choice["selected"] = candidates[accepted[0]][1].name
     return True, "EXACT_CUSTOMER_RESULT_CLICKED_PENDING_DOCUMENT_VERIFICATION"
 
 
