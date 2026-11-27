@@ -427,6 +427,8 @@ def run(*, expected_offer: str, initial_pdf: str | None = None,
                        if auto_start_draft and live_allowed else
                        "W trybie LIVE kliknij Wznów pracę, a spróbuję przejść do Start1.")
                 )
+            elif result.reason == "local_geometry_action_ready":
+                message = "Znalazłem pola pozycji w WindowHub. Mogę uzupełnić je z zapytania."
             else:
                 message = (
                     "Przeanalizowałem bieżący ekran i V2 wskazał krok "
@@ -479,6 +481,8 @@ def run(*, expected_offer: str, initial_pdf: str | None = None,
                     "Uruchom lokalnie python -m tools.check_navimind_v2_connection --setup. "
                     "Po udanym teście kliknij Wznów pracę."
                 )
+            elif result.reason == "local_preaction_scene_changed":
+                message = "Ekran zmienił się przed wykonaniem kroku. Sprawdzam aktualny stan."
             elif result.reason == "windowhub_uia_reader_timed_out":
                 message = (
                     "WindowHub dwukrotnie nie odpowiedział na odczyt UI Automation. "
@@ -504,6 +508,18 @@ def run(*, expected_offer: str, initial_pdf: str | None = None,
                 "Sprawdź albo wybierz wariant dla bieżącej pozycji, a następnie kliknij "
                 "Wznów pracę, żebym odczytał stan tego samego dokumentu."
             )
+        elif result.reason.startswith("geometry_control_unverified:"):
+            field = result.reason.partition(":")[2]
+            labels = {
+                "item_type_window": "typ pozycji „Okno”", "quantity_input": "liczba sztuk",
+                "width_1": "szerokość", "height_1": "wysokość", "next_button": "przycisk „Dalej”",
+            }
+            message = (
+                "Jestem w edytorze pozycji WindowHub. Zatrzymałem się przy polu "
+                + labels.get(field, field) + ", bo Windows nie udostępnił jednej aktywnej kontrolki."
+            )
+        elif result.reason == "geometry_unexpected_followup_stage":
+            message = "WindowHub otworzył inny ekran niż oczekiwany po kroku edytora. Zachowałem szkic."
         elif result.reason == "active_position_requires_independent_readback":
             message = (
                 "Potrzebuję odczytu gotowej pozycji w dokumencie. Sprawdź w edytorze "
@@ -914,11 +930,13 @@ def run(*, expected_offer: str, initial_pdf: str | None = None,
     observation_future = None
     navigation_epoch = None
     auto_started_task = None
+    last_preinput_retry = None
 
     def pump():
         nonlocal last_native_input_armed, pending_observation_epoch, pending_observation_since
-        nonlocal observation_future, navigation_epoch, auto_started_task
+        nonlocal observation_future, navigation_epoch, auto_started_task, last_preinput_retry
         from time import monotonic
+        from app.agent.runtime.navimind_work_mission import PREINPUT_REOBSERVATION_REASONS
 
         if host.controller.snapshot().mode == PanelMode.LEARNING:
             if not teaching_session.active:
@@ -961,6 +979,17 @@ def run(*, expected_offer: str, initial_pdf: str | None = None,
                 # permit before requesting a fresh screen for the next step.
                 host.controller.takeover()
                 host.release_for_reobservation()
+            elif (
+                outcome == "paused"
+                and current.reason in PREINPUT_REOBSERVATION_REASONS
+                and host.controller.mode == PanelMode.AGENT_READY
+                and last_preinput_retry != (task_id, current.cycles)
+            ):
+                # No input was dispatched. Replan once on the new scene in this mission.
+                last_preinput_retry = (task_id, current.cycles)
+                host.controller.takeover()
+                host.release_for_reobservation()
+                print("NAVIMIND_RESUME=refresh_after_preinput_change", flush=True)
             elif outcome in ("review", "paused") and (
                 host.controller.snapshot().mode == PanelMode.AGENT_READY
             ):

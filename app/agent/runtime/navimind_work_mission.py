@@ -32,13 +32,18 @@ class WorkStage(str, Enum):
     COMPLETED_UNVERIFIED = "completed_unverified"
 
 
-REOBSERVABLE_WORK_PAUSES = frozenset({
+PREINPUT_REOBSERVATION_REASONS = frozenset({
+    "draft_properties_reobserve_required",
+    "draft_start_scene_changed_before_input",
+    "local_preaction_scene_changed",
+})
+
+
+REOBSERVABLE_WORK_PAUSES = PREINPUT_REOBSERVATION_REASONS | frozenset({
     "one_native_step_verified_reobserve_next",
     "draft_customer_selection_required",
     "draft_customer_name_required",
     "draft_preferences_require_operator",
-    "draft_properties_reobserve_required",
-    "draft_start_scene_changed_before_input",
     "windowhub_not_foreground",
     "windowhub_observation_unavailable",
     "windowhub_uia_reader_timed_out",
@@ -51,6 +56,11 @@ REOBSERVABLE_WORK_PAUSES = frozenset({
 
 
 REOBSERVABLE_WORK_REVIEWS = frozenset({
+    "geometry_control_unverified:item_type_window",
+    "geometry_control_unverified:quantity_input",
+    "geometry_control_unverified:width_1",
+    "geometry_control_unverified:height_1",
+    "geometry_control_unverified:next_button",
     "catalogue_exact_match_or_dropdown_owner_unverified",
     "catalogue_or_unknown_wizard_click_requires_learning",
     "model_needs_salesperson_or_observation",
@@ -770,96 +780,110 @@ def plan_or_execute_windowhub_step(
     if not scope_proof.verified:
         return WorkStepResult("paused", "pinned_offer_scope_unverified")
 
-    from app.agent.learning.windowhub_training_context import (
-        windowhub_skill_knowledge,
-    )
-    verified_experience = tuple(
-        {
-            "source": "local_verified_action",
-            "action_type": record.action,
-            "from_stage": record.before_stage,
-            "to_stage": record.after_stage,
-            "verified": record.verified,
-        }
-        for record in mission.evidence[-8:]
-    )
-    try:
-        effective_goal = scoped_v2_mission_goal(mission)
-    except ValueError:
-        return WorkStepResult("review", "v2_goal_too_long_for_pdf_evidence")
-    prepared = ComputerUseV2ActionSession().prepare_cycle(
-        scene, task_id=mission.task_id,
-        session_id=mission.task_id, goal=effective_goal,
-        world_revision=mission.cycles + 1, cycle=mission.cycles,
-        max_cycles=20,
-        knowledge=windowhub_skill_knowledge(),
-        # Demonstration effects are explicitly advisory, never proof
-        # that an action was clicked or a customer field was committed.
-        experience=(*verified_experience, *human_demonstrations[:8]),
-    )
-    prepared.request_payload["metadata"]["verified_windowhub_stage"] = stage
-    if ledger is not None:
-        # Advisory model metadata only. Native authority remains local,
-        # pinned to this coordinator's immutable manifest and revision.
-        prepared.request_payload["metadata"]["active_position_id"] = (
-            ledger.active.position_id
+    expected_local_stage = None
+    if ledger is not None and stage in {"position", "dimensions"}:
+        from app.agent.runtime.navimind_position_geometry import choose_geometry_action
+
+        action, expected_local_stage, blocker = choose_geometry_action(
+            scene, stage=stage, position=ledger.active,
         )
-        prepared.request_payload["metadata"]["active_position_index"] = (
-            ledger.active_index
+        if action is None:
+            return WorkStepResult("review", blocker, observed_stage=stage)
+        try:
+            enforce_v2_live_policy(scene, action, approved_persistent=False)
+        except (ValueError, RuntimeError, KeyError, TypeError):
+            return WorkStepResult("review", "local_geometry_action_failed_policy", observed_stage=stage)
+    else:
+        from app.agent.learning.windowhub_training_context import (
+            windowhub_skill_knowledge,
         )
-        prepared.request_payload["metadata"]["position_count"] = (
-            len(ledger.manifest.positions)
+        verified_experience = tuple(
+            {
+                "source": "local_verified_action",
+                "action_type": record.action,
+                "from_stage": record.before_stage,
+                "to_stage": record.after_stage,
+                "verified": record.verified,
+            }
+            for record in mission.evidence[-8:]
         )
-    # In the offer document, the remote reasoner must only see the Add
-    # capability when its exact active MDI ownership is locally proven.
-    if stage == "offer_document":
-        from app.agent.runtime.active_document_scope import (
-            unique_active_document_control,
+        try:
+            effective_goal = scoped_v2_mission_goal(mission)
+        except ValueError:
+            return WorkStepResult("review", "v2_goal_too_long_for_pdf_evidence")
+        prepared = ComputerUseV2ActionSession().prepare_cycle(
+            scene, task_id=mission.task_id,
+            session_id=mission.task_id, goal=effective_goal,
+            world_revision=mission.cycles + 1, cycle=mission.cycles,
+            max_cycles=20,
+            knowledge=windowhub_skill_knowledge(),
+            # Demonstration effects are explicitly advisory, never proof
+            # that an action was clicked or a customer field was committed.
+            experience=(*verified_experience, *human_demonstrations[:8]),
         )
-        allowed_add = unique_active_document_control(scene, label="Dodaj")
-        eligible = []
-        if allowed_add is not None:
-            for item in prepared.request_payload["capabilities"]["actions"]:
-                try:
-                    candidate = prepared.snapshot.reference_map.resolve(
-                        item["target_ref"], task_id=mission.task_id,
-                        world_revision=mission.cycles + 1,
-                    )
-                except (ValueError, TypeError, KeyError):
-                    continue
-                if (candidate is allowed_add
-                        and str(item.get("name", "")).startswith("click_ent_")):
-                    eligible.append(item["target_ref"])
-        prepared.request_payload["metadata"]["verified_active_offer_add_refs"] = eligible[:1]
-    try:
-        decision = reasoner.reason(prepared.request_payload)
-        error = getattr(reasoner, "last_error", None) or ""
-        if (decision is None
-                and (error.startswith("navimind_connection_error:")
-                     or error in {"navimind_http_502", "navimind_http_503", "navimind_http_504"})
-                and (is_mission_current is None or is_mission_current())):
-            # A fresh native pre-action guard still runs before any input.
+        prepared.request_payload["metadata"]["verified_windowhub_stage"] = stage
+        if ledger is not None:
+            # Advisory model metadata only. Native authority remains local,
+            # pinned to this coordinator's immutable manifest and revision.
+            prepared.request_payload["metadata"]["active_position_id"] = (
+                ledger.active.position_id
+            )
+            prepared.request_payload["metadata"]["active_position_index"] = (
+                ledger.active_index
+            )
+            prepared.request_payload["metadata"]["position_count"] = (
+                len(ledger.manifest.positions)
+            )
+        # In the offer document, the remote reasoner must only see the Add
+        # capability when its exact active MDI ownership is locally proven.
+        if stage == "offer_document":
+            from app.agent.runtime.active_document_scope import (
+                unique_active_document_control,
+            )
+            allowed_add = unique_active_document_control(scene, label="Dodaj")
+            eligible = []
+            if allowed_add is not None:
+                for item in prepared.request_payload["capabilities"]["actions"]:
+                    try:
+                        candidate = prepared.snapshot.reference_map.resolve(
+                            item["target_ref"], task_id=mission.task_id,
+                            world_revision=mission.cycles + 1,
+                        )
+                    except (ValueError, TypeError, KeyError):
+                        continue
+                    if (candidate is allowed_add
+                            and str(item.get("name", "")).startswith("click_ent_")):
+                        eligible.append(item["target_ref"])
+            prepared.request_payload["metadata"]["verified_active_offer_add_refs"] = eligible[:1]
+        try:
             decision = reasoner.reason(prepared.request_payload)
-    except Exception:
-        decision = None
-    if decision is None:
-        return safe_reasoner_failure_result(reasoner)
-    if decision.get("decision") == "done":
-        return WorkStepResult(
-            "review",
-            ("active_position_requires_independent_readback"
-             if ledger is not None else
-             "model_declared_done_needs_independent_business_readback"),
-        )
-    if (decision.get("decision") != "act"
-            or type(decision.get("confidence")) not in (int, float)
-            or decision["confidence"] < .80):
-        return WorkStepResult("review", "model_needs_salesperson_or_observation")
-    try:
-        action = prepared.resolve_action_decision(decision)
-        enforce_v2_live_policy(scene, action, approved_persistent=False)
-    except (ValueError, RuntimeError, KeyError, TypeError):
-        return WorkStepResult("review", "proposed_action_failed_local_policy")
+            error = getattr(reasoner, "last_error", None) or ""
+            if (decision is None
+                    and (error.startswith("navimind_connection_error:")
+                         or error in {"navimind_http_502", "navimind_http_503", "navimind_http_504"})
+                    and (is_mission_current is None or is_mission_current())):
+                # A fresh native pre-action guard still runs before any input.
+                decision = reasoner.reason(prepared.request_payload)
+        except Exception:
+            decision = None
+        if decision is None:
+            return safe_reasoner_failure_result(reasoner)
+        if decision.get("decision") == "done":
+            return WorkStepResult(
+                "review",
+                ("active_position_requires_independent_readback"
+                 if ledger is not None else
+                 "model_declared_done_needs_independent_business_readback"),
+            )
+        if (decision.get("decision") != "act"
+                or type(decision.get("confidence")) not in (int, float)
+                or decision["confidence"] < .80):
+            return WorkStepResult("review", "model_needs_salesperson_or_observation")
+        try:
+            action = prepared.resolve_action_decision(decision)
+            enforce_v2_live_policy(scene, action, approved_persistent=False)
+        except (ValueError, RuntimeError, KeyError, TypeError):
+            return WorkStepResult("review", "proposed_action_failed_local_policy")
     name = action.action.name
     from hashlib import sha256
     target = action.action.target
@@ -972,7 +996,11 @@ def plan_or_execute_windowhub_step(
         return WorkStepResult("review", "persistent_action_requires_salesperson")
 
     if not execute:
-        return WorkStepResult("ready", "v2_action_locally_validated_not_executed", name)
+        reason = (
+            "local_geometry_action_ready" if expected_local_stage is not None
+            else "v2_action_locally_validated_not_executed"
+        )
+        return WorkStepResult("ready", reason, name, observed_stage=stage)
     if is_mission_current is not None and not is_mission_current():
         return WorkStepResult("paused", "stale_or_revoked_mission_before_dispatch")
     # All input routes through a single pinned-offer host and its arbiter.
@@ -985,13 +1013,32 @@ def plan_or_execute_windowhub_step(
         host.execute_one_verified_v2_action(
             loop, action, approved_persistent=False,
         )
-    except Exception:
+    except Exception as exc:
+        from app.agent.runtime.navimind_local_input_arbiter import InputDenied
+
+        if isinstance(exc, (InputDenied, ValueError)) and str(exc) in {
+            "preaction_observation_missing",
+            "preaction_reobservation_failed",
+            "preaction_foreground_or_document_changed",
+            "preaction_workflow_stage_changed_or_unknown",
+            "preaction_uia_state_changed",
+        }:
+            return WorkStepResult(
+                "paused", "local_preaction_scene_changed", name, observed_stage=stage,
+            )
         # An unverified action may have physically occurred. No blind retry.
-        return WorkStepResult("review", "v2_input_blocked_or_postcondition_unverified", name)
+        return WorkStepResult(
+            "review", "v2_input_blocked_or_postcondition_unverified", name, observed_stage=stage,
+        )
     field_receipt = None
     try:
         after_scene = loop.observe_scene()
         new_stage = stage_of(after_scene) or "unknown"
+        if expected_local_stage is not None and new_stage != expected_local_stage:
+            return WorkStepResult(
+                "review", "geometry_unexpected_followup_stage", name,
+                observed_stage=stage, new_stage=new_stage,
+            )
         if catalogue_pick is not None:
             from app.agent.runtime.navimind_catalogue_selection import (
                 verify_exact_catalogue_readback,
