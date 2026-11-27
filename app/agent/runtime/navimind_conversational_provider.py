@@ -71,6 +71,16 @@ class ChatConfig:
 
     @classmethod
     def from_environment(cls) -> "ChatConfig | None":
+        # Resolve from the repository-local .env on every fresh launch,
+        # regardless of the parent PowerShell environment or cwd.
+        # Never override explicitly supplied process environment variables.
+        try:
+            from dotenv import load_dotenv
+            from pathlib import Path
+            root_env = Path(__file__).resolve().parents[3] / ".env"
+            load_dotenv(dotenv_path=root_env, override=False)
+        except ImportError:
+            pass
         url = os.environ.get("NAVIMIND_CHAT_URL", "").strip()
         model = os.environ.get("NAVIMIND_CHAT_MODEL", "").strip()
         key = os.environ.get("NAVIMIND_CHAT_API_KEY", "").strip()
