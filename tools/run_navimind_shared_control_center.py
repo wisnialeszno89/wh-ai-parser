@@ -350,7 +350,9 @@ def run(*, expected_offer: str, initial_pdf: str | None = None,
         print("NAVIMIND_V2_HTTP_VERIFIED=" + str(v2_probe_result == VERIFIED_RESULT))
 
     def current_work_continuation(text):
-        from app.agent.runtime.navimind_live_conversation import explicit_service_exclusion_correction
+        from app.agent.runtime.navimind_live_conversation import (
+            explicit_background_work_request, explicit_service_exclusion_correction,
+        )
         from app.agent.runtime.navimind_work_mission import REOBSERVABLE_WORK_REVIEWS
 
         mission = work_coordinator.current()
@@ -360,6 +362,17 @@ def run(*, expected_offer: str, initial_pdf: str | None = None,
         if mode in (PanelMode.RESUME_PENDING, PanelMode.AGENT_READY):
             host.pause_work_input()
             mode = host.controller.snapshot().mode
+        if explicit_background_work_request(text):
+            message = (
+                "Zachowałem bieżącą misję. W tle mogę planować i odczytywać "
+                "elementy WindowHub. Wpisywanie i klikanie wymagają pierwszego planu "
+                "oraz lokalnej zgody."
+            )
+            if mode != PanelMode.STOPPED and mission.stage in {
+                WorkStage.READY, WorkStage.PAUSED,
+            }:
+                message += " Gdy możesz oddać sterowanie, kliknij Wznów pracę."
+            return mission.revision, message
         if " ".join(text.casefold().strip(" .!").split()) == "potwierdzam klienta":
             if (host._draft_phase == "properties"
                     and mission.stage == WorkStage.PAUSED
@@ -395,11 +408,10 @@ def run(*, expected_offer: str, initial_pdf: str | None = None,
         if result.kind == "ready":
             if result.reason == "draft_start_activation_required_on_operator_resume":
                 message = (
-                    "Nowa oferta: przygotowałem procedurę wejścia do Start1, "
-                    "ale WindowHub nie jest teraz aktywny. Niczego nie "
-                    "przełączyłem. Przycisk Wznów pracę (po włączeniu "
-                    "wykonawcy live) może aktywować dokładnie jedno okno "
-                    "Start1 i wykonać tylko zweryfikowany następny krok."
+                    "Plan nowej oferty jest gotowy. Do rozpoczęcia potrzebuję "
+                    "zweryfikowanego ekranu Start1 na pierwszym planie. "
+                    "W trybie LIVE kliknij Wznów pracę, a spróbuję sam "
+                    "przełączyć się do Start1 i wykonać następny krok."
                 )
             else:
                 message = (

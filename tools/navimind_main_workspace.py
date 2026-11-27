@@ -480,8 +480,12 @@ class NaviMindMainWorkspace(tk.Frame):
             return False
         t = re.sub(r"[, ]+", " ", " ".join(text.casefold().split()))
         t = t.strip(" .!?")
-        from app.agent.runtime.navimind_live_conversation import explicit_service_exclusion_correction
-        return bool(explicit_service_exclusion_correction(text)) or bool(re.fullmatch(
+        from app.agent.runtime.navimind_live_conversation import (
+            explicit_background_work_request, explicit_service_exclusion_correction,
+        )
+        if explicit_background_work_request(text) or explicit_service_exclusion_correction(text):
+            return True
+        return bool(re.fullmatch(
             r"(?:(?:ok|okej|dobrze|tak) )?(?:kontynuuj(?: prac[eę])?|"
             r"wzn[oó]w(?: prac[eę])?|wykonaj nast[eę]pny krok|"
             r"przejd[zź] do nast[eę]pnego kroku|dalej|co dalej|"

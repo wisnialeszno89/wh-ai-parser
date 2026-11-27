@@ -20,7 +20,10 @@ def test_short_continuation_commands_are_recognized():
     for text in ("kontynuuj", "Wznów pracę", "wykonaj następny krok", "dalej",
                  "okej zrób ofertę", "Dobrze, zrob te oferte.", "ok, dalej",
                  "gotowe", "klient wybrany", "potwierdzam klienta",
-                 "bez montażu, demontażu i wykończenia"):
+                 "bez montażu, demontażu i wykończenia",
+                 "WH jest aktywne pracuj w tle",
+                 "WindowHub jest otwarty, pracuj w tle.",
+                 "kontynuuj pracę w tle"):
         assert predicate(text)
 
 
@@ -33,6 +36,9 @@ def test_unsafe_mutations_never_count_as_status_only_continuation():
         "kontynuuj i kliknij Zapisz",
         "okej zrób ofertę dla innego klienta",
         "zrób nową ofertę",
+        "pracuj w tle i kliknij Zapisz",
+        "nie pracuj w tle",
+        "WH jest aktywne, pracuj w tle i zmień klienta",
     ):
         assert not predicate(text)
 

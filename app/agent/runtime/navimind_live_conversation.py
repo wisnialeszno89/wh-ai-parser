@@ -228,6 +228,21 @@ def explicit_local_mission_status_request(text: str) -> bool:
     return has_status and has_request
 
 
+def explicit_background_work_request(text: str) -> bool:
+    """Recognize a short request to continue without taking foreground input."""
+    import re
+
+    if not isinstance(text, str) or len(text) > 140:
+        return False
+    normalized = " ".join(re.sub(r"[,.;!?]+", " ", text.casefold()).split())
+    return bool(re.fullmatch(
+        r"(?:(?:wh|windowhub|wh okna|okna) (?:jest )?(?:aktywn[ey]|otwart[ey]) )?"
+        r"(?:(?:proszę|prosze) )?(?:pracuj|działaj|dzialaj|"
+        r"kontynuuj(?: prac[eę])?) w tle",
+        normalized,
+    ))
+
+
 def explicit_service_exclusion_correction(text: str) -> tuple[str, ...]:
     """Recognize bounded, standalone human exclusions; never control GUI.
 
