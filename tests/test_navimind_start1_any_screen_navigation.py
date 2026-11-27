@@ -52,3 +52,22 @@ def test_draft_planner_returns_to_start1_before_order_or_existing_offer_work():
     assert marker in code
     assert code.index(marker) < code.index('if stage == "order_document"')
     assert 'draft_start1_not_verified_after_activation' in code
+
+
+def test_foreground_okna_root_disambiguates_only_known_frames():
+    from types import SimpleNamespace
+    from app.agent.runtime.windowhub_window_activation import select_start1_frame
+
+    def frame(hwnd):
+        return SimpleNamespace(handle=hwnd, application="Okna.exe", title="Okna - OFR/10",
+                               is_visible=True, is_minimized=False)
+
+    windows = [frame(10), frame(20)]
+    api = SimpleNamespace(owner=lambda _: 0)
+    active = SimpleNamespace(handle=20, active_application="Okna.exe", root_owner_handle=20)
+    assert select_start1_frame(windows, active, api)[0] is windows[1]
+    active.active_application = "python.exe"
+    assert select_start1_frame(windows, active, api) == (None, "start1_main_frame_not_unique")
+    active.active_application = "Okna.exe"
+    active.root_owner_handle = 10
+    assert select_start1_frame(windows, active, api) == (None, "start1_owned_dialog_active")

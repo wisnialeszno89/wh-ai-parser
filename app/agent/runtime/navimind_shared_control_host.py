@@ -164,6 +164,18 @@ class NaviMindSharedHost:
                     DRAFT_DOCUMENT_KEY if check.valid else None,
                     check.reason, check.stage, check.valid,
                 )
+            elif self._draft_phase == "awaiting_start_properties":
+                from app.agent.runtime.navimind_draft_bootstrap import bind_started_draft_properties
+                from app.agent.runtime.windowhub_mdi_native_probe import _Win32Mdi
+
+                revision = self.chat.snapshot().mission_revision
+                if bind_started_draft_properties(scene, self, revision=revision, native_api=_Win32Mdi()):
+                    result = verify_workflow_scope(
+                        scene, self._workflow_scope, expected_offer=DRAFT_DOCUMENT_KEY,
+                        revision=revision,
+                    )
+                else:
+                    result = HostObservation(None, "awaiting_owned_draft_properties", "unknown", False)
             elif self._draft_phase in {"awaiting_customer_selection", "awaiting_confirmed_draft"}:
                 # Exactly one native new-document transaction must link
                 # Start1, properties, customer and now the selected offer.

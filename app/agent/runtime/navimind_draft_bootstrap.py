@@ -120,6 +120,27 @@ def verified_unnumbered_position_from_native_transaction(
         return False
 
 
+class DraftStartBlocked(RuntimeError):
+    """The step stopped before attempting New Offer."""
+
+    def __init__(self, reason):
+        self.reason = reason
+        super().__init__(reason)
+
+
+def bind_started_draft_properties(scene, host, *, revision, native_api):
+    """Adopt only the owned properties dialog of the attempted transaction."""
+    handoff = host._draft_native_scope
+    if host._draft_phase != "awaiting_start_properties" or handoff is None:
+        return False
+    if not verify_draft_properties(scene).valid or not handoff.before_confirm(scene, native_api):
+        return False
+    if not host.note_verified_workflow_step(scene, revision=revision):
+        return False
+    host._draft_phase = "properties"
+    return True
+
+
 def safe_native_start_action(loop, host, *, mission_revision: int) -> DraftProof:
     """One guarded native UIA InvokePattern call, never mouse fallback.
 
@@ -147,53 +168,54 @@ def safe_native_start_action(loop, host, *, mission_revision: int) -> DraftProof
         raise InputDenied("draft_live_permit_or_observation_missing")
     try:
         comparison, fresh = verify_preaction_scene(loop, baseline)
-        if not comparison.safe:
-            raise InputDenied(comparison.reason)
-        before = verify_draft_start(fresh)
-        if not before.valid:
-            raise InputDenied(before.reason)
-        # Snapshot real MDI child inventory BEFORE creating the draft. This
-        # prevents an existing offer selected later from being mistaken for
-        # the document this mission started.
+        before = verify_draft_start(fresh) if comparison.safe else None
+        if not comparison.safe or before is None or not before.valid:
+            raise DraftStartBlocked("draft_start_scene_changed_before_input")
         from app.agent.runtime.windowhub_mdi_native_probe import _Win32Mdi
         from app.agent.runtime.windowhub_new_offer_handoff import NewOfferHandoff
+
         native_api = _Win32Mdi()
         handoff = NewOfferHandoff.begin(fresh, native_api)
         if handoff is None:
-            raise InputDenied("draft_start_native_mdi_inventory_unverified")
-        invoke = resolve_native_control(
-            fresh, label="NOWA OFERTA",
-            allowed_stages=("start",),
-        )
-        # A native call is potentially non-idempotent even when it raises.
-        host.controller.arbiter.dispatch(permit, invoke.Invoke)
-        host._draft_native_scope = handoff
+            raise DraftStartBlocked("draft_start_native_scope_missing")
+        try:
+            invoke = resolve_native_control(fresh, label="NOWA OFERTA", allowed_stages=("start",))
+        except ValueError as exc:
+            if str(exc) != "uia_invoke_pattern_not_supported":
+                raise DraftStartBlocked("draft_start_control_not_verified") from exc
+            from tools.run_windowhub_new_offer_native_invoke_once import resolve_native_wrapper
+
+            try:
+                wrapper = resolve_native_wrapper(fresh, label="NOWA OFERTA", allowed_stages=("start",))
+            except Exception as lookup_error:
+                raise DraftStartBlocked("draft_start_control_not_verified") from lookup_error
+            invoke_action = wrapper.click_input
+        else:
+            invoke_action = invoke.Invoke
+
+        def open_once():
+            if native_api.foreground() != before.hwnd:
+                raise DraftStartBlocked("draft_start_scene_changed_before_input")
+            host._draft_native_scope = handoff
+            host._draft_phase = "awaiting_start_properties"
+            return invoke_action()
+
+        host.controller.arbiter.dispatch(permit, open_once)
     finally:
         host.controller.arbiter.invalidate_observation()
         host._accepted_scene = None
+
     from time import sleep
-    observed = None
-    after = DraftProof(False, "unknown", "draft_post_action_reobservation_failed")
     for attempt in range(5):
         try:
             observed = loop.observe_scene()
-            after = verify_draft_properties(observed, prior_hwnd=before.hwnd)
+            if bind_started_draft_properties(observed, host, revision=mission_revision, native_api=native_api):
+                return verify_draft_properties(observed, prior_hwnd=before.hwnd)
         except Exception:
-            after = DraftProof(False, "unknown", "draft_post_action_reobservation_failed")
-        if after.valid:
-            break
+            pass
         if attempt < 4:
             sleep(0.2)
-    if not after.valid:
-        raise RuntimeError("draft_start_action_effect_not_verified_no_retry")
-    # Same-process native owner proof, not merely a matching dialog caption.
-    from app.agent.runtime.windowhub_mdi_native_probe import _Win32Mdi
-    if not host._draft_native_scope.before_confirm(observed, _Win32Mdi()):
-        raise RuntimeError("draft_properties_native_owner_unverified_no_retry")
-    if not host.note_verified_workflow_step(observed, revision=mission_revision):
-        raise RuntimeError("draft_properties_scope_unverified_no_retry")
-    host._draft_phase = "properties"
-    return after
+    raise RuntimeError("draft_start_effect_uncertain_no_retry")
 
 
 def verified_lookup_grid(scene) -> bool:

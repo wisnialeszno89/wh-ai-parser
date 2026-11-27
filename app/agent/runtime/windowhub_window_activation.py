@@ -298,6 +298,27 @@ def unique_start1_navigation_candidate(controls):
     return matches[0] if len(matches) == 1 else None
 
 
+def select_start1_frame(inventory, foreground, api):
+    """Prefer the verified foreground WindowHub root among competing frames."""
+    frames = [
+        w for w in inventory
+        if (w.application or "").replace(chr(92), "/").rsplit("/", 1)[-1].casefold() == "okna.exe"
+        and (w.title or "").strip().casefold().startswith("okna - ")
+        and w.is_visible and not w.is_minimized and not api.owner(w.handle)
+    ]
+    foreground_app = (foreground.active_application or "").replace(chr(92), "/").rsplit("/", 1)[-1]
+    if foreground_app.casefold() == "okna.exe":
+        if foreground.root_owner_handle not in {None, foreground.handle}:
+            return None, "start1_owned_dialog_active"
+        exact = [frame for frame in frames if frame.handle == foreground.handle]
+        if len(exact) == 1:
+            return exact[0], "start1_foreground_root"
+    if len(frames) == 1:
+        return frames[0], "start1_unique_root"
+    return None, "start1_main_frame_not_unique"
+
+
+
 def _activate_start1_via_unique_navigation(*, wait_seconds: float, still_current) -> tuple[bool, str]:
     """After local Resume, select one verified UIA Start1 tab/button in Okna.
 
@@ -322,16 +343,11 @@ def _activate_start1_via_unique_navigation(*, wait_seconds: float, still_current
         inventory = adapter._capture_visible_windows(
             foreground.handle, snapshot=foreground,
         )
-        # Only a unique WindowHub main frame, not arbitrary editor dialogs.
-        frames = [
-            w for w in inventory
-            if (w.application or "").replace(chr(92), "/").rsplit("/", 1)[-1].casefold() == "okna.exe"
-            and (w.title or "").strip().casefold().startswith("okna - ")
-            and w.is_visible and not w.is_minimized
-        ]
-        if len(frames) != 1:
-            return False, "start1_main_frame_not_unique"
-        frame = frames[0]
+        from app.agent.runtime.windowhub_mdi_native_probe import _Win32Mdi
+
+        frame, reason = select_start1_frame(inventory, foreground, _Win32Mdi())
+        if frame is None:
+            return False, reason
         desktop = Desktop(backend="uia")
         root = desktop.window(handle=frame.handle).wrapper_object()
         if (root.window_text() or "").strip() != (frame.title or "").strip():
@@ -375,10 +391,19 @@ def _activate_start1_via_unique_navigation(*, wait_seconds: float, still_current
             return False, "start1_uia_icon_changed"
         if not still_current() or user32.GetForegroundWindow() != frame.handle:
             return False, "start1_navigation_cancelled"
-        if target["kind"] == "tabitem":
-            target["wrapper"].iface_selection_item.Select()
-        else:
-            target["wrapper"].iface_invoke.Invoke()
+        wrapper = target["wrapper"]
+        try:
+            action = (
+                wrapper.iface_selection_item.Select if target["kind"] == "tabitem"
+                else wrapper.iface_invoke.Invoke
+            )
+        except Exception:
+            if target["kind"] != "tabitem":
+                return False, "start1_navigation_pattern_unavailable"
+            action = wrapper.click_input
+        if not still_current() or user32.GetForegroundWindow() != frame.handle:
+            return False, "start1_navigation_cancelled"
+        action()
         # Never retry this potentially non-idempotent action after dispatch.
         deadline = time.monotonic() + max(0.0, min(wait_seconds, 5.0))
         while time.monotonic() <= deadline:

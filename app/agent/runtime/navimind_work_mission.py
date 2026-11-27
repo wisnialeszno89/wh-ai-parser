@@ -37,6 +37,7 @@ REOBSERVABLE_WORK_PAUSES = frozenset({
     "draft_customer_name_required",
     "draft_preferences_require_operator",
     "draft_properties_reobserve_required",
+    "draft_start_scene_changed_before_input",
     "windowhub_not_foreground",
     "windowhub_observation_unavailable",
     "v2_application_secret_rejected",
@@ -660,13 +661,21 @@ def plan_or_execute_windowhub_step(
                 )
             if is_mission_current is not None and not is_mission_current():
                 return WorkStepResult("paused", "draft_mission_revoked_before_start")
+            from app.agent.runtime.navimind_draft_bootstrap import DraftStartBlocked
+
             try:
                 host.execute_draft_start_once(loop, revision=mission.revision)
-            except Exception:
+            except DraftStartBlocked as exc:
                 return WorkStepResult(
-                    "review", "draft_start_effect_uncertain_no_retry",
-                    "NOWA OFERTA",
+                    "paused" if exc.reason == "draft_start_scene_changed_before_input" else "review",
+                    exc.reason,
                 )
+            except Exception:
+                if host._draft_phase == "awaiting_start_properties":
+                    return WorkStepResult(
+                        "action", "one_native_step_verified_reobserve_next", "NOWA OFERTA",
+                    )
+                return WorkStepResult("review", "draft_start_blocked_before_input")
             return WorkStepResult(
                 "action", "one_native_step_verified_reobserve_next",
                 "NOWA OFERTA", True, "draft_start_new_offer",

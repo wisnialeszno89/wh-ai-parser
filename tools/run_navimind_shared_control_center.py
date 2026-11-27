@@ -435,7 +435,11 @@ def run(*, expected_offer: str, initial_pdf: str | None = None,
                 print("NAVIMIND_V2_EXECUTOR_CONNECTED=True")
                 message = "Zweryfikowałem krok " + result.action + ". Sprawdzam następny ekran."
             else:
-                message = "Sprawdzam dokument po próbie potwierdzenia właściwości."
+                message = (
+                    "Czekam na formularz po próbie otwarcia nowej oferty."
+                    if host._draft_phase == "awaiting_start_properties"
+                    else "Sprawdzam dokument po próbie potwierdzenia właściwości."
+                )
                 if host._draft_customer_decision:
                     message = (
                         "Do roboczej oferty wybrałem wpis „" + host._draft_customer_decision

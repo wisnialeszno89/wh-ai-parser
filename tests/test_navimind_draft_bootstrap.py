@@ -183,7 +183,7 @@ def test_draft_start_action_calls_only_shared_arbiter_and_native_invoke(monkeypa
             return True
     monkeypatch.setattr(native_scope.NewOfferHandoff, "begin",
                         lambda _scene, _api: Handoff())
-    monkeypatch.setattr(mdi, "_Win32Mdi", lambda: object())
+    monkeypatch.setattr(mdi, "_Win32Mdi", lambda: SimpleNamespace(foreground=lambda: 10))
     class Loop:
         def __init__(self):
             self.steps = [initial, scene("Właściwości dokumentu", hwnd=25)]
@@ -411,3 +411,30 @@ def test_named_customer_search_and_flags_are_verified_before_properties_confirma
     assert calls == ["search", "select", *(key for key, _ in PRICE_TARGETS), "confirm"]
     assert host._draft_phase == "awaiting_confirmed_draft"
     assert host.controller.current_permit() is None
+
+
+def test_late_properties_can_only_join_attempted_owned_start_transaction(monkeypatch):
+    from app.agent.runtime import windowhub_mdi_native_probe as mdi
+
+    host = NaviMindSharedHost(DRAFT_DOCUMENT_KEY)
+    human = host.chat.user_message("Przygotuj nową niezapisaną ofertę.")
+    coordinator = WorkMissionCoordinator(host.chat)
+    mission = coordinator.queue_current()
+    coordinator.transition(mission.task_id, WorkStage.READY)
+    assert host.approve_current_work_for_resume(
+        revision=human.mission_revision, task_id=mission.task_id, coordinator=coordinator,
+    )
+    accepted = scene("Właściwości dokumentu", hwnd=25)
+    other = scene("Właściwości dokumentu", hwnd=26)
+    host._draft_phase = "awaiting_start_properties"
+    host._draft_native_scope = SimpleNamespace(
+        before_confirm=lambda observed, _: observed.observation.metadata["window_handle"] == 25,
+    )
+    monkeypatch.setattr(mdi, "_Win32Mdi", lambda: object())
+
+    host.controller.resume()
+    assert not host.inspect_fresh_scene(other).verified
+    assert host.controller.current_permit() is None
+    assert host.inspect_fresh_scene(accepted).verified
+    assert host._draft_phase == "properties"
+    assert host.controller.current_permit().document_key == DRAFT_DOCUMENT_KEY
