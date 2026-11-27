@@ -34,11 +34,14 @@ def observe_resume_workspace(loop, *, host, mode, epoch, navigate_start, focus_p
     navigation_result = None
     if mode == PanelMode.RESUME_PENDING:
         if navigate_start is not None:
+            print("NAVIMIND_RESUME=focus_start1", flush=True)
             ok, reason = host.controller.arbiter.dispatch_pending_navigation(epoch, navigate_start)
             navigation_result = (ok, reason)
         elif focus_properties is not None:
+            print("NAVIMIND_RESUME=check_properties_focus", flush=True)
             host.controller.arbiter.dispatch_pending_navigation(epoch, focus_properties)
     try:
+        print("NAVIMIND_RESUME=read_uia", flush=True)
         scene = loop.observe_scene()
     except Exception as exc:
         return "error", "scene_observation_failed:" + type(exc).__name__
@@ -355,6 +358,14 @@ def run(*, expected_offer: str, initial_pdf: str | None = None,
         if mode in (PanelMode.RESUME_PENDING, PanelMode.AGENT_READY):
             host.pause_work_input()
             mode = host.controller.snapshot().mode
+        if text.casefold().startswith("klient:"):
+            name = text.partition(":")[2].strip()
+            if not work_coordinator.provide_draft_customer(mission, name):
+                return mission.revision, "Gdy zapytam o klienta, wpisz Klient: i pełną nazwę firmy."
+            if auto_start_draft and live_allowed:
+                panel.after_idle(lambda: resume_from_local_operator(automatic=True))
+                return mission.revision, "Mam klienta. Kontynuuję tę samą ofertę."
+            return mission.revision, "Mam klienta. Kliknij Wznów pracę, aby kontynuować ofertę."
         if explicit_background_work_request(text):
             message = (
                 "Zachowałem bieżącą misję. W tle mogę planować i odczytywać "
@@ -421,7 +432,9 @@ def run(*, expected_offer: str, initial_pdf: str | None = None,
             else:
                 message = "Sprawdzam dokument po próbie potwierdzenia właściwości."
         elif result.kind == "paused":
-            if result.reason == "draft_customer_selection_required":
+            if result.reason == "draft_customer_name_required":
+                message = "Komu przygotować ofertę? Wpisz Klient: i pełną nazwę kontrahenta."
+            elif result.reason == "draft_customer_selection_required":
                 message = (
                     "W WindowHub wyszukaj firmę po „Top” i wybierz dokładnego klienta. "
                     "Zostaw Właściwości dokumentu otwarte i kliknij Wznów pracę. "

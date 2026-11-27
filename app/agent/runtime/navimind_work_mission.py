@@ -34,6 +34,7 @@ class WorkStage(str, Enum):
 REOBSERVABLE_WORK_PAUSES = frozenset({
     "one_native_step_verified_reobserve_next",
     "draft_customer_selection_required",
+    "draft_customer_name_required",
     "draft_preferences_require_operator",
     "draft_properties_reobserve_required",
     "windowhub_not_foreground",
@@ -91,6 +92,7 @@ class WorkMission:
     position_ledger: PositionLedger | None = None
     field_receipts: tuple[PositionFieldReceipt, ...] = ()
     service_exclusions: tuple[str, ...] = ()
+    customer_name: str | None = None
 
 
 class WorkMissionCoordinator:
@@ -222,7 +224,7 @@ class WorkMissionCoordinator:
                     if item not in exclusions:
                         exclusions.append(item)
             import re
-            for sentence in re.split(r"[.!?\n]+", human.text):
+            for sentence in re.split(r"[.!?\n]+|,\s*(?=bez\b)", human.text, flags=re.IGNORECASE):
                 for item in explicit_service_exclusion_correction(sentence):
                     if item not in exclusions:
                         exclusions.append(item)
@@ -239,6 +241,22 @@ class WorkMissionCoordinator:
                 service_exclusions=tuple(exclusions),
             )
             return self._mission
+
+    def provide_draft_customer(self, mission: WorkMission, name: str) -> bool:
+        """Apply a customer answer to the same draft and source manifest."""
+        from dataclasses import replace
+        from app.agent.runtime.navimind_draft_bootstrap import valid_draft_customer_name
+
+        if not valid_draft_customer_name(name):
+            return False
+        with self._lock:
+            if self._mission != mission or not self._is_current(mission):
+                return False
+            if (mission.document_key != "DRAFT/NEW" or mission.stage != WorkStage.PAUSED
+                    or mission.reason != "draft_customer_name_required"):
+                return False
+            self._mission = replace(mission, customer_name=name)
+            return True
 
     def add_service_exclusions(self, mission: WorkMission, exclusions: tuple[str, ...]) -> bool:
         """Merge a bounded operator correction before document confirmation."""
@@ -678,7 +696,9 @@ def plan_or_execute_windowhub_step(
             from app.agent.runtime.navimind_draft_bootstrap import (
                 advance_owned_draft_properties, requested_draft_customer,
             )
-            customer = requested_draft_customer(mission.goal)
+            customer = mission.customer_name or requested_draft_customer(mission.goal)
+            if customer is None and mission.position_ledger is not None:
+                return WorkStepResult("paused", "draft_customer_name_required")
             if customer is not None:
                 try:
                     reason = advance_owned_draft_properties(
@@ -1125,7 +1145,7 @@ class BackgroundWorkMission:
         from app.agent.runtime.windows_desktop_agent_control_loop import (
             create_windows_desktop_agent_control_loop,
         )
-        return create_windows_desktop_agent_control_loop()
+        return create_windows_desktop_agent_control_loop(semantic_only=True)
 
     def _observe_workspace(self, observe):
         try:

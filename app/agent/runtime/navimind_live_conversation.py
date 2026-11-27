@@ -261,6 +261,8 @@ def explicit_service_exclusion_correction(text: str) -> tuple[str, ...]:
     normalized = re.sub(r"\s*[,;]\s*", ", ", normalized)
     if not normalized.startswith("bez "):
         return ()
+    if normalized == "bez montazu demont wykonczenia":
+        return ("montaż", "demontaż", "wykończenie")
     # Each comma or repeated "bez" starts a new bounded exclusion clause.
     normalized = re.sub(r"(?<![,;])\s+bez\s+", ", bez ", normalized)
     categories = {

@@ -12,7 +12,6 @@ from app.agent.environment.environment_adapter import EnvironmentAdapter
 from app.agent.environment.environment_observation import EnvironmentObservation
 from app.agent.environment.environment_state import EnvironmentState
 from app.runtime.execution.window.window_rect import WindowRect
-from app.wh.vision.mss_screenshot_engine import MSSScreenshotEngine
 
 
 @dataclass(frozen=True)
@@ -51,12 +50,17 @@ class WindowsDesktopEnvironmentAdapter(EnvironmentAdapter):
         self,
         *,
         screenshot_engine=None,
+        capture_pixels: bool = True,
         snapshot_provider=None,
         window_inventory_provider: (
             Callable[[int], Sequence[DesktopWindowSnapshot]] | None
         ) = None,
     ) -> None:
-        self.screenshot_engine = screenshot_engine or MSSScreenshotEngine()
+        if capture_pixels and screenshot_engine is None:
+            from app.wh.vision.mss_screenshot_engine import MSSScreenshotEngine
+
+            screenshot_engine = MSSScreenshotEngine()
+        self.screenshot_engine = screenshot_engine if capture_pixels else None
         self._snapshot_provider = (
             snapshot_provider or self._capture_foreground_window
         )
@@ -85,7 +89,7 @@ class WindowsDesktopEnvironmentAdapter(EnvironmentAdapter):
         ):
             raise RuntimeError("windows_desktop_foreground_bounds_invalid")
 
-        screenshot = self.screenshot_engine.capture(rect)
+        screenshot = self.screenshot_engine.capture(rect) if self.screenshot_engine is not None else None
         root_owner = snapshot.root_owner_handle
         if (
             isinstance(root_owner, bool)
@@ -128,8 +132,8 @@ class WindowsDesktopEnvironmentAdapter(EnvironmentAdapter):
         state = EnvironmentState(
             active_application=application,
             active_window_title=title,
-            screen_width=int(screenshot.width),
-            screen_height=int(screenshot.height),
+            screen_width=int(screenshot.width if screenshot is not None else rect.width),
+            screen_height=int(screenshot.height if screenshot is not None else rect.height),
         )
         return EnvironmentObservation(
             state=state,

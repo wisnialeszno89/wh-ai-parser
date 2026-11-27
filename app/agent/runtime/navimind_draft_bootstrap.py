@@ -306,6 +306,13 @@ def safe_native_open_customer_picker(loop, host, *, mission_revision: int) -> Dr
     return DraftProof(True, "customer_lookup", "manual_exact_customer_selection_required", new_hwnd)
 
 
+def valid_draft_customer_name(name):
+    return (
+        isinstance(name, str) and 2 <= len(name.split()) <= 12 and len(name) <= 100
+        and all(char.isalpha() or char.isdecimal() or char in " -’'" for char in name)
+    )
+
+
 def requested_draft_customer(goal):
     """Accept an explicit full recipient, scoped to the human's offer command."""
     import re
@@ -316,11 +323,7 @@ def requested_draft_customer(goal):
     if match is None:
         return None
     name = match[1].strip()
-    if not 2 <= len(name.split()) <= 12 or len(name) > 100:
-        return None
-    if not all(char.isalpha() or char.isdecimal() or char in " -’'" for char in name):
-        return None
-    return name
+    return name if valid_draft_customer_name(name) else None
 
 
 def advance_owned_draft_properties(loop, host, *, revision, customer, customer_retry, exclude_services):
@@ -469,6 +472,8 @@ def focus_owned_properties(handoff, *, still_current=lambda: True):
 
     api = _Win32Mdi()
     hwnd = handoff.properties
+    if hwnd and api.foreground() == hwnd:
+        return still_current()
     if not hwnd or api.title(hwnd) != PROPERTIES_TITLE or not handoff._owned(hwnd, api):
         return False
     return _focus_for_draft(ctypes.windll.user32, hwnd, still_current=still_current)

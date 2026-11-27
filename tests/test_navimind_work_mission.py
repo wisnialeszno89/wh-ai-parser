@@ -420,3 +420,24 @@ def test_resume_observation_uses_live_worker_and_proves_start_before_permit():
         assert len(calls) == 2
     finally:
         worker.close()
+
+
+def test_missing_customer_can_be_supplied_without_replacing_mission():
+    from app.agent.runtime.navimind_draft_bootstrap import DRAFT_DOCUMENT_KEY
+
+    chat = MissionChat(document_key=DRAFT_DOCUMENT_KEY, arbiter=LocalInputArbiter())
+    chat.user_message("zrob wycene na podst. zapytania, bez montazu demont wykonczenia")
+    work = WorkMissionCoordinator(chat)
+    mission = work.queue_current()
+    assert mission.service_exclusions == ("montaż", "demontaż", "wykończenie")
+    assert not work.provide_draft_customer(mission, "Top Trans Artur Janik")
+    paused = work.transition(mission.task_id, WorkStage.PAUSED, reason="draft_customer_name_required")
+    assert not work.provide_draft_customer(paused, "Top")
+    assert work.provide_draft_customer(paused, "Top Trans Artur Janik")
+    updated = work.current()
+    assert updated.task_id == mission.task_id
+    assert updated.revision == mission.revision
+    assert updated.customer_name == "Top Trans Artur Janik"
+    from app.agent.runtime.navimind_work_mission import REOBSERVABLE_WORK_PAUSES
+
+    assert "draft_customer_name_required" in REOBSERVABLE_WORK_PAUSES

@@ -478,6 +478,8 @@ class NaviMindMainWorkspace(tk.Frame):
         import re
         if not isinstance(text, str) or len(text) > 140:
             return False
+        if text.casefold().startswith("klient:"):
+            return True
         t = re.sub(r"[, ]+", " ", " ".join(text.casefold().split()))
         t = t.strip(" .!?")
         from app.agent.runtime.navimind_live_conversation import (
