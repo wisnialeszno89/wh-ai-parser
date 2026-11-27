@@ -72,6 +72,18 @@ if (-not (Test-Path -LiteralPath $Script -PathType Leaf)) {
 if ($LASTEXITCODE -ne 0) {
   throw "Python jest niedostepny; wybierz poprawna sciezke przez -Python."
 }
+# Mandatory preflight for conversational provider. V2 is a separate channel.
+# Never silently open a chat panel that cannot respond.
+Push-Location $Root
+try {
+  & $Python -m tools.configure_navimind_chat --check
+  $ChatCheckExitCode = $LASTEXITCODE
+} finally {
+  Pop-Location
+}
+if ($ChatCheckExitCode -ne 0) {
+  throw "NAVIMIND_CHAT_NOT_CONFIGURED: Run python -m tools.configure_navimind_chat --setup once in the project directory. Never paste API keys into chat."
+}
 # A planning session must remain available even when the application
 # is absent, renamed or not yet discoverable. Live mode still fails closed:
 # the native executor requires an independently verified exact WindowHub scope.
