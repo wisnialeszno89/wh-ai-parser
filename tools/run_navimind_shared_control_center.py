@@ -817,8 +817,16 @@ def run(*, expected_offer: str, initial_pdf: str | None = None,
     panel.host_observation_only = not live_allowed
     panel._update(host.controller.snapshot())
 
+    def report_resume(text, code):
+        print("NAVIMIND_RESUME=" + code, flush=True)
+        panel.main_workspace.notice.configure(text=text)
+        mission = work_coordinator.current()
+        if mission is not None and work_coordinator.is_current(mission):
+            host.chat.agent_message(text, based_on_revision=mission.revision)
+
     def resume_from_local_operator():
         # Only this Tk button is allowed to arm an actual native mission.
+        print("NAVIMIND_RESUME=requested", flush=True)
         mission = work_coordinator.current()
         if mission is not None:
             from app.agent.runtime.navimind_work_mission import REOBSERVABLE_WORK_REVIEWS
@@ -827,36 +835,24 @@ def run(*, expected_offer: str, initial_pdf: str | None = None,
                     mission.task_id, WorkStage.READY, reason=mission.reason,
                 ) or mission
             if mission.stage not in (WorkStage.READY, WorkStage.PAUSED):
-                panel.main_workspace.notice.configure(
-                    text="Plan V2 nie jest jeszcze gotowy lub wymaga przeglądu. "
-                         "Nie uruchamiam starego zadania."
-                )
+                report_resume("Misja jest na etapie " + mission.stage.value
+                              + ". Sprawdź ostatni komunikat.", "mission_not_runnable")
                 return
             if not live_allowed:
-                panel.main_workspace.notice.configure(
-                    text="Tryb planowania. Wykonywanie na komputerze jest wyłączone."
-                )
+                report_resume("Panel wystartował w trybie planowania. Uruchom go w trybie LIVE.",
+                              "live_disabled")
                 return
-            if (mission.stage == WorkStage.PAUSED
-                    and mission.reason == "draft_customer_selection_required"):
-                panel.main_workspace.notice.configure(
-                    text="Po ręcznym wyborze klienta wróć do WindowHub. "
-                         "Sprawdzę klienta i preferencje w tym samym formularzu."
-                )
             if not host.approve_current_work_for_resume(
                 revision=mission.revision, task_id=mission.task_id,
                 coordinator=work_coordinator,
             ):
-                panel.main_workspace.notice.configure(
-                    text="Nie można wznowić nieaktualnej misji. Poproś o nowy plan."
-                )
+                report_resume("Wznowienie zablokowane. Sprawdź ostatni stan misji.",
+                              "mission_not_approved")
                 return
-        if host._draft_phase == "start":
-            panel.main_workspace.notice.configure(
-                text="Wznowienie może aktywować okno Start1 WindowHub. "
-                     "Po wykonaniu jednego kroku NaviMind ponownie sprawdzi ekran."
-            )
-        host.controller.resume()
+        state = host.controller.resume()
+        if state.mode == PanelMode.RESUME_PENDING:
+            report_resume("Wznowienie przyjęte. Sprawdzam okno WindowHub i etap misji.",
+                          "awaiting_observation")
 
     panel.primary.register_action(host.pause_work_input)
     panel.primary.set_enabled(host.controller.snapshot().can_takeover)
@@ -882,9 +878,11 @@ def run(*, expected_offer: str, initial_pdf: str | None = None,
             elif monotonic() - pending_observation_since > 10:
                 reason = host.last_reason
                 host.pause_work_input()
-                panel.main_workspace.notice.configure(
-                    text="WindowHub wymaga sprawdzenia (" + reason
-                    + "). Ustaw właściwy ekran i kliknij Wznów pracę."
+                report_resume(
+                    "Nie udało się potwierdzić właściwego ekranu WindowHub (" + reason
+                    + "). Kliknij Wznów pracę i przełącz się na Start1, jeśli ta misja jeszcze "
+                    "nie otworzyła nowej oferty.",
+                    "observation_timed_out",
                 )
         else:
             pending_observation_epoch = None
@@ -943,17 +941,13 @@ def run(*, expected_offer: str, initial_pdf: str | None = None,
                 if (host.controller.snapshot().mode != PanelMode.RESUME_PENDING
                         or host.controller.arbiter.epoch != observed_epoch):
                     continue
-                host.pause_work_input()
-                current = work_coordinator.current()
-                if current is not None:
-                    work_coordinator.transition(
-                        current.task_id, WorkStage.REVIEW, reason=payload,
-                    )
-                panel.main_workspace.notice.configure(
-                    text="Start1: " + payload
-                    + ". Sprawdź bieżący ekran albo pokaż kontrolkę w trybie nauki."
-                )
                 host.last_reason = payload
+                report_resume(
+                    "Windows nie przełączył mnie automatycznie do Start1 (" + payload
+                    + "). Teraz kliknij kartę Start1 w WindowHub. Sprawdzę tę samą "
+                    "misję, gdy ekran będzie na pierwszym planie.",
+                    payload,
+                )
                 continue
             if kind == "teaching_scene":
                 if (host.controller.snapshot().mode == PanelMode.LEARNING
@@ -967,7 +961,7 @@ def run(*, expected_offer: str, initial_pdf: str | None = None,
                 try:
                     proof = host.inspect_fresh_scene(payload)
                     if proof.verified:
-                        print("NAVIMIND_OFFER_VERIFIED_READ_ONLY=True")
+                        print("NAVIMIND_OFFER_VERIFIED_READ_ONLY=True", flush=True)
                 except (ValueError, RuntimeError):
                     host.last_reason = "read_only_verification_refused"
             else:
@@ -1027,7 +1021,8 @@ def run(*, expected_offer: str, initial_pdf: str | None = None,
             if (mission is not None
                     and mission.stage in (WorkStage.READY, WorkStage.PAUSED)
                     and host._approved_work_revision == mission.revision):
-                background_work.execute_one_authorized_step()
+                if background_work.execute_one_authorized_step():
+                    print("NAVIMIND_RESUME=step_queued", flush=True)
         if not stopped.is_set():
             panel.after(250, pump)
 
@@ -1115,8 +1110,9 @@ def run(*, expected_offer: str, initial_pdf: str | None = None,
             )
         except Exception as exc:
             try:
-                queue.put_nowait(("error", host.controller.arbiter.epoch,
-                                  "observer_unavailable:" + type(exc).__name__))
+                code = "observer_unavailable:" + type(exc).__name__
+                print("NAVIMIND_RESUME=" + code, flush=True)
+                queue.put_nowait(("error", host.controller.arbiter.epoch, code))
             except Full:
                 pass
         finally:

@@ -75,8 +75,12 @@ def activate_windowhub_wizard(*, wait_seconds: float = 2.0, include_workspace: b
         return False, "Explicit live authorization required"
 
     try:
-        import psutil
+        from app.agent.environment.windows_desktop_environment_adapter import (
+            WindowsDesktopEnvironmentAdapter,
+        )
+
         user32 = ctypes.windll.user32
+        kernel32 = ctypes.windll.kernel32
         user32.EnumWindows.argtypes = [ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM), wintypes.LPARAM]
         user32.EnumWindows.restype = wintypes.BOOL
         user32.GetWindowTextLengthW.argtypes = [wintypes.HWND]
@@ -115,12 +119,9 @@ def activate_windowhub_wizard(*, wait_seconds: float = 2.0, include_workspace: b
                 return True
             pid = wintypes.DWORD()
             user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
-            try:
-                process = psutil.Process(pid.value)
-                if process.name().casefold() == "okna.exe":
-                    candidates.append((hwnd, buffer.value))
-            except (psutil.NoSuchProcess, psutil.AccessDenied):
-                pass
+            application = WindowsDesktopEnvironmentAdapter._process_name(kernel32, pid.value)
+            if application and application.replace("\\", "/").rsplit("/", 1)[-1].casefold() == "okna.exe":
+                candidates.append((hwnd, title))
             return True
 
         callback = callback_type(inspect)
