@@ -298,28 +298,101 @@ def unique_start1_navigation_candidate(controls):
     return matches[0] if len(matches) == 1 else None
 
 
-def select_start1_frame(inventory, foreground, api):
-    """Prefer the verified foreground WindowHub root among competing frames."""
-    frames = [
-        w for w in inventory
-        if (w.application or "").replace(chr(92), "/").rsplit("/", 1)[-1].casefold() == "okna.exe"
-        and (w.title or "").strip().casefold().startswith("okna - ")
-        and w.is_visible and not w.is_minimized and not api.owner(w.handle)
+def _is_windowhub_application(application):
+    return (application or "").replace(chr(92), "/").rsplit("/", 1)[-1].casefold() == "okna.exe"
+
+
+def _start1_mdi_children(frame, api):
+    pid = api.pid(frame)
+    return [
+        (host, child)
+        for host in api.mdi_hosts(frame)
+        if pid and api.pid(host) == pid and api.parent(host, 2) == frame
+        for child in api.descendants(host)
+        if api.parent(child, 1) == host and api.pid(child) == pid
+        and api.title(child).strip().casefold() == "start1"
     ]
-    foreground_app = (foreground.active_application or "").replace(chr(92), "/").rsplit("/", 1)[-1]
-    if foreground_app.casefold() == "okna.exe":
-        if foreground.root_owner_handle not in {None, foreground.handle}:
+
+
+def select_start1_frame(inventory, foreground, api):
+    """Resolve a WindowHub root using foreground and positive MDI evidence."""
+    if _is_windowhub_application(foreground.active_application):
+        if foreground.root_owner_handle not in {None, foreground.handle} or api.owner(foreground.handle):
             return None, "start1_owned_dialog_active"
-        exact = [frame for frame in frames if frame.handle == foreground.handle]
-        if len(exact) == 1:
-            return exact[0], "start1_foreground_root"
+
+    roots = [
+        window for window in inventory
+        if _is_windowhub_application(window.application)
+        and window.is_visible and not api.owner(window.handle)
+        and window.root_owner_handle in {None, window.handle}
+        and api.enabled(window.handle)
+    ]
+    # A bare caption can accompany an unmaximized MDI child. Require a
+    # native document host before accepting that caption as a main frame.
+    frames = [
+        window for window in roots
+        if (window.title or "").strip().casefold().startswith("okna - ")
+        or api.mdi_hosts(window.handle)
+    ]
+    exact = [window for window in frames if window.handle == foreground.handle]
+    if exact and _is_windowhub_application(foreground.active_application):
+        return exact[0], "start1_foreground_root"
+    ready = [window for window in frames if (window.title or "").strip().casefold() == "okna - start1"]
+    if len(ready) == 1:
+        return ready[0], "start1_existing_workspace"
+    native = [
+        window for window in frames
+        for _ in _start1_mdi_children(window.handle, api)
+    ]
+    if len(native) == 1:
+        return native[0], "start1_verified_mdi_root"
     if len(frames) == 1:
         return frames[0], "start1_unique_root"
+    if not frames:
+        return None, "start1_main_frame_disabled" if not roots and any(
+            _is_windowhub_application(window.application) for window in inventory
+        ) else "start1_main_frame_missing"
     return None, "start1_main_frame_not_unique"
 
 
+def _activate_native_start1(frame, api, *, focus, still_current, wait_seconds):
+    """Return None when UIA may be tried, or a terminal native outcome."""
+    hwnd = frame.handle
+    children = _start1_mdi_children(hwnd, api)
+    if len(children) > 1:
+        return False, "start1_mdi_child_not_unique"
+    if not children and (frame.title or "").strip().casefold() != "okna - start1":
+        return None
+    if not still_current():
+        return False, "start1_navigation_cancelled"
+    if not api.enabled(hwnd) or not focus(hwnd) or api.foreground() != hwnd:
+        return False, "start1_main_frame_focus_refused"
+    if not still_current():
+        return False, "start1_navigation_cancelled"
 
-def _activate_start1_via_unique_navigation(*, wait_seconds: float, still_current) -> tuple[bool, str]:
+    if children:
+        host, child = children[0]
+        if _start1_mdi_children(hwnd, api) != children or not api.enabled(hwnd):
+            return False, "start1_mdi_child_changed"
+        if api.active_child(host) != child:
+            if not still_current() or api.foreground() != hwnd:
+                return False, "start1_navigation_cancelled"
+            if not api.activate_child(host, child):
+                return False, "start1_mdi_activation_effect_uncertain"
+
+    deadline = time.monotonic() + max(0.0, min(wait_seconds, 5.0))
+    while True:
+        if not still_current() or api.foreground() != hwnd:
+            return False, "start1_navigation_cancelled"
+        if (api.title(hwnd).strip().casefold() == "okna - start1"
+                and (not children or api.active_child(host) == child)):
+            return True, "start1_native_workspace_verified"
+        if time.monotonic() >= deadline:
+            return False, "start1_mdi_activation_effect_unverified"
+        time.sleep(0.1)
+
+
+def _activate_verified_start1(*, wait_seconds: float, still_current) -> tuple[bool, str]:
     """After local Resume, select one verified UIA Start1 tab/button in Okna.
 
     No guessed icon coordinate or keyboard shortcut. Selecting a tab does not
@@ -331,7 +404,6 @@ def _activate_start1_via_unique_navigation(*, wait_seconds: float, still_current
     ):
         return False, "start1_navigation_live_permission_missing"
     try:
-        from pywinauto import Desktop
         from app.agent.environment.windows_desktop_environment_adapter import (
             WindowsDesktopEnvironmentAdapter,
         )
@@ -341,13 +413,25 @@ def _activate_start1_via_unique_navigation(*, wait_seconds: float, still_current
         adapter = WindowsDesktopEnvironmentAdapter()
         foreground = adapter._capture_foreground_window()
         inventory = adapter._capture_visible_windows(
-            foreground.handle, snapshot=foreground,
+            foreground.handle, snapshot=foreground, max_windows=256,
         )
         from app.agent.runtime.windowhub_mdi_native_probe import _Win32Mdi
 
-        frame, reason = select_start1_frame(inventory, foreground, _Win32Mdi())
+        api = _Win32Mdi()
+        frame, reason = select_start1_frame(inventory, foreground, api)
+        print("NAVIMIND_START1_FRAME=" + reason, flush=True)
         if frame is None:
             return False, reason
+        user32 = ctypes.windll.user32
+        native_result = _activate_native_start1(
+            frame, api, focus=lambda hwnd: _focus_for_draft(user32, hwnd, still_current=still_current),
+            still_current=still_current, wait_seconds=wait_seconds,
+        )
+        if native_result is not None:
+            return native_result
+
+        from pywinauto import Desktop
+
         desktop = Desktop(backend="uia")
         root = desktop.window(handle=frame.handle).wrapper_object()
         if (root.window_text() or "").strip() != (frame.title or "").strip():
@@ -375,8 +459,8 @@ def _activate_start1_via_unique_navigation(*, wait_seconds: float, still_current
         target = unique_start1_navigation_candidate(controls)
         if target is None:
             return False, "start1_uia_icon_not_uniquely_identified"
-        import ctypes
-        user32 = ctypes.windll.user32
+        if not api.enabled(frame.handle):
+            return False, "start1_main_frame_disabled"
         if not _focus_for_draft(user32, frame.handle, still_current=still_current):
             return False, "start1_main_frame_focus_refused"
         if user32.GetForegroundWindow() != frame.handle:
@@ -412,6 +496,7 @@ def _activate_start1_via_unique_navigation(*, wait_seconds: float, still_current
                 if (
                     (observed.active_application or "").replace(chr(92), "/")
                     .rsplit("/", 1)[-1].casefold() == "okna.exe"
+                    and observed.handle == frame.handle
                     and (observed.title or "").strip().casefold() == "okna - start1"
                 ):
                     return True, "start1_native_navigation_verified"
@@ -427,18 +512,9 @@ def activate_windowhub_start_workspace(*, wait_seconds: float = 2.0,
                                        still_current=lambda: True) -> tuple[bool, str]:
     """Start a new draft from any screen using proven Start1 navigation.
 
-    Prefer an existing unique Start1 window. Only if it is unavailable try
-    one explicitly named UIA navigation control. Never switch documents on
-    the basis of an arbitrary button or a remembered screen position.
+    Prefer an observed Start1 workspace or native MDI child. Fall back to
+    one explicitly named UIA navigation control when no native child exists.
     """
-    ok, reason = activate_windowhub_wizard(
-        wait_seconds=wait_seconds,
-        include_workspace=True,
-        prefer_start=True,
-        still_current=still_current,
-    )
-    if ok or not still_current():
-        return ok, reason
-    return _activate_start1_via_unique_navigation(
+    return _activate_verified_start1(
         wait_seconds=wait_seconds, still_current=still_current,
     )

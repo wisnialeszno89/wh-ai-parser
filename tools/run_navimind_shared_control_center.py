@@ -36,6 +36,7 @@ def observe_resume_workspace(loop, *, host, mode, epoch, navigate_start, focus_p
         if navigate_start is not None:
             print("NAVIMIND_RESUME=focus_start1", flush=True)
             ok, reason = host.controller.arbiter.dispatch_pending_navigation(epoch, navigate_start)
+            print("NAVIMIND_START1_RESULT=" + reason, flush=True)
             navigation_result = (ok, reason)
         elif focus_properties is not None:
             print("NAVIMIND_RESUME=check_properties_focus", flush=True)
@@ -931,10 +932,12 @@ def run(*, expected_offer: str, initial_pdf: str | None = None,
     navigation_epoch = None
     auto_started_task = None
     last_preinput_retry = None
+    start_navigation_failure = None
 
     def pump():
         nonlocal last_native_input_armed, pending_observation_epoch, pending_observation_since
         nonlocal observation_future, navigation_epoch, auto_started_task, last_preinput_retry
+        nonlocal start_navigation_failure
         from time import monotonic
         from app.agent.runtime.navimind_work_mission import PREINPUT_REOBSERVATION_REASONS
 
@@ -1043,12 +1046,8 @@ def run(*, expected_offer: str, initial_pdf: str | None = None,
                     print("NAVIMIND_OFFER_VERIFIED_READ_ONLY=True", flush=True)
                 elif navigation is not None and not navigation[0]:
                     reason = navigation[1]
-                    code = reason if reason.startswith("start1_") else "start1_activation_unavailable"
-                    host.last_reason = code
-                    report_resume(
-                        "Nie udało się przełączyć do Start1 (" + code
-                        + "). Teraz kliknij kartę Start1 w WindowHub. Sprawdzę ten ekran.",
-                        code,
+                    start_navigation_failure = (
+                        epoch, reason if reason.startswith("start1_") else "start1_activation_unavailable",
                     )
 
         mode = host.controller.snapshot().mode
@@ -1062,6 +1061,17 @@ def run(*, expected_offer: str, initial_pdf: str | None = None,
                     reason = "windowhub_worker_busy"
                 if reason == "windowhub_uia_reader_timed_out":
                     message = "WindowHub dwukrotnie nie odpowiedział na odczyt UI Automation."
+                elif start_navigation_failure is not None and start_navigation_failure[0] == epoch:
+                    reason = start_navigation_failure[1]
+                    descriptions = {
+                        "start1_main_frame_not_unique": "WindowHub udostępnia kilka możliwych okien głównych.",
+                        "start1_main_frame_missing": "Nie znalazłem okna głównego WindowHub.",
+                        "start1_owned_dialog_active": "Otwarte okno dialogowe WindowHub blokuje przejście do Start1.",
+                        "start1_main_frame_disabled": "Okno główne WindowHub jest zablokowane przez formularz.",
+                        "start1_main_frame_focus_refused": "Windows nie dał WindowHub pierwszego planu.",
+                    }
+                    detail = descriptions.get(reason, "Nie udało się potwierdzić przejścia do Start1.")
+                    message = detail + " (" + reason + ")"
                 elif reason == "windowhub_worker_busy":
                     message = "Wykonawca nadal czeka na operację Windows."
                 else:
