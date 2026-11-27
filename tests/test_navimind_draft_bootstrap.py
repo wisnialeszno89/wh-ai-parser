@@ -4,6 +4,8 @@ from __future__ import annotations
 from copy import deepcopy
 from types import SimpleNamespace
 
+import pytest
+
 from app.agent.runtime.navimind_draft_bootstrap import (
     DRAFT_DOCUMENT_KEY, draft_offer_candidate,
     verify_draft_start, verify_draft_properties,
@@ -151,7 +153,8 @@ def test_host_adopts_exact_selected_OFR_only_after_customer_handoff_and_callback
     assert coordinator.current().stage == WorkStage.READY
 
 
-def test_draft_start_action_calls_only_shared_arbiter_and_native_invoke(monkeypatch):
+@pytest.mark.parametrize("read_timed_out", [False, True])
+def test_draft_start_action_calls_only_shared_arbiter_and_native_invoke(monkeypatch, read_timed_out):
     from app.agent.runtime import navimind_draft_bootstrap as bootstrap
     import tools.run_windowhub_new_offer_native_invoke_once as native
     host = NaviMindSharedHost(DRAFT_DOCUMENT_KEY)
@@ -184,18 +187,38 @@ def test_draft_start_action_calls_only_shared_arbiter_and_native_invoke(monkeypa
     monkeypatch.setattr(native_scope.NewOfferHandoff, "begin",
                         lambda _scene, _api: Handoff())
     monkeypatch.setattr(mdi, "_Win32Mdi", lambda: SimpleNamespace(foreground=lambda: 10))
+    from app.agent.runtime.navimind_windowhub_scene_reader import WindowHubReadTimeout
+
+    properties = scene("Właściwości dokumentu", hwnd=25)
+
     class Loop:
         def __init__(self):
-            self.steps = [initial, scene("Właściwości dokumentu", hwnd=25)]
+            self.reads = 0
+
         def observe_scene(self):
-            return deepcopy(self.steps.pop(0))
-    proof = bootstrap.safe_native_start_action(
-        Loop(), host, mission_revision=mission.revision,
-    )
-    assert proof.valid and proof.stage == "document_properties"
+            self.reads += 1
+            if self.reads == 1:
+                return deepcopy(initial)
+            if read_timed_out:
+                raise WindowHubReadTimeout()
+            return deepcopy(properties)
+
+    loop = Loop()
+    if read_timed_out:
+        with pytest.raises(RuntimeError, match="draft_start_effect_uncertain_no_retry"):
+            bootstrap.safe_native_start_action(loop, host, mission_revision=mission.revision)
+        assert host._draft_phase == "awaiting_start_properties"
+        assert host.controller.current_permit() is None
+        host.controller.takeover()
+        host.release_for_reobservation()
+        assert host.inspect_fresh_scene(properties).verified
+    else:
+        proof = bootstrap.safe_native_start_action(loop, host, mission_revision=mission.revision)
+        assert proof.valid and proof.stage == "document_properties"
+    assert loop.reads == 2
     assert calls == ["invoke"]
     assert host._draft_phase == "properties"
-    assert host.controller.current_permit() is None
+    assert (host.controller.current_permit() is not None) == read_timed_out
 
 
 def test_draft_pick_customer_requires_owned_native_lookup_and_never_selects_row(monkeypatch):

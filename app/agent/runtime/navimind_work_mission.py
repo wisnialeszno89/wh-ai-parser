@@ -15,6 +15,7 @@ from threading import RLock
 from uuid import uuid4
 from typing import Callable, Any
 
+from app.agent.runtime.navimind_windowhub_scene_reader import WindowHubReadTimeout
 from app.agent.runtime.navimind_position_ledger import (
     PositionLedger, PositionManifest, PositionCheckpoint, position_prompt,
 )
@@ -40,6 +41,7 @@ REOBSERVABLE_WORK_PAUSES = frozenset({
     "draft_start_scene_changed_before_input",
     "windowhub_not_foreground",
     "windowhub_observation_unavailable",
+    "windowhub_uia_reader_timed_out",
     "v2_application_secret_rejected",
     "v2_vercel_or_proxy_access_denied",
     "v2_http_401_check_vercel_sso_or_agent_secret",
@@ -610,34 +612,27 @@ def plan_or_execute_windowhub_step(
                 "review", "active_position_missing_dimensions_or_configuration"
             )
 
+    starting_draft = (
+        mission.document_key == "DRAFT/NEW" and getattr(host, "_draft_phase", None) == "start"
+    )
+    if starting_draft and not execute:
+        # The task and source already determine the entry point. Reading the
+        # current editor is unnecessary before the first authorized Start1 scan.
+        return WorkStepResult(
+            "ready", "draft_start_activation_required_on_operator_resume", "NOWA OFERTA",
+        )
     if execute and is_mission_current is not None and not is_mission_current():
         return WorkStepResult("paused", "stale_or_revoked_mission_before_dispatch")
     try:
         raw = loop.observe_scene()
         scene = enrich_windowhub_scene(enrich_native_mdi_document_scope(raw))
         stage = stage_of(scene)
+    except WindowHubReadTimeout:
+        return WorkStepResult("paused", "windowhub_uia_reader_timed_out")
     except Exception:
         return WorkStepResult("paused", "windowhub_observation_unavailable")
-    # Every NEW draft starts from Start1, regardless of which WindowHub
-    # document/editor happens to be foreground. Do not edit or close the
-    # currently selected offer. Start1 is activated by the separately approved
-    # local focus-only broker in the observer, never by a model-generated click.
-    # Crucially, after the first verified NOWA OFERTA action the host enters
-    # "properties": do not navigate away from that fresh draft.
-    if (mission.document_key == "DRAFT/NEW"
-            and getattr(host, "_draft_phase", None) == "start"
-            and stage != "start"):
-        if not execute:
-            return WorkStepResult(
-                "ready", "draft_start_activation_required_on_operator_resume",
-                "NOWA OFERTA",
-            )
-        # The operator Resume should already have focused Start1 before
-        # dispatch. Do not click a control in a different editor, order or
-        # unrelated window, and never duplicate a draft on uncertain focus.
-        return WorkStepResult(
-            "paused", "draft_start1_not_verified_after_activation",
-        )
+    if starting_draft and stage != "start":
+        return WorkStepResult("paused", "draft_start1_not_verified_after_activation")
     if stage is None:
         return WorkStepResult("paused", "windowhub_not_foreground")
     if stage == "order_document":
@@ -1156,7 +1151,11 @@ class BackgroundWorkMission:
         from app.agent.runtime.windows_desktop_agent_control_loop import (
             create_windows_desktop_agent_control_loop,
         )
-        return create_windows_desktop_agent_control_loop(semantic_only=True)
+        from app.agent.runtime.navimind_windowhub_scene_reader import observe_windowhub
+
+        return create_windows_desktop_agent_control_loop(
+            semantic_only=True, scene_reader=observe_windowhub,
+        )
 
     def _observe_workspace(self, observe):
         try:

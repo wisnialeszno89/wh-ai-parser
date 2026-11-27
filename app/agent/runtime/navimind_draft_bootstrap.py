@@ -206,11 +206,16 @@ def safe_native_start_action(loop, host, *, mission_revision: int) -> DraftProof
         host._accepted_scene = None
 
     from time import sleep
+    from app.agent.runtime.navimind_windowhub_scene_reader import WindowHubReadTimeout
+
     for attempt in range(5):
         try:
             observed = loop.observe_scene()
             if bind_started_draft_properties(observed, host, revision=mission_revision, native_api=native_api):
                 return verify_draft_properties(observed, prior_hwnd=before.hwnd)
+        except WindowHubReadTimeout:
+            # The mission reobserves the pending transaction without repeating Invoke.
+            break
         except Exception:
             pass
         if attempt < 4:

@@ -1,3 +1,5 @@
+from collections.abc import Callable
+
 from app.agent.decision.decision_engine import (
     DecisionEngine,
 )
@@ -144,6 +146,7 @@ class AgentControlLoop:
         ) = None,
         replanner: PlanReplanner | None = None,
         max_replans: int = 1,
+        scene_reader: Callable[[], ScreenScene] | None = None,
     ) -> None:
 
         self.environment_runtime = (
@@ -179,6 +182,7 @@ class AgentControlLoop:
 
         self.replanner = replanner
         self.max_replans = max_replans
+        self._scene_reader = scene_reader
 
     def observe_scene(self) -> ScreenScene:
         """
@@ -188,6 +192,9 @@ class AgentControlLoop:
         This is the initial world-state snapshot used by the planner
         before it decides what should happen next.
         """
+
+        if self._scene_reader is not None:
+            return self._scene_reader()
 
         observation = self.environment_runtime.observe()
 
@@ -533,24 +540,8 @@ class AgentControlLoop:
             )
 
             if requires_environment_observation:
-                observation = (
-                    self.environment_runtime.observe()
-                )
-
-                context.last_observation = (
-                    observation
-                )
-
-                # ---------------------------------
-                # 3. PERCEIVE ENVIRONMENT
-                # ---------------------------------
-
-                scene = (
-                    self.perception_engine.perceive(
-                        observation
-                    )
-                )
-
+                scene = self.observe_scene()
+                context.last_observation = scene.observation
                 context.update_scene(scene)
 
             # ---------------------------------

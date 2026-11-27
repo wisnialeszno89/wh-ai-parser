@@ -32,6 +32,24 @@ def test_current_human_message_is_exact_mission_goal_not_model_generated():
     assert queue.queue_current() == mission
 
 
+def test_new_draft_can_plan_start1_without_reading_an_unrelated_screen():
+    from app.agent.runtime.navimind_draft_bootstrap import DRAFT_DOCUMENT_KEY
+    from app.agent.runtime.navimind_work_mission import plan_or_execute_windowhub_step
+
+    chat = MissionChat(document_key=DRAFT_DOCUMENT_KEY, arbiter=LocalInputArbiter())
+    chat.user_message("Przygotuj niezapisaną ofertę dla Top Trans.")
+    mission = WorkMissionCoordinator(chat).queue_current()
+
+    result = plan_or_execute_windowhub_step(
+        mission=mission, loop=None, reasoner=None,
+        host=SimpleNamespace(_draft_phase="start"), execute=False,
+    )
+
+    assert (result.kind, result.reason, result.action) == (
+        "ready", "draft_start_activation_required_on_operator_resume", "NOWA OFERTA",
+    )
+
+
 def test_new_human_message_invalidates_old_model_plan_and_step():
     chat = new_chat()
     chat.user_message("Zmień wymiar.")

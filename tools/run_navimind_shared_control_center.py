@@ -40,9 +40,13 @@ def observe_resume_workspace(loop, *, host, mode, epoch, navigate_start, focus_p
         elif focus_properties is not None:
             print("NAVIMIND_RESUME=check_properties_focus", flush=True)
             host.controller.arbiter.dispatch_pending_navigation(epoch, focus_properties)
+    from app.agent.runtime.navimind_windowhub_scene_reader import WindowHubReadTimeout
+
     try:
         print("NAVIMIND_RESUME=read_uia", flush=True)
         scene = loop.observe_scene()
+    except WindowHubReadTimeout:
+        return "error", "windowhub_uia_reader_timed_out"
     except Exception as exc:
         return "error", "scene_observation_failed:" + type(exc).__name__
     return ("teaching_scene" if mode == PanelMode.LEARNING else "scene"), (scene, navigation_result)
@@ -56,8 +60,7 @@ def run(*, expected_offer: str, initial_pdf: str | None = None,
         print("NAVIMIND_SHARED_HOST_REQUIRES_WINDOWS=True")
         return 2
     host = NaviMindSharedHost(expected_offer)
-    # Build the Windows UIA reader INSIDE its worker thread, not the Tk
-    # thread. Native COM objects must remain in the apartment that owns them.
+    # The mission worker receives snapshots from the isolated UIA reader.
     queue: Queue = Queue(maxsize=2)
     stopped = Event()
     panel = NaviMindPanel(controller=host.controller)
@@ -395,9 +398,10 @@ def run(*, expected_offer: str, initial_pdf: str | None = None,
         if exclusions:
             if (host._draft_phase in {"start", "properties"}
                     and work_coordinator.add_service_exclusions(mission, exclusions)):
-                return mission.revision, (
-                    "Dodałem wykluczenia do bieżącej misji. Kliknij Wznów pracę."
-                )
+                if auto_start_draft and live_allowed:
+                    panel.after_idle(lambda: resume_from_local_operator(automatic=True))
+                    return mission.revision, "Dodałem wykluczenia. Kontynuuję tę samą ofertę."
+                return mission.revision, "Dodałem wykluczenia do bieżącej misji. Kliknij Wznów pracę."
             return mission.revision, "Preferencje wymagają otwartych właściwości roboczej oferty."
         if mission.stage == WorkStage.REVIEW and mission.reason in REOBSERVABLE_WORK_REVIEWS:
             work_coordinator.transition(mission.task_id, WorkStage.READY, reason=mission.reason)
@@ -474,6 +478,11 @@ def run(*, expected_offer: str, initial_pdf: str | None = None,
                     "V2 zatrzymany na autoryzacji (" + result.reason + "). "
                     "Uruchom lokalnie python -m tools.check_navimind_v2_connection --setup. "
                     "Po udanym teście kliknij Wznów pracę."
+                )
+            elif result.reason == "windowhub_uia_reader_timed_out":
+                message = (
+                    "WindowHub dwukrotnie nie odpowiedział na odczyt UI Automation. "
+                    "Misja jest wstrzymana na aktualnym etapie."
                 )
             elif result.reason == "draft_preferences_require_operator":
                 message = (
@@ -977,6 +986,7 @@ def run(*, expected_offer: str, initial_pdf: str | None = None,
                         kind, payload = "error", "observer_worker_failed:" + type(exc).__name__
                     queue.put_nowait((kind, observed_epoch, payload))
 
+        observation_timed_out = False
         while True:
             try:
                 kind, observed_epoch, payload = queue.get_nowait()
@@ -992,6 +1002,7 @@ def run(*, expected_offer: str, initial_pdf: str | None = None,
             if kind == "error":
                 host.last_reason = payload
                 print("NAVIMIND_RESUME=" + payload, flush=True)
+                observation_timed_out = payload == "windowhub_uia_reader_timed_out"
                 continue
             scene, navigation = payload
             try:
@@ -1016,15 +1027,20 @@ def run(*, expected_offer: str, initial_pdf: str | None = None,
             if epoch != pending_observation_epoch:
                 pending_observation_epoch = epoch
                 pending_observation_since = monotonic()
-            elif monotonic() - pending_observation_since > 10:
-                reason = (
-                    "windows_call_still_running"
-                    if observation_future is not None else host.last_reason
-                )
+            if observation_timed_out or monotonic() - pending_observation_since > 18:
+                reason = host.last_reason
+                if reason != "windowhub_uia_reader_timed_out" and observation_future is not None:
+                    reason = "windowhub_worker_busy"
+                if reason == "windowhub_uia_reader_timed_out":
+                    message = "WindowHub dwukrotnie nie odpowiedział na odczyt UI Automation."
+                elif reason == "windowhub_worker_busy":
+                    message = "Wykonawca nadal czeka na operację Windows."
+                else:
+                    message = "Nie potwierdziłem etapu WindowHub (" + reason + ")."
+
                 host.pause_work_input()
                 report_resume(
-                    "Odczyt WindowHub zatrzymał się na etapie " + reason + ". "
-                    "Sprawdź, czy WindowHub pokazuje właściwy ekran przed wznowieniem.",
+                    message + " Misja jest wstrzymana na aktualnym etapie.",
                     "observation_timed_out:" + reason,
                 )
                 mode = PanelMode.HUMAN
@@ -1212,7 +1228,7 @@ def main(argv=None):
     parser.add_argument("--test-two-windows", action="store_true",
                         help="Block missions unless exactly two distinct windows are parsed")
     parser.add_argument("--auto-start-draft", action="store_true",
-                        help="Authorize automatic initial start of a locally prepared new draft in LIVE")
+                        help="Authorize starting and continuing a new unsaved draft in LIVE")
     args = parser.parse_args(argv)
     if args.auto_start_draft and not args.new_offer:
         parser.error("--auto-start-draft requires --new-offer")

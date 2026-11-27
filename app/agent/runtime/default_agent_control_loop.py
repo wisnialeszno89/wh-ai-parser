@@ -1,4 +1,6 @@
-﻿from app.agent.decision.decision_engine import (
+﻿from collections.abc import Callable
+
+from app.agent.decision.decision_engine import (
     DecisionEngine,
 )
 
@@ -25,6 +27,8 @@ from app.agent.perception.perception_engine import (
 from app.agent.perception.perception_provider import (
     PerceptionProvider,
 )
+
+from app.agent.perception.screen_scene import ScreenScene
 
 from app.agent.runtime.agent_control_loop import (
     AgentControlLoop,
@@ -64,6 +68,7 @@ def create_default_agent_control_loop(
     environment_preparation_loop=None,
     plan_reasoner: PlanReasoner | None = None,
     max_replans: int = 1,
+    scene_reader: Callable[[], ScreenScene] | None = None,
 ) -> AgentControlLoop:
     """
     Create a complete default agent control loop.
@@ -98,6 +103,7 @@ def create_default_agent_control_loop(
             perception_engine=perception_engine,
             expectation_resolver=ExpectationResolver(),
             outcome_verifier=OutcomeVerifier(),
+            scene_reader=scene_reader,
         )
     )
 
@@ -123,4 +129,5 @@ def create_default_agent_control_loop(
         environment_preparation_loop=environment_preparation_loop,
         replanner=replanner,
         max_replans=max_replans,
+        scene_reader=scene_reader,
     )
