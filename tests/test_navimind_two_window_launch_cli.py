@@ -36,3 +36,14 @@ def test_request_file_is_passed_only_to_local_read_only_intake(monkeypatch):
     ]) == 0
     assert received["initial_request_file"] == "C:/test/positions.txt"
     assert received["initial_pdf"] is None
+
+
+def test_automatic_start_is_explicit_and_allowed_only_for_new_draft(monkeypatch):
+    called = {}
+    monkeypatch.setattr(host, "run", lambda **kwargs: called.update(kwargs) or 0)
+    assert host.main(["--new-offer", "--auto-start-draft"]) == 0
+    assert called["auto_start_draft"] is True
+    assert host.main(["--new-offer"]) == 0
+    assert called["auto_start_draft"] is False
+    with pytest.raises(SystemExit):
+        host.main(["--expected-offer", "OFR/101", "--auto-start-draft"])

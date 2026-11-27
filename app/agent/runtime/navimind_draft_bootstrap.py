@@ -391,6 +391,12 @@ def advance_owned_draft_properties(loop, host, *, revision, customer, customer_r
         observed = enrich_windowhub_scene(loop.observe_scene())
         return observed if same_properties(observed) else None
 
+    def require_current():
+        from app.agent.runtime.navimind_local_input_arbiter import InputDenied
+
+        if not host.controller.arbiter.permit_current(permit):
+            raise InputDenied("draft_properties_permission_revoked")
+
     def operate():
         if not native_customer(scene):
             if customer_retry:
@@ -399,8 +405,10 @@ def advance_owned_draft_properties(loop, host, *, revision, customer, customer_r
             # UIA result. A typed filter or dismissed popup alone proves nothing.
             host._draft_customer_search_attempted = True
             prefix = customer.split()[0][:3]
+            require_current()
             result = type_customer_search(scene, prefix, strictly_scoped=True)
             if result.reason == "no_edit_and_picker_not_focused":
+                require_current()
                 result = type_directly_into_customer_lookup(
                     scene, prefix, replace_existing=True, strictly_scoped=True,
                 )
@@ -410,6 +418,7 @@ def advance_owned_draft_properties(loop, host, *, revision, customer, customer_r
                 current = fresh_properties()
                 if current is None:
                     return "draft_customer_selection_required"
+                require_current()
                 selected, reason = select_exact_customer_result(
                     current, customer, strictly_owned=True,
                 )
@@ -428,6 +437,7 @@ def advance_owned_draft_properties(loop, host, *, revision, customer, customer_r
             if current is None or not native_customer(current):
                 return "draft_customer_selection_required"
             if not verify_exclusion(current, key, desired_checked=checked):
+                require_current()
                 if not toggle_price_once(current, key, desired_checked=checked):
                     return "draft_preferences_require_operator"
 
@@ -439,6 +449,7 @@ def advance_owned_draft_properties(loop, host, *, revision, customer, customer_r
         invoke = resolve_native_control(final, label="OK", allowed_stages=("document_properties",))
         # Record the attempted transition before Invoke. An exception is not a
         # reason to click OK twice; the next step observes the new document.
+        require_current()
         host._draft_phase = "awaiting_confirmed_draft"
         invoke.Invoke()
         return "draft_properties_confirmed_reobserve"
@@ -450,14 +461,14 @@ def advance_owned_draft_properties(loop, host, *, revision, customer, customer_r
         host._accepted_scene = None
 
 
-def focus_owned_properties(handoff):
+def focus_owned_properties(handoff, *, still_current=lambda: True):
     """Restore only the properties HWND previously bound to this draft."""
     import ctypes
     from app.agent.runtime.windowhub_mdi_native_probe import _Win32Mdi
-    from app.agent.runtime.windowhub_window_activation import _focus_existing_window
+    from app.agent.runtime.windowhub_window_activation import _focus_for_draft
 
     api = _Win32Mdi()
     hwnd = handoff.properties
     if not hwnd or api.title(hwnd) != PROPERTIES_TITLE or not handoff._owned(hwnd, api):
         return False
-    return _focus_existing_window(ctypes.windll.user32, hwnd)
+    return _focus_for_draft(ctypes.windll.user32, hwnd, still_current=still_current)

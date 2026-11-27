@@ -11,6 +11,7 @@ Windows: python tools/run_navimind_shared_control_center.py --expected-offer "OF
 from __future__ import annotations
 
 import argparse
+from functools import partial
 from queue import Empty, Full, Queue
 from threading import Event, Thread
 from pathlib import Path
@@ -46,7 +47,8 @@ def observe_resume_workspace(loop, *, host, mode, epoch, navigate_start, focus_p
 
 def run(*, expected_offer: str, initial_pdf: str | None = None,
         initial_request_file: str | None = None,
-        exactly_two_windows: bool = False) -> int:
+        exactly_two_windows: bool = False,
+        auto_start_draft: bool = False) -> int:
     if os.name != "nt":
         print("NAVIMIND_SHARED_HOST_REQUIRES_WINDOWS=True")
         return 2
@@ -401,8 +403,9 @@ def run(*, expected_offer: str, initial_pdf: str | None = None,
                 message = (
                     "Plan nowej oferty jest gotowy. Do rozpoczęcia potrzebuję "
                     "zweryfikowanego ekranu Start1 na pierwszym planie. "
-                    "W trybie LIVE kliknij Wznów pracę, a spróbuję sam "
-                    "przełączyć się do Start1 i wykonać następny krok."
+                    + ("Spróbuję teraz przełączyć się do Start1."
+                       if auto_start_draft and live_allowed else
+                       "W trybie LIVE kliknij Wznów pracę, a spróbuję przejść do Start1.")
                 )
             else:
                 message = (
@@ -815,9 +818,12 @@ def run(*, expected_offer: str, initial_pdf: str | None = None,
         if mission is not None and work_coordinator.is_current(mission):
             host.chat.agent_message(text, based_on_revision=mission.revision)
 
-    def resume_from_local_operator():
-        # Only this Tk button is allowed to arm an actual native mission.
-        print("NAVIMIND_RESUME=requested", flush=True)
+    def resume_from_local_operator(*, automatic=False):
+        print("NAVIMIND_RESUME=" + ("auto_requested" if automatic else "requested"), flush=True)
+        if observation_future is not None and not observation_future[0].done():
+            report_resume("Windows nadal nie zakończył poprzedniego odczytu. "
+                          "Sprawdź, czy WindowHub odpowiada.", "observer_still_running")
+            return
         mission = work_coordinator.current()
         if mission is not None:
             from app.agent.runtime.navimind_work_mission import REOBSERVABLE_WORK_REVIEWS
@@ -860,10 +866,11 @@ def run(*, expected_offer: str, initial_pdf: str | None = None,
     pending_observation_since = 0.0
     observation_future = None
     navigation_epoch = None
+    auto_started_task = None
 
     def pump():
         nonlocal last_native_input_armed, pending_observation_epoch, pending_observation_since
-        nonlocal observation_future, navigation_epoch
+        nonlocal observation_future, navigation_epoch, auto_started_task
         from time import monotonic
 
         if host.controller.snapshot().mode == PanelMode.LEARNING:
@@ -888,8 +895,17 @@ def run(*, expected_offer: str, initial_pdf: str | None = None,
             current = work_coordinator.current()
             if current is None or current.task_id != task_id:
                 continue
-            if (not work_coordinator.is_current(current)
-                    or host._approved_work_revision != current.revision):
+            if not work_coordinator.is_current(current):
+                continue
+            if (auto_start_draft and live_allowed and outcome == "ready"
+                    and current.stage == WorkStage.READY and current.cycles == 0
+                    and host._draft_phase == "start"
+                    and host.controller.mode == PanelMode.HUMAN
+                    and auto_started_task != task_id):
+                auto_started_task = task_id
+                resume_from_local_operator(automatic=True)
+                continue
+            if host._approved_work_revision != current.revision:
                 continue
             if outcome == "action" and (
                 host.controller.snapshot().mode == PanelMode.AGENT_READY
@@ -963,7 +979,10 @@ def run(*, expected_offer: str, initial_pdf: str | None = None,
                 pending_observation_epoch = epoch
                 pending_observation_since = monotonic()
             elif monotonic() - pending_observation_since > 10:
-                reason = host.last_reason
+                reason = (
+                    "windows_call_still_running"
+                    if observation_future is not None else host.last_reason
+                )
                 host.pause_work_input()
                 report_resume(
                     "Odczyt WindowHub zatrzymał się na etapie " + reason + ". "
@@ -983,12 +1002,16 @@ def run(*, expected_offer: str, initial_pdf: str | None = None,
                     from app.agent.runtime.windowhub_window_activation import (
                         activate_windowhub_start_workspace,
                     )
-                    navigate_start = activate_windowhub_start_workspace
+                    navigate_start = partial(
+                        activate_windowhub_start_workspace,
+                        still_current=partial(host.controller.arbiter.pending_navigation_current, epoch),
+                    )
                 elif host._draft_phase == "properties" and host._draft_native_scope is not None:
-                    from functools import partial
                     from app.agent.runtime.navimind_draft_bootstrap import focus_owned_properties as focus
-                    focus_properties = partial(focus, host._draft_native_scope)
-            from functools import partial
+                    focus_properties = partial(
+                        focus, host._draft_native_scope,
+                        still_current=partial(host.controller.arbiter.pending_navigation_current, epoch),
+                    )
             future = background_work.submit_workspace_observation(partial(
                 observe_resume_workspace, host=host, mode=mode, epoch=epoch,
                 navigate_start=navigate_start, focus_properties=focus_properties,
@@ -1150,7 +1173,11 @@ def main(argv=None):
     parser.add_argument("--request-file", help="UTF-8 .txt enquiry loaded locally")
     parser.add_argument("--test-two-windows", action="store_true",
                         help="Block missions unless exactly two distinct windows are parsed")
+    parser.add_argument("--auto-start-draft", action="store_true",
+                        help="Authorize automatic initial start of a locally prepared new draft in LIVE")
     args = parser.parse_args(argv)
+    if args.auto_start_draft and not args.new_offer:
+        parser.error("--auto-start-draft requires --new-offer")
     if args.pdf and args.request_file:
         parser.error("Use either --pdf or --request-file per two-window test")
     if args.test_two_windows and not args.new_offer:
@@ -1164,6 +1191,7 @@ def main(argv=None):
             initial_pdf=args.pdf,
             initial_request_file=args.request_file,
             exactly_two_windows=args.test_two_windows,
+            auto_start_draft=args.auto_start_draft,
         )
     return run(
         expected_offer=args.expected_offer,

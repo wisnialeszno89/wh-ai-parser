@@ -67,7 +67,29 @@ def _focus_existing_window(user32, hwnd) -> bool:
             user32.AttachThreadInput(current_thread, thread_id, False)
 
 
-def activate_windowhub_wizard(*, wait_seconds: float = 2.0, include_workspace: bool = False, prefer_start: bool = False) -> tuple[bool, str]:
+def _focus_for_draft(user32, hwnd, *, still_current) -> bool:
+    """Transfer foreground without attaching to the other thread's input queue."""
+    user32.GetForegroundWindow.restype = wintypes.HWND
+    if not still_current():
+        return False
+    if user32.GetForegroundWindow() == hwnd:
+        return True
+    user32.IsIconic.argtypes = [wintypes.HWND]
+    user32.IsIconic.restype = wintypes.BOOL
+    if user32.IsIconic(hwnd):
+        user32.ShowWindowAsync.argtypes = [wintypes.HWND, ctypes.c_int]
+        user32.ShowWindowAsync.restype = wintypes.BOOL
+        user32.ShowWindowAsync(hwnd, 9)  # SW_RESTORE
+    if not still_current():
+        return False
+    user32.SetForegroundWindow.argtypes = [wintypes.HWND]
+    user32.SetForegroundWindow.restype = wintypes.BOOL
+    return bool(user32.SetForegroundWindow(hwnd))
+
+
+
+def activate_windowhub_wizard(*, wait_seconds: float = 2.0, include_workspace: bool = False, prefer_start: bool = False,
+                              still_current=None) -> tuple[bool, str]:
     """Focus one existing visible Okna.exe wizard, or fail closed."""
     if os.name != "nt":
         return False, "Windows required"
@@ -166,9 +188,14 @@ def activate_windowhub_wizard(*, wait_seconds: float = 2.0, include_workspace: b
         hwnd, title = candidates[0]
         # The agent must activate WindowHub automatically. Do not request
         # manual title-bar clicks; never proceed without verified foreground.
-        _focus_existing_window(user32, hwnd)
+        if still_current is None:
+            _focus_existing_window(user32, hwnd)
+        else:
+            _focus_for_draft(user32, hwnd, still_current=still_current)
         deadline = time.monotonic() + max(0.0, min(wait_seconds, 5.0))
         while time.monotonic() <= deadline:
+            if still_current is not None and not still_current():
+                return False, "start1_navigation_cancelled"
             if user32.GetForegroundWindow() == hwnd:
                 return True, f"Activated WindowHub wizard: {title}"
             time.sleep(0.1)
@@ -271,7 +298,7 @@ def unique_start1_navigation_candidate(controls):
     return matches[0] if len(matches) == 1 else None
 
 
-def _activate_start1_via_unique_navigation(*, wait_seconds: float) -> tuple[bool, str]:
+def _activate_start1_via_unique_navigation(*, wait_seconds: float, still_current) -> tuple[bool, str]:
     """After local Resume, select one verified UIA Start1 tab/button in Okna.
 
     No guessed icon coordinate or keyboard shortcut. Selecting a tab does not
@@ -334,7 +361,9 @@ def _activate_start1_via_unique_navigation(*, wait_seconds: float) -> tuple[bool
             return False, "start1_uia_icon_not_uniquely_identified"
         import ctypes
         user32 = ctypes.windll.user32
-        if not _focus_existing_window(user32, frame.handle):
+        if not _focus_for_draft(user32, frame.handle, still_current=still_current):
+            return False, "start1_main_frame_focus_refused"
+        if user32.GetForegroundWindow() != frame.handle:
             return False, "start1_main_frame_focus_refused"
         # Re-read one native control identity after focus transfer.
         live_info = target["wrapper"].element_info
@@ -344,6 +373,8 @@ def _activate_start1_via_unique_navigation(*, wait_seconds: float) -> tuple[bool
                     target["wrapper"]
                 ) != target["runtime_id"]):
             return False, "start1_uia_icon_changed"
+        if not still_current() or user32.GetForegroundWindow() != frame.handle:
+            return False, "start1_navigation_cancelled"
         if target["kind"] == "tabitem":
             target["wrapper"].iface_selection_item.Select()
         else:
@@ -367,7 +398,8 @@ def _activate_start1_via_unique_navigation(*, wait_seconds: float) -> tuple[bool
         return False, "start1_uia_navigation_unavailable_" + type(exc).__name__
 
 
-def activate_windowhub_start_workspace(*, wait_seconds: float = 3.0) -> tuple[bool, str]:
+def activate_windowhub_start_workspace(*, wait_seconds: float = 2.0,
+                                       still_current=lambda: True) -> tuple[bool, str]:
     """Start a new draft from any screen using proven Start1 navigation.
 
     Prefer an existing unique Start1 window. Only if it is unavailable try
@@ -378,7 +410,10 @@ def activate_windowhub_start_workspace(*, wait_seconds: float = 3.0) -> tuple[bo
         wait_seconds=wait_seconds,
         include_workspace=True,
         prefer_start=True,
+        still_current=still_current,
     )
-    if ok:
-        return True, reason
-    return _activate_start1_via_unique_navigation(wait_seconds=wait_seconds)
+    if ok or not still_current():
+        return ok, reason
+    return _activate_start1_via_unique_navigation(
+        wait_seconds=wait_seconds, still_current=still_current,
+    )

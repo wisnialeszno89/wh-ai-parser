@@ -94,16 +94,23 @@ def test_takeover_during_native_action_finishes_atomic_step_then_blocks_more():
     human = Thread(target=takeover)
     human.start()
     assert takeover_started.wait(timeout=3)
-    # An existing atomic dispatch still owns the lock. The handover request
-    # is raised immediately, preventing any fresh agent action.
-    assert gate._takeover_requested.wait(timeout=3)
+    # Tk can read owner and epoch and revoke the permit while Windows is blocked.
+    human.join(timeout=1)
+    assert not human.is_alive()
+    assert gate.owner == InputOwner.HUMAN
+    assert gate.epoch > permit.epoch
+    assert not gate.permit_current(permit)
     with pytest.raises(InputDenied, match="human_takeover_requested"):
         gate.dispatch(permit, lambda: pytest.fail("queued agent input"))
+    new_epoch = gate.release()
+    with pytest.raises(InputDenied, match="native_dispatch_in_progress"):
+        gate.dispatch_pending_navigation(new_epoch, lambda: pytest.fail("concurrent native action"))
     allow_end.set()
     doing.join(timeout=3)
     human.join(timeout=3)
     assert not doing.is_alive() and not human.is_alive()
-    assert seen == ["native_done", "human_owns"]
+    assert seen == ["human_owns", "native_done"]
+    assert gate.dispatch_pending_navigation(new_epoch, lambda: "recovered") == "recovered"
 
 
 def test_takeover_during_planning_prevents_action_even_before_epoch_changes():
